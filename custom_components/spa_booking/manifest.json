@@ -1,0 +1,13 @@
+{
+  "domain": "spa_booking",
+  "name": "Spa Booking",
+  "codeowners": [],
+  "config_flow": true,
+  "documentation": "https://github.com/stepsolar/spa-booking-ha",
+  "integration_type": "service",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/home-assistant/core/issues",
+  "after_dependencies": ["calendar", "frontend"],
+  "requirements": [],
+  "version": "2.0.0"
+}

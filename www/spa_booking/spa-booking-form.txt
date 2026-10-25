@@ -1,0 +1,414 @@
+<!-- ==========================================================================
+     Hotel Il Marchese - richiesta appuntamento SPA dal sito WordPress
+     --------------------------------------------------------------------------
+     Come si usa
+       1. In WordPress: pagina (o articolo) -> blocco "HTML personalizzato".
+       2. Incolla TUTTO questo file, dalla prima riga all'ultima.
+       3. Sostituisci  INCOLLA_QUI_IL_TOKEN  con il token della card:
+          Spa Booking -> Configurazione -> box "Sito web" -> pulsante "Copia".
+       4. Salva e apri la pagina: sotto al titolo deve comparire l'elenco
+          dei trattamenti. Se appare un errore, il token non e' stato messo
+          o lo switch "Accetta richieste dal sito web" e' spento.
+     Cosa fa
+       Legge trattamenti e orari liberi dal gestionale, raccoglie la richiesta
+       dell'ospite e la deposita nella Lista richieste come "in attesa": e'
+       sempre la reception a confermare l'appuntamento e a rispondere
+       all'ospite.
+     Nota sul token
+       Il token e' la chiave condivisa fra gestionale e sito, e chi legge il
+       codice della pagina la vede. Serve solo a leggere trattamenti e orari e
+       a inviare richieste; se un giorno circola troppo, si rigenera dalla card
+       (Configurazione -> Sito web -> Rigenera) e si aggiorna qui.
+     Da personalizzare (blocco CONFIG piu' sotto)
+       API_BASE         l'indirizzo del gestionale (di norma non cambia)
+       TOKEN            il token copiato dalla card
+       MAX_DAYS_AHEAD   quanti giorni in avanti mostra il calendario
+       --sbw-accent     il colore del pulsante (in fondo, nel foglio di stile)
+     Regole tecniche (se non si rispettano, WordPress rompe il modulo)
+       1. Nessuna riga vuota dentro <style> e dentro lo script: WP la
+          trasforma in tag di paragrafo e lo script non parte.
+       2. Nessun carattere ampersand dentro lo script: WP lo converte in una entita
+          numerica e il JavaScript diventa illeggibile. Si usa la variabile
+          AMP (costruita con String.fromCharCode).
+       3. Nei commenti non scrivere tag: anche dentro un commento WP li
+          tratta come tali e inserisce paragrafi a caso.
+     ========================================================================== -->
+<div id="sbw-widget" class="sbw">
+  <style>
+    /* Tutto lo stile e' prefissato .sbw: non tocca il tema di WordPress. */
+    .sbw { --sbw-accent: var(--wp--preset--color--primary, #2f7de1);
+      max-width: 640px; margin: 0 auto; color: inherit;
+      font-size: 15px; line-height: 1.4; text-align: left; }
+    .sbw *, .sbw *::before, .sbw *::after { box-sizing: border-box; }
+    .sbw-card { border: 1px solid rgba(128, 128, 128, .35); border-radius: 14px;
+                padding: 14px; background: rgba(128, 128, 128, .06); }
+    .sbw-title { margin: 0 0 4px; font-size: 1.15em; line-height: 1.2; }
+    .sbw-intro { margin: 0 0 10px; font-size: .85em; opacity: .8; }
+    .sbw-note { margin: 10px 0 0; font-size: .78em; opacity: .7; }
+    /* Difesa: se WordPress inserisce un paragrafo dentro il modulo, non deve farsi vedere. */
+    .sbw p { display: contents; margin: 0; }
+    .sbw-hint { font-size: .82em; opacity: .75; }
+    .sbw-field { display: block; margin: 0 0 8px; }
+    .sbw-field > span { display: block; margin-bottom: 3px; font-size: .74em;
+                        font-weight: 600; letter-spacing: .04em;
+                        text-transform: uppercase; opacity: .7; }
+    .sbw input, .sbw select, .sbw textarea {
+      width: 100%; padding: 7px 10px; font: inherit; color: inherit;
+      background: transparent; border: 1px solid rgba(128, 128, 128, .5);
+      border-radius: 8px; -webkit-appearance: none; appearance: none;
+    }
+    .sbw select { background-image: none; }
+    .sbw input:focus, .sbw select:focus, .sbw textarea:focus {
+      outline: 2px solid var(--sbw-accent); outline-offset: 1px; border-color: transparent;
+    }
+    .sbw-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; }
+    @media (max-width: 520px) { .sbw-grid { grid-template-columns: 1fr; } }
+    .sbw-slots { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+    .sbw-slot { padding: 6px 12px; font: inherit; color: inherit; cursor: pointer;
+                background: transparent; border: 1px solid rgba(128, 128, 128, .5);
+                border-radius: 999px; }
+    .sbw-slot:hover { border-color: var(--sbw-accent); color: var(--sbw-accent); }
+    .sbw-slot[aria-pressed="true"] { font-weight: 700; color: var(--sbw-accent);
+                                     border-color: var(--sbw-accent);
+                                     box-shadow: inset 0 0 0 1px var(--sbw-accent); }
+    .sbw-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+                   margin-top: 4px; }
+    .sbw-btn { padding: 10px 20px; font: inherit; font-weight: 600; color: #fff;
+               cursor: pointer; background: var(--sbw-accent); border: 0;
+               border-radius: 8px; }
+    .sbw-btn[disabled] { opacity: .55; cursor: default; }
+    .sbw-status { font-size: .9em; }
+    .sbw-status.err { color: #c62828; }
+    .sbw-status.ok { color: #2e7d32; }
+    .sbw-receipt { text-align: center; }
+    .sbw-receipt .sbw-ok { font-size: 2.2em; line-height: 1; color: #2e7d32; }
+    .sbw-receipt p { display: block; margin: 10px 0; opacity: .85; }
+    .sbw-code { display: inline-block; margin: 4px 0 10px; padding: 8px 18px;
+                font-size: 1.5em; font-weight: 700; letter-spacing: .06em;
+                border: 1px dashed rgba(128, 128, 128, .6); border-radius: 10px; }
+  </style>
+  <style>
+    #sbw-voucher { text-transform: uppercase; }
+  </style>
+  <div class="sbw-card">
+    <div id="sbw-form">
+      <h2 class="sbw-title">Richiedi un appuntamento SPA</h2>
+      <div class="sbw-intro">Scegli il trattamento, il giorno e l'orario: ti ricontattiamo per confermare.</div>
+      <label class="sbw-field" for="sbw-treatment"><span>Trattamento *</span>
+        <select id="sbw-treatment"><option value="">Caricamento&hellip;</option></select>
+      </label>
+      <div class="sbw-grid">
+        <label class="sbw-field" for="sbw-date"><span>Data *</span>
+          <input id="sbw-date" type="date">
+        </label>
+        <label class="sbw-field" for="sbw-people"><span>Persone</span>
+          <select id="sbw-people">
+            <option value="1">1 persona</option>
+            <option value="2">2 persone</option>
+            <option value="3">3 persone</option>
+            <option value="4">4 persone</option>
+            <option value="5">5 persone</option>
+            <option value="6">6 persone</option>
+          </select>
+        </label>
+      </div>
+      <div class="sbw-field">
+        <span>Orario *</span>
+        <div id="sbw-window" class="sbw-hint"></div>
+        <div id="sbw-slots" class="sbw-slots"></div>
+      </div>
+      <div class="sbw-grid">
+        <label class="sbw-field" for="sbw-first"><span>Nome *</span>
+          <input id="sbw-first" type="text" autocomplete="given-name" maxlength="60">
+        </label>
+        <label class="sbw-field" for="sbw-last"><span>Cognome</span>
+          <input id="sbw-last" type="text" autocomplete="family-name" maxlength="60">
+        </label>
+        <label class="sbw-field" for="sbw-phone"><span>Telefono *</span>
+          <input id="sbw-phone" type="tel" inputmode="tel" autocomplete="tel" maxlength="30" placeholder="es. 333 1234567">
+        </label>
+        <label class="sbw-field" for="sbw-email"><span>Email</span>
+          <input id="sbw-email" type="email" autocomplete="email" maxlength="120">
+        </label>
+      </div>
+      <label class="sbw-field" for="sbw-voucher"><span>Codice voucher</span>
+        <input id="sbw-voucher" type="text" maxlength="32" autocomplete="off"
+               placeholder="es. VCH-7K2M9Q4P (se ne hai uno)">
+      </label>
+      <label class="sbw-field" for="sbw-notes"><span>Note</span>
+        <textarea id="sbw-notes" rows="2" maxlength="1000" placeholder="Allergie, preferenze, orario migliore&hellip;"></textarea>
+      </label>
+      <!-- Esca per i robot: un campo nascosto che un ospite non compila mai. -->
+      <div aria-hidden="true" style="position:absolute; left:-9999px; width:1px; height:1px; overflow:hidden">
+        <input id="sbw-website" type="text" tabindex="-1" autocomplete="off">
+      </div>
+      <div class="sbw-actions">
+        <button id="sbw-send" class="sbw-btn" type="button">Invia richiesta</button>
+        <span id="sbw-status" class="sbw-status" role="status" aria-live="polite"></span>
+      </div>
+      <div class="sbw-note">* campi obbligatori. La richiesta non &egrave; una prenotazione confermata:
+        la reception ti ricontatta per confermare l'appuntamento.</div>
+    </div>
+    <div id="sbw-done" hidden></div>
+  </div>
+  <script>
+    (function () {
+      "use strict";
+      /* ------------------------------- CONFIG ------------------------------- */
+      var API_BASE = "https://hailmarchese.it/api/spa_booking/public";
+      var TOKEN = "INCOLLA_QUI_IL_TOKEN";
+      var MAX_DAYS_AHEAD = 60;
+      /* L'ampersand non puo' stare scritto nel codice (vedi regola 2 in
+         testa al file): lo costruiamo quando serve per la query string. */
+      var AMP = String.fromCharCode(38);
+      /* --------------------------------------------------------------------- */
+      var root = document.getElementById("sbw-widget");
+      if (!root || typeof fetch !== "function") return;
+      function node(tag, attrs, children) {
+        var el = document.createElement(tag);
+        if (attrs) {
+          Object.keys(attrs).forEach(function (key) {
+            var value = attrs[key];
+            if (value === null || value === undefined) return;
+            if (key === "class") el.className = value;
+            else if (key === "text") el.textContent = value;
+            else if (key === "on") Object.keys(value).forEach(function (ev) {
+              el.addEventListener(ev, value[ev]);
+            });
+            else el.setAttribute(key, value);
+          });
+        }
+        (children || []).forEach(function (child) { if (child) el.appendChild(child); });
+        return el;
+      }
+      function $(id) { return root.querySelector("#" + id); }
+      var boxTreatment = $("sbw-treatment");
+      var inputDate = $("sbw-date");
+      var inputPeople = $("sbw-people");
+      var slotsBox = $("sbw-slots");
+      var windowHint = $("sbw-window");
+      var statusBox = $("sbw-status");
+      var sendButton = $("sbw-send");
+      var honey = $("sbw-website");
+      var chosenTime = "";
+      var sending = false;
+      function say(text, kind) {
+        statusBox.textContent = text || "";
+        statusBox.className = "sbw-status" + (kind ? " " + kind : "");
+      }
+      function pad2(value) { return (value < 10 ? "0" : "") + value; }
+      function isoDay(day) {
+        return day.getFullYear() + "-" + pad2(day.getMonth() + 1) + "-" + pad2(day.getDate());
+      }
+      /* A gentle sentence for the guest; the server's own message wins when
+         it has one (it is written for a person, in Italian). */
+      function describe(error) {
+        var status = error ? error.status : 0;
+        if (status === 404) {
+          return "Il servizio di prenotazione online non \u00e8 attivo in questo momento: chiama la reception per prenotare.";
+        }
+        if (status === 401) {
+          return "Il modulo non \u00e8 configurato correttamente. Avvisa la reception.";
+        }
+        if (status) {
+          if (error.message) return error.message;
+        }
+        return "Non riesco a contattare il servizio di prenotazione: controlla la connessione e riprova, o chiama la reception.";
+      }
+      function api(path, options) {
+        options = options || {};
+        var headers = { Authorization: "Bearer " + TOKEN };
+        if (options.body) headers["Content-Type"] = "application/json";
+        return fetch(API_BASE + path, {
+          method: options.method || "GET",
+          headers: headers,
+          body: options.body ? JSON.stringify(options.body) : undefined,
+          mode: "cors",
+          cache: "no-store",
+        }).then(function (response) {
+          return response.text().then(function (raw) {
+            var data = null;
+            try { data = raw ? JSON.parse(raw) : null; } catch (err) { data = null; }
+            if (!response.ok) {
+              var failure = new Error((data ? data.message : null) || "HTTP " + response.status);
+              failure.status = response.status;
+              throw failure;
+            }
+            return data;
+          });
+        });
+      }
+      /* ---------------------------- trattamenti ---------------------------- */
+      function loadTreatments() {
+        return api("/treatments").then(function (data) {
+          var list = (data ? data.treatments : null) || [];
+          boxTreatment.innerHTML = "";
+          if (!list.length) {
+            boxTreatment.appendChild(node("option", { value: "", text: "Nessun trattamento disponibile" }));
+            say("Nessun trattamento prenotabile online in questo momento.", "err");
+            return;
+          }
+          boxTreatment.appendChild(node("option", { value: "", text: "\u2014 scegli un trattamento \u2014" }));
+          var groups = {};
+          list.forEach(function (treatment) {
+            var key = treatment.category_name || "Altri trattamenti";
+            (groups[key] = groups[key] || []).push(treatment);
+          });
+          Object.keys(groups).forEach(function (category) {
+            var group = node("optgroup", { label: category });
+            groups[category].forEach(function (treatment) {
+              var parts = [treatment.name, treatment.duration_min + " min"];
+              group.appendChild(node("option", { value: treatment.id, text: parts.join(" \u00b7 ") }));
+            });
+            boxTreatment.appendChild(group);
+          });
+        }).catch(function (error) { say(describe(error), "err"); });
+      }
+      /* ------------------------------- orari ------------------------------- */
+      function clearSlots(hint) {
+        chosenTime = "";
+        slotsBox.innerHTML = "";
+        windowHint.textContent = "";
+        if (hint) slotsBox.appendChild(node("span", { class: "sbw-hint", text: hint }));
+      }
+      function selectTime(time) {
+        chosenTime = time;
+        var buttons = slotsBox.querySelectorAll(".sbw-slot");
+        Array.prototype.forEach.call(buttons, function (button) {
+          button.setAttribute("aria-pressed", button.textContent === time ? "true" : "false");
+        });
+        say("");
+      }
+      function loadSlots() {
+        var treatmentId = boxTreatment.value;
+        var day = inputDate.value;
+        if (!treatmentId || !day) {
+          clearSlots("Scegli prima il trattamento e la data.");
+          return Promise.resolve();
+        }
+        clearSlots("Cerco gli orari liberi\u2026");
+        var query = "/availability?date=" + encodeURIComponent(day) +
+                    AMP + "treatment_id=" + encodeURIComponent(treatmentId);
+        return api(query).then(function (data) {
+          var slots = (data ? data.slots : null) || [];
+          clearSlots("");
+          if (!slots.length) {
+            slotsBox.appendChild(node("span", { class: "sbw-hint",
+              text: "Nessun orario libero in questa data: prova un altro giorno o chiama la reception." }));
+            return;
+          }
+          var windowText = data.open_time + "\u2013" + data.close_time;
+          if (data.break_start) {
+            if (data.break_end) {
+              windowText = data.open_time + "\u2013" + data.break_start +
+                           " e " + data.break_end + "\u2013" + data.close_time;
+            } else {
+              windowText = data.open_time + "\u2013" + data.break_start;
+            }
+          } else if (data.break_end) {
+            windowText = data.break_end + "\u2013" + data.close_time;
+          }
+          windowHint.textContent = "Orari proposti: " + windowText +
+                                   " \u00b7 durata " + data.duration_min + " min";
+          slots.forEach(function (slot) {
+            slotsBox.appendChild(node("button", {
+              type: "button", class: "sbw-slot", text: slot.time,
+              "aria-pressed": "false", "aria-label": "Orario " + slot.time,
+              on: { click: function () { selectTime(slot.time); } },
+            }));
+          });
+        }).catch(function (error) {
+          clearSlots("");
+          slotsBox.appendChild(node("span", { class: "sbw-hint", text: describe(error) }));
+        });
+      }
+      /* ------------------------------ invio ------------------------------- */
+      function receipt(data) {
+        $("sbw-form").hidden = true;
+        var done = $("sbw-done");
+        done.innerHTML = "";
+        done.hidden = false;
+        done.appendChild(node("div", { class: "sbw-receipt" }, [
+          node("div", { class: "sbw-ok", text: "\u2713" }),
+          node("h3", { class: "sbw-title", text: "Richiesta inviata" }),
+          node("p", { text: "Codice della richiesta" }),
+          node("div", { class: "sbw-code", text: String((data ? data.code : null) || "\u2014") }),
+          node("p", { text: "La reception ti ricontatta al numero indicato per confermare l'appuntamento." }),
+          node("button", { type: "button", class: "sbw-btn", text: "Fai un'altra richiesta",
+            on: { click: function () { resetForm(); } } }),
+        ]));
+      }
+      function resetForm() {
+        ["sbw-first", "sbw-last", "sbw-phone", "sbw-email", "sbw-notes", "sbw-voucher"].forEach(function (id) {
+          $(id).value = "";
+        });
+        $("sbw-done").hidden = true;
+        $("sbw-form").hidden = false;
+        sendButton.disabled = false;
+        spin(false);
+        say("");
+        clearSlots("Scegli prima il trattamento e la data.");
+        loadSlots();
+      }
+      function spin(on) {
+        sending = on;
+        sendButton.disabled = on;
+        sendButton.setAttribute("aria-busy", on ? "true" : "false");
+      }
+      function send() {
+        if (sending) return;
+        if (honey.value) return; /* esca: un robot l'ha compilata, si finge inviato */
+        if (!boxTreatment.value) { say("Scegli il trattamento.", "err"); return; }
+        if (!inputDate.value) { say("Scegli la data.", "err"); return; }
+        if (!chosenTime) { say("Scegli l'orario.", "err"); return; }
+        var first = $("sbw-first").value.trim();
+        var last = $("sbw-last").value.trim();
+        var phone = $("sbw-phone").value.trim();
+        var email = $("sbw-email").value.trim();
+        var notes = $("sbw-notes").value.trim();
+        var voucher = $("sbw-voucher").value.trim().toUpperCase();
+        if (!(first || last)) { say("Indica il tuo nome.", "err"); return; }
+        if (!phone) { say("Indica un numero di telefono: serve per confermare.", "err"); return; }
+        spin(true);
+        say("Invio la richiesta\u2026");
+        api("/requests", {
+          method: "POST",
+          body: {
+            date: inputDate.value,
+            entries: [{ treatment_id: boxTreatment.value, time: chosenTime }],
+            first_name: first,
+            last_name: last,
+            phone: phone,
+            email: email,
+            notes: notes,
+            voucher_code: voucher,
+            people: Number(inputPeople.value) || 1,
+          },
+        }).then(function (data) {
+          spin(false);
+          receipt(data || {});
+        }).catch(function (error) {
+          spin(false);
+          say(describe(error), "err");
+        });
+      }
+      /* ------------------------------ avvio ------------------------------- */
+      if (TOKEN.indexOf("INCOLLA") === 0) {
+        say("Modulo non configurato: manca il token. Avvisa la reception.", "err");
+      }
+      var start = new Date();
+      start.setHours(12, 0, 0, 0);
+      var end = new Date(start.getTime() + MAX_DAYS_AHEAD * 86400000);
+      inputDate.min = isoDay(start);
+      inputDate.max = isoDay(end);
+      boxTreatment.addEventListener("change", function () { say(""); loadSlots(); });
+      inputDate.addEventListener("change", function () { say(""); loadSlots(); });
+      sendButton.addEventListener("click", send);
+      clearSlots("Scegli prima il trattamento e la data.");
+      loadTreatments();
+      window.__sbwStarted = true;
+    })();
+  </script>
+  <!-- Difesa: se lo script sopra non arriva a fine esecuzione (WordPress ha alterato il codice), si vede un errore invece di un caricamento infinito. -->
+  <script>window.__sbwStarted || (function () { var sel = document.getElementById("sbw-treatment"); var st = document.getElementById("sbw-status"); if (sel) { sel.innerHTML = '<option value="">Caricamento non riuscito: chiama la reception per prenotare.</option>'; } if (st) { st.textContent = "Il modulo non e' stato caricato correttamente: contattare la reception."; st.className = "sbw-status err"; } console.error("sbw: script principale non arrivato a fine esecuzione (codice alterato?)"); })();</script>
+</div>

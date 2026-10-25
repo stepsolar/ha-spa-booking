@@ -1,0 +1,1718 @@
+create_appointment:
+  name: Crea appuntamento
+  description: >-
+    Crea un appuntamento. La durata (90 o 120 minuti) viene presa dal
+    trattamento e determina l'orario di fine. Se la categoria richiede un
+    operatore, va indicato operator_id. Rifiuta le sovrapposizioni sia per
+    l'operatore sia per il cliente. Passa client_id per riusare una scheda
+    esistente, oppure i dati del cliente per crearla.
+  fields:
+    treatment_id:
+      name: Trattamento
+      required: true
+      example: trt_massaggio_relax_90
+      selector:
+        text:
+    start:
+      name: Data e ora di inizio
+      required: true
+      example: "2026-10-06 14:00:00"
+      selector:
+        datetime:
+    operator_id:
+      name: Operatore
+      description: Obbligatorio se la categoria del trattamento richiede l'operatore.
+      example: op_1a2b3c4d5e6f
+      selector:
+        text:
+    operator_ids:
+      name: Operatrici da proporre
+      description: >-
+        Elenco nell'ordine in cui vanno contattate. Se la prima rifiuta il
+        turno passa alla successiva. Lasciato vuoto si usa operator_id.
+      selector:
+        object:
+    client_id:
+      name: Scheda cliente esistente
+      example: cli_9f8e7d6c5b4a
+      selector:
+        text:
+    first_name:
+      name: Nome
+      selector:
+        text:
+    last_name:
+      name: Cognome
+      selector:
+        text:
+    phone:
+      name: Telefono
+      selector:
+        text:
+    email:
+      name: Email
+      selector:
+        text:
+    client_notes:
+      name: Note cliente
+      description: Allergie, pressione preferita, note mediche.
+      selector:
+        text:
+          multiline: true
+    notes:
+      name: Note appuntamento
+      selector:
+        text:
+          multiline: true
+    payment:
+      name: Pagamento
+      description: >-
+        Come e quando si paga. Le quattro spunte sono indipendenti e ciascuna ha
+        il suo importo: paid_amount e' quanto ha versato, deposit_amount
+        l'acconto, balance_due_amount quanto resta da pagare. Non spuntare
+        nulla significa che al banco non e' stato detto, che non e' la stessa
+        cosa di "pagato".
+      example: '{"paid": true, "paid_amount": 30, "methods": ["card", "cash"]}'
+      selector:
+        object:
+    guest_type:
+      name: Ospite
+      description: >-
+        Se l'ospite alloggia in hotel o viene da fuori. Senza indicazione la
+        prenotazione e' considerata esterna.
+      default: external
+      selector:
+        select:
+          options:
+            - label: Ospite dell'hotel
+              value: hotel
+            - label: Esterno
+              value: external
+
+cancel_appointment:
+  name: Annulla appuntamento
+  description: Annulla un appuntamento (resta nello storico) e avvisa l'operatore.
+  fields:
+    appointment_id:
+      name: ID appuntamento
+      required: true
+      selector:
+        text:
+    reason:
+      name: Motivo
+      selector:
+        text:
+
+delete_appointment:
+  name: Elimina appuntamento annullato
+  description: >-
+    Elimina definitivamente un appuntamento annullato dallo storico.
+    Rifiuta l'eliminazione di appuntamenti non annullati.
+  fields:
+    appointment_id:
+      name: ID appuntamento
+      required: true
+      selector:
+        text:
+
+update_appointment:
+  name: Modifica appuntamento
+  description: >-
+    Aggiorna un appuntamento esistente. Riprova tutte le regole (conflitti,
+    fasce orarie, capienza, esclusione categorie).
+  fields:
+    appointment_id:
+      name: ID appuntamento
+      required: true
+      selector:
+        text:
+    treatment_id:
+      name: Trattamento
+      selector:
+        text:
+    start:
+      name: Nuovo inizio
+      selector:
+        datetime:
+    client_id:
+      name: ID cliente
+      selector:
+        text:
+    first_name:
+      name: Nome
+      selector:
+        text:
+    last_name:
+      name: Cognome
+      selector:
+        text:
+    phone:
+      name: Telefono
+      selector:
+        text:
+    email:
+      name: Email
+      selector:
+        text:
+    client_notes:
+      name: Note cliente
+      selector:
+        text:
+    operator_id:
+      name: Operatore
+      selector:
+        text:
+    operator_ids:
+      name: Operatrici da proporre
+      selector:
+        text:
+    notes:
+      name: Note appuntamento
+      selector:
+        text:
+    payment:
+      name: Pagamento
+      description: >-
+        Sostituisce tutti i dati di pagamento dell'appuntamento: mandalo vuoto
+        per azzerarli, omettilo per lasciare quelli attuali. Stessi campi di
+        create_appointment.
+      selector:
+        object:
+    guest_type:
+      name: Ospite
+      description: Non specificarlo per lasciare l'attuale indicazione hotel/esterno.
+      selector:
+        select:
+          options:
+            - label: Ospite dell'hotel
+              value: hotel
+            - label: Esterno
+              value: external
+    whole_group:
+      name: Applica a tutto il gruppo
+      description: >-
+        Se true applica la stessa modifica a tutti gli appuntamenti del gruppo
+        (stesso cliente, trattamento e fascia).
+      default: false
+      selector:
+        boolean:
+
+check_in_appointment:
+  name: Conferma entrata
+  description: Registra l'ingresso del cliente. Rifiuta i doppi ingressi.
+  fields:
+    appointment_id:
+      name: ID appuntamento
+      required: true
+      selector:
+        text:
+
+check_out_appointment:
+  name: Conferma uscita
+  description: Registra l'uscita del cliente. Rifiuta le doppie uscite.
+  fields:
+    appointment_id:
+      name: ID appuntamento
+      required: true
+      selector:
+        text:
+
+save_client:
+  name: Salva scheda cliente
+  description: Crea o aggiorna una scheda cliente.
+  fields:
+    client_id:
+      name: ID cliente (per aggiornare)
+      selector:
+        text:
+    first_name:
+      name: Nome
+      selector:
+        text:
+    last_name:
+      name: Cognome
+      selector:
+        text:
+    phone:
+      name: Telefono
+      selector:
+        text:
+    email:
+      name: Email
+      selector:
+        text:
+    notes:
+      name: Note e preferenze
+      selector:
+        text:
+          multiline: true
+
+search_clients:
+  name: Cerca clienti
+  description: Cerca schede cliente per nome, cognome, telefono o email.
+  fields:
+    query:
+      name: Testo da cercare
+      selector:
+        text:
+    limit:
+      name: Numero massimo di risultati
+      default: 20
+      selector:
+        number:
+          min: 1
+          max: 100
+
+get_client_history:
+  name: Storico cliente
+  description: Restituisce tutti gli appuntamenti di un cliente.
+  fields:
+    client_id:
+      name: ID cliente
+      required: true
+      selector:
+        text:
+
+delete_client:
+  name: Elimina scheda cliente
+  description: >-
+    Elimina una scheda cliente. Rifiuta se il cliente ha appuntamenti
+    confermati futuri: annullali prima di eliminare la scheda.
+  fields:
+    client_id:
+      name: ID cliente
+      required: true
+      selector:
+        text:
+
+merge_clients:
+  name: Unisci schede cliente duplicate
+  description: >-
+    Accorcia piu' schede cliente uguali in una sola: tutti gli appuntamenti
+    passano sulla scheda scelta, i campi vuoti vengono completati e le schede
+    ormai vuote vengono eliminate. Serve dopo una prenotazione di gruppo scritta
+    con un unico nome.
+  fields:
+    target_client_id:
+      name: Scheda da tenere
+      description: ID della scheda cliente che resta.
+      required: true
+      selector:
+        text:
+    source_client_ids:
+      name: Schede da unire
+      description: >-
+        Elenco degli ID delle schede duplicate da eliminare, dopo lo spostamento
+        degli appuntamenti sulla scheda tenuta.
+      required: true
+      selector:
+        object:
+
+get_daily_agenda:
+  name: Agenda del giorno
+  description: >-
+    Restituisce gli appuntamenti confermati di un giorno, raggruppati per
+    operatore (by_operator) e per categoria (by_category). E' la base del
+    riepilogo giornaliero per categoria.
+  fields:
+    date:
+      name: Data
+      required: true
+      example: "2026-10-06"
+      selector:
+        date:
+    operator_id:
+      name: Solo questo operatore
+      selector:
+        text:
+    category_id:
+      name: Solo questa categoria
+      selector:
+        text:
+
+get_config:
+  name: Leggi configurazione
+  description: Restituisce categorie, trattamenti e operatori configurati.
+
+add_category:
+  name: Aggiungi categoria
+  description: >-
+    Crea una categoria di trattamenti. Imposta requires_operator a true per le
+    categorie gestite da un operatore (per esempio Massaggi). color e' lo
+    sfondo (esadecimale, per esempio #e8f5e9) usato dalla card per gli
+    appuntamenti di questa categoria; vuoto = nessun colore.
+  fields:
+    name:
+      name: Nome
+      required: true
+      selector:
+        text:
+    requires_operator:
+      name: Richiede un operatore
+      default: false
+      selector:
+        boolean:
+    color:
+      name: Colore
+      description: Colore di sfondo esadecimale (es. #e8f5e9); vuoto per nessun colore.
+      default: ""
+      selector:
+        text:
+    pause_min:
+      name: Pausa (minuti)
+      description: >-
+        Minuti di pausa richiesti dopo un appuntamento di questa categoria
+        prima che la massaggiatrice possa prenderne un altro.
+      default: 10
+      selector:
+        number:
+          min: 0
+          max: 120
+          unit_of_measurement: min
+    days:
+      name: Giorni prenotabili
+      description: >-
+        Giorni della settimana in cui si accettano prenotazioni
+        (0 = Lunedì ... 6 = Domenica). Vuoto = tutti i giorni.
+      selector:
+        multi_select:
+          options:
+            0: Lunedì
+            1: Martedì
+            2: Mercoledì
+            3: Giovedì
+            4: Venerdì
+            5: Sabato
+            6: Domenica
+    morning_start:
+      name: Inizio fascia mattina
+      example: "09:00"
+      selector:
+        time:
+    morning_end:
+      name: Fine fascia mattina
+      example: "13:00"
+      selector:
+        time:
+    afternoon_start:
+      name: Inizio fascia pomeriggio
+      example: "15:00"
+      selector:
+        time:
+    afternoon_end:
+      name: Fine fascia pomeriggio
+      example: "20:00"
+      selector:
+        time:
+    exclusive_with:
+      name: Categorie che non possono sovrapporsi
+      description: >-
+        Appuntamenti di queste categorie non possono sovrapporsi a quelli di
+        questa (vale in entrambe le direzioni). ID separati da virgola.
+      selector:
+        text:
+
+update_category:
+  name: Modifica categoria
+  fields:
+    category_id:
+      name: ID categoria
+      required: true
+      selector:
+        text:
+    name:
+      name: Nuovo nome
+      selector:
+        text:
+    requires_operator:
+      name: Richiede un operatore
+      selector:
+        boolean:
+    color:
+      name: Colore
+      description: Colore di sfondo esadecimale (es. #e8f5e9); vuoto per nessun colore.
+      selector:
+        text:
+    pause_min:
+      name: Pausa (minuti)
+      description: Minuti di pausa dopo un appuntamento di questa categoria.
+      selector:
+        number:
+          min: 0
+          max: 120
+          unit_of_measurement: min
+    days:
+      name: Giorni prenotabili
+      description: Giorni della settimana (0 = Lunedì ... 6 = Domenica); vuoto = tutti.
+      selector:
+        multi_select:
+          options:
+            0: Lunedì
+            1: Martedì
+            2: Mercoledì
+            3: Giovedì
+            4: Venerdì
+            5: Sabato
+            6: Domenica
+    morning_start:
+      name: Inizio fascia mattina
+      selector:
+        time:
+    morning_end:
+      name: Fine fascia mattina
+      selector:
+        time:
+    afternoon_start:
+      name: Inizio fascia pomeriggio
+      selector:
+        time:
+    afternoon_end:
+      name: Fine fascia pomeriggio
+      selector:
+        time:
+    exclusive_with:
+      name: Categorie che non possono sovrapporsi
+      description: ID delle categorie esclusive, separati da virgola.
+      selector:
+        text:
+
+delete_category:
+  name: Elimina categoria
+  fields:
+    category_id:
+      name: ID categoria
+      required: true
+      selector:
+        text:
+    force:
+      name: Forza anche se ci sono trattamenti collegati
+      default: false
+      selector:
+        boolean:
+
+add_treatment:
+  name: Aggiungi trattamento
+  description: >-
+    Crea un trattamento con la sua durata. Le operatrici abilitate si impostano
+    dalle loro schede nella tab Operatori della card.
+  fields:
+    name:
+      name: Nome
+      required: true
+      example: Massaggio relax 90
+      selector:
+        text:
+    category_id:
+      name: Categoria
+      selector:
+        text:
+    duration_min:
+      name: Durata (minuti)
+      default: 90
+      selector:
+        number:
+          min: 5
+          max: 600
+          unit_of_measurement: min
+    price:
+      name: Prezzo
+      selector:
+        number:
+          min: 0
+          step: 0.01
+    active:
+      name: Attivo
+      default: true
+      selector:
+        boolean:
+    web_visible:
+      name: Visibile sul sito web
+      description: >-
+        Se il trattamento appare nell'elenco del sito web e può essere
+        richiesto dagli ospiti. Spento, resta solo per la reception.
+      default: true
+      selector:
+        boolean:
+    min_parallel:
+      name: Minimo persone insieme
+      description: >-
+        Persone minime che devono prenotare questo trattamento nella stessa
+        fascia. 0 = nessun vincolo. Non vale per gli appuntamenti con operatrice.
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 100
+          unit_of_measurement: persone
+    max_parallel:
+      name: Massimo persone insieme
+      description: >-
+        Capienza: quanti appuntamenti di questo trattamento possono essere
+        contemporanei (0 = nessun limite). Non vale con operatrice.
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 1000
+          unit_of_measurement: persone
+
+update_treatment:
+  name: Modifica trattamento
+  fields:
+    treatment_id:
+      name: ID trattamento
+      required: true
+      selector:
+        text:
+    name:
+      name: Nuovo nome
+      selector:
+        text:
+    category_id:
+      name: Categoria
+      selector:
+        text:
+    duration_min:
+      name: Durata (minuti)
+      selector:
+        number:
+          min: 5
+          max: 600
+          unit_of_measurement: min
+    price:
+      name: Prezzo
+      selector:
+        number:
+          min: 0
+          step: 0.01
+    active:
+      name: Attivo
+      selector:
+        boolean:
+    web_visible:
+      name: Visibile sul sito web
+      description: >-
+        Se il trattamento appare nell'elenco del sito web e può essere
+        richiesto dagli ospiti. Spento, resta solo per la reception.
+      selector:
+        boolean:
+    min_parallel:
+      name: Minimo persone insieme
+      description: >-
+        Persone minime che devono prenotare questo trattamento nella stessa
+        fascia. 0 = nessun vincolo. Non vale per gli appuntamenti con operatrice.
+      selector:
+        number:
+          min: 0
+          max: 100
+          unit_of_measurement: persone
+    max_parallel:
+      name: Massimo persone insieme
+      description: >-
+        Capienza: quanti appuntamenti di questo trattamento possono essere
+        contemporanei (0 = nessun limite). Non vale con operatrice.
+      selector:
+        number:
+          min: 0
+          max: 1000
+          unit_of_measurement: persone
+
+delete_treatment:
+  name: Elimina trattamento
+  fields:
+    treatment_id:
+      name: ID trattamento
+      required: true
+      selector:
+        text:
+    force:
+      name: Forza anche se ha appuntamenti futuri
+      default: false
+      selector:
+        boolean:
+
+add_operator:
+  name: Aggiungi operatore
+  description: >-
+    Crea un operatore. treatment_ids elenca i trattamenti che sa eseguire:
+    sono quelli che il modulo "Nuovo" propone per lei e che il report mensile
+    conta. Il telefono serve a derivare la chat WhatsApp (39…@c.us); per un
+    gruppo o un numero diverso indicarlo in whatsapp_chat_id.
+  fields:
+    name:
+      name: Nome
+      required: true
+      selector:
+        text:
+    role:
+      name: Ruolo
+      description: >-
+        Classifica l'operatore per la reception. Non limita nulla: entrambi i
+        ruoli possono eseguire ogni trattamento e ricevere notifiche.
+      default: massaggiatore
+      selector:
+        select:
+          options:
+            - label: Massaggiatore
+              value: massaggiatore
+            - label: Spa Manager
+              value: spa_manager
+    phone:
+      name: Telefono
+      selector:
+        text:
+    whatsapp_chat_id:
+      name: Chat WhatsApp
+      description: Vuoto = derivata dal telefono come 39numero@c.us.
+      example: 393331234567@c.us
+      selector:
+        text:
+    telegram_chat_id:
+      name: Chat Telegram
+      example: "933728087"
+      selector:
+        text:
+    treatment_ids:
+      name: Trattamenti che esegue
+      description: Lascia vuoto se esegue tutto quello che richiede un operatore.
+      selector:
+        object:
+    notify_whatsapp:
+      name: Avvisa su WhatsApp
+      default: true
+      selector:
+        boolean:
+    notify_telegram:
+      name: Avvisa su Telegram
+      default: true
+      selector:
+        boolean:
+    notify_service:
+      name: Servizio notifiche
+      example: notify.mobile_app_stefano
+      selector:
+        text:
+    notify_on_create:
+      name: Avvisa su nuovi appuntamenti
+      default: true
+      selector:
+        boolean:
+
+update_operator:
+  name: Modifica operatore
+  fields:
+    operator_id:
+      name: ID operatore
+      required: true
+      selector:
+        text:
+    name:
+      name: Nuovo nome
+      selector:
+        text:
+    role:
+      name: Ruolo
+      description: Non specificarlo per lasciarlo com'è.
+      selector:
+        select:
+          options:
+            - label: Massaggiatore
+              value: massaggiatore
+            - label: Spa Manager
+              value: spa_manager
+    phone:
+      name: Telefono
+      selector:
+        text:
+    whatsapp_chat_id:
+      name: Chat WhatsApp
+      description: Vuoto = derivata dal telefono.
+      selector:
+        text:
+    telegram_chat_id:
+      name: Chat Telegram
+      selector:
+        text:
+    treatment_ids:
+      name: Trattamenti che esegue
+      selector:
+        object:
+    notify_whatsapp:
+      name: Avvisa su WhatsApp
+      selector:
+        boolean:
+    notify_telegram:
+      name: Avvisa su Telegram
+      selector:
+        boolean:
+    notify_service:
+      name: Servizio notifiche
+      selector:
+        text:
+    notify_on_create:
+      name: Avvisa su nuovi appuntamenti
+      selector:
+        boolean:
+
+delete_operator:
+  name: Elimina operatore
+  fields:
+    operator_id:
+      name: ID operatore
+      required: true
+      selector:
+        text:
+    force:
+      name: Forza anche se ha appuntamenti futuri
+      default: false
+      selector:
+        boolean:
+
+export_data:
+  name: Esporta dati
+  description: Restituisce l'intero archivio (categorie, trattamenti, operatori, clienti, appuntamenti).
+
+import_data:
+  name: Importa dati
+  description: >-
+    Sostituisce l'intero archivio con il contenuto fornito.
+    Fare attenzione: sovrascrive tutto.
+  fields:
+    payload:
+      name: Dati
+      required: true
+      selector:
+        object:
+
+export_clienti_csv:
+  name: Esporta clienti (CSV)
+  description: >-
+    Restituisce la lista clienti come file CSV (Nome, Cognome, Telefono, Email, Note).
+    Utile per copiarli in un foglio di calcolo.
+
+import_clienti_csv:
+  name: Importa clienti (CSV)
+  description: >-
+    Crea clienti da un file CSV (Nome, Cognome, Telefono, Email, Note). La prima
+    riga e' l'intestazione e viene saltata. I clienti con telefono gia' esistente
+    vengono ignorati, cosi' una re-importazione non crea duplicati.
+  fields:
+    csv:
+      name: Contenuto CSV
+      required: true
+      multiline: true
+      selector:
+        text:
+
+get_monthly_report:
+  name: Report mensile massaggi
+  description: >-
+    Restituisce il riepilogo dei massaggi del mese indicato (AAAA-MM; di
+    default il mese precedente), raggruppato per massaggiatrice con data, ora,
+    tipo di massaggio e durata. Con notify: true il report viene anche inviato:
+    il riepilogo completo ai destinatari configurati e, se attivo, il riepilogo
+    personale a ogni massaggiatrice sui suoi canali.
+  fields:
+    month:
+      name: Mese (AAAA-MM)
+      description: Vuoto = mese precedente.
+      example: "2026-09"
+      selector:
+        text:
+    notify:
+      name: Invia il report
+      default: false
+      selector:
+        boolean:
+
+update_settings:
+  name: Modifica impostazioni notifiche
+  description: >-
+    Modifica destinatari e orario del report mensile. telegram_config_entry_id
+    e' l'ID della configurazione del bot Telegram da usare.
+  fields:
+    telegram_config_entry_id:
+      name: ID configurazione bot Telegram
+      example: 01JZ6G7TT8APQ8WCXEPRCDNQFN
+      selector:
+        text:
+    report_telegram_chats:
+      name: Chat Telegram del report
+      description: Separate da virgola.
+      example: "933728087, 5400097873"
+      selector:
+        text:
+    report_whatsapp_chat:
+      name: Chat WhatsApp del report
+      description: Vuoto = il report non va su WhatsApp.
+      example: 120363293359588343@g.us
+      selector:
+        text:
+    report_per_operator:
+      name: Invia anche il riepilogo personale
+      selector:
+        boolean:
+    report_enabled:
+      name: Report automatico attivo
+      selector:
+        boolean:
+    report_time:
+      name: Ora del report automatico
+      example: "08:00"
+      selector:
+        text:
+    offer_timeout_hours:
+      name: Ore di risposta per un'offerta
+      description: >-
+        Dopo quante ore senza risposta il turno viene proposto alla collega
+        successiva. 0 = l'offerta non scade mai.
+      default: 24
+      selector:
+        number:
+          min: 0
+          max: 168
+          unit_of_measurement: h
+    offer_reminder_hours:
+      name: Promemoria prima della scadenza
+      description: >-
+        Quante ore prima della scadenza inviare un promemoria. 0 = nessun
+        promemoria.
+      default: 2
+      selector:
+        number:
+          min: 0
+          max: 72
+          unit_of_measurement: h
+    appearance:
+      name: Aspetto della card
+      description: >-
+        "Segui Home Assistant" dipende dal tema attivo; Chiaro e Scuro
+        impongono l'aspetto solo a questa card. Vale su tutti i dispositivi.
+      default: auto
+      selector:
+        select:
+          options:
+            - label: Segui Home Assistant
+              value: auto
+            - label: Chiaro
+              value: light
+            - label: Scuro
+              value: dark
+    card_title:
+      name: Titolo della card
+      description: >-
+        Il titolo mostrato in testata. Vuoto = il valore della configurazione
+        della card, e se manca "Gestione SPA".
+      example: "Gestione SPA"
+      selector:
+        text:
+    accessories:
+      name: Accessori
+      description: >-
+        Gli accessori proposti con una prenotazione, nell'ordine in cui
+        compaiono. Ogni voce ha id, etichetta, icona, prezzo (solo
+        informativo) e descrizione. Senza questo campo restano quelli di
+        fabbrica.
+    request_message:
+      name: Messaggio di richiesta
+      description: >-
+        Il messaggio inviato a chi prenota quando la reception registra la sua
+        richiesta. Segnaposti: {nome}, {cognome}, {data}, {ora}, {persone},
+        {trattamenti}, {codice}.
+    deposit_test_phone:
+      name: Numero di prova per la richiesta acconto
+      description: >-
+        Il numero a cui inviare il messaggio di prova della richiesta acconto.
+        Vuoto = prova non disponibile.
+      example: "+39 333 1234567"
+      selector:
+        text:
+    summary_message:
+      name: Riepilogo appuntamento
+      description: >-
+        Il messaggio inviato all'ospite quando l'appuntamento viene confermato.
+        Segnaposti: {nome}, {cognome}, {cliente}, {hotel}, {codice},
+        {trattamento}, {durata}, {data}, {ora}, {fine}, {totale}, {acconto},
+        {versato}, {residuo}, {pagamenti}.
+      selector:
+        text:
+          multiline: true
+    summary_test_phone:
+      name: Numero di prova per il riepilogo
+      description: >-
+        Il numero a cui inviare il messaggio di prova del riepilogo
+        appuntamento. Vuoto = prova non disponibile.
+      example: "+39 333 1234567"
+      selector:
+        text:
+    web_notify_whatsapp:
+      name: WhatsApp avvisi dal sito
+      description: >-
+        Numero WhatsApp della reception che riceve un messaggio quando un
+        ospite invia una richiesta dal sito. Vuoto = nessun avviso.
+      example: "+39 333 1234567"
+      selector:
+        text:
+    promo_voucher_message:
+      name: Messaggio voucher fedelta
+      description: >-
+        Il messaggio di ringraziamento inviato al cliente dopo che ha usato i
+        servizi, con il suo codice voucher personale. Segnaposti: {nome},
+        {cognome}, {codice}, {sconto}, {spesa_minima}, {scadenza}.
+      selector:
+        text:
+          multiline: true
+    promo_voucher_days:
+      name: Giorni di validita del voucher fedelta
+      description: >-
+        Per quanti giorni il voucher resta valido prima di essere eliminato se
+        non viene usato.
+      default: 30
+      selector:
+        number:
+          min: 1
+          max: 3650
+          unit_of_measurement: giorni
+    promo_voucher_discount:
+      name: Sconto del voucher fedelta
+      description: Sconto in percentuale applicato dal voucher.
+      default: 10
+      selector:
+        number:
+          min: 1
+          max: 100
+          unit_of_measurement: "%"
+    promo_voucher_min_spend:
+      name: Spesa minima del voucher fedelta
+      description: Importo minimo di spesa a cui si applica il voucher.
+      default: 100
+      selector:
+        number:
+          min: 0
+          max: 100000
+          unit_of_measurement: "EUR"
+    promo_voucher_max_spend:
+      name: Spesa massima del voucher fedelta
+      description: Importo massimo di spesa a cui si applica il voucher.
+      default: 500
+      selector:
+        number:
+          min: 0
+          max: 100000
+          unit_of_measurement: "EUR"
+    promo_voucher_after_hours:
+      name: Ore dopo il check-out
+      description: >-
+        Quante ore dopo il check-out inviare il messaggio con il voucher.
+      default: 24
+      selector:
+        number:
+          min: 0
+          max: 8760
+          unit_of_measurement: h
+    promo_voucher_auto:
+      name: Voucher fedelta automatico
+      description: >-
+        Se attivo, al check-out dell'appuntamento il voucher viene creato e il
+        messaggio inviato automaticamente dopo le ore indicate.
+      selector:
+        boolean:
+
+reload_card:
+  name: Ricarica la card senza riavvio
+  description: >-
+    Re-registra l'URL della card di gestione con la versione indicata: ogni
+    browser scaricherà di nuovo il file alla prossima apertura della pagina.
+    Serve a distribuire un aggiornamento della card senza riavviare Home
+    Assistant.
+  fields:
+    version:
+      name: Versione della card
+      description: >-
+        Es. 1.3.4. Vuoto = mantiene la versione corrente (ri-registra solo
+        l'URL).
+      example: 1.3.4
+      selector:
+        text:
+
+respond_to_offer:
+  name: Rispondi a un'offerta
+  description: >-
+    Applica la risposta di una massaggiatrice a un turno proposto. Conferma
+    chiude l'offerta, il rifiuto blocca quella finestra oraria per lei e
+    passa il turno alla collega successiva, "available_again" riapre la
+    finestra. Senza appointment_id la risposta viene abbinata all'offerta di
+    lei più urgente: è quello che servono gli automation WhatsApp.
+  fields:
+    response:
+      name: Risposta
+      required: true
+      description: confirm, decline oppure available_again.
+      selector:
+        select:
+          options:
+            - confirm
+            - decline
+            - available_again
+    appointment_id:
+      name: ID appuntamento
+      description: Vuoto = l'offerta più urgente dell'operatrice.
+      selector:
+        text:
+    operator_id:
+      name: ID operatrice
+      selector:
+        text:
+    chat_id:
+      name: Chat mittente
+      description: Usato con channel per riconoscere l'operatrice.
+      example: 393331234567@c.us
+      selector:
+        text:
+    channel:
+      name: Canale
+      description: whatsapp oppure telegram.
+      selector:
+        select:
+          options:
+            - whatsapp
+            - telegram
+    source:
+      name: Origine
+      description: Etichetta libera registrata nell'evento (es. whatsapp_testo).
+      selector:
+        text:
+
+set_offer_state:
+  name: Stato conferma operatrice
+  description: >-
+    Cambia lo stato della conferma di un appuntamento con operatrice.
+    "pending" rimette il turno in attesa di conferma e reinvia il messaggio di
+    proposta; "confirmed" segna il turno come confermato e invia all'operatrice
+    il riepilogo, senza bisogno di risposta.
+  fields:
+    appointment_id:
+      name: ID appuntamento
+      required: true
+      selector:
+        text:
+    state:
+      name: Stato
+      required: true
+      description: pending (in attesa, reinvia la proposta) oppure confirmed.
+      selector:
+        select:
+          options:
+            - pending
+            - confirmed
+
+manual_confirm_offer:
+  name: Conferma manuale dell'offerta
+  description: >-
+    Conferma manualmente l'offerta di un appuntamento gia' proposto a un'operatrice,
+    usando lo stesso percorso di una conferma reale (evento lanciato, risposta
+    inviata all'operatrice). Utile quando la conferma via WhatsApp/Telegram non e'
+    stata letta automaticamente.
+  fields:
+    appointment_id:
+      name: ID appuntamento
+      required: true
+      selector:
+        text:
+
+add_payment:
+  name: Registra un incasso
+  description: >-
+    Registra un incasso su un appuntamento: metodo di pagamento, data e importo.
+    Piu' incassi parziali restano distinti; la somma e' il totale incassato.
+  fields:
+    appointment_id:
+      name: ID appuntamento
+      required: true
+      selector:
+        text:
+    method:
+      name: Metodo di pagamento
+      required: true
+      selector:
+        select:
+          options:
+            - card
+            - cash
+            - bank_transfer
+            - gift_card
+            - voucher
+    amount:
+      name: Importo
+      required: true
+      selector:
+        number:
+          min: 0.01
+          step: 0.01
+    date:
+      name: Data di pagamento
+      description: Formato AAAA-MM-GG; vuota per oggi.
+      selector:
+        date:
+
+delete_payment:
+  name: Elimina un incasso
+  description: Rimuove un incasso registrato, lasciando intatti gli altri.
+  fields:
+    appointment_id:
+      name: ID appuntamento
+      required: true
+      selector:
+        text:
+    payment_id:
+      name: ID incasso
+      required: true
+      selector:
+        text:
+
+send_operator_message:
+  name: Invia messaggio all'operatrice
+  description: >-
+    Invia all'operatrice un messaggio informativo sui suoi appuntamenti.
+    kind: guide (istruzioni su come confermare), today, tomorrow, week, month,
+    upcoming (prossimi appuntamenti), pending (appuntamenti da confermare).
+  fields:
+    operator_id:
+      name: ID operatrice
+      required: true
+      selector:
+        text:
+    kind:
+      name: Tipo di messaggio
+      required: true
+      selector:
+        select:
+          options:
+            - guide
+            - today
+            - tomorrow
+            - week
+            - month
+            - upcoming
+            - pending
+
+send_guest_summary:
+  name: Invia riepilogo all'ospite
+  description: >-
+    Invia all'ospite (cliente) il riepilogo del suo appuntamento su WhatsApp,
+    usando il telefono salvato nella sua scheda. Con appointment_ids manda un
+    unico messaggio con tutti gli appuntamenti del gruppo.
+  fields:
+    appointment_id:
+      name: ID appuntamento
+      selector:
+        text:
+    appointment_ids:
+      name: ID appuntamenti (gruppo)
+      selector:
+        object:
+
+send_deposit_request:
+  name: Richiedi acconto all'ospite
+  description: >-
+    Invia all'ospite un messaggio WhatsApp con i dati del bonifico per versare
+    l'acconto e confermare la prenotazione. Funziona solo su appuntamenti ancora in
+    attesa con un importo acconto impostato e un telefono WhatsApp.
+  fields:
+    appointment_id:
+      name: ID appuntamento
+      required: true
+      selector:
+        text:
+
+send_reminders:
+  name: Invia promemoria appuntamenti
+  description: >-
+    Invia all'ospite il promemoria dell'appuntamento circa 24 ore prima, una
+    sola volta per appuntamento. Va richiamato periodicamente (automazione).
+
+send_review_requests:
+  name: Invia richiesta di recensione
+  description: >-
+    Invia all'ospite, circa 6 ore dopo la fine del trattamento, il messaggio che
+    chiede una recensione su Google e TripAdvisor. Una sola volta per ospite al
+    giorno, anche se ha fatto piu' trattamenti. Va richiamato periodicamente
+    (automazione).
+  fields:
+    appointment_id:
+      name: Appuntamento
+      description: >-
+        Facoltativo: invia solo a quell'ospite, saltando le regole di orario.
+        Usato per una prova.
+
+send_promo:
+  name: Invia messaggio promo
+  description: >-
+    Invia un messaggio promozionale WhatsApp ai clienti registrati. Senza
+    client_ids lo invia a tutti i clienti con telefono. Senza message usa il
+    modello salvato nelle impostazioni.
+  fields:
+    client_ids:
+      name: ID clienti (vuoto = tutti)
+      selector:
+        object:
+    message:
+      name: Messaggio (vuoto = modello salvato)
+      multiline: true
+      selector:
+        text:
+
+promo_automatico:
+  name: Invio automatico promo giornaliero
+  description: >-
+    Invia il messaggio promo a tutti i clienti con telefono, una volta al giorno
+    all'orario programmato. Va chiamato con una automazione time_pattern. Se
+    promo_time non e' impostato, non invia nulla.
+  fields: {}
+
+create_bookings:
+  name: Crea prenotazione multipla
+  description: >-
+    Crea tutti gli appuntamenti di una prenotazione composta: una riga per
+    trattamento e, dentro la riga, una voce per persona con la sua fascia e
+    la sua massaggiatrice. Tutto viene validato prima di scrivere: se una
+    voce non passa, non viene creato niente.
+  fields:
+    rows:
+      name: Righe
+      description: >-
+        Ogni voce puo' portare un oggetto payment, identico per tutte le
+        persone della prenotazione, che finisce su ciascun appuntamento. La
+        riga puo' portare anche pending e guest_type (hotel oppure external),
+        uguali per tutte le persone della riga.
+      required: true
+      selector:
+        object:
+
+add_closure:
+  name: Chiudi giorni o fasce
+  description: >-
+    Chiude un intervallo di giorni per la struttura intera, per una categoria
+    o per una singola operatrice. Una chiusura di struttura o di categoria
+    rifiuta la prenotazione; quella di una operatrice la toglie dalle proposte,
+    cosi' una collega puo' comunque prendere il turno. Lascia vuote le fasce
+    per chiudere la giornata intera.
+  fields:
+    scope:
+      name: Ambito
+      default: facility
+      selector:
+        select:
+          options:
+            - label: Struttura intera
+              value: facility
+            - label: Categoria
+              value: category
+            - label: Operatrice
+              value: operator
+    operator_id:
+      name: ID operatrice
+      description: Obbligatorio se l'ambito e' operatrice.
+      selector:
+        text:
+    category_id:
+      name: ID categoria
+      description: Obbligatorio se l'ambito e' categoria.
+      selector:
+        text:
+    date_from:
+      name: Data di inizio
+      required: true
+      example: "2026-08-15"
+      selector:
+        text:
+    date_to:
+      name: Data di fine
+      description: Vuota = un solo giorno.
+      example: "2026-08-31"
+      selector:
+        text:
+    start:
+      name: Inizio fascia
+      description: Vuoto = giornata intera.
+      example: "09:00"
+      selector:
+        time:
+    end:
+      name: Fine fascia
+      description: Vuoto = giornata intera.
+      example: "13:00"
+      selector:
+        time:
+    label:
+      name: Motivo
+      description: Testo libero mostrato nell'elenco e nel messaggio di rifiuto.
+      example: Ferie
+      selector:
+        text:
+
+resize_appointment_group:
+  name: Cambia numero di persone
+  description: >-
+    Imposta quante persone condividono la fascia di un appuntamento
+    condiviso. Ogni persona e' un appuntamento proprio: aumentare il numero
+    crea quelli mancanti nella stessa fascia, diminuirlo annulla quelli in
+    piu'. L'appuntamento di riferimento non cambia mai e conserva ingressi e
+    uscite. Vale solo per trattamenti senza operatrice.
+  fields:
+    appointment_id:
+      name: ID appuntamento
+      description: L'appuntamento da usare come riferimento del gruppo.
+      required: true
+      selector:
+        text:
+    persons:
+      name: Persone nella fascia
+      required: true
+      example: 4
+      selector:
+        number:
+          min: 1
+          max: 1000
+          unit_of_measurement: persone
+
+delete_closure:
+  name: Riapri giorni o fasce
+  description: Elimina una chiusura e riapre i giorni che teneva chiusi.
+  fields:
+    closure_id:
+      name: ID chiusura
+      required: true
+      selector:
+        text:
+
+clear_slot_block:
+  name: Riapri finestra oraria
+  description: >-
+    Toglie il blocco di una massaggiatrice su una finestra, così torna
+    contattabile per le prenotazioni successive in quell'intervallo.
+  fields:
+    operator_id:
+      name: ID operatrice
+      required: true
+      selector:
+        text:
+    appointment_id:
+      name: ID appuntamento
+      description: Vuoto = tutte le finestre di quella operatrice.
+      selector:
+        text:
+
+expire_offers:
+  name: Controlla le offerte in scadenza
+  description: >-
+    Fa scadere le offerte senza risposta passando alla collega successiva e
+    invia i promemoria. Da chiamare ogni pochi minuti da un automation.
+  fields: {}
+
+get_users:
+  name: Elenca utenti Home Assistant
+  description: >-
+    Restituisce gli utenti attivi di Home Assistant (id, nome, admin, owner)
+    per la sezione Accessi della card.
+  fields: {}
+
+set_user_permissions:
+  name: Imposta permessi utente
+  description: >-
+    Salva il livello di accesso di un utente alla dashboard. I livelli sono
+    none (non vede la dashboard), read (sola lettura), operator (gestisce la
+    giornata), manager (anche clienti e messaggi) e admin (configurazione
+    completa).
+  fields:
+    user_id:
+      name: ID utente
+      description: ID dell'utente Home Assistant, come restituito da get_users.
+      required: true
+      selector:
+        text:
+    level:
+      name: Livello di accesso
+      required: true
+      selector:
+        select:
+          options:
+            - label: Nessun accesso
+              value: none
+            - label: Solo lettura
+              value: read
+            - label: Operatore
+              value: operator
+            - label: Gestore
+              value: manager
+            - label: Amministratore
+              value: admin
+
+create_voucher:
+  name: Crea voucher
+  description: >-
+    Vende un voucher regalo: acquirente, destinatario, persone con i loro trattamenti
+    e accessori. Il codice VCH- viene generato e il voucher vale 6 mesi.
+  fields:
+    buyer_name:
+      name: Nome acquirente
+      selector:
+        text:
+    buyer_phone:
+      name: Telefono acquirente
+      selector:
+        text:
+    recipient_name:
+      name: Nome destinatario
+      selector:
+        text:
+    recipient_phone:
+      name: Telefono destinatario
+      selector:
+        text:
+    people:
+      name: Persone
+      required: true
+      description: Elenco di persone, ciascuna con treatment_ids e extras.
+      selector:
+        object:
+
+extend_voucher:
+  name: Estendi voucher
+  description: Imposta una nuova data di scadenza per un voucher.
+  fields:
+    voucher_id:
+      name: ID voucher
+      required: true
+      selector:
+        text:
+    expires_on:
+      name: Nuova scadenza
+      required: true
+      selector:
+        text:
+
+delete_voucher:
+  name: Elimina voucher
+  description: Elimina un voucher non ancora riscattato.
+  fields:
+    voucher_id:
+      name: ID voucher
+      required: true
+      selector:
+        text:
+
+redeem_promo_voucher:
+  name: Riscatta voucher fedelta
+  description: >-
+    Segna come riscattato un voucher fedelta (il codice personale inviato al
+    cliente dopo che ha usato i servizi). Il voucher resta nella lista.
+  fields:
+    voucher_id:
+      name: ID voucher fedelta
+      required: true
+      selector:
+        text:
+
+delete_promo_voucher:
+  name: Elimina voucher fedelta
+  description: Elimina un voucher fedelta dalla lista.
+  fields:
+    voucher_id:
+      name: ID voucher fedelta
+      required: true
+      selector:
+        text:
+
+promo_voucher_tick:
+  name: Invio voucher fedelta in attesa
+  description: >-
+    Invia i messaggi dei voucher fedelta arrivati a scadenza di invio (le ore
+    dopo il check-out) ed elimina i voucher scaduti e mai usati. Va richiamato
+    periodicamente (automazione): ogni tick è un nessun-op se non c'è nulla da
+    fare.
+
+check_waha:
+  name: Verifica connessione WhatsApp
+  description: >-
+    Chiede all'add-on WAHA configurato la sua versione: risponde se il
+    gateway e' raggiungibile, se la chiave API e' accettata e quale router
+    WhatsApp sta usando. Non invia messaggi.
+  fields: {}
+
+waha_webhook:
+  name: Attiva ricezione WhatsApp
+  description: >-
+    Chiede alla sessione WAHA configurata di pubblicare messaggi e reazioni sul
+    webhook di questa integrazione. Da quel momento le risposte delle
+    massaggiatrici arrivano dentro Spa Booking, senza l'integrazione WAHA e
+    senza automazioni. Risponde con l'indirizzo del webhook registrato.
+  fields: {}
+
+create_request:
+  name: Crea richiesta
+  description: >-
+    Registra la richiesta di un ospite: chi la chiede (nome, cognome, telefono,
+    che crea o aggiorna la scheda cliente), la data, il numero di persone e uno
+    o piu' trattamenti con la loro ora e i loro accessori. La richiesta non
+    occupa la fascia e non compare in agenda; al salvataggio parte un messaggio
+    WhatsApp di presa in carico. Poi si conferma dalla scheda Richieste.
+  fields:
+    date:
+      name: Data
+      description: Giorno richiesto, in formato AAAA-MM-GG.
+      required: true
+      selector:
+        text:
+    people:
+      name: Persone
+      description: Quante persone per ogni trattamento richiesto.
+      default: 1
+      selector:
+        number:
+          min: 1
+          max: 100
+          mode: box
+    entries:
+      name: Trattamenti
+      description: >-
+        Una voce per trattamento: treatment_id, time (HH:MM) ed extras
+        (accessori scelti).
+      required: true
+      selector:
+        object:
+    client_id:
+      name: ID cliente
+      selector:
+        text:
+    first_name:
+      name: Nome
+      selector:
+        text:
+    last_name:
+      name: Cognome
+      selector:
+        text:
+    phone:
+      name: Telefono
+      selector:
+        text:
+    email:
+      name: Email
+      selector:
+        text:
+    client_notes:
+      name: Note cliente
+      selector:
+        text:
+    force_new:
+      name: Nuova scheda forzata
+      description: Crea una scheda cliente nuova anche se il telefono esiste gia'.
+      default: false
+      selector:
+        boolean:
+    notes:
+      name: Note richiesta
+      selector:
+        text:
+    voucher_code:
+      name: Codice voucher
+      description: >-
+        Codice del voucher regalo che l'ospite ha indicato, se ne ha uno. Se
+        corrisponde a un voucher vero viene controllato subito (non deve
+        essere gia' riscattato ne' scaduto); un codice sconosciuto resta
+        registrato per la verifica della reception.
+      selector:
+        text:
+    guest_type:
+      name: Tipo ospite
+      default: external
+      selector:
+        select:
+          options:
+            - label: Hotel
+              value: hotel
+            - label: Esterno
+              value: external
+
+delete_request:
+  name: Elimina richiesta
+  description: >-
+    Elimina una richiesta. Gli appuntamenti che una richiesta confermata ha
+    creato restano: ormai sono prenotazioni vere, gestite dall'agenda.
+  fields:
+    request_id:
+      name: ID richiesta
+      required: true
+      selector:
+        text:
+
+confirm_request:
+  name: Conferma richiesta
+  description: >-
+    Trasforma una richiesta in appuntamenti reali: un appuntamento per persona e
+    per trattamento, all'ora richiesta, con gli accessori scelti. I trattamenti
+    che richiedono una massaggiatrice nascono senza e senza partire in offerta:
+    la reception la assegna dall'agenda.
+  fields:
+    request_id:
+      name: ID richiesta
+      required: true
+      selector:
+        text:
+
+send_request_message:
+  name: Invia conferma richiesta
+  description: >-
+    Rinvia al richiedente il messaggio di presa in carico su WhatsApp. Il testo
+    si modifica nella scheda Notifiche.
+  fields:
+    request_id:
+      name: ID richiesta
+      required: true
+      selector:
+        text:
+
+mark_requests_seen:
+  name: Segna richieste web come lette
+  description: >-
+    Svuota il contatore della campanella nell'intestazione della card: tutte le
+    richieste arrivate dal sito web vengono considerate aperte. Le richieste
+    prese alla reception non la facciano mai suonare e non vengono toccate.
+  fields: {}
+
+regenerate_public_token:
+  name: Rigenera token sito web
+  description: >-
+    Emette un nuovo token per l'API pubblica del sito web e smette subito di
+    accettare quello precedente: va poi copiato di nuovo nella pagina del sito.
+    Usalo se il token è finito in mano a qualcuno che non dovrebbe averlo.
+  fields: {}
+
+web_snippet:
+  name: Codice per il sito web
+  description: >-
+    Restituisce il codice da incollare nel blocco HTML della pagina del sito,
+    col token corrente gia' inserito al posto del segnaposto. Non modifica
+    nulla: e' una semplice lettura.
+  fields: {}
+
+send_external_message:
+  name: Invia messaggio WhatsApp esterno
+  description: >-
+    Invia un messaggio WhatsApp a un numero esterno (non cliente, non operatore).
+    Usato dalla card per rispondere alle richieste ricevute via WhatsApp.
+  fields:
+    chat_id:
+      name: Numero mittente
+      description: Il numero WhatsApp del mittente del messaggio originale (es. 393331234567@c.us).
+      required: true
+      example: "393331234567@c.us"
+      selector:
+        text:
+    text:
+      name: Testo del messaggio
+      required: true
+      selector:
+        text:
+          multiline: true
