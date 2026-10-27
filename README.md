@@ -10,9 +10,9 @@ Versione corrente: **2.0.5**
 ## Funzionalita' principali
 
 - **Agenda giorno** per operatori e categorie, con colori per gruppo-partito.
-- **Nuovo appuntamento multipersona / multitreatment** (`Nuovo appuntamento`), gestito con `create_bookings` in un unico batch.
+- **Nuovo appuntamento multipersona / multitreatment** ("Nuovo appuntamento"), gestito con `create_bookings` in un unico batch.
 - **Visualizzazione flessibile** del singolo appuntamento oppure **raggruppata** (tutti gli appuntamenti della stessa persona/giornata), con totali aggregati e schede pagamento.
-- **Modifica gruppo**: editor multi-riga (2 colonne, blocchi draggable) per aggiornare, aggiungere o cancellare sotto-appuntamenti preservando id, codici, check-in/out e registrazioni incassi.
+- **Modifica gruppo**: editor multi-riga (2 colonne, blocchi draggable) che aggiorna/aggiunge/cancella sotto-appuntamenti preservando id, codici, check-in/out e registrazioni incassi.
 - **Pagamenti e totali**: importi per persona/trattamento, takings multi-metodo, saldo da incassare.
 - **Clienti**: schede con deduplicazione per telefono.
 - **Operatori**: orari, pause, ruoli, recapiti, offerte (`offer_state`), conferma manuale.
@@ -21,7 +21,7 @@ Versione corrente: **2.0.5**
 - **Notifiche**: WhatsApp via WAHA o webhook, Telegram, comandi di test.
 - **Report mensile**, promemoria appuntamenti, richieste recensioni.
 - **Backup/ripristino**: JSON completo (`export_all` / `import_all`) e CSV clienti.
-- **Card Lovelace** `spa-booking-card.js` versione v2.0.5, servita automaticamente dal frontend.
+- **Card Lovelace** `spa-booking-card.js` servita automaticamente dal backend.
 
 ## Installazione manuale (senza HACS)
 
@@ -42,8 +42,8 @@ Versione corrente: **2.0.5**
 
 ## File importanti della repo
 - `custom_components/spa_booking/` — integrazione completa (Python).
-- `www/spa_booking/spa-booking-card.js` — card Lovelace (versione v2.0.5).
-- `manifest.json` — metadati (`version`, `documentation`).
+- `www/spa_booking/spa-booking-card.js` — card Lovelace.
+- `manifest.json` — metadati (`version`, `documentation`, `issue_tracker`).
 - `services.yaml` — definizioni dei servizi `spa_booking.*`.
 - `README.md` — questo file.
 
@@ -75,10 +75,12 @@ Dopo l'installazione l'integrazione crea un'entry configurabile dall'UI:
 - Le schede clienti sono deduplicate per telefono; operatori e trattamenti si gestiscono da card.
 
 ## Changelog recente
-- **v2.0.5**: `batch_id` propagation, raggruppamento stesso cliente/giornata con categorie diverse, toggle Single/Grouped e vista raggruppata completa, bug "Massaggi non raggruppati" risolto.
+- **v2.0.5**: raggruppa tutti gli appuntamenti dello stesso cliente nella stessa giornata (incluse categorie diverse), Vista Singolo/Raggruppato, batch_id propagation, bug "Massaggi non raggruppati" risolto.
 - **v2.0.2–v2.0.4**: editor batch multi-riga, correzioni migrazione/premessa.
-- **v2.0.0–v2.0.1**: backup JSON completo/export_all/import_all, scheda "Backup", link docs GitHub.
+- **v2.0.0–v2.0.1**: backup JSON/import_all, scheda "Backup", link docs GitHub.
 
 ## Licenza e autore
-Open-source su GitHub `https://github.com/stepsolar/ha-spa-booking`.  
 Autore: stepsolar.
+
+## Contributi
+Apri issue/PR su `https://github.com/stepsolar/ha-spa-booking`.

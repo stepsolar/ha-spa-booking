@@ -548,7 +548,7 @@ class SpaBookingCard extends HTMLElement {
       operator_id: "",
       date: todayStr(),
       time: "10:00",
-      client_mode: "existing",
+      client_mode: "new",
       client_id: "",
       client_query: "",
       client_results: null,
@@ -3028,15 +3028,13 @@ class SpaBookingCard extends HTMLElement {
             `${this._treatmentName(appointment)} · ${longDay(start)}`)),
         el("div", { class: "detail-toggle" },
           el("button", {
-            class: `btn small ${this._detailView === "single" ? "active" : ""}`,
-            disabled: this._busy,
-            on: { click: () => { this._detailView = "single"; this._render(); } },
-          }, "Singolo"),
-          el("button", {
             class: `btn small ${this._detailView === "grouped" ? "active" : ""}`,
+            title: this._detailView === "grouped" ? "Mostra vista singola" : "Mostra vista raggruppata",
             disabled: this._busy,
-            on: { click: () => { this._detailView = "grouped"; this._render(); } },
-          }, "Raggruppato")),
+            on: { click: () => { this._detailView = this._detailView === "grouped" ? "single" : "grouped"; this._render(); } },
+          },
+            el("ha-icon", { icon: this._detailView === "grouped" ? "mdi:view-list" : "mdi:folder-multiple" }),
+            el("span", { class: "btn-label" }, this._detailView === "grouped" ? "Singola" : "Raggruppata"))),
         el("button", {
           class: "icon-btn",
           title: "Chiudi",
@@ -3300,8 +3298,8 @@ class SpaBookingCard extends HTMLElement {
         class: "btn primary",
         disabled: this._busy,
         on: { click: () => this._closeAnd(() => this._openEditBatch(appointment)) },
-      }, el("ha-icon", { icon: "mdi:pencil-box-multiple" })),
-      el("span", { class: "btn-label" }, "Modifica gruppo"));
+      }, el("ha-icon", { icon: "mdi:pencil-box-multiple" }),
+      el("span", { class: "btn-label" }, "Modifica gruppo")));
     }
     const phone = client ? client.phone : "";
     const whatsapp = waLink(phone);
@@ -3969,7 +3967,7 @@ class SpaBookingCard extends HTMLElement {
       operator_id: "",
       date: related.length ? ymd(parseDate(related[0].start)) : todayStr(),
       time: related.length ? timeOf(parseDate(related[0].start)) : "10:00",
-      client_mode: "existing",
+      client_mode: "new",
       client_id: (related[0] && related[0].client_id) || "",
       client_query: "",
       client_results: null,
@@ -5981,8 +5979,8 @@ class SpaBookingCard extends HTMLElement {
     const wrap = el("div", { class: "stack tight" });
     const modeRow = el("div", { class: "row tight" });
     [
-      { id: "existing", label: "Scheda cliente" },
       { id: "new", label: "Nuovo cliente / non cliente" },
+      { id: "existing", label: "Scheda cliente" },
     ].forEach((mode) =>
       modeRow.appendChild(
         el("button", {
@@ -7245,7 +7243,7 @@ class SpaBookingCard extends HTMLElement {
         operator_id: "",
         date: todayStr(),
         time: "10:00",
-        client_mode: "existing",
+        client_mode: "new",
         client_id: "",
         client_query: "",
         client_results: null,
@@ -7291,7 +7289,7 @@ class SpaBookingCard extends HTMLElement {
         operator_id: "",
         date: todayStr(),
         time: "10:00",
-        client_mode: "existing",
+        client_mode: "new",
         client_id: "",
         client_query: "",
         client_results: null,
@@ -14627,7 +14625,7 @@ _renderClients() {
         border: 1px solid var(--divider-color); background: transparent;
         color: var(--secondary-text-color); font: inherit; font-size: 13px;
       }
-      .tab small { padding: 6px 10px; font-size: 12px; }
+      .tab.small, .tab.small.active { padding: 6px 10px; font-size: 12px; }
       .tab ha-icon { --mdc-icon-size: 18px; }
       .tab.active { background: var(--primary-color); border-color: var(--primary-color);
                     color: var(--text-primary-color, #fff); }
@@ -15203,25 +15201,7 @@ _renderClients() {
       .spa-add-tile:hover { border-color: var(--primary-color);
                             color: var(--primary-color); }
       .spa-add-tile ha-icon { --mdc-icon-size: 26px; }
-      .spa-tile-icon { display: flex; align-items: center; justify-content: center;
-                       width: 42px; height: 42px; border-radius: 50%; flex: 0 0 auto;
-                       background: rgba(var(--rgb-primary-color, 77, 87, 240), .18);
-                       color: var(--primary-color); }
-      .spa-tile-icon.off { background: var(--divider-color);
-                           color: var(--disabled-text-color); }
-      .spa-tile-icon ha-icon { --mdc-icon-size: 24px; }
-      .spa-tile-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column;
-                       gap: 2px; align-items: center; }
-      .spa-tile-name { font-weight: 500; font-size: 15px; line-height: 1.25;
-                       display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-                       overflow: hidden; overflow-wrap: anywhere; }
-      .spa-tile-sub { font-size: 12px; color: var(--secondary-text-color);
-                      display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical;
-                      overflow: hidden; overflow-wrap: anywhere; }
-      .spa-slider { width: 100%; padding: 2px 4px 0; }
-      .spa-slider input[type="range"] { width: 100%; margin: 0; accent-color: var(--primary-color); }
-      .spa-clima { display: flex; align-items: center; justify-content: space-between;
-                   gap: 8px; width: 100%; }
+
       .spa-popover { position: absolute; top: 46px; right: 8px; z-index: 30;
                      background: var(--card-background-color); border: 1px solid var(--divider-color);
                      border-radius: 10px; box-shadow: 0 6px 20px rgba(0, 0, 0, .25);
