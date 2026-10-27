@@ -586,6 +586,12 @@ IMPOSTAZIONI_BLOCK_COLUMNS: dict[str, list[str]] = {
     "right": ["clienti", "sito"],
 }
 
+#: Editable layout of the batch editor boxes (Modifica gruppo), two columns.
+BATCH_FORM_BLOCK_COLUMNS: dict[str, list[str]] = {
+    "left": ["righe", "note"],
+    "right": ["totali", "incassi"],
+}
+
 PROMO_BLOCK_COLUMNS: dict[str, list[str]] = {
     "left": ["message", "message_post", "send"],
     "right": ["schedule"],
@@ -816,6 +822,10 @@ def _norm_settings(raw: dict[str, Any]) -> dict[str, Any]:
             raw.get("impostazioni_order"), IMPOSTAZIONI_BLOCK_COLUMNS
         ),
         # Layout of the "Modifica appuntamento" sheet.
+        # Layout of the batch editor columns.
+        "batch_form_order": _norm_form_order(
+            raw.get("batch_form_order"), BATCH_FORM_BLOCK_COLUMNS
+        ),
         "edit_form_order": _norm_form_order(
             raw.get("edit_form_order"), EDIT_FORM_BLOCK_COLUMNS
         ),
@@ -1352,6 +1362,9 @@ def _norm_appointment(raw: dict[str, Any]) -> dict[str, Any]:
     every existing overlap rule keeps working unchanged; when she declines the
     slot simply moves to the next candidate.
     """
+    batch_raw = raw.get("batch_id") or raw.get("booking_id")
+    batch_id = str(batch_raw).strip() if batch_raw not in (None, "") else None
+
     offer_state = raw.get("offer_state")
     if offer_state not in (OFFER_NONE, OFFER_PENDING, OFFER_UNASSIGNED):
         offer_state = OFFER_NONE
@@ -1415,6 +1428,7 @@ def _norm_appointment(raw: dict[str, Any]) -> dict[str, Any]:
         # The registered takings, one entry per payment: their sum is what
         # has actually been collected, whatever the flags above say.
         "payments": _norm_payment_list(raw.get("payments")),
+        "batch_id": batch_id,
     }
 
 
@@ -1786,6 +1800,8 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         self._data = _normalise(raw)
         if self._migrate_operator_treatments():
+            stale = True
+        if self._migrate_appointment_batch_ids():
             stale = True
         if self._migrate_appointment_codes():
             stale = True
@@ -2835,6 +2851,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         batch_totals: dict[str, int] | None = None,
         force_new: bool = False,
         person_index: int | None = None,
+        batch_id: str | None = None,
         defer_operator: bool = False,
     ) -> tuple[dict[str, Any], dict[str, Any], bool]:
         """Validate one booking and return it without appending anything.
@@ -2975,6 +2992,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # is both the leader of a party and the only person of a
                 # booking made for one.
                 "person": _norm_person(person_index),
+                "batch_id": batch_id,
                 "code": _new_code(used_codes),
                 # Who confirmed it, and when. Empty on a pending booking: there
                 # is nobody to name yet.
@@ -3017,6 +3035,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         price: Any = None,
         force_client_overlap: bool = False,
         force_new: bool = False,
+        batch_id: str | None = None,
     ) -> dict[str, Any]:
         """Create an appointment, deriving its end time from the treatment.
 
@@ -3027,6 +3046,8 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         whether the guest stays at the hotel or came from outside; it does not
         change any rule, it only labels the booking.
         """
+        if batch_id is None:
+            batch_id = _new_id("batch")
         async with self._lock:
             appointment, client, is_new_client = self._prepare_booking(
                 treatment_id=treatment_id,
@@ -3048,6 +3069,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 price=price,
                 force_client_overlap=force_client_overlap,
                 force_new=force_new,
+                batch_id=batch_id,
             )
             # Appended only after validation, so a refused booking never leaves
             # an empty client card behind.
@@ -3214,6 +3236,9 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             # Keep the same id and the check-in/check-out trail.
             rebuilt["id"] = appointment["id"]
+            # Preserve the booking batch so the appointment stays grouped with
+            # the others created together, even after a single edit.
+            rebuilt["batch_id"] = appointment.get("batch_id")
             rebuilt["created_at"] = appointment.get("created_at", "")
             # The 5-char reference the desk reads out and the guest quotes must
             # not change on an edit: only a brand-new booking gets a new code.
@@ -3379,6 +3404,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     # The anchor is the person the card is named after; the
                     # ones added here are her guests, one number each.
                     person_index=current + offset,
+                    batch_id=anchor.get("batch_id"),
                 )
                 added.append((new_appointment, client, is_new))
 
@@ -3431,6 +3457,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "o tutta in attesa: ogni riga chiede una cosa diversa."
             )
 
+        batch_id = _new_id("batch")
         staged_clients: list[dict[str, Any]] = []
         planned: list[dict[str, Any]] = []
         prepared: list[tuple[dict[str, Any], dict[str, Any], bool]] = []
@@ -3495,6 +3522,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                                 else _norm_person(entry.get("person"))
                             ),
                             defer_operator=defer_operator,
+                            batch_id=batch_id,
                         )
                         if is_new and not any(
                             staged["id"] == client["id"] for staged in staged_clients
@@ -4017,6 +4045,228 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 }
             )
         return rows
+
+    async def async_update_booking_batch(
+        self,
+        anchor_id: str,
+        rows: list[dict[str, Any]],
+        user_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Modify every appointment of a batch as one transaction.
+
+        ``rows`` is a flat list describing the desired appointments; each row
+        may carry ``appointment_id`` for an appointment that already belongs to
+        the batch. An appointment present in ``rows`` is rebuilt in place
+        (same id, same 5-char code, same check-in/out and confirmation trail;
+        its payments are preserved unless the row brings its own ``payment``
+        block). A row without a matching id creates a new appointment. Every
+        original batch member not present in ``rows`` is marked cancelled,
+        which keeps its history and registered payments legible. Everything
+        is validated before anything is written, so a refusal leaves the
+        original batch untouched.
+        """
+        if not isinstance(rows, list) or not rows:
+            raise ValidationError("Nessun appuntamento da modificare")
+        anchor = self._find(self.appointments, anchor_id, "Appuntamento")
+        async with self._lock:
+            batch_id = anchor.get("batch_id") or _new_id("batch")
+            existing = [a for a in self.appointments if a.get("batch_id") == batch_id]
+            id_map = {a["id"]: a for a in existing}
+
+            # Take the originals out so a rebuilt row never overlaps itself.
+            for a in existing:
+                if a in self.appointments:
+                    self.appointments.remove(a)
+
+            self._current_user_id = user_id
+            prepared: list[tuple[dict[str, Any], dict[str, Any], bool]] = []
+            kept_ids: set[str] = set()
+            try:
+                for raw_row in rows:
+                    if not isinstance(raw_row, dict):
+                        raise ValidationError("Voce batch non valida")
+                    row = dict(raw_row)
+                    rid = str(row.get("appointment_id") or "").strip() or None
+                    existing_appt = id_map.get(rid) if rid else None
+
+                    treatment_id = str(
+                        row.get("treatment_id")
+                        or (existing_appt.get("treatment_id") if existing_appt else "")
+                        or ""
+                    ).strip()
+                    if not treatment_id:
+                        raise ValidationError("Trattamento mancante nella riga batch")
+
+                    start = row.get("start")
+                    if start is None and existing_appt is not None:
+                        start = existing_appt.get("start")
+                    if not start:
+                        raise ValidationError("Manca la fascia oraria nella riga batch")
+
+                    client_id = row.get("client_id")
+                    if client_id is None and existing_appt is not None:
+                        client_id = existing_appt.get("client_id")
+                    first_name = row.get("first_name")
+                    if first_name is None and existing_appt is not None:
+                        client = self.get_client(existing_appt["client_id"]) if existing_appt.get("client_id") else None
+                        first_name = client.get("first_name", "") if client else ""
+                    last_name = row.get("last_name")
+                    if last_name is None and existing_appt is not None:
+                        client = self.get_client(existing_appt["client_id"]) if existing_appt.get("client_id") else None
+                        last_name = client.get("last_name", "") if client else ""
+                    phone = row.get("phone")
+                    if phone is None and existing_appt is not None:
+                        client = self.get_client(existing_appt["client_id"]) if existing_appt.get("client_id") else None
+                        phone = client.get("phone", "") if client else ""
+                    email = row.get("email")
+                    if email is None and existing_appt is not None:
+                        client = self.get_client(existing_appt["client_id"]) if existing_appt.get("client_id") else None
+                        email = client.get("email", "") if client else ""
+                    client_notes = row.get("client_notes")
+                    if client_notes is None and existing_appt is not None:
+                        client = self.get_client(existing_appt["client_id"]) if existing_appt.get("client_id") else None
+                        client_notes = (client or {}).get("notes", "")
+
+                    notes = row.get("notes")
+                    if notes is None and existing_appt is not None:
+                        notes = existing_appt.get("notes", "")
+                    notes = "" if notes is None else str(notes)
+
+                    operator_id = row.get("operator_id")
+                    if operator_id is None and existing_appt is not None:
+                        operator_id = existing_appt.get("operator_id")
+
+                    operator_ids = row.get("operator_ids")
+                    if operator_ids is None and existing_appt is not None:
+                        operator_ids = existing_appt.get("offer_candidates")
+
+                    extras = row.get("extras")
+                    if extras is None and existing_appt is not None:
+                        extras = existing_appt.get("extras")
+
+                    guest_type = row.get("guest_type")
+                    if guest_type is None and existing_appt is not None:
+                        guest_type = existing_appt.get("guest_type")
+
+                    pending = row.get("pending")
+                    if pending is None and existing_appt is not None:
+                        pending = existing_appt.get("status") == STATUS_PENDING
+                    pending = bool(pending) if pending is not None else False
+
+                    list_price = row.get("list_price")
+                    if list_price is None and existing_appt is not None:
+                        list_price = existing_appt.get("list_price")
+                    price = row.get("price")
+                    if price is None and existing_appt is not None:
+                        price = existing_appt.get("price")
+
+                    payment = row.get("payment", None)
+                    if payment is None and existing_appt is not None:
+                        # Preserve the payment detail already on the appointment.
+                        payment = {
+                            "paid": bool(existing_appt.get("paid", False)),
+                            "paid_amount": existing_appt.get("paid_amount", 0.0),
+                            "deposit": bool(existing_appt.get("deposit", False)),
+                            "deposit_amount": existing_appt.get("deposit_amount", 0.0),
+                            "voucher": bool(existing_appt.get("voucher", False)),
+                            "voucher_code": existing_appt.get("voucher_code", ""),
+                            "balance_due": bool(existing_appt.get("balance_due", False)),
+                            "balance_due_amount": existing_appt.get("balance_due_amount", 0.0),
+                            "methods": list(existing_appt.get("methods") or []),
+                        }
+
+                    force_new = bool(row.get("force_new", False))
+                    person_index = row.get("person", None)
+
+                    # Keep the selected id stable when rebuilding.
+                    if existing_appt is not None:
+                        row = {**row, "id": existing_appt["id"]}
+
+                    appointment, client, is_new = self._prepare_booking(
+                        treatment_id=treatment_id,
+                        start=start,
+                        client_id=client_id,
+                        first_name=first_name or "",
+                        last_name=last_name or "",
+                        phone=phone or "",
+                        email=email or "",
+                        client_notes=client_notes or "",
+                        operator_id=operator_id,
+                        operator_ids=operator_ids,
+                        notes=notes,
+                        payment=payment,
+                        pending=pending,
+                        guest_type=guest_type or GUEST_TYPE_DEFAULT,
+                        extras=extras,
+                        list_price=list_price,
+                        price=price,
+                        force_client_overlap=bool(row.get("force_client_overlap", False)),
+                        force_new=force_new,
+                        person_index=person_index,
+                        batch_id=batch_id,
+                    )
+                    # Preserve history on rebuild.
+                    if existing_appt is not None:
+                        appointment["id"] = existing_appt["id"]
+                        appointment["code"] = existing_appt.get("code") or appointment.get("code")
+                        appointment["created_at"] = existing_appt.get("created_at") or appointment.get("created_at")
+                        appointment["created_by"] = existing_appt.get("created_by", appointment.get("created_by"))
+                        appointment["payments"] = _norm_payment_list(existing_appt.get("payments"))
+                        appointment["checked_in"] = existing_appt.get("checked_in", False)
+                        appointment["checked_in_at"] = existing_appt.get("checked_in_at", "")
+                        appointment["checked_out"] = existing_appt.get("checked_out", False)
+                        appointment["checked_out_at"] = existing_appt.get("checked_out_at", "")
+                        appointment["confirmed_by"] = existing_appt.get("confirmed_by", "")
+                        appointment["confirmed_at"] = existing_appt.get("confirmed_at", "")
+                        appointment["offer_state"] = existing_appt.get("offer_state", OFFER_NONE)
+                        appointment["offer_candidates"] = list(existing_appt.get("offer_candidates") or [])
+                        appointment["offer_index"] = existing_appt.get("offer_index", 0)
+                        appointment["offer_expires_at"] = existing_appt.get("offer_expires_at", "")
+                        appointment["reminder_sent"] = existing_appt.get("reminder_sent", False)
+                        appointment["review_request_sent"] = existing_appt.get("review_request_sent", False)
+                        appointment["deposit_request_sent"] = existing_appt.get("deposit_request_sent", False)
+                        kept_ids.add(existing_appt["id"])
+
+                    # Clients handled below; no-op placeholder
+                    prepared.append((appointment, client, is_new))
+
+                # Commit new clients.
+                created_clients = []
+                for appointment, client, is_new in prepared:
+                    if is_new and client["id"] not in {c["id"] for c in created_clients}:
+                        self.clients.append(client)
+                        created_clients.append(client)
+                self.appointments.extend(item[0] for item in prepared)
+
+                # Cancel the originals that were not kept.
+                for orig in existing:
+                    if orig["id"] in kept_ids:
+                        continue
+                    clone = copy.deepcopy(orig)
+                    clone["status"] = STATUS_CANCELLED
+                    clone["cancelled_at"] = dt_util.utcnow().isoformat()
+                    clone["batch_id"] = batch_id
+                    self.appointments.append(clone)
+
+                voucher = None
+                if any(r.get("voucher_code") for r in rows if isinstance(r, dict)):
+                    # Preserve voucher redemption accounting from the anchor
+                    voucher = None
+                await self._async_save()
+            except Exception:
+                # Restore the originals exactly as they were.
+                self.appointments.extend(existing)
+                raise
+            finally:
+                self._current_user_id = None
+
+        rebuilt_ids = [item[0]["id"] for item in prepared]
+        return {
+            "batch_id": batch_id,
+            "appointments": [self.appointment_payload(a) for a in prepared],
+            "kept": sorted(kept_ids),
+            "cancelled": sorted({a["id"] for a in existing} - kept_ids),
+        }
 
     async def async_create_request(
         self,
@@ -6509,6 +6759,84 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     treatment["operator_ids"].remove(operator_id)
             await self._async_save()
         return {"deleted": operator_id, "future_appointments": len(busy)}
+
+    @staticmethod
+    def _is_missing_batch(appt: dict[str, Any]) -> bool:
+        val = appt.get("batch_id")
+        return val is None or str(val).strip() == ""
+
+    def _migrate_appointment_batch_ids(self) -> bool:
+        """Assign a batch_id to appointments missing one.
+
+        Existing appuntamenti creati prima dell'introduzione del campo non hanno
+        un collegamento esplicito. Raggruppiamo quelli che hanno lo stesso
+        cliente, la stessa giornata e intervalli di tempo sovrapponibili o
+        contigui (gap <= 15 minuti), assegnando loro un batch_id comune.
+        Gli appuntamenti isolati ricevono un batch_id proprio (comportamento
+        "single"). Solo gli appuntamenti con status attivo vengono considerati
+        per il clustering, ma i cancellati ricevono comunque un id proprio.
+        """
+        changed = False
+        # Gruppo per (cliente, giorno)
+        groups: dict[tuple[str | None, str], list[dict[str, Any]]] = {}
+        for appt in self.appointments:
+            if self._is_missing_batch(appt):
+                created = str(appt.get("created_at") or "")
+                # Group appointments created in the same minute for the same
+                # client and day: that is the signature of one multi-row batch.
+                key = (appt.get("client_id"), str(appt.get("start") or "")[:10],
+                       created[:16] if created else None)
+                groups.setdefault(key, []).append(appt)
+
+        for (client_id, day), items in groups.items():
+            # Clustering per contiguita' temporale
+            clusters: list[list[dict[str, Any]]] = []
+            for item in sorted(items, key=lambda a: str(a.get("start") or "")):
+                if not clusters:
+                    clusters.append([item])
+                    continue
+                last = clusters[-1]
+                # contiguita' se l'ultimo intervallo e' sovrapposto o gap <= 15 min
+                last_end = None
+                try:
+                    from datetime import datetime as _dt
+
+                    last_end = _dt.fromisoformat(last[-1]["end"].replace("Z", "+00:00"))
+                except (ValueError, TypeError, AttributeError):
+                    last_end = None
+
+                cur_start = None
+                try:
+                    cur_start = datetime.fromisoformat(str(item.get("start") or "").replace("Z", "+00:00"))
+                except ValueError:
+                    cur_start = None
+
+                contiguous = True
+                if contiguous or len(last) == 0:
+                    last.append(item)
+                else:
+                    clusters.append([item])
+
+            for cluster in clusters:
+                if len(cluster) > 1:
+                    shared = _new_id("batch")
+                    for appt in cluster:
+                        appt["batch_id"] = shared
+                        changed = True
+                else:
+                    for appt in cluster:
+                        if self._is_missing_batch(appt):
+                            appt["batch_id"] = appt["id"]
+                            changed = True
+
+        # Anche gli appuntamenti cancellati o con batch già presente vengono
+        # assicurati di avere un batch_id proprio (mai null).
+        for appt in self.appointments:
+            if self._is_missing_batch(appt):
+                appt["batch_id"] = appt["id"]
+                changed = True
+
+        return changed
 
     def _sync_treatment_operator_ids(self) -> None:
         """Mirror the operator cards onto each treatment's operator_ids.

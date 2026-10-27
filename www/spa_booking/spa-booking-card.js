@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.0.0";
+const CARD_VERSION = "2.0.5";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -605,6 +605,15 @@ class SpaBookingCard extends HTMLElement {
 
     // Which appointment the detail popup is showing, if any.
     this._detailId = null;
+    // Which detail view the popup is in: 'single' or 'grouped'
+    this._detailView = 'single';
+    this._batchEditing = false;
+    this._batchAnchorId = null;
+    this._batchAnchorBatchId = null;
+    this._batchRows = [];
+    this._batchBusy = false;
+    this._batchEditMode = false;
+    this._batchFormMode = false;
     // The Escape handler, once connectedCallback has bound it. Declared here so
     // it is null before binding and null again after unbinding, rather than
     // undefined in one case and null in the other.
@@ -1653,10 +1662,11 @@ class SpaBookingCard extends HTMLElement {
               extras: person.extras || [],
               // Per-row agreed prices, both editable from the Totali box.
               // Null means catalogue price: the backend falls back to it.
+              ...(treat.appointment_id ? { appointment_id: treat.appointment_id } : {}),
               ...(treat.list_price != null ? { list_price: treat.list_price } : {}),
               ...(treat.price != null ? { price: treat.price } : {}),
               ...(treat.operator_id ? { operator_id: treat.operator_id } : {}),
-              ...(this._paymentData() ? { payment: this._paymentData() } : {}),
+              ...(this._batchEditing ? {} : (this._paymentData() ? { payment: this._paymentData() } : {})),
               ...clients,
               // Which person of the party this row is: 0 is the one written on
               // the card (the leader), 1.. are her guests. The backend uses this
@@ -2466,6 +2476,9 @@ class SpaBookingCard extends HTMLElement {
   _renderAgenda() {
     // Editing one appointment takes over the whole tab: the editor replaces
     // the bar too, so nothing can switch the page away from it.
+    if (this._batchEditing) {
+      return this._renderEditBatch();
+    }
     if (this._editing && this._editing.kind === "appointment") {
       return this._renderEditAppointment();
     }
@@ -2985,6 +2998,13 @@ class SpaBookingCard extends HTMLElement {
             el("div", { class: "detail-rows" }, rows.filter(Boolean)))
         : null;
 
+    // Which view the popup is rendering right now drives the totals and the
+    // (optional) grouped listing below. "single" keeps the existing
+    // one-appointment behaviour; "grouped" sums every related appointment.
+    const grouped = this._detailView === "grouped";
+    const related = this._relatedOf(appointment);
+    const groupTotals = grouped ? this._relatedTotals(appointment) : null;
+
     // The agreed price of this person, per head: a group charges it once per
     // person, so the total below is the count times this figure.
     const own = this._lineBreakdown(appointment);
@@ -3006,6 +3026,17 @@ class SpaBookingCard extends HTMLElement {
           el("div", { class: "detail-title" }, this._clientName(appointment)),
           el("div", { class: "detail-sub" },
             `${this._treatmentName(appointment)} · ${longDay(start)}`)),
+        el("div", { class: "detail-toggle" },
+          el("button", {
+            class: `btn small ${this._detailView === "single" ? "active" : ""}`,
+            disabled: this._busy,
+            on: { click: () => { this._detailView = "single"; this._render(); } },
+          }, "Singolo"),
+          el("button", {
+            class: `btn small ${this._detailView === "grouped" ? "active" : ""}`,
+            disabled: this._busy,
+            on: { click: () => { this._detailView = "grouped"; this._render(); } },
+          }, "Raggruppato")),
         el("button", {
           class: "icon-btn",
           title: "Chiudi",
@@ -3185,8 +3216,11 @@ class SpaBookingCard extends HTMLElement {
     // new register instead: totals and takings with their payment ways. The
     // figures cover the whole party, takings included wherever they were
     // registered, so a two-people booking never reads a one-person total.
-    const { total, collected, due, persons } = this._appointmentTotals(appointment);
-    const takingRows = this._groupOf(appointment).flatMap((member) =>
+    const totals = grouped
+      ? this._relatedTotals(appointment)
+      : (related.length > 1 ? this._appointmentTotals(appointment) : this._singleTotals(appointment));
+    const { total, collected, due, persons } = totals;
+    const takingRows = (grouped ? related : (related.length > 1 ? this._groupOf(appointment) : [appointment])).flatMap((member) =>
       (member.payments || []).map((item) => {
         const method = PAYMENT_METHODS.find(({ id }) => id === item.method) || {};
         return this._detailLine(
@@ -3195,16 +3229,47 @@ class SpaBookingCard extends HTMLElement {
       }));
     sheet.appendChild(
       section(
-        "Totali e incassi",
+        grouped ? "Totali gruppo" : "Totali e incassi",
+        related.length > 1
+          ? this._detailLine("Appuntamenti nel gruppo", String(related.length))
+          : null,
         persons > 1
           ? this._detailLine("Persone", String(persons))
           : null,
-        this._detailLine("Totale", euro(total), due <= 0 ? "ok" : "due"),
+        this._detailLine(grouped ? "Totale gruppo" : "Totale", euro(total), due <= 0 ? "ok" : "due"),
         ...(takingRows.length ? takingRows : [this._detailLine("Incassi", "nessun incasso")]),
         this._detailLine("Totale incassato", euro(collected), collected > 0 ? "ok" : null),
         this._detailLine("Totale da incassare", euro(due), due > 0 ? "due" : "ok")
       )
     );
+
+    if (grouped && related.length > 1) {
+      const listEl = el("div", { class: "detail-group-list" });
+      related.forEach((member) => {
+        const startM = parseDate(member.start);
+        const endM = parseDate(member.end);
+        const priceM = this._lineBreakdown(member).price;
+        const bits = [
+          `${timeOf(startM)}-${timeOf(endM)} ${this._treatmentName(member)}`,
+        ];
+        if (member.client_id && member.client_id !== appointment.client_id) bits.push(` (${this._clientName(member)})`);
+        if (priceM > 0) bits.push(` - ${euro(priceM)}`);
+        if (member.status === "pending") bits.push(" (in attesa)");
+        if (member.status === "cancelled") bits.push(" (annullato)");
+        const row = el("div", { class: "detail-line" }, bits.join(""));
+        const editable = this._can("book") && member.status !== "cancelled";
+        if (editable) {
+          row.appendChild(el("button", {
+            class: "btn small",
+            title: "Modifica questo sotto-appuntamento",
+            disabled: this._busy,
+            on: { click: (event) => { event.stopPropagation(); this._closeAnd(() => this._openEditAppointment(member)); } },
+          }, el("ha-icon", { icon: "mdi:pencil" }), el("span", { class: "btn-label" }, "Modifica")));
+        }
+        listEl.appendChild(row);
+      });
+      add(sheet, section("Appuntamenti del gruppo", listEl));
+    }
 
     const clientRows = [];
     if (client && client.phone) {
@@ -3230,6 +3295,14 @@ class SpaBookingCard extends HTMLElement {
     // The same actions as on the row, so the popup is a shortcut and not a
     // second, different way of working.
     const actions = el("div", { class: "detail-actions" });
+    if (grouped && related.length > 1 && this._can("book")) {
+      actions.appendChild(el("button", {
+        class: "btn primary",
+        disabled: this._busy,
+        on: { click: () => this._closeAnd(() => this._openEditBatch(appointment)) },
+      }, el("ha-icon", { icon: "mdi:pencil-box-multiple" })),
+      el("span", { class: "btn-label" }, "Modifica gruppo"));
+    }
     const phone = client ? client.phone : "";
     const whatsapp = waLink(phone);
     // Management buttons follow the same rule as the row: operators and above.
@@ -3374,6 +3447,7 @@ class SpaBookingCard extends HTMLElement {
    */
   _openDetail(appointment) {
     this._detailId = appointment.id;
+    this._detailView = "single";
     this._render();
   }
 
@@ -3848,6 +3922,303 @@ class SpaBookingCard extends HTMLElement {
     this._render();
   }
 
+
+  _openEditBatch(appointment) {
+    // Build a populated Nuovo-form starting from the existing batch so the
+    // receiver can edit everything people/treatments/time/operator/price/notes
+    // with the same draggable two-column UI as a fresh booking.
+    const related = this._relatedOf(appointment).filter((a) => a.status !== "cancelled");
+    const anchor = related[0] || appointment;
+    const sharedClients = [...new Set(related.map((a) => a.client_id).filter(Boolean))];
+    const leaderClient = sharedClients.length ? this._lookup.client.get(sharedClients[0]) : null;
+
+    const defaultPerson = { uid: this._uid(), person: 0, treatments: [], extras: [], first_name: "", last_name: "", phone: "", email: "" };
+    const byPerson = new Map();
+    for (const appt of related) {
+      const pidx = appt.person != null ? Number(appt.person) : 0;
+      if (!byPerson.has(pidx)) {
+        byPerson.set(pidx, {
+          uid: this._uid(),
+          person: pidx,
+          treatments: [],
+          extras: appt.extras || [],
+        });
+      }
+      const p = byPerson.get(pidx);
+      const tr = (appt.treatment_id && this._lookup.treatment.get(appt.treatment_id)) || null;
+      const catalogue = tr && tr.price != null ? Number(tr.price) || 0 : 0;
+      p.treatments.push({
+        uid: this._uid(),
+        treatment_id: appt.treatment_id,
+        time: timeOf(parseDate(appt.start)),
+        list_price: appt.list_price != null ? appt.list_price : catalogue,
+        price: appt.price != null ? appt.price : (appt.list_price != null ? appt.list_price : catalogue),
+        operator_id: appt.operator_id || "",
+        extras: [],
+        appointment_id: appt.id,
+        force_new: false,
+      });
+    }
+    const persons = [...byPerson.values()];
+    if (!persons.length) {
+      persons.push({ uid: this._uid(), person: 0, treatments: [], extras: [] });
+    }
+
+    this._form = {
+      treatment_id: "",
+      operator_id: "",
+      date: related.length ? ymd(parseDate(related[0].start)) : todayStr(),
+      time: related.length ? timeOf(parseDate(related[0].start)) : "10:00",
+      client_mode: "existing",
+      client_id: (related[0] && related[0].client_id) || "",
+      client_query: "",
+      client_results: null,
+      first_name: leaderClient ? (leaderClient.first_name || "") : "",
+      last_name: leaderClient ? (leaderClient.last_name || "") : "",
+      phone: leaderClient ? (leaderClient.phone || "") : "",
+      email: leaderClient ? (leaderClient.email || "") : "",
+      client_notes: leaderClient ? (leaderClient.notes || "") : "",
+      notes: related.length ? (related[0].notes || "") : "",
+      treatments: [],
+      payment: {
+        paid: false, paid_amount: "", deposit: false, deposit_amount: "",
+        voucher: false, voucher_code: "", balance_due: false, balance_due_amount: "",
+        methods: [],
+      },
+      pending: related.length ? related[0].status === "pending" : false,
+      guest_type: (related.length && related[0].guest_type) || GUEST_DEFAULT,
+      extras: [],
+      people: persons.length,
+      persons: persons,
+      new_client: false,
+      stagedPayments: [],
+      _batchEditing: true,
+    };
+
+    this._batchEditing = true;
+    this._batchEditMode = false;
+    this._batchAnchorId = appointment.id;
+    this._batchAnchorBatchId = appointment.batch_id || appointment.id;
+    this._batchRows = related.map((m) => ({ appointment_id: m.id, _deleted: false }));
+    this._formEditMode = false;
+    this._tab = "nuovo";
+    this._nuovoTab = "appuntamento";
+    this._render();
+  }
+
+  _renderEditBatch() {
+    const anchor = this._lookup.appointment.get(this._batchAnchorId) || {};
+    const treatments = this._activeTreatments();
+    const rows = this._batchRows;
+
+    const treatmentOptions = () => null;
+
+    const rowCard = (row, index) => {
+      if (row._deleted) return null;
+      const box = el("div", { class: "session-card-batch" });
+      // Trattamento
+      const treatmentSelect = el("select", {
+        class: "input",
+        on: { change: (event) => { row.treatment_id = event.target.value; this._render(); } },
+      });
+      treatmentSelect.appendChild(el("option", { value: "" }, "— Scegli il trattamento —"));
+      const categories = [...this._data.categories].sort((a, b) => a.name.localeCompare(b.name));
+      const grouped = new Map();
+      treatments.forEach((t) => {
+        if (t.category_id && this._lookup.category.has(t.category_id)) {
+          if (!grouped.has(t.category_id)) grouped.set(t.category_id, []);
+          grouped.get(t.category_id).push(t);
+        } else {
+          grouped.set("__none__", [...(grouped.get("__none__") || []), t]);
+        }
+      });
+      [...categories, { id: "__none__", name: "Senza categoria" }].forEach((category) => {
+        const list = grouped.get(category.id) || [];
+        if (!list.length) return;
+        const optgroup = el("optgroup", { label: category.name });
+        list.forEach((treatment) =>
+          optgroup.appendChild(el("option", { value: treatment.id, selected: row.treatment_id === treatment.id }, treatment.name))
+        );
+        treatmentSelect.appendChild(optgroup);
+      });
+      box.appendChild(treatmentSelect);
+
+      // Data + orario
+      const start = row.start || "";
+      const day = start.split("T")[0] || todayStr();
+      const time = (start.split("T")[1] || "10:00").slice(0, 5);
+      const dateInput = el("input", { class: "input", type: "date", value: day,
+        on: { change: (event) => {
+          const d = event.target.value || todayStr();
+          const t = ((row.start || "").split("T")[1] || "10:00").slice(0, 5);
+          row.start = `${d}T${t}`; this._render();
+        } } });
+      const timeInput = el("input", { class: "input", type: "time", value: time,
+        on: { change: (event) => { const d = (row.start || "").split("T")[0] || todayStr(); row.start = `${d}T${(event.target.value || "10:00")}`; this._render(); } } });
+      box.appendChild(dateInput);
+      box.appendChild(timeInput);
+
+      // Operatore
+      const operatorSelect = el("select", {
+        class: "input",
+        on: { change: (event) => { row.operator_id = event.target.value || ""; } },
+      });
+      operatorSelect.appendChild(el("option", { value: "" }, "— Nessun operatore —"));
+      this._data.operators.forEach((operator) =>
+        operatorSelect.appendChild(el("option", { value: operator.id, selected: row.operator_id === operator.id }, operator.name))
+      );
+      box.appendChild(operatorSelect);
+
+      // Prezzi
+      const listPriceInput = el("input", { class: "input", type: "number", step: "0.01", value: row.list_price != null ? row.list_price : "" ,
+        on: { input: (event) => { const v = event.target.value; row.list_price = v === "" ? null : Number(v); } } });
+      const priceInput = el("input", { class: "input", type: "number", step: "0.01", value: row.price != null ? row.price : "" ,
+        on: { input: (event) => { const v = event.target.value; row.price = v === "" ? null : Number(v); } } });
+      box.appendChild(listPriceInput);
+      box.appendChild(priceInput);
+
+      // Note
+      box.appendChild(el("textarea", { class: "input", rows: "2", value: row.notes || "",
+        on: { input: (event) => { row.notes = event.target.value; } } }));
+
+      // Pagamenti read-only
+      const oldAppointment = row.appointment_id ? this._lookup.appointment.get(row.appointment_id) : null;
+      if (oldAppointment && (oldAppointment.payments || []).length) {
+        const paying = (oldAppointment.payments || []).map((item) => {
+          const m = PAYMENT_METHODS.find(({ id }) => id === item.method) || {};
+          return `${m.label || item.method}: ${euro(item.amount)} (${item.date || "—"})`;
+        }).join(", ");
+        box.appendChild(el("div", { class: "hint" }, `Incassi registrati: ${paying}`));
+      }
+
+      box.appendChild(el("button", {
+        class: "btn danger small",
+        disabled: this._batchBusy,
+        on: { click: () => { row._deleted = true; this._render(); } },
+      }, el("ha-icon", { icon: "mdi:delete" }), el("span", { class: "btn-label" }, "Rimuovi")));
+
+      return box;
+    };
+
+    const wrap = el("div", {
+      class: "stack form-compact" + (this._batchFormMode ? " form-edit" : ""),
+    });
+
+    // Header with pencil toggle for drag mode
+    const head = el("div", { class: "row" },
+      el("h3", {}, `Modifica gruppo (${this._batchRows.filter((r) => !r._deleted).length} attive)`),
+      el("div", { class: "spacer" }));
+    if (this._batchFormMode) {
+      head.appendChild(this._colChooser("batch"));
+      head.appendChild(
+        el("div", { class: "spa-head-actions" },
+          el("button", {
+            class: "btn primary small",
+            title: "Fine modifica",
+            on: { click: () => { this._batchFormMode = false; this._render(); } },
+          }, el("ha-icon", { icon: "mdi:check" }))
+        )
+      );
+    } else {
+      head.appendChild(
+        el("button", {
+          class: "icon-btn",
+          title: "Modifica ordine box",
+          on: { click: () => { this._batchFormMode = true; this._render(); } },
+        }, el("ha-icon", { icon: "mdi:pencil" })));
+    }
+    head.appendChild(el("button", {
+      class: "icon-btn",
+      title: "Chiudi",
+      on: { click: () => { this._batchEditing = false; this._batchRows = []; this._render(); } },
+    }, el("ha-icon", { icon: "mdi:close" })));
+    wrap.appendChild(head);
+
+    const columns = this._colsGrid("form");
+    const left = el("div", { class: "stack tight form-col", "data-col": "left" });
+    const right = el("div", { class: "stack tight form-col", "data-col": "right" });
+
+    const rowsContent = el("div", { class: "stack tight" });
+    this._batchRows.forEach((row, index) => {
+      if (row._deleted) return;
+      add(rowsContent, rowCard(row, index));
+    });
+
+    const totalsContent = el("div", { class: "stack tight" });
+    const groupedTotals = this._relatedTotals(this._lookup.appointment.get(this._batchAnchorId) || {});
+    totalsContent.appendChild(el("div", { class: "detail-line" }, "Totale gruppo", euro(groupedTotals.total), "ok"));
+    totalsContent.appendChild(el("div", { class: "detail-line" }, "Persone", String(groupedTotals.persons)));
+    totalsContent.appendChild(el("div", { class: "detail-line" }, "Incassato", euro(groupedTotals.collected), "ok"));
+    totalsContent.appendChild(el("div", { class: "detail-line" }, "Da incassare", euro(groupedTotals.due), "due"));
+
+    const incassiContent = el("div", { class: "stack tight" });
+    const anchorAppointment = this._lookup.appointment.get(this._batchAnchorId);
+    const groupMembers = this._relatedOf(anchorAppointment || {});
+    const allTakingRows = groupMembers.flatMap((member) =>
+      (member.payments || []).map((item) => {
+        const method = PAYMENT_METHODS.find(({ id }) => id === item.method) || {};
+        return el("div", { class: "detail-line" }, method.label || item.method, `${item.date || "—"} · ${euro(item.amount)}`);
+      }));
+    if (allTakingRows.length) {
+      allTakingRows.forEach((row) => add(incassiContent, row));
+    } else {
+      add(incassiContent, el("div", { class: "hint" }, "Nessun incasso registrato"));
+    }
+
+    const noteContent = el("div", { class: "stack tight" });
+    noteContent.appendChild(el("div", { class: "hint" }, "Le note delle righe singole si modificano in ciascuna scheda."));
+
+    const allBlocks = [
+      { id: "righe", content: rowsContent },
+      { id: "note", content: noteContent },
+      { id: "totali", content: totalsContent },
+      { id: "incassi", content: incassiContent },
+    ];
+
+    allBlocks.forEach(({ id, content }) => {
+      if (this._batchFormMode) {
+        const target = this._batchFormOrder("left").includes(id) ? left : right;
+        add(target, this._batchSection(id, content));
+      } else {
+        // Default layout: righe + note left, totali + incassi right
+        if (id === "righe") add(left, content);
+        if (id === "note") add(right, content);
+        if (id === "totali") add(right, content);
+        if (id === "incassi") add(left, content);
+      }
+    });
+
+    columns.appendChild(left);
+    columns.appendChild(right);
+    wrap.appendChild(columns);
+
+    return wrap;
+  }
+
+
+  async _saveBatchEdit() {
+    try {
+      this._batchBusy = true;
+      this._render();
+      const rows = this._bookingRows().map((row) => ({ ...row, batch_id: this._batchAnchorBatchId }));
+      await this._call("update_booking_batch", {
+        appointment_id: this._batchAnchorId,
+        rows,
+      });
+      this._batchEditing = false;
+      this._batchAnchorId = null;
+      this._batchAnchorBatchId = null;
+      this._batchRows = [];
+      this._tab = "agenda";
+      this._message = { kind: "ok", text: "Gruppo aggiornato." };
+    } catch (error) {
+      /* message shown by _call */
+    } finally {
+      this._batchBusy = false;
+      this._render();
+    }
+  }
+
   async _confirmDeleteClient(client) {
     const label = [client.first_name, client.last_name].filter(Boolean).join(" ") || client.phone || "senza nome";
     const guard = this._clientAppointments(client.id).filter(
@@ -3972,15 +4343,23 @@ class SpaBookingCard extends HTMLElement {
     states.forEach((person) => {
       count += this._treatmentsOf(person).filter((treat) => treat.treatment_id).length;
     });
+    const isBatchEditing = !!this._batchEditing;
     wrap.appendChild(
       el("div", { class: "row" },
         el("button", {
           class: "btn primary",
           disabled: this._busy || !count,
-          on: { click: () => this._createBookings() },
-        }, el("ha-icon", { icon: "mdi:check" }),
-          count === 1 ? "Crea appuntamento" : `Crea ${count} appuntamenti`),
-        el("button", { class: "btn", disabled: this._busy, on: { click: () => this._clearForm() } }, "Pulisci")
+          on: { click: () => isBatchEditing ? this._saveBatchEdit() : this._createBookings() },
+        }, el("ha-icon", { icon: "mdi:check" }), isBatchEditing
+            ? `Salva modifiche al gruppo (${count})`
+            : (count === 1 ? "Crea appuntamento" : `Crea ${count} appuntamenti`)),
+        el("button", {
+          class: "btn",
+          disabled: this._busy,
+          on: { click: () => isBatchEditing
+            ? (this._batchEditing = false, this._batchRows = [], this._batchAnchorId = null, this._batchAnchorBatchId = null, this._render())
+            : this._clearForm() },
+        }, "Annulla")
       )
     );
 
@@ -4271,7 +4650,7 @@ class SpaBookingCard extends HTMLElement {
     head.appendChild(
       el("div", { class: "spa-head-title" },
         el("ha-icon", { icon: "mdi:calendar-plus" }),
-        el("span", {}, this._formEditMode ? "Modifica scheda" : "Nuovo appuntamento"))
+        el("span", {}, this._batchEditing ? "Modifica gruppo" : (this._formEditMode ? "Modifica scheda" : "Nuovo appuntamento")))
     );
     if (this._formEditMode) {
       head.appendChild(
@@ -13374,6 +13753,65 @@ _renderClients() {
         other.start === appointment.start &&
         (other.operator_id || null) === (appointment.operator_id || null)
     );
+  }
+
+  _relatedOf(appointment) {
+    if (!appointment) return [appointment];
+    const candidates = (this._data.appointments || []).filter((a) => a.status !== "cancelled");
+
+    const targetDate = String(appointment.start || "").slice(0, 10);
+    // Vista Raggruppata: mostra **tutti gli appuntamenti attivi** dello stesso
+    // cliente nella stessa giornata (massaggi e spa, mattina e pomeriggio).
+    // Questo include gli appuntamenti legati al batch e quelli legacy.
+    const perClientDay = candidates.filter((a) =>
+      a.client_id === appointment.client_id &&
+      String(a.start || "").slice(0, 10) === targetDate
+    );
+    if (perClientDay.length > 1) {
+      return perClientDay.sort((a, b) => parseDate(a.start) - parseDate(b.start));
+    }
+    // Fallback: batch_id se esiste ed ha almeno un collegamento
+    if (appointment.batch_id) {
+      const byBatch = candidates.filter((a) => a.batch_id === appointment.batch_id);
+      if (byBatch.length > 1) {
+        return byBatch.sort((a, b) => parseDate(a.start) - parseDate(b.start));
+      }
+    }
+    return [appointment];
+  }
+
+  _relatedTotals(appointment) {
+    const related = this._relatedOf(appointment);
+    const people = related.filter((a) => a.status === "confirmed" || a.status === "pending");
+    const source = people.length ? people : [appointment];
+    let price = 0;
+    let extras = 0;
+    let collected = 0;
+    source.forEach((member) => {
+      const line = this._lineBreakdown(member);
+      price += line.price;
+      extras += line.extras;
+      collected += line.collected;
+    });
+    const total = Math.round((price + extras) * 100) / 100;
+    return {
+      total,
+      collected: Math.round(collected * 100) / 100,
+      due: Math.max(0, Math.round((total - collected) * 100) / 100),
+      persons: source.length,
+      members: related,
+    };
+  }
+
+  _singleTotals(appointment) {
+    const line = this._lineBreakdown(appointment);
+    const total = Math.round((line.price + line.extras) * 100) / 100;
+    return {
+      total,
+      collected: Math.round(line.collected * 100) / 100,
+      due: Math.max(0, Math.round((total - line.collected) * 100) / 100),
+      persons: 1,
+    };
   }
 
   /**

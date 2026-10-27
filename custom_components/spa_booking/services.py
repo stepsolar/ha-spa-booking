@@ -148,6 +148,7 @@ SERVICE_MARK_REQUESTS_SEEN = "mark_requests_seen"
 SERVICE_REGENERATE_PUBLIC_TOKEN = "regenerate_public_token"
 SERVICE_WEB_SNIPPET = "web_snippet"
 SERVICE_SEND_EXTERNAL_MESSAGE = "send_external_message"
+SERVICE_UPDATE_BOOKING_BATCH = "update_booking_batch"
 SERVICE_EXPORT_ALL = "export_all"
 SERVICE_IMPORT_ALL = "import_all"
 
@@ -221,6 +222,7 @@ ALL_SERVICES = (
     SERVICE_SEND_EXTERNAL_MESSAGE,
     SERVICE_EXPORT_ALL,
     SERVICE_IMPORT_ALL,
+    SERVICE_UPDATE_BOOKING_BATCH,
 )
 
 _CLIENT_FIELDS = {
@@ -288,6 +290,7 @@ CREATE_APPOINTMENT_SCHEMA = vol.Schema(
         vol.Optional("price"): vol.Any(vol.Coerce(float), None),
         #: The desk saw the overlap warning and books anyway: skips only the
         #: same-person client refusal, never an operator double-booking.
+        vol.Optional("batch_id"): vol.Any(cv.string, None),
         vol.Optional("force_client_overlap", default=False): cv.boolean,
     },
     extra=vol.PREVENT_EXTRA,
@@ -683,6 +686,14 @@ UPDATE_SETTINGS_SCHEMA = vol.Schema(
             },
             None,
         ),
+        # Batch editor sheet: its own block order.
+        vol.Optional("batch_form_order"): vol.Any(
+            {
+                vol.Optional("left"): vol.All(cv.ensure_list, [cv.string]),
+                vol.Optional("right"): vol.All(cv.ensure_list, [cv.string]),
+            },
+            None,
+        ),
         # Modifica appuntamento sheet: its own block order.
         vol.Optional("edit_form_order"): vol.Any(
             {
@@ -803,6 +814,7 @@ EXPORT_ALL_SCHEMA = vol.Schema({})
 
 IMPORT_DATA_SCHEMA = vol.Schema({vol.Required(ATTR_PAYLOAD): dict})
 IMPORT_ALL_SCHEMA = vol.Schema({vol.Required(ATTR_PAYLOAD): dict})
+UPDATE_BOOKING_BATCH_SCHEMA = vol.Schema({vol.Required("appointment_id"): cv.string, vol.Required(ATTR_ROWS): vol.All(cv.ensure_list, [dict])})
 
 EXPORT_CLIENTS_CSV_SCHEMA = vol.Schema({})
 
@@ -1083,6 +1095,7 @@ async def _async_create_appointment(call: ServiceCall) -> ServiceResponse:
         list_price=data.get("list_price"),
         price=data.get("price"),
         force_client_overlap=data.get("force_client_overlap", False),
+        batch_id=data.get("batch_id"),
     )
     return {"appointment": appointment}
 
@@ -1663,6 +1676,14 @@ async def _async_import_all(call: ServiceCall) -> ServiceResponse:
     return await _coordinator(call).async_import_data(call.data[ATTR_PAYLOAD])
 
 
+async def _async_update_booking_batch(call: ServiceCall) -> ServiceResponse:
+    """Update or rebuild a batch of appointments."""
+    data = call.data
+    return await _coordinator(call).async_update_booking_batch(
+        data["appointment_id"], data[ATTR_ROWS], call.context.user_id if call.context else None
+    )
+
+
 async def _async_export_clients_csv(call: ServiceCall) -> ServiceResponse:
     """Export the client list as a CSV string."""
     return {"csv": _coordinator(call).export_clients_csv()}
@@ -2005,6 +2026,11 @@ _HANDLERS: dict[str, tuple[Any, Any, SupportsResponse]] = {
     SERVICE_WEB_SNIPPET: (
         _async_web_snippet,
         WEB_SNIPPET_SCHEMA,
+        SupportsResponse.ONLY,
+    ),
+    SERVICE_UPDATE_BOOKING_BATCH: (
+        _async_update_booking_batch,
+        UPDATE_BOOKING_BATCH_SCHEMA,
         SupportsResponse.ONLY,
     ),
     SERVICE_SEND_EXTERNAL_MESSAGE: (
