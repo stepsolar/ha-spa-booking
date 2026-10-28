@@ -9805,8 +9805,7 @@ _renderClients() {
     const tile = el("div", {
       class:
         "spa-tile spa-tile--" + type +
-        (((domain === "light" || domain === "switch" || domain === "input_boolean" || domain === "fan") && active)
-          ? " on" : "") + (editing ? " editing" : ""),
+        ((state && state.state === "on") ? " on" : "") + (editing ? " editing" : ""),
       "data-card-type": type,
       "data-eid": id,
       style: "grid-column: span " + (item.span || 1) + ";",
@@ -15398,9 +15397,11 @@ _renderClients() {
       .spa-tile.editing { cursor: grab; }
       .spa-tile.dragging { opacity: .75; outline: 2px dashed var(--primary-color);
                             cursor: grabbing; z-index: 5; }
-      .spa-tile.on .spa-tile-icon { color: #ffc107; }
-      .spa-tile.on .spa-tile-icon ha-icon { color: #ffc107; }
-      .spa-tile.on .spa-tile-name { color: var(--primary-text-color); }
+      .spa-tile.on { background: #f6e05e !important; border-color: #d69e2e !important; }
+      .spa-tile.on .spa-tile-icon { color: #b7791f !important; }
+      .spa-tile.on .spa-tile-icon ha-icon { color: #b7791f !important; }
+      .spa-tile.on .spa-tile-name { color: #1a202c !important; font-weight: 700; }
+      .spa-tile.on .spa-tile-sub { color: #1a202c !important; }
       /* Phase 2: card types (visual variants) */
       /* Phase 2 stronger visuals */
       .spa-tile--button { justify-content: center; min-height: 74px; background: var(--secondary-background-color, #f1f3f5); }
