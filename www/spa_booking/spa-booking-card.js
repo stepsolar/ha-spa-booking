@@ -15401,7 +15401,7 @@ _renderClients() {
       .spa-tile.dragging { opacity: .75; outline: 2px dashed var(--primary-color);
                             cursor: grabbing; z-index: 5; }
       /* yellow più soft per le tile accese */
-      .spa-tile.on { background: #fff59d !important; border-color: #f9e79f !important; }
+      .spa-tile.on { background: linear-gradient(180deg, var(--card-background-color, #ffffff) 0%, #fff59d 200%) !important; border-color: #f9e79f !important; }
       .spa-tile.on .spa-tile-icon { color: #b7950b !important; }
       .spa-tile.on .spa-tile-icon ha-icon { color: #b7950b !important; }
       .spa-tile.on .spa-tile-name { color: #1a202c !important; font-weight: 700; }
@@ -15422,7 +15422,7 @@ _renderClients() {
       .spa-tile--button .spa-tile-name { font-weight: 700; font-size: 13px; margin-top: 4px; }
       .spa-tile--switch { cursor: pointer; background: linear-gradient(180deg, var(--card-background-color) 0%, var(--primary-color) 200%); }
       .spa-tile--switch .spa-tile-icon { color: var(--primary-color); }
-      .spa-tile--switch.on { background: #fff59d !important; }
+      .spa-tile--switch.on { background: linear-gradient(180deg, var(--card-background-color, #ffffff) 0%, #fff59d 200%) !important; }
       .spa-tile--switch.on .spa-tile-icon { color: #b7950b !important; }
       .spa-tile--climate { border: 2px solid var(--primary-color); padding-bottom: 10px; background: var(--card-background-color); }
       .spa-tile--climate .spa-tile-sub { font-size: 12px; font-weight: 500; }
