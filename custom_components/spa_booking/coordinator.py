@@ -4073,6 +4073,13 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             existing = [a for a in self.appointments if a.get("batch_id") == batch_id]
             id_map = {a["id"]: a for a in existing}
 
+            # Snapshot of the whole data tree and current _data so we can fully
+            # roll back on any failure (including partial client/appointment writes).
+            import copy as _copy
+            _data_snapshot = _copy.deepcopy(self._data)
+            _appointments_snapshot = [a for a in self._data[KEY_APPOINTMENTS]]
+            _clients_snapshot = [c for c in self._data[KEY_CLIENTS]]
+
             # Take the originals out so a rebuilt row never overlaps itself.
             for a in existing:
                 if a in self.appointments:
@@ -4254,8 +4261,13 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     voucher = None
                 await self._async_save()
             except Exception:
-                # Restore the originals exactly as they were.
-                self.appointments.extend(existing)
+                # Full rollback: restore the entire data tree to its pre-mutation
+                # state.
+                self._data = _copy.deepcopy(_data_snapshot)
+                self._data[KEY_APPOINTMENTS] = [dict(a) for a in _appointments_snapshot]
+                self._data[KEY_CLIENTS] = [dict(c) for c in _clients_snapshot]
+                # Reflect the rollback back into the live views.
+                self.async_set_updated_data(self._data)
                 raise
             finally:
                 self._current_user_id = None
@@ -6797,22 +6809,18 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     continue
                 last = clusters[-1]
                 # contiguita' se l'ultimo intervallo e' sovrapposto o gap <= 15 min
-                last_end = None
-                try:
-                    from datetime import datetime as _dt
-
-                    last_end = _dt.fromisoformat(last[-1]["end"].replace("Z", "+00:00"))
-                except (ValueError, TypeError, AttributeError):
-                    last_end = None
-
-                cur_start = None
-                try:
-                    cur_start = datetime.fromisoformat(str(item.get("start") or "").replace("Z", "+00:00"))
-                except ValueError:
-                    cur_start = None
-
                 contiguous = True
-                if contiguous or len(last) == 0:
+                try:
+                    last_end_dt = dt_util.parse_datetime(str(last[-1].get("end") or ""))
+                    cur_start_dt = dt_util.parse_datetime(str(item.get("start") or ""))
+                    if last_end_dt is not None and cur_start_dt is not None:
+                        gap_min = (cur_start_dt - last_end_dt).total_seconds() / 60.0
+                        if gap_min > 15:
+                            contiguous = False
+                except (ValueError, TypeError, AttributeError):
+                    contiguous = False
+
+                if contiguous:
                     last.append(item)
                 else:
                     clusters.append([item])
@@ -7013,6 +7021,19 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def permissions_payload(self) -> dict[str, str]:
         """Return the access level chosen for each user."""
         return dict(self._data[KEY_SETTINGS].get(KEY_PERMISSIONS) or {})
+
+    def user_level(self, user_id: str | None) -> str:
+        """Return the SPA permission level for a Home Assistant user id.
+
+        A missing id is treated as ``none``: callers that represent the system
+        itself (automations without a user context) are handled separately by
+        the service layer and never reach the business logic in a way that
+        can be bypassed by an end user.
+        """
+        if not user_id:
+            return "none"
+        permissions = self.permissions_payload()
+        return permissions.get(user_id, "read") if isinstance(permissions, dict) else "none"
 
     @property
     def accessories(self) -> list[dict[str, Any]]:

@@ -3033,7 +3033,7 @@ class SpaBookingCard extends HTMLElement {
             disabled: this._busy,
             on: { click: () => { this._detailView = this._detailView === "grouped" ? "single" : "grouped"; this._render(); } },
           },
-            el("ha-icon", { icon: this._detailView === "grouped" ? "mdi:view-list" : "mdi:folder-multiple" }),
+            el("ha-icon", { style: "--mdc-icon-size: 20px; --ha-icon-size: 20px; width: 20px; height: 20px;", icon: this._detailView === "grouped" ? "mdi:view-list-outline" : "mdi:view-day" }),
             el("span", { class: "btn-label" }, this._detailView === "grouped" ? "Singola" : "Raggruppata"))),
         el("button", {
           class: "icon-btn",
@@ -3298,7 +3298,7 @@ class SpaBookingCard extends HTMLElement {
         class: "btn primary",
         disabled: this._busy,
         on: { click: () => this._closeAnd(() => this._openEditBatch(appointment)) },
-      }, el("ha-icon", { icon: "mdi:pencil-box-multiple" }),
+      }, el("ha-icon", { style: "--mdc-icon-size: 20px; --ha-icon-size: 20px; width: 20px; height: 20px;", icon: "mdi:pencil" }),
       el("span", { class: "btn-label" }, "Modifica gruppo")));
     }
     const phone = client ? client.phone : "";
@@ -4198,10 +4198,21 @@ class SpaBookingCard extends HTMLElement {
     try {
       this._batchBusy = true;
       this._render();
-      const rows = this._bookingRows().map((row) => ({ ...row, batch_id: this._batchAnchorBatchId }));
+      const flattened = [];
+      this._bookingRows().forEach((row) => {
+        (row.entries || []).forEach((entry) => {
+          flattened.push({
+            ...entry,
+            treatment_id: entry.treatment_id || row.treatment_id,
+            pending: row.pending,
+            guest_type: entry.guest_type || row.guest_type || GUEST_DEFAULT,
+            batch_id: this._batchAnchorBatchId,
+          });
+        });
+      });
       await this._call("update_booking_batch", {
         appointment_id: this._batchAnchorId,
-        rows,
+        rows: flattened,
       });
       this._batchEditing = false;
       this._batchAnchorId = null;
@@ -14619,6 +14630,31 @@ _renderClients() {
       .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 
       .tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 0; padding-bottom: 12px; }
+      /* Detail popup: visible icon-only buttons on mobile */
+      .detail-toggle .btn .ha-icon { --mdc-icon-size: 18px; display: inline-flex; }
+      .detail-toggle .btn-label { margin-left: 4px; }
+      .detail-actions .btn .ha-icon { --mdc-icon-size: 18px; }
+      .detail-actions .btn-label { margin-left: 4px; }
+      @media (max-width: 720px) {
+        /* force ***ha-icon visible*** on these buttons even if theme overrides */
+        .detail-toggle .btn { padding: 8px 10px; min-width: 36px; min-height: 36px; }
+        .detail-actions .btn { padding: 6px 8px; min-width: 36px; min-height: 32px; }
+        .detail-actions .btn .ha-icon,
+        .detail-toggle .btn .ha-icon {
+          --mdc-icon-size: 22px !important;
+          --ha-icon-size: 22px !important;
+          width: 22px !important; height: 22px !important;
+          display: inline-block !important;
+          opacity: 1 !important;
+        }
+        /* keep label hidden on phone */
+        .detail-toggle .btn .btn-label, .detail-actions .btn .btn-label { display: none !important; }
+      }
+      /* also base (desktop/mobile) explicit icon sizes */
+      .detail-toggle .btn .ha-icon,
+      .detail-actions .btn .ha-icon {
+        --mdc-icon-size: 18px; --ha-icon-size: 18px; width: 18px; height: 18px; display:inline-flex;
+      }
       .tab {
         display: inline-flex; align-items: center; gap: 6px;
         padding: 8px 12px; border-radius: 999px; cursor: pointer;

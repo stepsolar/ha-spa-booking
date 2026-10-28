@@ -69,6 +69,7 @@ from .const import (
     PERMISSION_LEVELS,
 )
 from .coordinator import INTEGRATION_VERSION, SpaBookingCoordinator, as_date
+from .exceptions import ValidationError
 
 #: The accepted method names, taken from the single place they are declared.
 PAYMENT_METHOD_NAMES = tuple(name for name, _, _ in PAYMENT_METHODS)
@@ -1073,6 +1074,30 @@ def _coordinator(call: ServiceCall) -> SpaBookingCoordinator:
     return call.hass.data[DOMAIN]
 
 
+async def _require_admin(call: ServiceCall, coordinator: SpaBookingCoordinator) -> None:
+    """Reject the call unless the caller is a Home Assistant or SPA admin.
+
+    System/internal callers (no user context, e.g. automations) pass through
+    to preserve backward compat. End users must have either HA admin/owner
+    rights or the SPA permission level "admin".
+    """
+    user_id = call.context.user_id if getattr(call, "context", None) else None
+    if not user_id:
+        return
+    if call.hass:
+        try:
+            user = await call.hass.auth.async_get_user(user_id)
+            if user is not None and (user.is_admin or user.is_owner):
+                return
+        except Exception:  # noqa: BLE001 - never raise from auth lookup
+            pass
+    if coordinator.user_level(user_id) == "admin":
+        return
+    raise ValidationError(
+        "Accesso negato: questa operazione richiede i permessi di amministratore."
+    )
+
+
 async def _async_create_appointment(call: ServiceCall) -> ServiceResponse:
     """Create an appointment."""
     data = call.data
@@ -1363,7 +1388,9 @@ async def _async_get_client_history(call: ServiceCall) -> ServiceResponse:
 
 async def _async_delete_client(call: ServiceCall) -> ServiceResponse:
     """Delete a client record."""
-    return await _coordinator(call).async_delete_client(call.data[ATTR_CLIENT_ID])
+    coordinator = _coordinator(call)
+    await _require_admin(call, coordinator)
+    return await coordinator.async_delete_client(call.data[ATTR_CLIENT_ID])
 
 
 async def _async_merge_clients(call: ServiceCall) -> ServiceResponse:
@@ -1375,7 +1402,9 @@ async def _async_merge_clients(call: ServiceCall) -> ServiceResponse:
 
 async def _async_delete_appointment(call: ServiceCall) -> ServiceResponse:
     """Delete a cancelled appointment for good."""
-    return await _coordinator(call).async_delete_appointment(
+    coordinator = _coordinator(call)
+    await _require_admin(call, coordinator)
+    return await coordinator.async_delete_appointment(
         call.data[ATTR_APPOINTMENT_ID]
     )
 
@@ -1473,7 +1502,9 @@ async def _async_mark_requests_seen(call: ServiceCall) -> ServiceResponse:
 
 async def _async_regenerate_public_token(call: ServiceCall) -> ServiceResponse:
     """Issue a fresh website token and stop honouring the previous one."""
-    return await _coordinator(call).async_regenerate_public_token()
+    coordinator = _coordinator(call)
+    await _require_admin(call, coordinator)
+    return await coordinator.async_regenerate_public_token()
 
 
 async def _async_web_snippet(call: ServiceCall) -> ServiceResponse:
@@ -1559,7 +1590,9 @@ async def _async_update_category(call: ServiceCall) -> ServiceResponse:
 
 async def _async_delete_category(call: ServiceCall) -> ServiceResponse:
     """Delete a category."""
-    return await _coordinator(call).async_delete_category(
+    coordinator = _coordinator(call)
+    await _require_admin(call, coordinator)
+    return await coordinator.async_delete_category(
         call.data[ATTR_CATEGORY_ID], call.data["force"]
     )
 
@@ -1601,7 +1634,9 @@ async def _async_update_treatment(call: ServiceCall) -> ServiceResponse:
 
 async def _async_delete_treatment(call: ServiceCall) -> ServiceResponse:
     """Delete a treatment."""
-    return await _coordinator(call).async_delete_treatment(
+    coordinator = _coordinator(call)
+    await _require_admin(call, coordinator)
+    return await coordinator.async_delete_treatment(
         call.data[ATTR_TREATMENT_ID], call.data["force"]
     )
 
@@ -1648,7 +1683,9 @@ async def _async_update_operator(call: ServiceCall) -> ServiceResponse:
 
 async def _async_delete_operator(call: ServiceCall) -> ServiceResponse:
     """Delete an operator."""
-    return await _coordinator(call).async_delete_operator(
+    coordinator = _coordinator(call)
+    await _require_admin(call, coordinator)
+    return await coordinator.async_delete_operator(
         call.data[ATTR_OPERATOR_ID], call.data["force"]
     )
 
@@ -1668,12 +1705,16 @@ async def _async_export_all(call: ServiceCall) -> ServiceResponse:
 
 async def _async_import_data(call: ServiceCall) -> ServiceResponse:
     """Replace the dataset with the given payload."""
-    return await _coordinator(call).async_import_data(call.data[ATTR_PAYLOAD])
+    coordinator = _coordinator(call)
+    await _require_admin(call, coordinator)
+    return await coordinator.async_import_data(call.data[ATTR_PAYLOAD])
 
 
 async def _async_import_all(call: ServiceCall) -> ServiceResponse:
     """Replace the dataset with the given payload."""
-    return await _coordinator(call).async_import_data(call.data[ATTR_PAYLOAD])
+    coordinator = _coordinator(call)
+    await _require_admin(call, coordinator)
+    return await coordinator.async_import_data(call.data[ATTR_PAYLOAD])
 
 
 async def _async_update_booking_batch(call: ServiceCall) -> ServiceResponse:
@@ -1691,7 +1732,9 @@ async def _async_export_clients_csv(call: ServiceCall) -> ServiceResponse:
 
 async def _async_import_clients_csv(call: ServiceCall) -> ServiceResponse:
     """Create clients from a CSV string."""
-    return await _coordinator(call).import_clients_csv(call.data["csv"])
+    coordinator = _coordinator(call)
+    await _require_admin(call, coordinator)
+    return await coordinator.import_clients_csv(call.data["csv"])
 
 
 async def _async_get_monthly_report(call: ServiceCall) -> ServiceResponse:
@@ -1727,7 +1770,9 @@ async def _async_get_users(call: ServiceCall) -> ServiceResponse:
 
 async def _async_set_user_permissions(call: ServiceCall) -> ServiceResponse:
     """Save the access level for a user."""
-    permissions = await _coordinator(call).async_set_user_permissions(
+    coordinator = _coordinator(call)
+    await _require_admin(call, coordinator)
+    permissions = await coordinator.async_set_user_permissions(
         call.data[ATTR_USER_ID], call.data[ATTR_LEVEL]
     )
     return {"permissions": permissions}
