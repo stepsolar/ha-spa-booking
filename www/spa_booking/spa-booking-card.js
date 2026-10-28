@@ -9743,12 +9743,37 @@ _renderClients() {
 
   /** One mushroom-like control tile. Tap toggles; in edit mode it shows ⋮
       (per-entity options) and can be held to drag it into a new position. */
+  /** Effective card type for a tile, resolving "auto" by entity domain. */
+  _resolveSpaCardType(item) {
+    const card_type = String((item && item.card_type) ? item.card_type : "auto").trim().toLowerCase();
+    if (card_type !== "auto") return card_type;
+    const id = String((item && item.entity_id) || "").trim();
+    const domain = id.split(".")[0];
+    const defaults = {
+      light: "tile",
+      switch: "switch",
+      input_boolean: "switch",
+      climate: "climate",
+      fan: "button",
+      media_player: "button",
+      sensor: "sensor",
+      binary_sensor: "tile",
+      number: "gauge",
+      input_number: "gauge",
+      cover: "tile",
+      lock: "tile",
+    };
+    return defaults[domain] || "tile";
+  }
+
   _spaTile(item, state) {
     const id = item.entity_id;
     const domain = String(id || "").split(".")[0];
     const editing = this._spaEditMode;
+    const type = this._resolveSpaCardType(item);
     const tile = el("div", {
-      class: "spa-tile spa-tile--" + (item.card_type || "auto") + (editing ? " editing" : ""),
+      class: "spa-tile spa-tile--" + type + (editing ? " editing" : ""),
+      "data-card-type": type,
       "data-eid": id,
       style: "grid-column: span " + (item.span || 1) + ";",
     });
@@ -9784,8 +9809,16 @@ _renderClients() {
     if (item.show_name !== false) {
       main.appendChild(el("span", { class: "spa-tile-name" }, item.name || this._entityLabel(id)));
     }
-    if (item.show_state !== false) {
+    if (item.show_state !== false && type !== "button") {
       main.appendChild(el("span", { class: "spa-tile-sub" }, this._spaSub(domain, id, state)));
+    }
+    if (type === "gauge") {
+      const raw = state && state.state;
+      const val = Number(raw);
+      if (Number.isFinite(val)) {
+        const pct = Math.max(0, Math.min(100, val));
+        tile.appendChild(el("progress", { class: "spa-tile-gauge", value: pct, max: 100 }));
+      }
     }
     if (main.childNodes.length) tile.appendChild(main);
 
@@ -15280,6 +15313,13 @@ _renderClients() {
       .spa-tile.editing { cursor: grab; }
       .spa-tile.dragging { opacity: .75; outline: 2px dashed var(--primary-color);
                             cursor: grabbing; z-index: 5; }
+      /* Phase 2: card types (visual variants) */
+      .spa-tile--button { justify-content: center; }
+      .spa-tile--button .spa-tile-name { font-weight: 600; }
+      .spa-tile--sensor .spa-tile-sub { font-size: 15px; font-weight: 600; }
+      .spa-tile--climate .spa-tile-sub { text-align: center; }
+      .spa-tile--switch { cursor: pointer; }
+      .spa-tile--gauge .spa-tile-gauge { width: 100%; height: 6px; }
       .spa-tile-menu { position: absolute; top: 4px; right: 4px; z-index: 3;
                         width: 30px; height: 30px; padding: 0;
                         background: var(--card-background-color);
