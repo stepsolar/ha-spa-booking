@@ -2622,6 +2622,16 @@ class SpaBookingCard extends HTMLElement {
     if (!dayList.length) {
       wrap.appendChild(el("div", { class: "empty" }, "Nessun appuntamento per questa data."));
     } else if (!list.length) {
+      wrap.appendChild(
+        el("div", { class: "row", style: "margin: 6px 0 10px 0; align-items: center; gap: 8px;" },
+          el("span", { class: "dim", style: "font-size: 13px;" }, "Mostra check-in"),
+          el("button", {
+            class: "btn small",
+            style: "background: #009ac7; color: #fff;",
+            title: this._showCheckedIn ? "Nascondi check-in" : "Mostra check-in",
+            on: { click: () => { this._showCheckedIn = !this._showCheckedIn; this._render(); } },
+          }, el("ha-icon", { icon: this._showCheckedIn ? "mdi:close" : "mdi:check" })))
+      );
       wrap.appendChild(el("div", { class: "empty" },
         "Tutti gli appuntamenti di oggi hanno registrato l'uscita."));
     } else {
