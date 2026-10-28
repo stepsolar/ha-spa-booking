@@ -711,29 +711,29 @@ class SpaBookingCard extends HTMLElement {
         this.dispatchEvent(new CustomEvent("spa-booking-ready", { bubbles: true, composed: true }));
       });
     }
-    // Real-time updates for the Spa tab entities, so the cards (termostato, luci, …)
-    // reflect HA state without reloading the page.
+    // Real-time updates for the Spa tab entities: subscribe through the hass shim so
+    // the cards update promptly after a state change (without changing tab).
     if (this._ready && hass && !this._spaStateWatcher) {
       this._spaStateWatcher = true;
-      const conn = hass.connection;
-      const subs = [];
-      if (conn && typeof conn.subscribeEvents === "function") {
-        subs.push(conn.subscribeEvents((ev) => {
-          const eid =
-            ev && ev.event && ev.event.data && ev.event.data.entity_id
-              ? ev.event.data.entity_id
-              : (ev && ev.body && ev.body.event && ev.body.event.data && ev.body.event.data.entity_id);
-          const watched = this._spaTiles().map((t) => t.entity_id);
-          if (!eid || !watched.includes(eid)) return;
+      try {
+        const ids = this._spaTiles().map((t) => t.entity_id);
+        const schedule = () => {
+          if (this._tab !== "spa") return;
+          if (this._spaTileDlg || this._detailId || this._spaAddDlg) return;
           if (!this._spaRenderTimer) {
             this._spaRenderTimer = setTimeout(() => {
               this._spaRenderTimer = null;
-              if (this._tab !== "spa") return;
-              if (this._spaTileDlg || this._detailId || this._spaAddDlg) return;
               this._render();
             }, 250);
           }
-        }, "state_changed"));
+        };
+        if (hass.connection && typeof hass.connection.subscribeEntities === "function") {
+          hass.connection.subscribeEntities(ids, () => schedule());
+        } else if (typeof hass.subscribeEntities === "function") {
+          hass.subscribeEntities(ids, () => schedule());
+        }
+      } catch (err) {
+        console.warn("subscribeEntities failed", err);
       }
     }
   }
