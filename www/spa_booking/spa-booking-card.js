@@ -9960,12 +9960,18 @@ _renderClients() {
       slider.className = "spa-tile-brightness";
       slider.addEventListener("input", (event) => {
         const label = tile.querySelector(".spa-tile-brightness-value");
-        if (label) label.textContent = `${event.target.value}%`;
+        if (label) { label.textContent = `${event.target.value}%`; label.classList.add("show"); }
       });
       slider.addEventListener("change", (event) => {
         const value = Number(event.target.value);
+        const label = tile.querySelector(".spa-tile-brightness-value");
         if (value <= 0) this._spaCall("light", "turn_off", id);
         else this._spaSetBrightness(id, value);
+        setTimeout(() => { if (label) label.classList.remove("show"); }, 1200);
+      });
+      slider.addEventListener("blur", () => {
+        const label = tile.querySelector(".spa-tile-brightness-value");
+        if (label) label.classList.remove("show");
       });
       slider.addEventListener("pointerdown", (event) => event.stopPropagation());
       const row = el("div", { class: "spa-tile-bright-row" },
@@ -15506,9 +15512,10 @@ _renderClients() {
       .spa-tile.on .spa-tile-icon ha-icon { color: #b7950b !important; }
       .spa-tile.on .spa-tile-name { color: #1a202c !important; font-weight: 700; }
       .spa-tile.on .spa-tile-sub { color: #1a202c !important; }
-      .spa-tile-bright-row { display: flex; align-items: center; gap: 6px; width: 100%; margin-top: 4px; }
-      .spa-tile-bright-row input[type=range] { flex: 1; height: 6px; cursor: pointer; }
-      .spa-tile-bright-row .spa-tile-brightness { flex: 1; }
+      .spa-tile-bright-row { display: flex; align-items: center; gap: 6px; width: 100%; margin-top: 4px; padding: 0 2px; box-sizing: border-box; overflow: hidden; }
+      .spa-tile-bright-row input[type=range] { flex: 1; min-width: 0; height: 12px; cursor: pointer; accent-color: var(--primary-color, #009ac7); }
+      .spa-tile-bright-row .spa-tile-brightness-value { display: none; font-size: 11px; min-width: 34px; text-align: right; white-space: nowrap; }
+      .spa-tile-bright-row .spa-tile-brightness-value.show { display: inline; }
       /* termostato: bordo/icone riscaldamento/arancio; raffreddamento/azzurro */
       .spa-tile--climate.heating { border-color: #ed8936 !important; }
       .spa-tile--climate.heating .spa-tile-icon,
