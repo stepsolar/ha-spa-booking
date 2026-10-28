@@ -9798,6 +9798,10 @@ _renderClients() {
     const domain = String(id || "").split(".")[0];
     const editing = this._spaEditMode;
     const type = this._resolveSpaCardType(item);
+    const active =
+      domain === "lock" ? (state && state.state === "locked")
+        : domain === "climate" ? (state && state.state !== "off" && state.state !== "unavailable")
+          : (state && state.state === "on");
     const tile = el("div", {
       class:
         "spa-tile spa-tile--" + type +
@@ -9829,10 +9833,6 @@ _renderClients() {
       });
     }
 
-    const active =
-      domain === "lock" ? (state && state.state === "locked")
-        : domain === "climate" ? (state && state.state !== "off" && state.state !== "unavailable")
-          : (state && state.state === "on");
     if ((type === "climate" || type === "thermostat") && !editing) {
       if (item.show_icon !== false) {
         tile.appendChild(
