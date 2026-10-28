@@ -9949,18 +9949,30 @@ _renderClients() {
       return tile;
     }
 
-    if (domain === "light" && !editing && state && (state.attributes || {}).supported_color_modes &&
-      ((state.attributes.supported_color_modes || []).includes("brightness"))) {
-      tile.appendChild(
-        el("button", {
-          class: "spa-tile-menu icon-btn",
-          title: "Regola luminosità",
-          style: "top: auto; bottom: 4px; right: 4px;",
-          on: {
-            click: (event) => { event.stopPropagation(); this._spaBrightnessDlg = id; this._render(); },
-            pointerdown: (event) => event.stopPropagation(),
-          },
-        }, el("ha-icon", { icon: "mdi:brightness-6" })));
+    const brightness = typeof attrs.brightness === "number" ? Math.round(attrs.brightness / 2.55) : (state.state === "on" ? 100 : 0);
+    if (domain === "light" && !editing && state && (attrs.supported_color_modes || []).includes("brightness")) {
+      const slider = document.createElement("input");
+      slider.type = "range";
+      slider.min = 0;
+      slider.max = 100;
+      slider.step = 1;
+      slider.value = brightness;
+      slider.className = "spa-tile-brightness";
+      slider.addEventListener("input", (event) => {
+        const label = tile.querySelector(".spa-tile-brightness-value");
+        if (label) label.textContent = `${event.target.value}%`;
+      });
+      slider.addEventListener("change", (event) => {
+        const value = Number(event.target.value);
+        if (value <= 0) this._spaCall("light", "turn_off", id);
+        else this._spaSetBrightness(id, value);
+      });
+      slider.addEventListener("pointerdown", (event) => event.stopPropagation());
+      const row = el("div", { class: "spa-tile-bright-row" },
+        el("span", { class: "dim spa-tile-brightness-value" }, `${brightness}%`),
+        slider
+      );
+      tile.appendChild(row);
     }
     add(tile, this._spaSlider(domain, id, state));
     add(tile, this._spaClimaRow(domain, id, state));
@@ -15494,6 +15506,9 @@ _renderClients() {
       .spa-tile.on .spa-tile-icon ha-icon { color: #b7950b !important; }
       .spa-tile.on .spa-tile-name { color: #1a202c !important; font-weight: 700; }
       .spa-tile.on .spa-tile-sub { color: #1a202c !important; }
+      .spa-tile-bright-row { display: flex; align-items: center; gap: 6px; width: 100%; margin-top: 4px; }
+      .spa-tile-bright-row input[type=range] { flex: 1; height: 6px; cursor: pointer; }
+      .spa-tile-bright-row .spa-tile-brightness { flex: 1; }
       /* termostato: bordo/icone riscaldamento/arancio; raffreddamento/azzurro */
       .spa-tile--climate.heating { border-color: #ed8936 !important; }
       .spa-tile--climate.heating .spa-tile-icon,
