@@ -701,6 +701,11 @@ def _norm_spa_tile(raw: Any) -> dict[str, Any] | None:
         span = int(raw.get("span") or 1)
     except (TypeError, ValueError):
         span = 1
+    allowed_types = {"auto", "tile", "button", "climate", "sensor",
+                     "switch", "entity", "thermostat", "gauge"}
+    card_type = str(raw.get("card_type") or "auto").strip().lower()
+    if card_type not in allowed_types:
+        card_type = "auto"
     return {
         "entity_id": entity_id,
         "name": optional_text("name"),
@@ -709,6 +714,7 @@ def _norm_spa_tile(raw: Any) -> dict[str, Any] | None:
         "show_icon": bool(raw.get("show_icon", True)),
         "show_state": bool(raw.get("show_state", True)),
         "span": min(max(span, 1), SPA_MAX_SPAN),
+        "card_type": card_type,
     }
 
 
