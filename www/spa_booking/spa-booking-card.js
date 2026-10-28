@@ -9949,6 +9949,19 @@ _renderClients() {
       return tile;
     }
 
+    if (domain === "light" && !editing && state && (state.attributes || {}).supported_color_modes &&
+      ((state.attributes.supported_color_modes || []).includes("brightness"))) {
+      tile.appendChild(
+        el("button", {
+          class: "spa-tile-menu icon-btn",
+          title: "Regola luminosità",
+          style: "top: auto; bottom: 4px; right: 4px;",
+          on: {
+            click: (event) => { event.stopPropagation(); this._spaBrightnessDlg = id; this._render(); },
+            pointerdown: (event) => event.stopPropagation(),
+          },
+        }, el("ha-icon", { icon: "mdi:brightness-6" })));
+    }
     add(tile, this._spaSlider(domain, id, state));
     add(tile, this._spaClimaRow(domain, id, state));
     return tile;
