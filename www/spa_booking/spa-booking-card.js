@@ -711,6 +711,15 @@ class SpaBookingCard extends HTMLElement {
         this.dispatchEvent(new CustomEvent("spa-booking-ready", { bubbles: true, composed: true }));
       });
     }
+    // Real-time updates: re-render when Home Assistant updates state while showing the Spa tab.
+    if (this._ready && hass && !this._spaRenderTimer) {
+      this._spaRenderTimer = setTimeout(() => {
+        this._spaRenderTimer = null;
+        if (this._tab !== "spa") return;
+        if (this._spaTileDlg || this._detailId || this._spaAddDlg) return;
+        this._render();
+      }, 250);
+    }
   }
 
   getCardSize() {
@@ -9778,6 +9787,10 @@ _renderClients() {
       style: "grid-column: span " + (item.span || 1) + ";",
     });
 
+    const attrs = (state && state.attributes) || {};
+    const current = attrs.current_temperature;
+    const target = attrs.temperature;
+
     if (!editing) {
       tile.addEventListener("click", () => {
         if (!state || state.state === "unavailable") {
@@ -9799,6 +9812,48 @@ _renderClients() {
       domain === "lock" ? (state && state.state === "locked")
         : domain === "climate" ? (state && state.state !== "off" && state.state !== "unavailable")
           : (state && state.state === "on");
+    if ((type === "climate" || type === "thermostat") && !editing) {
+      if (item.show_icon !== false) {
+        tile.appendChild(
+          el("div", { class: "spa-tile-icon" + (active ? "" : " off") },
+            el("ha-icon", { icon: item.icon || this._spaIcon(domain, id, state) }))
+        );
+      }
+      if (item.show_name !== false) {
+        tile.appendChild(el("span", { class: "spa-tile-name" }, item.name || this._entityLabel(id)));
+      }
+      tile.appendChild(el("div", { class: "spa-tile-sub" },
+        `${current != null ? current : "—"}° / ${target != null ? Math.round(target) : "—"}°`));
+      const row = el("div", { class: "row", style: "gap: 6px; flex-wrap: wrap; justify-content:center; width:100%;" });
+      row.appendChild(el("button", {
+        class: "btn small",
+        disabled: this._busySpa,
+        on: { click: (event) => { event.stopPropagation(); this._spaClimatePower(id, state.state !== "off" && state.state !== "unavailable"); } },
+      }, el("ha-icon", { icon: state.state === "off" ? "mdi:power-off" : "mdi:power" }), el("span", {}, state.state === "off" ? "Accendi" : "Spegni")));
+      row.appendChild(el("button", {
+        class: "btn small",
+        disabled: this._busySpa,
+        on: { click: (event) => { event.stopPropagation(); this._spaClimateMode(id, "heat"); } },
+      }, el("ha-icon", { icon: "mdi:fire" }), el("span", {}, "Ris")));
+      row.appendChild(el("button", {
+        class: "btn small",
+        disabled: this._busySpa,
+        on: { click: (event) => { event.stopPropagation(); this._spaClimateMode(id, "cool"); } },
+      }, el("ha-icon", { icon: "mdi:snowflake" }), el("span", {}, "Freddo")));
+      row.appendChild(el("button", {
+        class: "btn small",
+        disabled: this._busySpa,
+        on: { click: (event) => { event.stopPropagation(); this._spaClimateTemp(id, -1); } },
+      }, el("ha-icon", { icon: "mdi:minus" })));
+      row.appendChild(el("button", {
+        class: "btn small",
+        disabled: this._busySpa,
+        on: { click: (event) => { event.stopPropagation(); this._spaClimateTemp(id, 1); } },
+      }, el("ha-icon", { icon: "mdi:plus" })));
+      tile.appendChild(row);
+      return tile;
+    }
+
     if (item.show_icon !== false) {
       tile.appendChild(
         el("div", { class: "spa-tile-icon" + (active ? "" : " off") },
@@ -10289,6 +10344,10 @@ _renderClients() {
 
   _spaClimatePower(id, on) {
     this._spaCall("climate", on ? "turn_off" : "turn_on", id);
+  }
+
+  _spaClimateMode(id, mode) {
+    this._spaCall("climate", "set_hvac_mode", id, { hvac_mode: mode });
   }
 
   _spaClimateTemp(id, delta) {
