@@ -9836,13 +9836,13 @@ _renderClients() {
         disabled: this._busySpa,
         title: "Riscaldamento",
         on: { click: (event) => { event.stopPropagation(); this._spaClimateMode(id, "heat"); } },
-      }, el("ha-icon", { icon: "mdi:fire" })));
+      }, el("ha-icon", { icon: "mdi:fan" })));
       row.appendChild(el("button", {
         class: "btn small",
         disabled: this._busySpa,
         title: "Freddo",
         on: { click: (event) => { event.stopPropagation(); this._spaClimateMode(id, "cool"); } },
-      }, el("ha-icon", { icon: "mdi:snowflake" })));
+      }, el("ha-icon", { icon: "mdi:thermostat" })));
       row.appendChild(el("button", {
         class: "btn small",
         disabled: this._busySpa,
