@@ -6231,23 +6231,24 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def search_clients(self, query: str = "", limit: int = 20) -> list[dict[str, Any]]:
         """Return clients matching a free-text query."""
         needle = query.strip().lower()
+        # Tokens of the needle, so "mario rossi" matches even when the
+        # haystack joins names and phone in a different order.
+        needle_tokens = needle.split()
         matches: list[dict[str, Any]] = []
+        # Build haystacks once, lowering each field a single time.
         for client in self.clients:
-            haystack = " ".join(
-                (
-                    client["first_name"],
-                    client["last_name"],
-                    client["phone"],
-                    client["email"],
-                )
-            ).lower()
-            if needle and needle not in haystack:
+            first = (client.get("first_name") or "")
+            last = (client.get("last_name") or "")
+            phone = (client.get("phone") or "")
+            email = (client.get("email") or "")
+            haystack = f"{first} {last} {phone} {email}".lower()
+            if needle and not all(tok in haystack for tok in needle_tokens):
                 continue
             matches.append(self.client_payload(client))
             if len(matches) >= limit:
                 break
         matches.sort(
-            key=lambda c: (c["last_name"].lower(), c["first_name"].lower())
+            key=lambda c: ((c.get("last_name") or "").lower(), (c.get("first_name") or "").lower())
         )
         return matches
 

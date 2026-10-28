@@ -1089,8 +1089,10 @@ async def _require_admin(call: ServiceCall, coordinator: SpaBookingCoordinator) 
             user = await call.hass.auth.async_get_user(user_id)
             if user is not None and (user.is_admin or user.is_owner):
                 return
-        except Exception:  # noqa: BLE001 - never raise from auth lookup
-            pass
+        except Exception as exc:  # noqa: BLE001 - never raise from auth lookup
+            import logging
+
+            logging.getLogger(__name__).debug("Auth lookup fallito: %s", exc)
     if coordinator.user_level(user_id) == "admin":
         return
     raise ValidationError(

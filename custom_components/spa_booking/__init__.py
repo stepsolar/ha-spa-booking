@@ -172,12 +172,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     async_register_services(hass)
-    try:
-        from . import services as _services
-
-        _services.async_register_services(hass)
-    except Exception:  # noqa: BLE001
-        pass
     return True
 
 
