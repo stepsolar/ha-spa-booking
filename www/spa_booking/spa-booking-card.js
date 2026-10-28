@@ -2651,15 +2651,16 @@ class SpaBookingCard extends HTMLElement {
 
       // Toggle to show/hide the appointments that already checked in.
       wrap.appendChild(
-        el("div", { class: "row", style: "margin: 6px 0 0 0;" },
+        el("div", { class: "row", style: "margin: 6px 0 0 0; align-items: center; gap: 8px;" },
+          el("span", { class: "dim", style: "font-size: 13px;" },
+            "Mostra appuntamenti che hanno già fatto il check-in"),
           el("button", {
-            class: `btn small ${this._showCheckedIn ? "active" : ""}`,
+            class: "icon-btn",
             style: this._can("day") ? null : "display: none",
+            title: this._showCheckedIn ? "Nascondi appuntamenti che hanno fatto check-in" : "Mostra appuntamenti che hanno già fatto il check-in",
             on: { click: () => { this._showCheckedIn = !this._showCheckedIn; this._render(); } },
           },
-            el("ha-icon", { icon: this._showCheckedIn ? "mdi:close" : "mdi:check" }),
-            el("span", { class: "btn-label" },
-              this._showCheckedIn ? "Nascondi appuntamenti che hanno fatto check-in" : "Mostra appuntamenti che hanno già fatto il check-in"))
+            el("ha-icon", { icon: this._showCheckedIn ? "mdi:close" : "mdi:check" }))
         )
       );
 
