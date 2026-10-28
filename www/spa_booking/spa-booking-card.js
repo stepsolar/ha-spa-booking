@@ -9805,7 +9805,10 @@ _renderClients() {
     const tile = el("div", {
       class:
         "spa-tile spa-tile--" + type +
-        ((state && state.state === "on") ? " on" : "") + (editing ? " editing" : ""),
+        ((state && state.state === "on") ? " on" : "") +
+        (domain === "climate" && state && state.state === "heat" ? " heating" : "") +
+        (domain === "climate" && state && state.state === "cool" ? " cooling" : "") +
+        (editing ? " editing" : ""),
       "data-card-type": type,
       "data-eid": id,
       style: "grid-column: span " + (item.span || 1) + ";",
@@ -15397,11 +15400,21 @@ _renderClients() {
       .spa-tile.editing { cursor: grab; }
       .spa-tile.dragging { opacity: .75; outline: 2px dashed var(--primary-color);
                             cursor: grabbing; z-index: 5; }
-      .spa-tile.on { background: #f6e05e !important; border-color: #d69e2e !important; }
-      .spa-tile.on .spa-tile-icon { color: #b7791f !important; }
-      .spa-tile.on .spa-tile-icon ha-icon { color: #b7791f !important; }
+      /* yellow più soft per le tile accese */
+      .spa-tile.on { background: #fff59d !important; border-color: #f9e79f !important; }
+      .spa-tile.on .spa-tile-icon { color: #b7950b !important; }
+      .spa-tile.on .spa-tile-icon ha-icon { color: #b7950b !important; }
       .spa-tile.on .spa-tile-name { color: #1a202c !important; font-weight: 700; }
       .spa-tile.on .spa-tile-sub { color: #1a202c !important; }
+      /* termostato: bordo/icone riscaldamento/arancio; raffreddamento/azzurro */
+      .spa-tile--climate.heating { border-color: #ed8936 !important; }
+      .spa-tile--climate.heating .spa-tile-icon,
+      .spa-tile--climate.heating .spa-tile-icon ha-icon { color: #ed8936 !important; }
+      .spa-tile--climate.heating .btn ha-icon { color: #ed8936 !important; }
+      .spa-tile--climate.cooling { border-color: #3182ce !important; }
+      .spa-tile--climate.cooling .spa-tile-icon,
+      .spa-tile--climate.cooling .spa-tile-icon ha-icon { color: #3182ce !important; }
+      .spa-tile--climate.cooling .btn ha-icon { color: #3182ce !important; }
       /* Phase 2: card types (visual variants) */
       /* Phase 2 stronger visuals */
       .spa-tile--button { justify-content: center; min-height: 74px; background: var(--secondary-background-color, #f1f3f5); }
