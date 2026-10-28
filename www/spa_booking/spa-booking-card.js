@@ -15314,12 +15314,22 @@ _renderClients() {
       .spa-tile.dragging { opacity: .75; outline: 2px dashed var(--primary-color);
                             cursor: grabbing; z-index: 5; }
       /* Phase 2: card types (visual variants) */
-      .spa-tile--button { justify-content: center; }
-      .spa-tile--button .spa-tile-name { font-weight: 600; }
-      .spa-tile--sensor .spa-tile-sub { font-size: 15px; font-weight: 600; }
-      .spa-tile--climate .spa-tile-sub { text-align: center; }
-      .spa-tile--switch { cursor: pointer; }
-      .spa-tile--gauge .spa-tile-gauge { width: 100%; height: 6px; }
+      /* Phase 2 stronger visuals */
+      .spa-tile--button { justify-content: center; min-height: 74px; background: var(--secondary-background-color, #f1f3f5); }
+      .spa-tile--button .spa-tile-icon { --mdc-icon-size: 34px; }
+      .spa-tile--button .spa-tile-name { font-weight: 700; font-size: 13px; margin-top: 4px; }
+      .spa-tile--switch { background: linear-gradient(180deg, var(--card-background-color) 0%, var(--primary-color) 200%); }
+      .spa-tile--switch .spa-tile-icon { color: var(--primary-color); }
+      .spa-tile--climate { border: 2px solid var(--primary-color); padding-bottom: 10px; background: var(--card-background-color); }
+      .spa-tile--climate .spa-tile-sub { font-size: 12px; font-weight: 500; }
+      .spa-tile--sensor .spa-tile-name { font-size: 11px; color: var(--secondary-text-color); }
+      .spa-tile--sensor .spa-tile-sub { font-size: 20px; font-weight: 700; }
+      .spa-tile--gauge { padding-bottom: 8px; }
+      .spa-tile--gauge .spa-tile-gauge { width: 100%; height: 8px; border-radius: 4px; accent-color: var(--primary-color); }
+      .spa-tile--entity { text-align: left; align-items: flex-start; background: var(--secondary-background-color, #f1f3f5); }
+      .spa-tile--thermostat .spa-tile-sub { font-size: 14px; }
+      .spa-tile--thermostat .spa-tile-main { width: 100%; }
+      .spa-tile--tile .spa-tile-icon { --mdc-icon-size: 20px; }
       .spa-tile-menu { position: absolute; top: 4px; right: 4px; z-index: 3;
                         width: 30px; height: 30px; padding: 0;
                         background: var(--card-background-color);
