@@ -3130,6 +3130,18 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "Non puoi modificare un appuntamento annullato"
                 )
 
+            # Memoria dell'offerta: viene conservata intatta se la modifica non
+            # tocca fattori che la rendono inutile (trattamento, operatore o
+            # orario). In quel caso l'offerta va ricostruita dalla booking rule.
+            preserve_offer = (
+                (treatment_id is None
+                 or treatment_id == appointment.get("treatment_id"))
+                and (operator_id is None
+                     or str(operator_id) == str(appointment.get("operator_id") or ""))
+                and (start is None
+                     or str(start) == str(appointment.get("start") or ""))
+            )
+
             treatment_id = treatment_id or appointment["treatment_id"]
             start = start if start is not None else appointment["start"]
             # The masseuse belongs to the treatment, so the treatment is read
@@ -3259,6 +3271,21 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if confirming:
                 rebuilt["confirmed_by"] = (confirmed_by or "").strip()
                 rebuilt["confirmed_at"] = dt_util.utcnow().isoformat()
+
+            # Preserve the offer state and candidate list (and deadline) when
+            # the modification did not change treatment/operator/time: the
+            # reception's "offerta in attesa" for the masseuse must survive an
+            # ordinary edit. Otherwise leave the values computed by the booking
+            # rules (the offer is rebuilt on its own).
+            if preserve_offer:
+                rebuilt["offer_state"] = appointment.get("offer_state", OFFER_NONE)
+                rebuilt["offer_candidates"] = list(
+                    appointment.get("offer_candidates") or []
+                )
+                rebuilt["offer_index"] = appointment.get("offer_index", 0)
+                rebuilt["offer_expires_at"] = appointment.get(
+                    "offer_expires_at", ""
+                )
 
             if is_new_client:
                 self.clients.append(client)
