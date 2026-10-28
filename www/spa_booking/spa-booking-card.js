@@ -498,6 +498,7 @@ class SpaBookingCard extends HTMLElement {
     this._spaEditMode = false;
     this._spaTileDlg = null;
     this._spaAddDlg = false;
+    this._spaBrightnessDlg = null;
     this._spaDrag = null;
     // Telecamere tab: the very same in-place editor, on the camera tiles.
     // Kept apart from the Spa state so the two tabs never share an open popup.
@@ -9609,6 +9610,7 @@ _renderClients() {
       wrap.appendChild(this._renderSpaGrid(tiles));
     }
     if (this._spaTileDlg) wrap.appendChild(this._spaTileDialog());
+    if (this._spaBrightnessDlg) wrap.appendChild(this._spaBrightnessDialog());
     if (this._spaAddDlg) wrap.appendChild(this._spaAddDialog());
     return wrap;
   }
@@ -9658,6 +9660,7 @@ _renderClients() {
     this._spaEditMode = false;
     this._spaTileDlg = null;
     this._spaAddDlg = false;
+    this._spaBrightnessDlg = null;
     this._spaDrag = null;
     this._render();
   }
@@ -9833,6 +9836,33 @@ _renderClients() {
           this._spaToggle(domain, id);
         }
       });
+
+      // Long press on a dimmable light opens the brightness popup.
+      if (domain === "light" && state && (state.attributes || {}).supported_color_modes &&
+        (state.attributes.supported_color_modes.includes("brightness") || (state.attributes.supported_color_modes||[]).includes("brightness_pct"))) {
+        let longPressTimer = null;
+        let longPressed = false;
+        const cancel = () => {
+          if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+        };
+        tile.addEventListener("pointerdown", () => {
+          longPressed = false;
+          longPressTimer = setTimeout(() => {
+            longPressed = true;
+            this._spaBrightnessDlg = id;
+            this._render();
+          }, 600);
+        });
+        tile.addEventListener("pointerup", (event) => {
+          cancel();
+          if (longPressed) { event.stopPropagation(); event.preventDefault(); }
+        });
+        tile.addEventListener("pointermove", cancel);
+        tile.addEventListener("pointerleave", cancel);
+        tile.addEventListener("click", (event) => {
+          if (longPressed) { event.stopPropagation(); event.preventDefault(); longPressed = false; }
+        }, true);
+      }
     }
 
     if ((type === "climate" || type === "thermostat") && !editing) {
@@ -9933,6 +9963,51 @@ _renderClients() {
   _spaTileDlgClose() {
     this._spaTileDlg = null;
     this._render();
+  }
+
+  _spaBrightnessDlgClose() {
+    this._spaBrightnessDlg = null;
+    this._render();
+  }
+
+  _spaBrightnessDialog() {
+    const id = this._spaBrightnessDlg;
+    if (!id) return el("div");
+    const state = this._hass && this._hass.states ? this._hass.states[id] : null;
+    const attrs = (state && state.attributes) || {};
+    const brightness = typeof attrs.brightness === "number" ? Math.round(attrs.brightness / 2.55) : (state.state === "on" ? 100 : 0);
+    const overlay = el("div", {
+      class: "detail-backdrop",
+      on: { click: (event) => { if (event.target === overlay) this._spaBrightnessDlgClose(); } },
+    });
+    const sheet = el("div", { class: "detail-sheet", role: "dialog", "aria-modal": "true", "aria-label": "Luminosità" });
+    sheet.appendChild(
+      el("div", { class: "detail-head" },
+        el("div", {}, el("div", { class: "detail-title" }, "Luminosità"), el("div", { class: "detail-sub" }, this._entityLabel(id))),
+        el("button", { class: "icon-btn", title: "Chiudi", on: { click: () => this._spaBrightnessDlgClose() } }, el("ha-icon", { icon: "mdi:close" })))
+    );
+    const pctLabel = el("div", { class: "detail-text" }, `${brightness}%`);
+    const slider = document.createElement("input");
+    slider.type = "range";
+    slider.min = 1;
+    slider.max = 100;
+    slider.step = 1;
+    slider.value = brightness;
+    slider.addEventListener("input", (event) => { pctLabel.textContent = `${event.target.value}%`; });
+    slider.addEventListener("change", (event) => {
+      this._spaSetBrightness(id, Number(event.target.value));
+    });
+    sheet.appendChild(el("div", { class: "detail-section" },
+      pctLabel,
+      slider,
+      el("div", { class: "row", style: "gap:6px; justify-content:center; margin-top:8px;" },
+        el("button", { class: "btn small", disabled: this._busySpa,
+          on: { click: (event) => { event.stopPropagation(); this._spaSetBrightness(id, Math.max(1, brightness - 10)); } } }, el("ha-icon", { icon: "mdi:minus" })),
+        el("button", { class: "btn small", disabled: this._busySpa,
+          on: { click: (event) => { event.stopPropagation(); this._spaSetBrightness(id, 100); } } }, el("ha-icon", { icon: "mdi:white-balance-sunny" })))
+    ));
+    overlay.appendChild(sheet);
+    return overlay;
   }
 
   _spaAddOpen() {
