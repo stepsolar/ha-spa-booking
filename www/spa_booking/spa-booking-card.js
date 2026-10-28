@@ -15420,9 +15420,10 @@ _renderClients() {
       .spa-tile--button { justify-content: center; min-height: 74px; background: var(--secondary-background-color, #f1f3f5); }
       .spa-tile--button .spa-tile-icon { --mdc-icon-size: 34px; }
       .spa-tile--button .spa-tile-name { font-weight: 700; font-size: 13px; margin-top: 4px; }
-      .spa-tile--switch { cursor: pointer; background: var(--card-background-color, #fff); }
-      .spa-tile--switch .spa-tile-icon { color: var(--secondary-text-color, #5f656b); }
-      .spa-tile--switch.on .spa-tile-icon { color: #b7950b; }
+      .spa-tile--switch { cursor: pointer; background: linear-gradient(180deg, var(--card-background-color) 0%, var(--primary-color) 200%); }
+      .spa-tile--switch .spa-tile-icon { color: var(--primary-color); }
+      .spa-tile--switch.on { background: #fff59d !important; }
+      .spa-tile--switch.on .spa-tile-icon { color: #b7950b !important; }
       .spa-tile--climate { border: 2px solid var(--primary-color); padding-bottom: 10px; background: var(--card-background-color); }
       .spa-tile--climate .spa-tile-sub { font-size: 12px; font-weight: 500; }
       .spa-tile--sensor .spa-tile-name { font-size: 11px; color: var(--secondary-text-color); }
