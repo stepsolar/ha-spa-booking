@@ -9285,9 +9285,11 @@ _renderClients() {
     const toggle = (label, key, checked) => {
       const sw = document.createElement("ha-switch");
       sw.checked = checked;
-      sw.addEventListener("change", () => {
+      const sync = () => {
         this._camUpdateTile(tile.entity_id, { [key]: Boolean(sw.checked) });
-      });
+      };
+      sw.addEventListener("change", sync);
+      sw.addEventListener("value-changed", sync);
       return el("label", { class: "spa-toggle" }, sw, el("span", {}, label));
     };
     sheet.appendChild(
@@ -9797,7 +9799,10 @@ _renderClients() {
     const editing = this._spaEditMode;
     const type = this._resolveSpaCardType(item);
     const tile = el("div", {
-      class: "spa-tile spa-tile--" + type + (editing ? " editing" : ""),
+      class:
+        "spa-tile spa-tile--" + type +
+        (((domain === "light" || domain === "switch" || domain === "input_boolean" || domain === "fan") && active)
+          ? " on" : "") + (editing ? " editing" : ""),
       "data-card-type": type,
       "data-eid": id,
       style: "grid-column: span " + (item.span || 1) + ";",
@@ -10094,9 +10099,11 @@ _renderClients() {
     const toggle = (label, key, checked) => {
       const sw = document.createElement("ha-switch");
       sw.checked = checked;
-      sw.addEventListener("change", () => {
+      const sync = () => {
         this._spaUpdateTile(tile.entity_id, { [key]: Boolean(sw.checked) });
-      });
+      };
+      sw.addEventListener("change", sync);
+      sw.addEventListener("value-changed", sync);
       return el("label", { class: "spa-toggle" }, sw, el("span", {}, label));
     };
     sheet.appendChild(
@@ -15391,6 +15398,9 @@ _renderClients() {
       .spa-tile.editing { cursor: grab; }
       .spa-tile.dragging { opacity: .75; outline: 2px dashed var(--primary-color);
                             cursor: grabbing; z-index: 5; }
+      .spa-tile.on .spa-tile-icon { color: #ffc107; }
+      .spa-tile.on .spa-tile-icon ha-icon { color: #ffc107; }
+      .spa-tile.on .spa-tile-name { color: var(--primary-text-color); }
       /* Phase 2: card types (visual variants) */
       /* Phase 2 stronger visuals */
       .spa-tile--button { justify-content: center; min-height: 74px; background: var(--secondary-background-color, #f1f3f5); }
