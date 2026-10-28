@@ -614,6 +614,9 @@ SPA_TILE_SCHEMA = vol.Schema(
         vol.Optional("span"): vol.Any(
             vol.All(vol.Coerce(int), vol.Range(min=1, max=4)), None
         ),
+        vol.Optional("card_type"): vol.Any(
+            vol.In(["auto", "tile", "button", "switch", "climate", "sensor", "entity", "thermostat", "gauge"]), None
+        ),
     },
     extra=vol.PREVENT_EXTRA,
 )

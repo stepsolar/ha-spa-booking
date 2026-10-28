@@ -9145,6 +9145,7 @@ _renderClients() {
       show_icon: true,
       show_state: true,
       span: 1,
+      card_type: "auto",
     });
     this._camAddDlg = false;
     await this._camPersist(tiles);
@@ -9162,6 +9163,7 @@ _renderClients() {
           show_icon: tile.show_icon !== false,
           show_state: tile.show_state !== false,
           span: tile.span || 1,
+          card_type: tile.card_type || "auto",
         })),
       });
       await this._loadData();
@@ -9517,6 +9519,9 @@ _renderClients() {
     let span = Number(item.span);
     if (!Number.isFinite(span)) span = 1;
     span = Math.min(4, Math.max(1, Math.round(span)));
+    const supported = ["auto", "tile", "button", "switch", "climate", "sensor", "entity", "thermostat", "gauge"];
+    let card_type = String(item.card_type || item.type || "auto").trim().toLowerCase();
+    if (!supported.includes(card_type)) card_type = "auto";
     return {
       entity_id,
       name: text(item.name),
@@ -9525,6 +9530,7 @@ _renderClients() {
       show_icon: item.show_icon !== false,
       show_state: item.show_state !== false,
       span,
+      card_type,
     };
   }
 
@@ -9742,7 +9748,7 @@ _renderClients() {
     const domain = String(id || "").split(".")[0];
     const editing = this._spaEditMode;
     const tile = el("div", {
-      class: "spa-tile" + (editing ? " editing" : ""),
+      class: "spa-tile spa-tile--" + (item.card_type || "auto") + (editing ? " editing" : ""),
       "data-eid": id,
       style: "grid-column: span " + (item.span || 1) + ";",
     });
@@ -9885,6 +9891,7 @@ _renderClients() {
           show_icon: tile.show_icon !== false,
           show_state: tile.show_state !== false,
           span: tile.span || 1,
+          card_type: tile.card_type || "auto",
         })),
       });
       await this._loadData();
@@ -9992,6 +9999,28 @@ _renderClients() {
         toggle("Icona", "show_icon", tile.show_icon !== false),
         toggle("Stato", "show_state", tile.show_state !== false))
     );
+
+    // ----- Card type -----
+    const typeSelect = document.createElement("select");
+    typeSelect.className = "select";
+    [["auto", "Automatico (per dominio)"], ["tile", "Tile compact"], ["button", "Bottone"], ["climate", "Termostato compatto"], ["sensor", "Sensore"], ["switch", "Interruttore"], ["entity", "Entità (esteso)"], ["thermostat", "Termostato"], ["gauge", "Gauge"]].forEach(([value, label]) => {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      option.selected = tile.card_type === value;
+      typeSelect.appendChild(option);
+    });
+    typeSelect.addEventListener("change", () => {
+      this._spaUpdateTile(tile.entity_id, { card_type: typeSelect.value });
+    });
+    sheet.appendChild(
+      el("div", { class: "detail-section" },
+        el("h4", {}, "Tipo di riquadro"),
+        typeSelect,
+        el("div", { class: "hint" }, "Automatico sceglie il tipo in base al dominio dell'entità.")
+      )
+    );
+
 
     // ----- Column span -----
     const spanChips = el("div", { class: "spa-chips" });
