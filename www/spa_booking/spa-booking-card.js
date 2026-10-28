@@ -599,6 +599,8 @@ class SpaBookingCard extends HTMLElement {
     // agenda view state
     this._categoryFilter = "";
     this._guestFilter = "";
+    // Show appointments that already checked in (hidden by default to keep the working day readable).
+    this._showCheckedIn = false;
 
     // config tab state
     this._editing = null;
@@ -2506,7 +2508,8 @@ class SpaBookingCard extends HTMLElement {
     // Once the reception has recorded the exit the appointment is over: it
     // leaves the working agenda and folds into the "Usciti" section below.
     const exited = dayList.filter((appointment) => appointment.checked_out);
-    const list = dayList.filter((appointment) => !appointment.checked_out);
+    const allActive = dayList.filter((appointment) => !appointment.checked_out);
+    const list = this._showCheckedIn ? allActive : allActive.filter((appointment) => !appointment.checked_in);
     const totalMin = list.reduce((sum, item) => sum + (this._durationOf(item) || 0), 0);
 
     const categoryChips = this._categoryChips();
@@ -2643,6 +2646,20 @@ class SpaBookingCard extends HTMLElement {
             ? el("span", { class: "meta-hours" },
                 hours.map((hour) => `${pad(hour)}:00 ×${byHour.get(hour)}`).join("  ·  "))
             : null
+        )
+      );
+
+      // Toggle to show/hide the appointments that already checked in.
+      wrap.appendChild(
+        el("div", { class: "row", style: "margin: 6px 0 0 0;" },
+          el("button", {
+            class: `btn small ${this._showCheckedIn ? "active" : ""}`,
+            style: this._can("day") ? null : "display: none",
+            on: { click: () => { this._showCheckedIn = !this._showCheckedIn; this._render(); } },
+          },
+            el("ha-icon", { icon: this._showCheckedIn ? "mdi:close" : "mdi:check" }),
+            el("span", { class: "btn-label" },
+              this._showCheckedIn ? "Nascondi appuntamenti che hanno fatto check-in" : "Mostra appuntamenti che hanno già fatto il check-in"))
         )
       );
 
