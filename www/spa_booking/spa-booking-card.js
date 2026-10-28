@@ -9828,18 +9828,21 @@ _renderClients() {
       row.appendChild(el("button", {
         class: "btn small",
         disabled: this._busySpa,
+        title: state.state === "off" ? "Accendi" : "Spegni",
         on: { click: (event) => { event.stopPropagation(); this._spaClimatePower(id, state.state !== "off" && state.state !== "unavailable"); } },
-      }, el("ha-icon", { icon: state.state === "off" ? "mdi:power-off" : "mdi:power" }), el("span", {}, state.state === "off" ? "Accendi" : "Spegni")));
+      }, el("ha-icon", { icon: state.state === "off" ? "mdi:power-off" : "mdi:power" })));
       row.appendChild(el("button", {
         class: "btn small",
         disabled: this._busySpa,
+        title: "Riscaldamento",
         on: { click: (event) => { event.stopPropagation(); this._spaClimateMode(id, "heat"); } },
-      }, el("ha-icon", { icon: "mdi:fire" }), el("span", {}, "Ris")));
+      }, el("ha-icon", { icon: "mdi:fire" })));
       row.appendChild(el("button", {
         class: "btn small",
         disabled: this._busySpa,
+        title: "Freddo",
         on: { click: (event) => { event.stopPropagation(); this._spaClimateMode(id, "cool"); } },
-      }, el("ha-icon", { icon: "mdi:snowflake" }), el("span", {}, "Freddo")));
+      }, el("ha-icon", { icon: "mdi:snowflake" })));
       row.appendChild(el("button", {
         class: "btn small",
         disabled: this._busySpa,
