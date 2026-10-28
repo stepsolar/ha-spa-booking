@@ -2655,8 +2655,8 @@ class SpaBookingCard extends HTMLElement {
           el("span", { class: "dim", style: "font-size: 13px;" },
             "Mostra appuntamenti che hanno già fatto il check-in"),
           el("button", {
-            class: "icon-btn",
-            style: this._can("day") ? null : "display: none",
+            class: "btn small",
+            style: (this._can("day") ? "background: #009ac7; color: #fff;" : "display: none"),
             title: this._showCheckedIn ? "Nascondi appuntamenti che hanno fatto check-in" : "Mostra appuntamenti che hanno già fatto il check-in",
             on: { click: () => { this._showCheckedIn = !this._showCheckedIn; this._render(); } },
           },
