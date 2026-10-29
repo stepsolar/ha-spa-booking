@@ -9305,6 +9305,24 @@ _renderClients() {
         tapSelect)
     );
 
+    const holdSelect = document.createElement("select");
+    holdSelect.className = "select";
+    [["more-info", "Apri info entità"], ["none", "Nessuna azione"], ["toggle", "Toggle"]].forEach(([value, label]) => {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      option.selected = (tile.hold_action || "more-info") === value;
+      holdSelect.appendChild(option);
+    });
+    holdSelect.addEventListener("change", () => {
+      this._spaUpdateTile(tile.entity_id, { hold_action: holdSelect.value });
+    });
+    sheet.appendChild(
+      el("div", { class: "detail-section" },
+        el("h4", {}, "Hold action"),
+        holdSelect)
+    );
+
     // ----- Visibility -----
     const toggle = (label, key, checked) => {
       const sw = document.createElement("ha-switch");
@@ -9867,32 +9885,31 @@ _renderClients() {
         }
       });
 
-      // Long press on a dimmable light opens the brightness popup.
-      if (domain === "light" && state && (state.attributes || {}).supported_color_modes &&
-        (state.attributes.supported_color_modes.includes("brightness") || (state.attributes.supported_color_modes||[]).includes("brightness_pct"))) {
-        let longPressTimer = null;
-        let longPressed = false;
-        const cancel = () => {
-          if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
-        };
-        tile.addEventListener("pointerdown", () => {
-          longPressed = false;
-          longPressTimer = setTimeout(() => {
-            longPressed = true;
+      // Long press / hold action.
+      let holdTimer = null;
+      tile.addEventListener("pointerdown", () => {
+        holdTimer = setTimeout(() => {
+          holdTimer = null;
+          const action = String(item.hold_action || "more-info").trim().toLowerCase();
+          if (action === "none") return;
+          if (action === "toggle") {
+            if (domain === "lock") this._spaLock(id, state.state === "locked");
+            else if (domain === "climate") this._spaClimatePower(id, state.state !== "off");
+            else this._spaToggle(domain, id);
+            return;
+          }
+          if (action === "brightness" && domain === "light") {
             this._spaBrightnessDlg = id;
             this._render();
-          }, 600);
-        });
-        tile.addEventListener("pointerup", (event) => {
-          cancel();
-          if (longPressed) { event.stopPropagation(); event.preventDefault(); }
-        });
-        tile.addEventListener("pointermove", cancel);
-        tile.addEventListener("pointerleave", cancel);
-        tile.addEventListener("click", (event) => {
-          if (longPressed) { event.stopPropagation(); event.preventDefault(); longPressed = false; }
-        }, true);
-      }
+            return;
+          }
+          this._moreInfo(id);
+        }, 600);
+      });
+      const cancelHold = () => { if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; } };
+      tile.addEventListener("pointerup", cancelHold);
+      tile.addEventListener("pointerleave", cancelHold);
+      tile.addEventListener("pointermove", cancelHold);
     }
 
     if ((type === "climate" || type === "thermostat") && !editing) {
