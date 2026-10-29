@@ -9172,6 +9172,8 @@ _renderClients() {
       show_state: true,
       span: 1,
       card_type: "auto",
+      tap_action: "toggle",
+      hold_action: "more-info",
     });
     this._camAddDlg = false;
     await this._camPersist(tiles);
@@ -9190,6 +9192,8 @@ _renderClients() {
           show_state: tile.show_state !== false,
           span: tile.span || 1,
           card_type: tile.card_type || "auto",
+          tap_action: tile.tap_action || "toggle",
+          hold_action: tile.hold_action || "more-info",
         })),
       });
       await this._loadData();
@@ -9280,6 +9284,25 @@ _renderClients() {
         el("div", { class: "hint" },
           "Lascia vuoti nome e icona per usare quelli dell'entità.")
       )
+    );
+
+    // ----- Tap action -----
+    const tapSelect = document.createElement("select");
+    tapSelect.className = "select";
+    [["toggle", "Toggle (accensione/spegnimento)"], ["more-info", "Apri info entità"], ["none", "Nessuna azione"]].forEach(([value, label]) => {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      option.selected = (tile.tap_action || "toggle") === value;
+      tapSelect.appendChild(option);
+    });
+    tapSelect.addEventListener("change", () => {
+      this._spaUpdateTile(tile.entity_id, { tap_action: tapSelect.value });
+    });
+    sheet.appendChild(
+      el("div", { class: "detail-section" },
+        el("h4", {}, "Tap action"),
+        tapSelect)
     );
 
     // ----- Visibility -----
@@ -9548,6 +9571,8 @@ _renderClients() {
     if (!Number.isFinite(span)) span = 1;
     span = Math.min(4, Math.max(1, Math.round(span)));
     const supported = ["auto", "tile", "button", "switch", "climate", "sensor", "entity", "thermostat", "gauge"];
+    const tap_action = String(item.tap_action || "toggle").trim().toLowerCase();
+    const hold_action = String(item.hold_action || "more-info").trim().toLowerCase();
     let card_type = String(item.card_type || item.type || "auto").trim().toLowerCase();
     if (!supported.includes(card_type)) card_type = "auto";
     return {
@@ -9559,6 +9584,8 @@ _renderClients() {
       show_state: item.show_state !== false,
       span,
       card_type,
+      tap_action: ["toggle","more-info","none","brightness"].includes(tap_action) ? tap_action : "toggle",
+      hold_action: ["toggle","more-info","none","brightness"].includes(hold_action) ? hold_action : "more-info",
     };
   }
 
@@ -9822,7 +9849,10 @@ _renderClients() {
     const target = attrs.temperature;
 
     if (!editing) {
-      tile.addEventListener("click", () => {
+      tile.addEventListener("click", (event) => {
+        const tap = String((item && item.tap_action) || "toggle").trim().toLowerCase();
+        if (tap === "more-info") { event.stopPropagation(); this._moreInfo(id); return; }
+        if (tap === "none") { event.stopPropagation(); return; }
         if (!state || state.state === "unavailable") {
           this._moreInfo(id);
           return;
@@ -10112,6 +10142,8 @@ _renderClients() {
           show_state: tile.show_state !== false,
           span: tile.span || 1,
           card_type: tile.card_type || "auto",
+          tap_action: tile.tap_action || "toggle",
+          hold_action: tile.hold_action || "more-info",
         })),
       });
       await this._loadData();
