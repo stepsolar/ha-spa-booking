@@ -9174,6 +9174,7 @@ _renderClients() {
       card_type: "auto",
       tap_action: "toggle",
       hold_action: "more-info",
+      features: ["state"],
     });
     this._camAddDlg = false;
     await this._camPersist(tiles);
@@ -9194,6 +9195,7 @@ _renderClients() {
           card_type: tile.card_type || "auto",
           tap_action: tile.tap_action || "toggle",
           hold_action: tile.hold_action || "more-info",
+          features: Array.isArray(tile.features) ? tile.features : ["state"],
         })),
       });
       await this._loadData();
@@ -9304,6 +9306,24 @@ _renderClients() {
         el("h4", {}, "Tap action"),
         tapSelect)
     );
+    // ----- Features -----
+    const featureBox = el("div", { class: "detail-section" });
+    featureBox.appendChild(el("h4", {}, "Features"));
+    const featureNames = ["state","power","brightness","temperature","hvac","color"];
+    featureNames.forEach((name) => {
+      const checked = Array.isArray(tile.features) && tile.features.includes(name);
+      const sw = document.createElement("ha-switch");
+      sw.checked = checked;
+      const sync = () => {
+        const set = new Set(tile.features || []);
+        if (sw.checked) set.add(name); else set.delete(name);
+        this._spaUpdateTile(tile.entity_id, { features: Array.from(set) });
+      };
+      sw.addEventListener("change", sync);
+      sw.addEventListener("value-changed", sync);
+      featureBox.appendChild(el("label", { class: "spa-toggle" }, sw, el("span", {}, name)));
+    });
+    sheet.appendChild(featureBox);
 
     const holdSelect = document.createElement("select");
     holdSelect.className = "select";
@@ -9589,8 +9609,12 @@ _renderClients() {
     if (!Number.isFinite(span)) span = 1;
     span = Math.min(4, Math.max(1, Math.round(span)));
     const supported = ["auto", "tile", "button", "switch", "climate", "sensor", "entity", "thermostat", "gauge"];
+    const allowedFeatures = ["brightness", "temperature", "power", "hvac", "color", "state"];
     const tap_action = String(item.tap_action || "toggle").trim().toLowerCase();
     const hold_action = String(item.hold_action || "more-info").trim().toLowerCase();
+    const rawFeatures = item && Array.isArray(item.features) ? item.features : null;
+    const features = rawFeatures ? rawFeatures.filter((f) => allowedFeatures.includes(String(f).trim().toLowerCase()))
+      .map((f) => String(f).trim().toLowerCase()) : ["brightness", "state"];
     let card_type = String(item.card_type || item.type || "auto").trim().toLowerCase();
     if (!supported.includes(card_type)) card_type = "auto";
     return {
@@ -9604,6 +9628,7 @@ _renderClients() {
       card_type,
       tap_action: ["toggle","more-info","none","brightness"].includes(tap_action) ? tap_action : "toggle",
       hold_action: ["toggle","more-info","none","brightness"].includes(hold_action) ? hold_action : "more-info",
+      features: features.length ? features : ["state"],
     };
   }
 
@@ -10161,6 +10186,7 @@ _renderClients() {
           card_type: tile.card_type || "auto",
           tap_action: tile.tap_action || "toggle",
           hold_action: tile.hold_action || "more-info",
+          features: Array.isArray(tile.features) ? tile.features : ["state"],
         })),
       });
       await this._loadData();

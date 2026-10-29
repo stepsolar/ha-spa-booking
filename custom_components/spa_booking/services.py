@@ -152,6 +152,7 @@ SERVICE_SEND_EXTERNAL_MESSAGE = "send_external_message"
 SERVICE_UPDATE_BOOKING_BATCH = "update_booking_batch"
 SERVICE_EXPORT_ALL = "export_all"
 SERVICE_IMPORT_ALL = "import_all"
+SERVICE_GET_DASHBOARD_CONFIG = "get_dashboard_config"
 
 ALL_SERVICES = (
     SERVICE_CREATE_APPOINTMENT,
@@ -223,6 +224,7 @@ ALL_SERVICES = (
     SERVICE_SEND_EXTERNAL_MESSAGE,
     SERVICE_EXPORT_ALL,
     SERVICE_IMPORT_ALL,
+    SERVICE_GET_DASHBOARD_CONFIG,
     SERVICE_UPDATE_BOOKING_BATCH,
 )
 
@@ -622,6 +624,9 @@ SPA_TILE_SCHEMA = vol.Schema(
         ),
         vol.Optional("hold_action"): vol.Any(
             vol.In(["toggle", "more-info", "none", "brightness"]), None
+        ),
+        vol.Optional("features"): vol.Any(
+            vol.All(cv.ensure_list, [cv.string]), None
         ),
     },
     extra=vol.PREVENT_EXTRA,
@@ -1076,6 +1081,22 @@ CLEAR_SLOT_BLOCK_SCHEMA = vol.Schema(
 )
 
 EXPIRE_OFFERS_SCHEMA = vol.Schema({})
+
+
+
+async def _async_get_dashboard_config(call: ServiceCall) -> ServiceResponse:
+    """Return the structured dashboard configuration (read-only)."""
+    coordinator = _coordinator(call)
+    settings = coordinator.export_data().get("settings", {})
+    return {
+        "dashboard": {
+            "appearance": settings.get("appearance"),
+            "card_title": settings.get("card_title"),
+            "spa_entities": settings.get("spa_entities"),
+            "camera_entities": settings.get("camera_entities"),
+            "accessories": settings.get("accessories"),
+        }
+    }
 
 
 def _coordinator(call: ServiceCall) -> SpaBookingCoordinator:
@@ -2082,6 +2103,11 @@ _HANDLERS: dict[str, tuple[Any, Any, SupportsResponse]] = {
     SERVICE_WEB_SNIPPET: (
         _async_web_snippet,
         WEB_SNIPPET_SCHEMA,
+        SupportsResponse.ONLY,
+    ),
+    SERVICE_GET_DASHBOARD_CONFIG: (
+        _async_get_dashboard_config,
+        EXPORT_ALL_SCHEMA,
         SupportsResponse.ONLY,
     ),
     SERVICE_UPDATE_BOOKING_BATCH: (
