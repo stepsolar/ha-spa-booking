@@ -10222,28 +10222,6 @@ _renderClients() {
         toggle("Stato", "show_state", tile.show_state !== false))
     );
 
-    // ----- Card type -----
-    const typeSelect = document.createElement("select");
-    typeSelect.className = "select";
-    [["auto", "Automatico (per dominio)"], ["tile", "Tile compact"], ["button", "Bottone"], ["climate", "Termostato compatto"], ["sensor", "Sensore"], ["switch", "Interruttore"], ["entity", "Entità (esteso)"], ["thermostat", "Termostato"], ["gauge", "Gauge"]].forEach(([value, label]) => {
-      const option = document.createElement("option");
-      option.value = value;
-      option.textContent = label;
-      option.selected = tile.card_type === value;
-      typeSelect.appendChild(option);
-    });
-    typeSelect.addEventListener("change", () => {
-      this._spaUpdateTile(tile.entity_id, { card_type: typeSelect.value });
-    });
-    sheet.appendChild(
-      el("div", { class: "detail-section" },
-        el("h4", {}, "Tipo di riquadro"),
-        typeSelect,
-        el("div", { class: "hint" }, "Automatico sceglie il tipo in base al dominio dell'entità.")
-      )
-    );
-
-
     // ----- Column span -----
     const spanChips = el("div", { class: "spa-chips" });
     [1, 2, 3, 4].forEach((value) => {
@@ -15498,10 +15476,14 @@ _renderClients() {
                      font-weight: 600; }
       .spa-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
                   gap: 12px; align-items: stretch; }
-      .spa-tile { position: relative; display: flex; flex-direction: column; align-items: center;
-                  gap: 4px 12px; padding: 12px 14px; border: 1px solid var(--divider-color);
-                  border-radius: 14px; background: var(--card-background-color); cursor: pointer;
-                  transition: box-shadow .15s; text-align: center; }
+      .spa-tile { position: relative; display: flex; flex-direction: row; align-items: center;
+                  gap: 8px 12px; padding: 12px 14px; border: 1px solid var(--divider-color);
+                  border-radius: 12px; background: var(--card-background-color); cursor: pointer;
+                  transition: box-shadow .15s; text-align: left; }
+      .spa-tile .spa-tile-icon { --mdc-icon-size: 30px; flex-shrink: 0; }
+      .spa-tile .spa-tile-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+      .spa-tile .spa-tile-name { font-weight: 500; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .spa-tile .spa-tile-sub { font-size: 12px; opacity: 0.9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .spa-tile:hover { box-shadow: 0 2px 10px rgba(0, 0, 0, .12); }
       .spa-tile.editing { cursor: grab; }
       .spa-tile.dragging { opacity: .75; outline: 2px dashed var(--primary-color);
