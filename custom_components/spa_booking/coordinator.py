@@ -706,6 +706,13 @@ def _norm_spa_tile(raw: Any) -> dict[str, Any] | None:
     card_type = str(raw.get("card_type") or "auto").strip().lower()
     if card_type not in allowed_types:
         card_type = "auto"
+    valid_actions = {"toggle", "more-info", "none", "brightness"}
+    tap_action = str(raw.get("tap_action") or "toggle").strip().lower()
+    if tap_action not in valid_actions:
+        tap_action = "toggle"
+    hold_action = str(raw.get("hold_action") or "more-info").strip().lower()
+    if hold_action not in valid_actions:
+        hold_action = "more-info"
     return {
         "entity_id": entity_id,
         "name": optional_text("name"),
@@ -715,6 +722,8 @@ def _norm_spa_tile(raw: Any) -> dict[str, Any] | None:
         "show_state": bool(raw.get("show_state", True)),
         "span": min(max(span, 1), SPA_MAX_SPAN),
         "card_type": card_type,
+        "tap_action": tap_action,
+        "hold_action": hold_action,
     }
 
 

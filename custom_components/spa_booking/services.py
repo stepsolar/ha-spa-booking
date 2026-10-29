@@ -617,6 +617,12 @@ SPA_TILE_SCHEMA = vol.Schema(
         vol.Optional("card_type"): vol.Any(
             vol.In(["auto", "tile", "button", "switch", "climate", "sensor", "entity", "thermostat", "gauge"]), None
         ),
+        vol.Optional("tap_action"): vol.Any(
+            vol.In(["toggle", "more-info", "none", "brightness"]), None
+        ),
+        vol.Optional("hold_action"): vol.Any(
+            vol.In(["toggle", "more-info", "none", "brightness"]), None
+        ),
     },
     extra=vol.PREVENT_EXTRA,
 )
