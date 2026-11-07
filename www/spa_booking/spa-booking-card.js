@@ -8334,7 +8334,7 @@ _renderClients() {
         const cancelled = appointment.status === "cancelled";
         right.appendChild(
           el("div", { class: `appt compact${cancelled ? " cancelled" : ""}` },
-            el("div", { class: "appt-main" },
+            this._rowTappable(appointment,
               el("div", { class: "appt-time" },
                 `${pad(start.getDate())}/${pad(start.getMonth() + 1)}/${start.getFullYear()}`),
               el("div", { class: "appt-body" },
@@ -8353,7 +8353,9 @@ _renderClients() {
                       class: "btn small",
                       title: "Annulla appuntamento",
                       disabled: this._busy,
-                      on: { click: () => this._confirmCancel(appointment) },
+                      on: {
+                        click: (event) => { event.stopPropagation(); this._confirmCancel(appointment); },
+                      },
                     }, el("ha-icon", { icon: "mdi:calendar-remove" }))
                   : null,
                 cancelled
@@ -8361,7 +8363,9 @@ _renderClients() {
                       class: "btn small danger",
                       title: "Elimina definitivamente",
                       disabled: this._busy,
-                      on: { click: () => this._confirmDeleteAppointment(appointment) },
+                      on: {
+                        click: (event) => { event.stopPropagation(); this._confirmDeleteAppointment(appointment); },
+                      },
                     }, el("ha-icon", { icon: "mdi:delete" }))
                   : null))
           )
