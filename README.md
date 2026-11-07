@@ -75,6 +75,7 @@ Dopo l'installazione l'integrazione crea un'entry configurabile dall'UI:
 - Le schede clienti sono deduplicate per telefono; operatori e trattamenti si gestiscono da card.
 
 ## Changelog recente
+- **v2.0.13**: overlap popup su edit appuntamento + storico cliente cliccabile + modifica gruppo senza tuple error; tap agenda da allargare.
 - **v2.0.12**: annulla la modifica gruppo tornando in agenda automaticamente; fix stile termostato/switch; icone MDI standalone power/fire/snowflake; real-time e card_type persistence.
 - **v2.0.11**: fix editing appointment in groups (tuple index error) and update readme changelog.
 - **v2.0.10**: aggiunto scaffold dashboard dedicato, servizio get_dashboard_config, persistenza features/tap/hold actions, aggiornamento stato real-time + icone MDI standalone.
