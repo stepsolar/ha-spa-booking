@@ -3662,6 +3662,20 @@ class SpaBookingCard extends HTMLElement {
       class: `appt${cancelled ? " cancelled" : ""}`,
       "data-appt": appointment.id,
     });
+    row.addEventListener("click", (event) => {
+      // Broad tap target: clicking anywhere on the row except buttons opens the detail.
+      if (event.target && typeof event.target.closest === "function" && event.target.closest("button")) {
+        return;
+      }
+      this._openDetail(appointment);
+    });
+    row.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        this._openDetail(appointment);
+      }
+    });
+    row.style.cursor = "pointer";
 
     // People who came together under one client card share a slot: a bar on
     // the left and a chip with the count make that visible at a glance, so
