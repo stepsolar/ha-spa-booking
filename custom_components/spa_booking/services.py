@@ -151,6 +151,7 @@ SERVICE_WEB_SNIPPET = "web_snippet"
 SERVICE_SEND_EXTERNAL_MESSAGE = "send_external_message"
 SERVICE_UPDATE_BOOKING_BATCH = "update_booking_batch"
 SERVICE_EXPORT_ALL = "export_all"
+SERVICE_EXPORT_DASHBOARD_YAML = "export_dashboard_yaml"
 SERVICE_IMPORT_ALL = "import_all"
 SERVICE_GET_DASHBOARD_CONFIG = "get_dashboard_config"
 
@@ -225,6 +226,7 @@ ALL_SERVICES = (
     SERVICE_EXPORT_ALL,
     SERVICE_IMPORT_ALL,
     SERVICE_GET_DASHBOARD_CONFIG,
+    SERVICE_EXPORT_DASHBOARD_YAML,
     SERVICE_UPDATE_BOOKING_BATCH,
 )
 
@@ -1097,6 +1099,12 @@ async def _async_get_dashboard_config(call: ServiceCall) -> ServiceResponse:
             "accessories": settings.get("accessories"),
         }
     }
+
+
+
+async def _async_export_dashboard_yaml(call: ServiceCall) -> ServiceResponse:
+    """Generate a ready-to-import Lovelace YAML dashboard for the Spa tiles."""
+    return await _coordinator(call).async_export_dashboard_yaml()
 
 
 def _coordinator(call: ServiceCall) -> SpaBookingCoordinator:
@@ -2110,6 +2118,11 @@ _HANDLERS: dict[str, tuple[Any, Any, SupportsResponse]] = {
         EXPORT_ALL_SCHEMA,
         SupportsResponse.ONLY,
     ),
+    SERVICE_EXPORT_DASHBOARD_YAML: (
+        _async_export_dashboard_yaml,
+        EXPORT_ALL_SCHEMA,
+        SupportsResponse.ONLY,
+    ),
     SERVICE_UPDATE_BOOKING_BATCH: (
         _async_update_booking_batch,
         UPDATE_BOOKING_BATCH_SCHEMA,
@@ -2155,9 +2168,11 @@ _HANDLERS: dict[str, tuple[Any, Any, SupportsResponse]] = {
 
 def async_register_services(hass: HomeAssistant) -> None:
     """Register every service once, regardless of the entry count."""
-    if hass.services.has_service(DOMAIN, SERVICE_GET_CONFIG):
-        return
+    # Incremental registration: a reload keeps old service names loaded, so
+    # only register the services that are still missing.
     for service, (handler, schema, response) in _HANDLERS.items():
+        if hass.services.has_service(DOMAIN, service):
+            continue
         hass.services.async_register(
             DOMAIN, service, handler, schema=schema, supports_response=response
         )

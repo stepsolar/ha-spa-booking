@@ -4325,7 +4325,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         rebuilt_ids = [item[0]["id"] for item in prepared]
         return {
             "batch_id": batch_id,
-            "appointments": [self.appointment_payload(a) for a in prepared],
+            "appointments": [self.appointment_payload(item[0]) for item in prepared],
             "kept": sorted(kept_ids),
             "cancelled": sorted({a["id"] for a in existing} - kept_ids),
         }
@@ -4518,6 +4518,55 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._data[KEY_SETTINGS] = _norm_settings(settings)
             await self._async_save()
         return {"token": self._web_settings["web_token"]}
+
+    
+    async def async_export_dashboard_yaml(self) -> dict[str, Any]:
+        """Return a ready-to-import Lovelace YAML dashboard for the Spa tiles."""
+        settings = self.export_data().get("settings", {}) or {}
+        tiles = settings.get("spa_entities") or []
+        lines = [
+            "views:",
+            "- path: spa_generated",
+            "  title: Spa (generated)",
+            "  cards:",
+        ]
+        for tile in tiles:
+            if not isinstance(tile, dict):
+                continue
+            entity_id = str(tile.get("entity_id") or "").strip()
+            if not entity_id:
+                continue
+            domain = entity_id.split(".", 1)[0]
+            card_type = "tile"
+            if domain == "climate":
+                card_type = "thermostat"
+            elif domain == "sensor":
+                card_type = "sensor"
+            elif domain == "media_player":
+                card_type = "media-control"
+            lines.append(f"    - type: {card_type}")
+            lines.append(f"      entity: {entity_id}")
+            name = tile.get("name")
+            if name:
+                import json as _json
+                lines.append(f"      name: {_json.dumps(str(name), ensure_ascii=False)}")
+            icon = tile.get("icon")
+            if icon:
+                lines.append(f"      icon: {icon}")
+            features = tile.get("features") or []
+            mapped = []
+            for feat in features:
+                if feat == "brightness":
+                    mapped.append("- type: light-brightness")
+                elif feat == "temperature":
+                    mapped.append("- type: temperature-control")
+                elif feat == "power":
+                    mapped.append("- type: power")
+            if mapped:
+                lines.append("      features:")
+                for line in mapped:
+                    lines.append("        " + line)
+        return {"yaml": "\n".join(lines)}
 
     async def async_web_snippet(self) -> dict[str, Any]:
         """Return the code to paste into the site, with the token already in it.
