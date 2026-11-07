@@ -2446,19 +2446,18 @@ class SpaBookingCard extends HTMLElement {
             title: tab.label,
             on: {
               click: () => {
-                // During group edit, do not allow navigation away, otherwise
-                // a mixed/modified screen may appear.
-                if (this._batchEditing && tab.id !== "nuovo" && tab.id !== "agenda") {
-                  this._message = { kind: "error", text: "Termina la modifica del gruppo prima di cambiare scheda." };
-                  this._render();
-                  return;
+                // While editing a group, leaving the current screen cancels the
+                // edit and continues to the chosen tab (no save).
+                if (this._batchEditing) {
+                  this._batchEditing = false;
+                  this._batchRows = [];
+                  this._batchAnchorId = null;
+                  this._batchAnchorBatchId = null;
                 }
                 // Leaving the new-booking tab without saving empties the form.
                 if (this._tab === "nuovo" && tab.id !== "nuovo") this._resetForm();
                 // Leaving the voucher tab clears the draft form.
                 if (this._tab === "voucher" && tab.id !== "voucher") this._voucherDraft = null;
-                // While editing a group, keep the previous tab scope.
-                if (this._batchEditing) { this._tab = "agenda"; this._render(); return; }
                 this._tab = tab.id;
                 this._render();
               },
