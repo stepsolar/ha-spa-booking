@@ -6485,6 +6485,10 @@ class SpaBookingCard extends HTMLElement {
     const retry = draft.retry || { kind: "create" };
     const retryNow = () => {
       this._overlapPopup = null;
+      if (typeof retry.run === "function") {
+        retry.run();
+        return;
+      }
       if (retry.kind === "confirm" && retry.id) {
         const appointment = (this._data.appointments || []).find((item) => item.id === retry.id);
         if (appointment) this._confirmAppointment(appointment, true);
@@ -14365,7 +14369,7 @@ _renderClients() {
     wrap.appendChild(columns);
 
     const groupSize = current ? this._groupSize(current) : 1;
-    const save = async (pending, wholeGroup) => {
+    const save = async (pending, wholeGroup, force = false) => {
       try {
         await this._call("update_appointment", {
           appointment_id: this._editing.id,
@@ -14386,11 +14390,29 @@ _renderClients() {
           ...(draft.price != null ? { price: draft.price } : {}),
           ...(pending ? { pending: true } : {}),
           ...(wholeGroup ? { whole_group: true } : {}),
+          ...(force ? { force_client_overlap: true } : {}),
         });
         this._editing = null;
         this._render();
       } catch (error) {
         /* shown */
+        const text = String((error && error.message) || "");
+        if (
+          !force &&
+          /sovrappone/i.test(text) &&
+          /cliente/i.test(text)
+        ) {
+          this._overlapPopup = {
+            message: text,
+            retry: {
+              kind: "edit",
+              id: this._editing.id,
+              run: () => save(pending, wholeGroup, true),
+            },
+          };
+          this._render();
+          return;
+        }
       }
     };
     wrap.appendChild(
