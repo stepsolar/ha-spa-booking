@@ -4191,7 +4191,7 @@ class SpaBookingCard extends HTMLElement {
     head.appendChild(el("button", {
       class: "icon-btn",
       title: "Chiudi",
-      on: { click: () => { this._batchEditing = false; this._batchRows = []; this._render(); } },
+      on: { click: () => { this._batchEditing = false; this._batchRows = []; this._batchAnchorId = null; this._batchAnchorBatchId = null; this._tab = "agenda"; this._render(); } },
     }, el("ha-icon", { icon: "mdi:close" })));
     wrap.appendChild(head);
 
@@ -4429,7 +4429,7 @@ class SpaBookingCard extends HTMLElement {
           class: "btn",
           disabled: this._busy,
           on: { click: () => isBatchEditing
-            ? (this._batchEditing = false, this._batchRows = [], this._batchAnchorId = null, this._batchAnchorBatchId = null, this._render())
+            ? (this._batchEditing = false, this._batchRows = [], this._batchAnchorId = null, this._batchAnchorBatchId = null, this._tab = "agenda", this._render())
             : this._clearForm() },
         }, "Annulla")
       )
