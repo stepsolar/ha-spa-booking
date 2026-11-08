@@ -253,24 +253,32 @@
         if (voucherInfo) voucherInfo.textContent = "Verifica in corso&hellip;";
         api("/voucher?code=" + encodeURIComponent(code)).then(function (data) {
           voucherDetails = data;
-          var people = (data && data.people) || [];
+          var people = (data ? data.people : null) || [];
           if (voucherInfo) voucherInfo.textContent = "Voucher valido: " + code + " (" + people.length + " persona/e)";
-          if (data && data.recipient_name) {
-            var first = $("sbw-first"); var last = $("sbw-last"); var phone = $("sbw-phone");
-            if (first && !first.value) first.value = data.recipient_name.split(" ")[0] || "";
-            if (last && !last.value) last.value = data.recipient_name.split(" ").slice(1).join(" ") || "";
-            if (phone && !phone.value && data.recipient_phone) phone.value = data.recipient_phone;
+          if (data) {
+            if (data.recipient_name) {
+              var first = $("sbw-first"); var last = $("sbw-last"); var phone = $("sbw-phone");
+              if (first) { if (!first.value) first.value = data.recipient_name.split(" ")[0] || ""; }
+              if (last) { if (!last.value) last.value = data.recipient_name.split(" ").slice(1).join(" ") || ""; }
+              if (phone) { if (!phone.value) { if (data.recipient_phone) phone.value = data.recipient_phone; } }
+            }
           }
-          if (people.length > 1 && voucherInfo) {
-            voucherInfo.textContent += " - il sistema ha proposto i trattamenti per la prima persona; completare manualmente per le altre.";
+          if (people.length > 1) {
+            if (voucherInfo) {
+              voucherInfo.textContent += " - il sistema ha proposto i trattamenti per la prima persona; completare manualmente per le altre.";
+            }
           }
-          if (people.length === 1 && people[0].treatments && people[0].treatments.length === 1) {
-            var t = people[0].treatments[0].treatment_id;
-            if (t) { boxTreatment.value = t; }
+          if (people.length === 1) {
+            if (people[0].treatments) {
+              if (people[0].treatments.length === 1) {
+                var t = people[0].treatments[0].treatment_id;
+                if (t) { boxTreatment.value = t; }
+              }
+            }
           }
         }).catch(function (err) {
           voucherDetails = null;
-          if (voucherInfo) voucherInfo.textContent = err && err.message ? err.message : "Voucher non valido.";
+          if (voucherInfo) voucherInfo.textContent = err ? (err.message ? err.message : "Voucher non valido.") : "Voucher non valido.";
         });
       }
       if (voucherCheck) {
