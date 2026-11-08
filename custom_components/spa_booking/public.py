@@ -172,7 +172,58 @@ class SpaBookingPublicTreatmentsView(_PublicView):
                     }
                 )
             items.sort(key=lambda item: (item["category_name"], item["name"]))
-            return self.json({"treatments": items})
+
+            code = str(request.query.get("code") or "").strip().upper()
+            if not code:
+                return self.json({"treatments": items})
+
+            voucher = next(
+                (v for v in coordinator.vouchers if str(v.get("code") or "").upper() == code),
+                None,
+            )
+            if voucher is None:
+                raise ValidationError(f"Voucher {code} non trovato")
+            if str(voucher.get("status") or "") != VOUCHER_ACTIVE:
+                raise ValidationError(f"Il voucher {code} non è disponibile")
+            expires = _norm_date(voucher.get("expires_on"))
+            if expires and date.fromisoformat(expires) < date.today():
+                raise ValidationError(f"Il voucher {code} è scaduto")
+
+            payload_people = []
+            for person in voucher.get("people") or []:
+                treatment_ids = [str(t) for t in person.get("treatment_ids") or [] if t]
+                treatments = []
+                for treatment_id in treatment_ids:
+                    t = next(
+                        (x for x in coordinator.treatments if x.get("id") == treatment_id),
+                        None,
+                    )
+                    treatments.append(
+                        {
+                            "treatment_id": treatment_id,
+                            "name": str(t.get("name") or "") if t else "",
+                            "duration_min": int(t.get("duration_min") or 0) if t else 0,
+                        }
+                    )
+                payload_people.append(
+                    {
+                        "name": str(person.get("name") or "").strip(),
+                        "treatment_ids": treatment_ids,
+                        "treatments": treatments,
+                    }
+                )
+            return self.json(
+                {
+                    "treatments": items,
+                    "voucher": {
+                        "code": code,
+                        "recipient_name": str(voucher.get("recipient_name") or "").strip(),
+                        "recipient_phone": str(voucher.get("recipient_phone") or "").strip(),
+                        "expires_on": expires,
+                        "people": payload_people,
+                    },
+                }
+            )
         except Exception as err:  # noqa: BLE001 — one place for every failure
             return self._failure(err)
 
