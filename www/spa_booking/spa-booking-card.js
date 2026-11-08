@@ -15271,9 +15271,8 @@ _renderClients() {
          so it needs to look clickable and to stay reachable from the
          keyboard, not just the little pencil in the actions. */
       .appt-main { display: flex; gap: 12px; align-items: flex-start; flex: 1 1 auto; min-width: 0;
-                   cursor: pointer; border-radius: 6px; }
+                   border-radius: 6px; }
       .appt-main:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
-      .appt-main:hover { background: var(--secondary-background-color); }
       .appt-time { font-variant-numeric: tabular-nums; font-weight: 500; white-space: nowrap;
                    color: var(--primary-color); }
       /* Time and category stacked on the left, so the icons on the right have
