@@ -94,6 +94,14 @@
     <div id="sbw-form">
       <h2 class="sbw-title">Richiedi un appuntamento SPA</h2>
       <div class="sbw-intro">Scegli il trattamento, il giorno e l'orario: ti ricontattiamo per confermare.</div>
+      <label class="sbw-field" for="sbw-voucher"><span>Codice voucher (opzionale)</span>
+        <input id="sbw-voucher" type="text" maxlength="32" autocomplete="off"
+               placeholder="es. VCH-7K2M9Q4P (se ne hai uno)">
+      </label>
+      <div class="sbw-row tight">
+        <button id="sbw-voucher-check" class="sbw-btn" type="button">Verifica voucher</button>
+        <span id="sbw-voucher-info" class="sbw-hint"></span>
+      </div>
       <label class="sbw-field" for="sbw-treatment"><span>Trattamento *</span>
         <select id="sbw-treatment"><option value="">Caricamento&hellip;</option></select>
       </label>
@@ -131,10 +139,6 @@
           <input id="sbw-email" type="email" autocomplete="email" maxlength="120">
         </label>
       </div>
-      <label class="sbw-field" for="sbw-voucher"><span>Codice voucher</span>
-        <input id="sbw-voucher" type="text" maxlength="32" autocomplete="off"
-               placeholder="es. VCH-7K2M9Q4P (se ne hai uno)">
-      </label>
       <label class="sbw-field" for="sbw-notes"><span>Note</span>
         <textarea id="sbw-notes" rows="2" maxlength="1000" placeholder="Allergie, preferenze, orario migliore&hellip;"></textarea>
       </label>
@@ -183,6 +187,10 @@
       }
       function $(id) { return root.querySelector("#" + id); }
       var boxTreatment = $("sbw-treatment");
+      var voucherInput = $("sbw-voucher");
+      var voucherCheck = $("sbw-voucher-check");
+      var voucherInfo = $("sbw-voucher-info");
+      var voucherDetails = null;
       var inputDate = $("sbw-date");
       var inputPeople = $("sbw-people");
       var slotsBox = $("sbw-slots");
@@ -238,6 +246,38 @@
           });
         });
       }
+      function safeLabel(row) { return (row || "").replace(/</g, "&lt;"); }
+      function loadVoucher() {
+        if (!voucherInput) return;
+        var code = voucherInput.value.trim().toUpperCase();
+        if (!code) { if (voucherInfo) voucherInfo.textContent = ""; voucherDetails = null; return; }
+        if (voucherInfo) voucherInfo.textContent = "Verifica in corso&hellip;";
+        api("/voucher?code=" + encodeURIComponent(code)).then(function (data) {
+          voucherDetails = data;
+          var people = (data && data.people) || [];
+          if (voucherInfo) voucherInfo.textContent = "Voucher valido: " + code + " (" + people.length + " persona/e)";
+          if (data && data.recipient_name) {
+            var first = $("sbw-first"); var last = $("sbw-last"); var phone = $("sbw-phone");
+            if (first && !first.value) first.value = data.recipient_name.split(" ")[0] || "";
+            if (last && !last.value) last.value = data.recipient_name.split(" ").slice(1).join(" ") || "";
+            if (phone && !phone.value && data.recipient_phone) phone.value = data.recipient_phone;
+          }
+          if (people.length > 1 && voucherInfo) {
+            voucherInfo.textContent += " - il sistema ha proposto i trattamenti per la prima persona; completare manualmente per le altre.";
+          }
+          if (people.length === 1 && people[0].treatments && people[0].treatments.length === 1) {
+            var t = people[0].treatments[0].treatment_id;
+            if (t) { boxTreatment.value = t; }
+          }
+        }).catch(function (err) {
+          voucherDetails = null;
+          if (voucherInfo) voucherInfo.textContent = err && err.message ? err.message : "Voucher non valido.";
+        });
+      }
+      if (voucherCheck) {
+        voucherCheck.addEventListener("click", loadVoucher);
+      }
+
       /* ---------------------------- trattamenti ---------------------------- */
       function loadTreatments() {
         return api("/treatments").then(function (data) {
@@ -401,9 +441,9 @@
       var end = new Date(start.getTime() + MAX_DAYS_AHEAD * 86400000);
       inputDate.min = isoDay(start);
       inputDate.max = isoDay(end);
-      boxTreatment.addEventListener("change", function () { say(""); loadSlots(); });
-      inputDate.addEventListener("change", function () { say(""); loadSlots(); });
-      sendButton.addEventListener("click", send);
+      if (boxTreatment) boxTreatment.addEventListener("change", function () { say(""); loadSlots(); });
+      if (inputDate) inputDate.addEventListener("change", function () { say(""); loadSlots(); });
+      if (sendButton) sendButton.addEventListener("click", send);
       clearSlots("Scegli prima il trattamento e la data.");
       loadTreatments();
       window.__sbwStarted = true;
