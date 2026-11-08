@@ -67,7 +67,7 @@
       function node(tag,attrs,children){var el=document.createElement(tag);if(attrs){Object.keys(attrs).forEach(function(key){var value=attrs[key];if(value===null||value===undefined)return;if(key==="class")el.className=value;else if(key==="text")el.textContent=value;else if(key==="on")Object.keys(value).forEach(function(ev){el.addEventListener(ev,value[ev]);});else el.setAttribute(key,value);});}(children||[]).forEach(function(child){if(child)el.appendChild(child);});return el;}
       function $l(id){return sbwRoot.querySelector("#"+id);}
       var dateInput=$l("sbw-date");
-      var peopleInput=$l("sbw-people");
+      var peopleSelect=$l("sbw-people");
       var personsBox=$l("sbw-persons");
       var voucherInput=$l("sbw-voucher");
       var voucherBtn=$l("sbw-voucher-check");
