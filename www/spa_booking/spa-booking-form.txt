@@ -155,8 +155,7 @@
     </div>
     <div id="sbw-done" hidden></div>
   </div>
-  <script>
-    (function () {
+  <script>    (function () {
       "use strict";
       /* ------------------------------- CONFIG ------------------------------- */
       var API_BASE = "https://hailmarchese.it/api/spa_booking/public";
@@ -277,7 +276,6 @@
       if (voucherCheck) {
         voucherCheck.addEventListener("click", loadVoucher);
       }
-
       /* ---------------------------- trattamenti ---------------------------- */
       function loadTreatments() {
         return api("/treatments").then(function (data) {
@@ -447,8 +445,7 @@
       clearSlots("Scegli prima il trattamento e la data.");
       loadTreatments();
       window.__sbwStarted = true;
-    })();
-  </script>
+    })();</script>
   <!-- Difesa: se lo script sopra non arriva a fine esecuzione (WordPress ha alterato il codice), si vede un errore invece di un caricamento infinito. -->
   <script>window.__sbwStarted || (function () { var sel = document.getElementById("sbw-treatment"); var st = document.getElementById("sbw-status"); if (sel) { sel.innerHTML = '<option value="">Caricamento non riuscito: chiama la reception per prenotare.</option>'; } if (st) { st.textContent = "Il modulo non e' stato caricato correttamente: contattare la reception."; st.className = "sbw-status err"; } console.error("sbw: script principale non arrivato a fine esecuzione (codice alterato?)"); })();</script>
 </div>
