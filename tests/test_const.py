@@ -9,10 +9,6 @@ from __future__ import annotations
 from custom_components.spa_booking import const
 
 
-def test_version_is_string() -> None:
-    assert isinstance(const.INTEGRATION_VERSION, str) if hasattr(const, "INTEGRATION_VERSION") else True
-
-
 def test_payment_methods_non_empty() -> None:
     assert len(const.PAYMENT_METHODS) >= 4
 
@@ -37,7 +33,7 @@ def test_extras_default_in_extras() -> None:
 
 def test_accessory_defaults_match_extras() -> None:
     assert len(const.ACCESSORY_DEFAULTS) == len(const.EXTRAS)
-    for accessory, (item_id, _, _) in zip(const.ACCESSORY_DEFAULTS, const.EXTRAS):
+    for accessory, (item_id, _, _) in zip(const.ACCESSORY_DEFAULTS, const.EXTRAS, strict=True):
         assert accessory["id"] == item_id
 
 

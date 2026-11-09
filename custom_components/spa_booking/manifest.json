@@ -1,16 +1,22 @@
 {
   "domain": "spa_booking",
   "name": "Spa Booking",
-  "codeowners": [],
-  "config_flow": true,
-  "documentation": "https://github.com/stepsolar/ha-spa-booking",
-  "integration_type": "service",
-  "iot_class": "local_push",
-  "issue_tracker": "https://github.com/stepsolar/ha-spa-booking/issues",
   "after_dependencies": [
     "calendar",
     "frontend"
   ],
+  "codeowners": [
+    "@stepsolar"
+  ],
+  "config_flow": true,
+  "dependencies": [
+    "http",
+    "webhook"
+  ],
+  "documentation": "https://github.com/stepsolar/ha-spa-booking",
+  "integration_type": "service",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/stepsolar/ha-spa-booking/issues",
   "requirements": [],
-  "version": "2.0.15"
+  "version": "2.1.0"
 }

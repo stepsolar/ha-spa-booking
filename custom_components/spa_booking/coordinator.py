@@ -12,15 +12,12 @@ import asyncio
 import copy
 import json
 from datetime import date, datetime, time, timedelta
-import hashlib
 import hmac
 import logging
-import re
 import secrets
 from pathlib import Path
 from typing import Any, Final
 from collections import deque
-from uuid import uuid4
 
 from homeassistant.components import webhook
 from homeassistant.config_entries import ConfigEntry
@@ -36,7 +33,6 @@ from homeassistant.util import dt as dt_util
 from .const import (
     KEY_VOUCHERS,
     KEY_PROMO_VOUCHERS,
-    PROMO_VOUCHER_CODE_PREFIX,
     PROMO_VOUCHER_PENDING,
     PROMO_VOUCHER_REDEEMED,
     PROMO_VOUCHER_SENT,
@@ -46,24 +42,19 @@ from .const import (
     ANSWER_AVAILABLE,
     ANSWER_CONFIRM,
     ANSWER_DECLINE,
-    APPEARANCE_MODES,
     CARD_JS_URL,
     CARD_JS_URL_LEGACY,
     CARD_JS_VERSION,
     CLOSURE_SCOPES,
-    DEFAULT_APPEARANCE,
     DEFAULT_DEPOSIT_INTESTATARIO,
     DEFAULT_DEPOSIT_IBAN,
     DEFAULT_DEPOSIT_MESSAGE,
     DEFAULT_GUEST_HEADER,
     DEFAULT_PROMO_INTERVAL_SEC,
     DEFAULT_PROMO_MESSAGE,
-    DEFAULT_PROMO_TIME,
     DEFAULT_PROMO_VOUCHER_AFTER_HOURS,
-    DEFAULT_PROMO_VOUCHER_AUTO,
     DEFAULT_PROMO_VOUCHER_DAYS,
     DEFAULT_PROMO_VOUCHER_DISCOUNT,
-    DEFAULT_PROMO_VOUCHER_MAX_SPEND,
     DEFAULT_PROMO_VOUCHER_MESSAGE,
     DEFAULT_PROMO_VOUCHER_MIN_SPEND,
     DOMAIN,
@@ -73,11 +64,7 @@ from .const import (
     EVENT_EXTERNAL_MESSAGE,
     KEY_APPOINTMENTS,
     DEFAULT_CATEGORY_PAUSE_MIN,
-    DEFAULT_OFFER_REMINDER_HOURS,
-    DEFAULT_OFFER_TIMEOUT_HOURS,
-    DEFAULT_REPORT_TELEGRAM_CHATS,
     DEFAULT_REPORT_TIME,
-    DEFAULT_TELEGRAM_ENTRY_ID,
     DEFAULT_REVIEW_MESSAGE,
     DEFAULT_REQUEST_MESSAGE,
     DEFAULT_SUMMARY_MESSAGE,
@@ -87,19 +74,13 @@ from .const import (
     DEFAULT_REVIEW_REQUEST_AUTO,
     DEFAULT_REVIEW_REQUEST_AFTER_HOURS,
     DEFAULT_VOUCHER_EXPIRY_REMINDER_DAYS,
-    DEFAULT_CARD_TITLE,
     DEFAULT_VOUCHER_EXPIRY_REMINDER_MESSAGE,
     DEFAULT_WAHA_SESSION,
-    DEFAULT_WAHA_URL,
-    DEFAULT_WEB_BREAK_END,
-    DEFAULT_WEB_BREAK_START,
     DEFAULT_WEB_CLOSE_TIME,
     DEFAULT_WEB_ENABLED,
     DEFAULT_WEB_MAX_DAYS_AHEAD,
-    DEFAULT_WEB_NOTIFY_WHATSAPP,
     DEFAULT_WEB_OPEN_TIME,
     DEFAULT_WEB_STEP_MIN,
-    DEFAULT_WEB_TOKEN,
     REVIEW_REQUEST_WINDOW_HOURS,
     WEB_MAX_SLOTS,
     WEB_SNIPPET_TOKEN_PLACEHOLDER,
@@ -113,16 +94,11 @@ from .const import (
     KEY_SLOT_BLOCKS,
     KEY_TREATMENTS,
     PERMISSION_LEVELS,
-    BOOKING_STATUSES,
     MAX_CLOSURE_DAYS,
     OPERATOR_ROLES,
     OPERATOR_ROLE_DEFAULT,
     PAYMENT_METHODS,
     GUEST_TYPE_DEFAULT,
-    GUEST_TYPES,
-    EXTRAS,
-    EXTRAS_DEFAULT,
-    ACCESSORY_DEFAULTS,
     OFFER_NONE,
     OFFER_PENDING,
     OFFER_UNASSIGNED,
@@ -135,7 +111,6 @@ from .const import (
     REQUEST_PENDING,
     REQUEST_SOURCE_DESK,
     REQUEST_SOURCE_WEB,
-    REQUEST_SOURCES,
 )
 from .exceptions import (
     NotFoundError,
@@ -146,6 +121,52 @@ from .exceptions import (
 from . import messaging
 from .waha import WahaAuthenticationError, WahaClient, WahaError
 from .waha_inbound import WahaInbound
+from .normalize import (
+    _add_months,
+    as_aware_datetime,
+    _date_it,
+    default_data,
+    default_settings,
+    _fmt_window,
+    MESI,
+    _money_text,
+    _new_code,
+    _new_id,
+    _new_promo_voucher_code,
+    _new_voucher_code,
+    _norm_appointment,
+    _norm_category,
+    _norm_client,
+    _norm_clock,
+    _norm_closure,
+    _norm_count,
+    _norm_date,
+    _norm_extras,
+    _norm_guest_type,
+    _norm_operator,
+    _norm_parallel,
+    _norm_payment,
+    _norm_payment_list,
+    _norm_person,
+    _norm_price_opt,
+    _norm_promo_voucher,
+    _norm_request,
+    _norm_settings,
+    _norm_slot_block,
+    _norm_treatment,
+    _norm_voucher,
+    _normalise,
+    occupies_slot,
+    _parse_csv,
+    _payment_confirms,
+    _REFUSE_DATE,
+    _REFUSE_TIME,
+    _same_phone,
+    _same_slot,
+    _same_window,
+    split_chats,
+    WEEKDAY_LABELS,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -166,11 +187,6 @@ def _integration_version() -> str:
 INTEGRATION_VERSION: Final = _integration_version()
 
 
-def _new_id(prefix: str) -> str:
-    """Return a short unique id."""
-    return f"{prefix}_{uuid4().hex[:12]}"
-
-
 def _read_text(path: str) -> str:
     """Return a UTF-8 text file, or an empty string when it cannot be read.
 
@@ -185,1553 +201,6 @@ def _read_text(path: str) -> str:
         return ""
 
 
-#: A 5-char booking reference excludes the characters that look alike (0/O,
-#: 1/I/L) so a code read off a phone screen is never ambiguous.
-_CODE_CHARS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
-_CODE_LEN = 5
-
-
-def _new_code(existing: set[str]) -> str:
-    """Return a unique 5-char booking code not already in ``existing``."""
-    while True:
-        code = "".join(_CODE_CHARS[secrets.randbelow(len(_CODE_CHARS))] for _ in range(_CODE_LEN))
-        if code not in existing:
-            return code
-
-
-_VOUCHER_CODE_LEN = 8
-
-
-def _new_voucher_code(existing: set[str]) -> str:
-    """Return a unique 8-char voucher code (without the VCH- prefix)."""
-    while True:
-        code = "".join(
-            _CODE_CHARS[secrets.randbelow(len(_CODE_CHARS))]
-            for _ in range(_VOUCHER_CODE_LEN)
-        )
-        if f"VCH-{code}" not in existing:
-            return code
-
-
-def _new_promo_voucher_code(existing: set[str]) -> str:
-    """Return a unique loyalty voucher code, prefix included (e.g. FID-XXXXXXXX)."""
-    while True:
-        code = "".join(
-            _CODE_CHARS[secrets.randbelow(len(_CODE_CHARS))]
-            for _ in range(_VOUCHER_CODE_LEN)
-        )
-        full = f"{PROMO_VOUCHER_CODE_PREFIX}{code}"
-        if full not in existing:
-            return full
-
-
-def _add_months(day: date, months: int) -> date:
-    """Return the same day ``months`` months later, clamped to the month length."""
-    index = day.month - 1 + months
-    year = day.year + index // 12
-    month = index % 12 + 1
-    for last in (31, 30, 29, 28):
-        try:
-            return date(year, month, min(day.day, last))
-        except ValueError:
-            continue
-    return day
-
-
-def _norm_voucher(raw: Any) -> dict[str, Any]:
-    """Return a stored voucher with every expected key and a clean shape."""
-    raw = raw if isinstance(raw, dict) else {}
-    people: list[dict[str, Any]] = []
-    for person in raw.get("people") or []:
-        if not isinstance(person, dict):
-            continue
-        gift = person.get("gift_card_amount")
-        try:
-            gift = float(gift) if gift is not None else None
-            if gift is not None and gift < 0:
-                gift = None
-        except (TypeError, ValueError):
-            gift = None
-        people.append(
-            {
-                "name": str(person.get("name") or "").strip(),
-                "treatment_ids": [str(t) for t in person.get("treatment_ids") or [] if t],
-                "extras": [str(e) for e in person.get("extras") or [] if e],
-                "gift_card_amount": gift,
-            }
-        )
-    status = raw.get("status")
-    return {
-        "id": str(raw.get("id") or ""),
-        "code": str(raw.get("code") or "").strip().upper(),
-        "buyer_name": str(raw.get("buyer_name") or "").strip(),
-        "buyer_phone": str(raw.get("buyer_phone") or "").strip(),
-        "recipient_name": str(raw.get("recipient_name") or "").strip(),
-        "recipient_phone": str(raw.get("recipient_phone") or "").strip(),
-        "people": people,
-        "created_at": str(raw.get("created_at") or ""),
-        "expires_on": _norm_date(raw.get("expires_on")),
-        "status": status if status in (VOUCHER_ACTIVE, VOUCHER_REDEEMED) else VOUCHER_ACTIVE,
-        "redeemed_at": str(raw.get("redeemed_at") or ""),
-        "appointment_ids": [str(i) for i in raw.get("appointment_ids") or [] if i],
-    }
-
-
-def _norm_promo_voucher(raw: Any) -> dict[str, Any]:
-    """Return a stored loyalty voucher with every expected key and a clean shape.
-
-    A loyalty voucher is a personal code a client receives after using the
-    services: a percentage discount over a spend range, tied to her and to the
-    appointment that earned it. It is kept apart from the sold gift vouchers.
-    """
-    raw = raw if isinstance(raw, dict) else {}
-    status = raw.get("status")
-    if status not in (
-        PROMO_VOUCHER_PENDING,
-        PROMO_VOUCHER_SENT,
-        PROMO_VOUCHER_REDEEMED,
-    ):
-        status = PROMO_VOUCHER_PENDING
-    return {
-        "id": str(raw.get("id") or ""),
-        "code": str(raw.get("code") or "").strip().upper(),
-        "client_id": str(raw.get("client_id") or "").strip(),
-        "first_name": str(raw.get("first_name") or "").strip(),
-        "last_name": str(raw.get("last_name") or "").strip(),
-        "phone": str(raw.get("phone") or "").strip(),
-        "discount_percent": _norm_count(
-            raw.get("discount_percent"), 1, 100, DEFAULT_PROMO_VOUCHER_DISCOUNT
-        ),
-        "min_spend": _norm_count(
-            raw.get("min_spend"), 0, 100000, DEFAULT_PROMO_VOUCHER_MIN_SPEND
-        ),
-        "max_spend": _norm_count(
-            raw.get("max_spend"), 0, 100000, DEFAULT_PROMO_VOUCHER_MAX_SPEND
-        ),
-        "created_at": str(raw.get("created_at") or ""),
-        "send_at": str(raw.get("send_at") or ""),
-        "sent_at": str(raw.get("sent_at") or ""),
-        "redeemed_at": str(raw.get("redeemed_at") or ""),
-        "appointment_id": str(raw.get("appointment_id") or "").strip(),
-        "status": status,
-        "expires_on": _norm_date(raw.get("expires_on")),
-    }
-
-
-def _parse_csv(text: str) -> list[list[str]]:
-    """Parse a CSV string into rows of cells.
-
-    Handles quoted fields (including embedded commas, quotes and newlines) so the
-    desk can edit the export in a spreadsheet and import it back unchanged.
-    """
-    rows: list[list[str]] = []
-    current_row: list[str] = []
-    field: list[str] = []
-    in_quotes = False
-    i = 0
-    length = len(text)
-    while i < length:
-        char = text[i]
-        if in_quotes:
-            if char == '"':
-                if i + 1 < length and text[i + 1] == '"':
-                    field.append('"')
-                    i += 2
-                    continue
-                in_quotes = False
-            else:
-                field.append(char)
-        elif char == '"':
-            in_quotes = True
-        elif char == ",":
-            current_row.append("".join(field))
-            field = []
-        elif char in ("\n", "\r"):
-            if char == "\r" and i + 1 < length and text[i + 1] == "\n":
-                i += 1
-            current_row.append("".join(field))
-            rows.append(current_row)
-            current_row = []
-            field = []
-        else:
-            field.append(char)
-        i += 1
-    # Flush the last field/row.
-    last = "".join(field)
-    if last or current_row:
-        current_row.append(last)
-        rows.append(current_row)
-    return rows
-
-
-#: Weekday labels, Monday first: `datetime.weekday()` returns 0 for Monday and
-#: 6 for Sunday, the same order the booking card uses for its weekday toggles.
-WEEKDAY_LABELS = ("Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom")
-
-
-def _fmt_window(start: str, end: str) -> str:
-    """A readable "HH:MM-HH:MM" window, or an empty string when absent."""
-    if not start and not end:
-        return ""
-    return f"{start or '--:--'}-{end or '--:--'}"
-
-
-def _norm_parallel(value: Any) -> int:
-    """Return a sane parallel-appointment count (0 = no limit)."""
-    try:
-        count = int(value)
-    except (TypeError, ValueError):
-        count = 0
-    return max(0, count)
-
-
-def _norm_category(raw: dict[str, Any]) -> dict[str, Any]:
-    """Return a category with every expected key."""
-    try:
-        pause = int(raw.get("pause_min", DEFAULT_CATEGORY_PAUSE_MIN))
-    except (TypeError, ValueError):
-        pause = DEFAULT_CATEGORY_PAUSE_MIN
-
-    def norm_day_list(values: Any) -> list[int]:
-        """Weekdays (Mon=0 .. Sun=6) out of a raw list; unknown items dropped."""
-        seen: list[int] = []
-        for item in values or []:
-            try:
-                value = int(item)
-            except (TypeError, ValueError):
-                continue
-            if 0 <= value <= 6 and value not in seen:
-                seen.append(value)
-        return seen
-
-    def norm_days() -> list[int]:
-        """Weekdays (Mon=0 .. Sun=6); empty means every day is bookable."""
-        return norm_day_list(raw.get("days"))
-
-    def norm_window_days(key: str, fallback: list[int]) -> list[int]:
-        """Days of one window, falling back to the old single ``days`` list."""
-        if raw.get(key) is None:
-            return list(fallback)
-        return norm_day_list(raw.get(key))
-
-    def norm_window(key: str) -> str:
-        """An HH:MM window endpoint; anything malformed becomes empty."""
-        value = str(raw.get(key) or "").strip()
-        return value[:5] if len(value) >= 5 else ""
-
-    def norm_exclusive() -> list[str]:
-        """Other categories this one must never overlap."""
-        self_id = str(raw.get("id") or "")
-        seen: list[str] = []
-        for item in raw.get("exclusive_with") or []:
-            value = str(item).strip()
-            if value and value != self_id and value not in seen:
-                seen.append(value)
-        return seen
-
-    days = norm_days()
-    return {
-        "id": str(raw.get("id") or _new_id("cat")),
-        "name": str(raw.get("name") or "").strip(),
-        "requires_operator": bool(raw.get("requires_operator", False)),
-        # Background colour used by the card for appointments of this
-        # category. Empty string means "no colour".
-        "color": str(raw.get("color") or "").strip(),
-        # Minutes of pause required after an appointment of this category
-        # before the same masseuse can take the next one.
-        "pause_min": max(0, pause),
-        # Days of the week (Mon=0 .. Sun=6) in which bookings are accepted.
-        # Empty means every day. Kept as the union of the two lists below.
-        "days": days,
-        # Weekdays bookable in each window. A booking in the morning window is
-        # only accepted on a morning day, and likewise for the afternoon.
-        "morning_days": norm_window_days("morning_days", days),
-        "afternoon_days": norm_window_days("afternoon_days", days),
-        # Optional morning and afternoon windows (HH:MM). An appointment must
-        # fit entirely inside one of them; empty start+end = no window.
-        "morning_start": norm_window("morning_start"),
-        "morning_end": norm_window("morning_end"),
-        "afternoon_start": norm_window("afternoon_start"),
-        "afternoon_end": norm_window("afternoon_end"),
-        # Other categories whose confirmed appointments must never overlap
-        # this one. The rule is symmetric and enforced in both directions.
-        "exclusive_with": norm_exclusive(),
-    }
-
-
-def _norm_treatment(raw: dict[str, Any]) -> dict[str, Any]:
-    """Return a treatment with every expected key."""
-    try:
-        duration = int(raw.get("duration_min") or 0)
-    except (TypeError, ValueError):
-        duration = 0
-    price = raw.get("price")
-    try:
-        price = float(price) if price not in (None, "") else None
-    except (TypeError, ValueError):
-        price = None
-    return {
-        "id": str(raw.get("id") or _new_id("trt")),
-        "name": str(raw.get("name") or "").strip(),
-        "category_id": str(raw.get("category_id") or "") or None,
-        "duration_min": duration,
-        "operator_ids": [str(op) for op in (raw.get("operator_ids") or [])],
-        "active": bool(raw.get("active", True)),
-        # Whether the website may show it. Separate from ``active``: a
-        # treatment can be sold at the desk every day and still not belong on
-        # the public site. Default true keeps every existing one visible.
-        "web_visible": bool(raw.get("web_visible", True)),
-        "price": price,
-        # How many people can share this treatment at the same time (parallel
-        # appointments). 0 = no limit. Only meaningful for appointments
-        # without an operator: a masseuse always works 1:1.
-        "min_parallel": _norm_parallel(raw.get("min_parallel")),
-        "max_parallel": _norm_parallel(raw.get("max_parallel")),
-    }
-
-
-def _norm_operator(raw: dict[str, Any]) -> dict[str, Any]:
-    """Return an operator with every expected key.
-
-    ``role`` says what kind of staff member this is, for the desk to read at a
-    glance; it does not gate anything. ``treatment_ids`` is the list of massage
-    types the operator can perform: it is what the booking form offers her and
-    what the monthly report counts, so it is authored on the operator card
-    rather than on each treatment.
-    """
-    # `role` classifies the operator and nothing more: an unknown or absent
-    # value falls back to the default instead of being rejected, so an operator
-    # saved before roles existed keeps working untouched.
-    role = str(raw.get("role") or OPERATOR_ROLE_DEFAULT)
-    if role not in {r[0] for r in OPERATOR_ROLES}:
-        role = OPERATOR_ROLE_DEFAULT
-    try:
-        priority = int(raw.get("priority"))
-    except (TypeError, ValueError):
-        priority = 0
-    return {
-        "id": str(raw.get("id") or _new_id("op")),
-        "name": str(raw.get("name") or "").strip(),
-        "role": role,
-        "phone": str(raw.get("phone") or "").strip(),
-        # Empty means "derive it from the phone number as 39…@c.us".
-        "whatsapp_chat_id": str(raw.get("whatsapp_chat_id") or "").strip(),
-        "telegram_chat_id": str(raw.get("telegram_chat_id") or "").strip(),
-        "treatment_ids": [str(t) for t in (raw.get("treatment_ids") or [])],
-        "notify_whatsapp": bool(raw.get("notify_whatsapp", True)),
-        "notify_telegram": bool(raw.get("notify_telegram", True)),
-        "notify_service": str(raw.get("notify_service") or "").strip(),
-        "notify_on_create": bool(raw.get("notify_on_create", True)),
-        # Offers are tried in ascending priority order (lower = sooner); a
-        # disabled operator receives no offers at all.
-        "priority": priority,
-        "active": bool(raw.get("active", True)),
-    }
-
-
-# Default, user-ordered entity list for the Spa tab of the card, mirroring the
-# "Spa" area exactly as the Dwains "Spa" page renders it (lights, switches,
-# locks, climate — the user reorders freely). It only seeds the tiles until the
-# user saves an explicit choice from the card.
-SPA_DEFAULT_ENTITIES = [
-    "light.cascata_spa",
-    "light.faretti_1_ingresso_spa",
-    "light.faretti_ingresso_spogliatoii_spa",
-    "light.fari_zona_piscina_spa",
-    "light.illuminaz_all_spa",
-    "light.lamp_reception_spa",
-    "light.lampadario_percorso_spa",
-    "light.spa_led_piscina",
-    "light.spa_luce_arearelax_tepid_01",
-    "light.spa_luce_bagnoturco_sottopanca",
-    "light.spa_luce_sauna_1",
-    "switch.energy_monitor_2_gang_switch_module_2_switch_1",
-    "switch.energy_monitor_2_gang_switch_module_2_switch_2",
-    "switch.led_4",
-    "switch.pompa_cascata_relax_switch_1",
-    "switch.sonoff_1001f9792e_3",
-    "switch.spa_all",
-    "lock.door_1_10",
-    "lock.door_2_10",
-    "climate.ariston_70b8f6a6ac70_1",
-]
-#: Cameras preselected in the Telecamere tab; the user reorders from the card.
-CAMERA_DEFAULT_ENTITIES = [
-    "camera.eyemotion_ipc_profile1",
-    "camera.percorso_spa_profile1",
-    "camera.piscina_spa_profile1",
-]
-#: Widest a single Spa tile may be, in grid columns (1 = smallest, 4 = full row).
-SPA_MAX_SPAN = 4
-
-#: Movable blocks of the "Nuovo appuntamento" form, per default column. The form
-#: shows them in this order until the user reorders them from the card; the edit
-#: mode drags blocks around, freely crossing from one column to the other.
-FORM_BLOCK_COLUMNS: dict[str, list[str]] = {
-    "left": ["booking", "notes", "prenotazione", "totali", "incassi"],
-    "right": ["client", "guest"],
-}
-
-#: The same idea for the notifications tab (Configurazione → Impostazioni): each
-#: box is a block the reception can drag around, freely crossing columns.
-NOTIFY_BLOCK_COLUMNS: dict[str, list[str]] = {
-    "left": ["telegram", "whatsapp", "waha", "preview"],
-    "right": ["review", "report", "offers", "deposit", "guest_header", "summary"],
-}
-
-#: The Settings tab (Configurazione → Impostazioni): its four boxes move
-#: between the two columns and save their order, like the other tabs.
-IMPOSTAZIONI_BLOCK_COLUMNS: dict[str, list[str]] = {
-    "left": ["aspetto", "versione"],
-    "right": ["clienti", "sito"],
-}
-
-#: Editable layout of the batch editor boxes (Modifica gruppo), two columns.
-BATCH_FORM_BLOCK_COLUMNS: dict[str, list[str]] = {
-    "left": ["righe", "note"],
-    "right": ["totali", "incassi"],
-}
-
-PROMO_BLOCK_COLUMNS: dict[str, list[str]] = {
-    "left": ["message", "message_post", "send"],
-    "right": ["schedule"],
-}
-
-
-#: The same idea for the "Modifica appuntamento" sheet: each box is a block the
-#: reception can drag around, freely crossing from one column to the other.
-EDIT_FORM_BLOCK_COLUMNS: dict[str, list[str]] = {
-    "left": ["trattamento", "quando", "operatore", "note", "totali", "incassi"],
-    "right": ["cliente", "ospite", "accessori"],
-}
-
-
-#: The operator card editor follows the same idea: her identity, her contacts,
-#: her priority, her notification channels, the messages and the massages she
-#: can do are blocks the reception drags where she reads them best.
-OPERATOR_FORM_BLOCK_COLUMNS: dict[str, list[str]] = {
-    "left": ["nome", "contatti", "priorita", "notifiche", "messaggi"],
-    "right": ["trattamenti"],
-}
-
-
-def _norm_form_order(
-    raw: Any, columns: dict[str, list[str]] | None = None
-) -> dict[str, list[str]]:
-    """Return a two-column layout with every known block placed exactly once.
-
-    Blocks are free to sit in either column, so a block is kept where the user
-    dragged it; only a block that is missing from *both* columns (layout never
-    saved, or saved with fewer blocks) goes back to its built-in column, so the
-    form can never blank out part of itself. Unknown ids are dropped, duplicates
-    collapsed.
-    """
-    blocks = columns or FORM_BLOCK_COLUMNS
-    raw = raw if isinstance(raw, dict) else {}
-    all_defaults: list[str] = []
-    for defaults in blocks.values():
-        for key in defaults:
-            if key not in all_defaults:
-                all_defaults.append(key)
-    out: dict[str, list[str]] = {}
-    present: set[str] = set()
-    for column, defaults in blocks.items():
-        given = raw.get(column)
-        given = given if isinstance(given, list) else []
-        seen: list[str] = []
-        for item in given:
-            key = str(item).strip()
-            if key in all_defaults and key not in seen:
-                seen.append(key)
-                present.add(key)
-        out[column] = seen
-    # Any recognized block never seen (in either column) returns to its own column.
-    for column, defaults in blocks.items():
-        for key in defaults:
-            if key not in present:
-                out[column].append(key)
-                present.add(key)
-    return out
-
-
-def _norm_tab_cols(raw: Any) -> dict[str, int]:
-    """Return how many columns each tab shows: 1 or 2.
-
-    The reception can stack a tab's blocks in a single column when the two
-    would be too narrow on the tablet. Unknown tabs and anything that is not
-    a number of columns are dropped, so a corrupt value can never blank a tab.
-    """
-    raw = raw if isinstance(raw, dict) else {}
-    out: dict[str, int] = {}
-    for scope, value in raw.items():
-        key = str(scope or "").strip()
-        if not key:
-            continue
-        try:
-            cols = int(value)
-        except (TypeError, ValueError):
-            continue
-        if cols in (1, 2):
-            out[key] = cols
-    return out
-
-
-def _norm_spa_tile(raw: Any) -> dict[str, Any] | None:
-    """Return one Spa tile with every expected key, or None when unusable.
-
-    A tile carries the entity plus its own look: an optional name and icon
-    override, three visibility flags and how many grid columns it occupies.
-    The legacy shape (a bare entity-id string) is accepted too, so a dataset
-    saved before the tiles existed keeps working untouched.
-    """
-    if isinstance(raw, str):
-        raw = {"entity_id": raw}
-    if not isinstance(raw, dict):
-        return None
-    entity_id = str(raw.get("entity_id") or "").strip()
-    if not entity_id:
-        return None
-
-    def optional_text(key: str) -> str | None:
-        value = raw.get(key)
-        value = str(value).strip() if value is not None else ""
-        return value or None
-
-    try:
-        span = int(raw.get("span") or 1)
-    except (TypeError, ValueError):
-        span = 1
-    allowed_types = {"auto", "tile", "button", "climate", "sensor",
-                     "switch", "entity", "thermostat", "gauge"}
-    card_type = str(raw.get("card_type") or "auto").strip().lower()
-    if card_type not in allowed_types:
-        card_type = "auto"
-    valid_actions = {"toggle", "more-info", "none", "brightness"}
-    allowed_features = {"brightness", "temperature", "power", "hvac", "color", "state"}
-    tap_action = str(raw.get("tap_action") or "toggle").strip().lower()
-    if tap_action not in valid_actions:
-        tap_action = "toggle"
-    hold_action = str(raw.get("hold_action") or "more-info").strip().lower()
-    if hold_action not in valid_actions:
-        hold_action = "more-info"
-    features = raw.get("features")
-    if not isinstance(features, list):
-        features = ["brightness", "state"]
-    features = [str(f).strip().lower() for f in features if str(f).strip().lower() in allowed_features]
-    if not features:
-        features = ["state"]
-    return {
-        "entity_id": entity_id,
-        "name": optional_text("name"),
-        "icon": optional_text("icon"),
-        "show_name": bool(raw.get("show_name", True)),
-        "show_icon": bool(raw.get("show_icon", True)),
-        "show_state": bool(raw.get("show_state", True)),
-        "span": min(max(span, 1), SPA_MAX_SPAN),
-        "card_type": card_type,
-        "tap_action": tap_action,
-        "hold_action": hold_action,
-        "features": features,
-    }
-
-
-def _spa_tiles(
-    raw: dict[str, Any], key: str, default_ids: list[str]
-) -> list[dict[str, Any]]:
-    """Normalize a flat, user-ordered tile list under ``key``.
-
-    The stored list wins once present, even when empty; the default entity set
-    is used only while the key has never been saved. Blanks and duplicates are
-    dropped, keeping the first occurrence and the user's order. Used for both
-    the Spa tab (``spa_entities``) and the Telecamere tab (``camera_entities``),
-    which share the same tile shape.
-    """
-    if key not in raw:
-        source: list[Any] = list(default_ids)
-    else:
-        source = raw.get(key) or []
-    tiles: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for item in source:
-        tile = _norm_spa_tile(item)
-        if tile and tile["entity_id"] not in seen:
-            seen.add(tile["entity_id"])
-            tiles.append(tile)
-    return tiles
-
-
-def _norm_settings(raw: dict[str, Any]) -> dict[str, Any]:
-    """Return the notification settings with every expected key."""
-
-    def hours(key: str, default: int) -> int:
-        try:
-            value = int(raw.get(key, default))
-        except (TypeError, ValueError):
-            value = default
-        return max(0, value)
-
-    # Accessories offered with a booking (Accessori tab), and the labels of
-    # the ones that have since been deleted. An appointment keeps the ids it
-    # was given, so its label has to survive the accessory being removed.
-    accessories = _accessories(raw)
-    accessory_labels = _accessory_labels(raw, accessories)
-
-    return {
-        "telegram_config_entry_id": str(raw.get("telegram_config_entry_id") or "").strip(),
-        "report_telegram_chats": str(raw.get("report_telegram_chats") or "").strip(),
-        "report_whatsapp_chat": str(raw.get("report_whatsapp_chat") or "").strip(),
-        "report_per_operator": bool(raw.get("report_per_operator", True)),
-        "report_enabled": bool(raw.get("report_enabled", True)),
-        "report_time": str(raw.get("report_time") or DEFAULT_REPORT_TIME).strip(),
-        # How long an operator has to answer an offer before the next one is
-        # asked, and how long before that a reminder goes out (0 = no reminder).
-        "offer_timeout_hours": hours(
-            "offer_timeout_hours", DEFAULT_OFFER_TIMEOUT_HOURS
-        ),
-        "offer_reminder_hours": hours(
-            "offer_reminder_hours", DEFAULT_OFFER_REMINDER_HOURS
-        ),
-        # How the card paints itself: "auto" follows the Home Assistant theme,
-        # "light"/"dark" force it. Anything unknown falls back to "auto" so a
-        # bad value can never leave the card unreadable.
-        "appearance": (
-            str(raw.get("appearance") or DEFAULT_APPEARANCE).strip().lower()
-            if str(raw.get("appearance") or DEFAULT_APPEARANCE).strip().lower()
-            in APPEARANCE_MODES
-            else DEFAULT_APPEARANCE
-        ),
-        # Version of the served booking card: bump it to force every browser to
-        # refetch the JS file (see async_reload_card).
-        "card_js_version": str(
-            raw.get("card_js_version") or CARD_JS_VERSION
-        ).strip(),
-        # Titolo in testata della card, scritto dalla reception in Impostazioni.
-        # Vuoto = usa il valore della configurazione della card (o "Gestione SPA").
-        "card_title": str(raw.get("card_title") or DEFAULT_CARD_TITLE).strip(),
-        # Access level per user (Accessi tab). Unknown values are dropped so a
-        # bad edit can never grant more than intended.
-        KEY_PERMISSIONS: {
-            key: value
-            for key, value in dict(raw.get(KEY_PERMISSIONS) or {}).items()
-            if value in PERMISSION_LEVELS
-        },
-        # Camera entities shown in the Telecamere tab (empty list = none).
-        # Each camera carries its own name, icon, visibility and column span.
-        "camera_entities": _spa_tiles(
-            raw, "camera_entities", CAMERA_DEFAULT_ENTITIES
-        ),
-        # Flat, user-ordered list of tiles shown in the Spa tab of the card
-        # (lights, switches, locks, climate all mixed; each tile carries its own
-        # name, icon, visibility and column span). Default to the Spa-area set
-        # until the user saves an explicit choice.
-        "spa_entities": _spa_tiles(raw, "spa_entities", SPA_DEFAULT_ENTITIES),
-        # Accessories of the Accessori tab, in user order (empty = none). Each
-        # one carries its own label, icon, price and description; the price is
-        # informational and never enters a total.
-        "accessories": accessories,
-        # id -> last known name of an accessory, the deleted ones included:
-        # the fallback the card reads for the accessories an old appointment
-        # still carries.
-        "accessory_labels": accessory_labels,
-        # Layout of the "Nuovo appuntamento" form: which blocks and in which
-        # order each column shows them. The card only ever reorders them.
-        "form_order": _norm_form_order(raw.get("form_order")),
-        # Layout of the notifications tab, same idea with its own blocks.
-        "notifiche_order": _norm_form_order(
-            raw.get("notifiche_order"), NOTIFY_BLOCK_COLUMNS
-        ),
-        # Layout of the Settings tab: the four boxes, movable between columns.
-        "impostazioni_order": _norm_form_order(
-            raw.get("impostazioni_order"), IMPOSTAZIONI_BLOCK_COLUMNS
-        ),
-        # Layout of the "Modifica appuntamento" sheet.
-        # Layout of the batch editor columns.
-        "batch_form_order": _norm_form_order(
-            raw.get("batch_form_order"), BATCH_FORM_BLOCK_COLUMNS
-        ),
-        "edit_form_order": _norm_form_order(
-            raw.get("edit_form_order"), EDIT_FORM_BLOCK_COLUMNS
-        ),
-        # Layout of one operator's card.
-        "operator_form_order": _norm_form_order(
-            raw.get("operator_form_order"), OPERATOR_FORM_BLOCK_COLUMNS
-        ),
-        # How many columns each tab lays its blocks out in: 1 (stacked) or 2.
-        # Only the tabs the reception actually changed are kept.
-        "tab_cols": _norm_tab_cols(raw.get("tab_cols")),
-        # The review request as the reception wants it sent, and the number the
-        # test goes to. An empty message falls back to the built-in text, so a
-        # cleared field never leaves the guest without an invitation.
-        "review_request_message": str(
-            raw.get("review_request_message") or DEFAULT_REVIEW_MESSAGE
-        ),
-        "review_request_test_phone": str(
-            raw.get("review_request_test_phone") or ""
-        ).strip(),
-        # Whether the review request goes out on its own (the daily automation)
-        # and how many hours after the treatment ends it is sent. Manual sending
-        # from an appointment ignores both.
-        "review_request_auto": bool(
-            raw.get("review_request_auto", DEFAULT_REVIEW_REQUEST_AUTO)
-        ),
-        "review_request_after_hours": _norm_count(
-            raw.get("review_request_after_hours"),
-            1,
-            168,
-            DEFAULT_REVIEW_REQUEST_AFTER_HOURS,
-        ),
-        # Bank details the deposit request reads out to the guest: both are
-        # editable from the card's notifications tab. Empty values fall back to
-        # the hotel's defaults, so a cleared field never breaks the message.
-        "deposit_intestatario": str(
-            raw.get("deposit_intestatario") or DEFAULT_DEPOSIT_INTESTATARIO
-        ).strip(),
-        "deposit_iban": str(raw.get("deposit_iban") or DEFAULT_DEPOSIT_IBAN).strip(),
-        # The deposit request the reception wants sent, and the test number.
-        # An empty message falls back to the built-in text.
-        "deposit_message": str(
-            raw.get("deposit_message") or DEFAULT_DEPOSIT_MESSAGE
-        ),
-        "deposit_test_phone": str(raw.get("deposit_test_phone") or "").strip(),
-        # The headline shown after the title of the guest-facing appointment
-        # summary. Editable from the notifications tab.
-        "guest_header": str(
-            raw.get("guest_header") or DEFAULT_GUEST_HEADER
-        ),
-        # The guest-facing appointment summary: its own text, editable from the
-        # notifications tab, and the number a test send goes to. An empty
-        # message falls back to the built-in one, so a cleared field never
-        # leaves the guest without a summary.
-        "summary_message": str(
-            raw.get("summary_message") or DEFAULT_SUMMARY_MESSAGE
-        ),
-        "summary_test_phone": str(raw.get("summary_test_phone") or "").strip(),
-        # The message a guest receives when the desk takes her appointment
-        # request: it says the request was received and is waiting for the
-        # reception to confirm it. Editable from the notifications tab; an empty
-        # setting falls back to the built-in text, so a cleared field never
-        # leaves the guest without an answer.
-        "request_message": str(
-            raw.get("request_message") or DEFAULT_REQUEST_MESSAGE
-        ),
-        # Voucher expiration reminder: message sent to the recipient before
-        # the voucher expires. The number of days before expiry to send it.
-        "voucher_expiry_reminder_message": str(
-            raw.get("voucher_expiry_reminder_message") or DEFAULT_VOUCHER_EXPIRY_REMINDER_MESSAGE
-        ),
-        "voucher_expiry_reminder_days": int(raw.get("voucher_expiry_reminder_days") or DEFAULT_VOUCHER_EXPIRY_REMINDER_DAYS),
-        # Appointment reminder for the guest: customizable message, and whether
-        # it is sent automatically (with how many hours advance) or manually.
-        "appointment_reminder_message": str(
-            raw.get("appointment_reminder_message") or DEFAULT_APPOINTMENT_REMINDER_MESSAGE
-        ),
-        "appointment_reminder_auto": bool(
-            raw.get("appointment_reminder_auto", DEFAULT_APPOINTMENT_REMINDER_AUTO)
-        ),
-        "appointment_reminder_hours": int(
-            raw.get("appointment_reminder_hours") or DEFAULT_APPOINTMENT_REMINDER_HOURS
-        ),
-        # Order of the treatments in the configuration tab, as the reception
-        # dragged them. Ids that no longer exist are dropped; a treatment
-        # created later simply joins at the end.
-        "treatments_order": _norm_id_list(raw.get("treatments_order")),
-        # Order of the category blocks in the same tab: they live in two real
-        # columns, so each group has its column and its place inside it.
-        "categories_order": _norm_column_order(raw.get("categories_order")),
-        # Promo broadcast: the message template and the scheduling knobs, all
-        # editable from the Promo tab. Empty ``promo_time`` disables the daily
-        # automatic send.
-        "promo_message": str(raw.get("promo_message") or DEFAULT_PROMO_MESSAGE),
-        "promo_time": str(raw.get("promo_time") or DEFAULT_PROMO_TIME).strip(),
-        "promo_interval_sec": _norm_interval(raw.get("promo_interval_sec")),
-        # At most promo_max_sends messages in any promo_window_min minutes (0 = no limit).
-        "promo_max_sends": _norm_count(raw.get("promo_max_sends"), 0, 1000, 0),
-        "promo_window_min": _norm_count(raw.get("promo_window_min"), 1, 1440, 10),
-        # One-off send date (cleared after it runs) and the promo code and expiry.
-        "promo_date": _norm_date(raw.get("promo_date")),
-        "promo_code": str(raw.get("promo_code") or "").strip(),
-        "promo_expiry": _norm_date(raw.get("promo_expiry")),
-        # Loyalty voucher: the thank-you message sent after the client used the
-        # services, and the voucher rules. The message is a template with
-        # {nome}, {cognome}, {codice}, {sconto}, {spesa_minima}, {scadenza}.
-        "promo_voucher_message": str(
-            raw.get("promo_voucher_message") or DEFAULT_PROMO_VOUCHER_MESSAGE
-        ),
-        "promo_voucher_days": _norm_count(
-            raw.get("promo_voucher_days"), 1, 3650, DEFAULT_PROMO_VOUCHER_DAYS
-        ),
-        "promo_voucher_discount": _norm_count(
-            raw.get("promo_voucher_discount"), 1, 100, DEFAULT_PROMO_VOUCHER_DISCOUNT
-        ),
-        "promo_voucher_min_spend": _norm_count(
-            raw.get("promo_voucher_min_spend"), 0, 100000,
-            DEFAULT_PROMO_VOUCHER_MIN_SPEND,
-        ),
-        "promo_voucher_max_spend": _norm_count(
-            raw.get("promo_voucher_max_spend"), 0, 100000,
-            DEFAULT_PROMO_VOUCHER_MAX_SPEND,
-        ),
-        "promo_voucher_after_hours": _norm_count(
-            raw.get("promo_voucher_after_hours"), 0, 8760,
-            DEFAULT_PROMO_VOUCHER_AFTER_HOURS,
-        ),
-        "promo_voucher_auto": bool(
-            raw.get("promo_voucher_auto", DEFAULT_PROMO_VOUCHER_AUTO)
-        ),
-        # Order of the blocks in the Promo tab, editable by dragging.
-        "promo_order": _norm_form_order(
-            raw.get("promo_order"), PROMO_BLOCK_COLUMNS
-        ),
-        # WhatsApp gateway (the WAHA add-on). When the URL is set, the
-        # integration talks to it directly instead of going through
-        # ``rest_command.spa_booking_whatsapp_send``: the key and the session
-        # name are stored here, never in a package, so one place configures
-        # every WhatsApp send of this installation.
-        "waha_url": str(raw.get("waha_url") or "").strip(),
-        "waha_api_key": str(raw.get("waha_api_key") or "").strip(),
-        "waha_session": str(
-            raw.get("waha_session") or DEFAULT_WAHA_SESSION
-        ).strip(),
-        # The webhook the WAHA add-on posts the operators' answers to, and the
-        # secret it signs them with. Both are generated once, when the gateway
-        # is switched on, and are never shown in the card: rotating them by hand
-        # would silently stop inbound answers until the next activation.
-        "waha_webhook_id": str(raw.get("waha_webhook_id") or "").strip(),
-        "waha_webhook_secret": str(raw.get("waha_webhook_secret") or "").strip(),
-        # How the WAHA add-on reaches Home Assistant, when it is not the add-on
-        # installed on this host (empty = the Supervisor network default).
-        "waha_ha_url": str(raw.get("waha_ha_url") or "").strip(),
-        # Public booking API for the hotel website. The site is another origin
-        # and cannot use the Lovelace websocket, so it talks to the three HTTP
-        # views in ``public.py``; every call must carry this token. Nothing
-        # here is secret to the desk — the token is shown in the card so it can
-        # be copied into the website — but it is what keeps a stranger from
-        # filing requests. ``web_enabled`` is the master switch: while it is
-        # off, the views answer 404 and the website shows nothing.
-        "web_enabled": bool(raw.get("web_enabled", DEFAULT_WEB_ENABLED)),
-        "web_token": str(raw.get("web_token") or DEFAULT_WEB_TOKEN).strip(),
-        # The day as the website offers it: from/to and the step between one
-        # proposed start and the next. Both clocks fall back to the default
-        # when emptied, so a cleared field never shuts the site out.
-        "web_open_time": _norm_clock(raw.get("web_open_time"))
-        or DEFAULT_WEB_OPEN_TIME,
-        "web_close_time": _norm_clock(raw.get("web_close_time"))
-        or DEFAULT_WEB_CLOSE_TIME,
-        # The break that splits the day the site offers: the morning ends
-        # here and the afternoon starts at ``web_break_end``. Both empty (the
-        # default) keep the day whole, exactly as before.
-        "web_break_start": _norm_clock(
-            raw.get("web_break_start") or DEFAULT_WEB_BREAK_START
-        ),
-        "web_break_end": _norm_clock(
-            raw.get("web_break_end") or DEFAULT_WEB_BREAK_END
-        ),
-        "web_step_min": _norm_count(
-            raw.get("web_step_min"), 5, 240, DEFAULT_WEB_STEP_MIN
-        ),
-        # How far ahead the site may offer, so a mistyped year cannot ask the
-        # agenda for a century of days.
-        "web_max_days_ahead": _norm_count(
-            raw.get("web_max_days_ahead"), 1, 365, DEFAULT_WEB_MAX_DAYS_AHEAD
-        ),
-        # Dove arriva l'avviso di una nuova richiesta dal sito: un numero
-        # WhatsApp della reception. Vuoto = nessun avviso.
-        "web_notify_whatsapp": str(
-            raw.get("web_notify_whatsapp") or DEFAULT_WEB_NOTIFY_WHATSAPP
-        ).strip(),
-    }
-
-
-def _norm_interval(raw: Any) -> int:
-    """Return a non-negative delay in seconds between one send and the next."""
-    try:
-        return max(0, int(raw or 0))
-    except (TypeError, ValueError):
-        return DEFAULT_PROMO_INTERVAL_SEC
-
-
-def _norm_count(raw: Any, low: int, high: int, default: int) -> int:
-    """Return an integer within [low, high], or the default when it is not one."""
-    try:
-        return min(high, max(low, int(raw)))
-    except (TypeError, ValueError):
-        return default
-
-
-def _norm_date(raw: Any) -> str:
-    """Return a YYYY-MM-DD date string, or an empty string when it is not one."""
-    try:
-        return datetime.strptime(str(raw or "").strip(), "%Y-%m-%d").strftime("%Y-%m-%d")
-    except ValueError:
-        return ""
-
-
-#: An "HH:MM" clock, accepting a dot as the separator too ("10.30" = "10:30").
-_CLOCK_RE = re.compile(r"^(\d{1,2})[:.](\d{2})$")
-
-
-def _norm_clock(raw: Any) -> str:
-    """Return an "HH:MM" clock, or an empty string when it is not one.
-
-    The desk types the time of a request by hand, so both the colon and the dot
-    are accepted and a single-digit hour is padded; anything out of range is
-    refused rather than silently wrapped to another time of day.
-    """
-    match = _CLOCK_RE.match(str(raw or "").strip())
-    if not match:
-        return ""
-    hour, minute = int(match.group(1)), int(match.group(2))
-    if hour > 23 or minute > 59:
-        return ""
-    return f"{hour:02d}:{minute:02d}"
-
-
-def _date_it(raw: str) -> str:
-    """Return a stored YYYY-MM-DD date as dd/mm/yyyy, or an empty string."""
-    if not raw:
-        return ""
-    return datetime.strptime(raw, "%Y-%m-%d").strftime("%d/%m/%Y")
-
-
-def _norm_id_list(raw: Any) -> list[str]:
-    """Return a plain list of unique, non-empty ids, in the given order."""
-    raw = raw if isinstance(raw, list) else []
-    out: list[str] = []
-    for item in raw:
-        key = str(item).strip()
-        if key and key not in out:
-            out.append(key)
-    return out
-
-
-def _norm_column_order(raw: Any) -> dict[str, list[str]]:
-    """Return the two-column layout of the category groups.
-
-    The layout used to be a single flat list filled the CSS grid row by row,
-    which left the right cell of an odd last row unreachable: no order could
-    ever put a group there. Two real columns make every spot droppable.
-
-    A flat list is still accepted and is spread over the columns exactly the
-    way the grid used to render it (first group left, second right, and so
-    on), so the layout saved before this change keeps its appearance.
-    """
-    out: dict[str, list[str]] = {"left": [], "right": []}
-    seen: set[str] = set()
-
-    def place(column: str, ids: Any) -> None:
-        for item in ids if isinstance(ids, list) else []:
-            key = str(item).strip()
-            if key and key not in seen:
-                seen.add(key)
-                out[column].append(key)
-
-    if isinstance(raw, dict):
-        place("left", raw.get("left"))
-        place("right", raw.get("right"))
-        return out
-    flat = _norm_id_list(raw)
-    for index, key in enumerate(flat):
-        place("left" if index % 2 == 0 else "right", [key])
-    return out
-
-
-def _norm_client(raw: dict[str, Any]) -> dict[str, Any]:
-    """Return a client with every expected key."""
-    return {
-        "id": str(raw.get("id") or _new_id("cli")),
-        "first_name": str(raw.get("first_name") or "").strip(),
-        "last_name": str(raw.get("last_name") or "").strip(),
-        "phone": str(raw.get("phone") or "").strip(),
-        "email": str(raw.get("email") or "").strip(),
-        "notes": str(raw.get("notes") or ""),
-        "created_at": str(raw.get("created_at") or dt_util.utcnow().isoformat()),
-        # Whether the client wants to receive the promotional messages. Default
-        # true: a card without the flag (every card that predates it) keeps
-        # receiving promos until the desk deliberately unsubscribes it.
-        "promo_opt_in": bool(raw.get("promo_opt_in", True)),
-    }
-
-
-def _norm_payment(raw: dict[str, Any] | None) -> dict[str, Any]:
-    """Return how an appointment is paid, with every key present.
-
-    The flags combine freely on purpose: a deposit and the balance that is
-    still owed are two true things at once, not two alternatives, so they are
-    booleans rather than one "payment type" string. Nothing ticked simply means
-    the desk was never told, which is different from "paid in full".
-
-    Each flag that means money carries its own amount, because "already handed
-    over 30" and "still owed 10" describe the same booking without one
-    replacing the other.
-    """
-    raw = raw or {}
-
-    def money(key: str) -> float:
-        try:
-            return round(float(raw.get(key) or 0), 2)
-        except (TypeError, ValueError):
-            return 0.0
-
-    return {
-        "paid": bool(raw.get("paid", False)),
-        "paid_amount": money("paid_amount"),
-        "deposit": bool(raw.get("deposit", False)),
-        "deposit_amount": money("deposit_amount"),
-        "voucher": bool(raw.get("voucher", False)),
-        "voucher_code": str(raw.get("voucher_code") or "").strip()[:64],
-        "balance_due": bool(raw.get("balance_due", False)),
-        "balance_due_amount": money("balance_due_amount"),
-        # The ways of paying, in the order they were ticked. Several at once
-        # because a deposit on card and the balance in cash is a real thing to
-        # write down; an unknown one is dropped rather than invented.
-        "methods": [
-            str(method)
-            for method in (raw.get("methods") or [])
-            if str(method) in {name for name, _, _ in PAYMENT_METHODS}
-        ],
-    }
-
-
-def _norm_price_opt(value: Any) -> float | None:
-    """Return an optional money amount, or None when absent or invalid.
-
-    None means "fall back to the catalogue price": it is different from an
-    explicit zero, so a discounted-to-zero treatment stays zero instead of
-    silently becoming the list price.
-    """
-    if value is None or (isinstance(value, str) and not value.strip()):
-        return None
-    try:
-        amount = round(float(value), 2)
-    except (TypeError, ValueError):
-        return None
-    return amount if amount >= 0 else None
-
-
-def _norm_payment_list(raw: Any) -> list[dict[str, Any]]:
-    """Return the registered takings of an appointment, newest last.
-
-    Each entry keeps its own id, method, date and amount, so several partial
-    payments on different days stay distinct. An entry with an unknown method
-    or no positive amount is dropped rather than invented.
-    """
-    out: list[dict[str, Any]] = []
-    for item in raw or []:
-        if not isinstance(item, dict):
-            continue
-        method = str(item.get("method") or "").strip()
-        if method not in {name for name, _, _ in PAYMENT_METHODS}:
-            continue
-        try:
-            amount = round(float(item.get("amount") or 0), 2)
-        except (TypeError, ValueError):
-            continue
-        if amount <= 0:
-            continue
-        out.append(
-            {
-                "id": str(item.get("id") or _new_id("pay")),
-                "method": method,
-                "date": _norm_date(item.get("date")),
-                "amount": amount,
-            }
-        )
-    return out
-
-
-def _norm_guest_type(value: Any) -> str:
-    """Return a known guest type, anything unknown falling back to Esterno.
-
-    A booking without a flag is from outside: that is what every appointment
-    was before the field existed, so old records keep their meaning.
-    """
-    guest_type = str(value or GUEST_TYPE_DEFAULT)
-    if guest_type not in {g[0] for g in GUEST_TYPES}:
-        return GUEST_TYPE_DEFAULT
-    return guest_type
-
-
-def _norm_accessory(raw: Any) -> dict[str, Any] | None:
-    """Return one accessory with every expected key, or None when unusable.
-
-    A bare id string is accepted too, so a client that predates the price and
-    the description still saves without error; for a factory accessory a
-    missing label or icon falls back to the factory one rather than the id.
-    """
-    if not isinstance(raw, dict):
-        item_id = str(raw or "").strip()
-        raw = {"id": item_id} if item_id else {}
-    item_id = str(raw.get("id") or "").strip()
-    if not item_id:
-        return None
-    factory = next((item for item in ACCESSORY_DEFAULTS if item["id"] == item_id), None)
-    price = raw.get("price")
-    if isinstance(price, str):
-        # The desk types "12,50" as often as "12.50": both mean the same.
-        price = price.replace(",", ".").strip()
-    try:
-        price = float(price) if price not in (None, "") else None
-    except (TypeError, ValueError):
-        price = None
-    return {
-        "id": item_id,
-        "label": str(raw.get("label") or (factory["label"] if factory else item_id)).strip(),
-        "icon": str(
-            raw.get("icon") or (factory["icon"] if factory else "mdi:gift-outline")
-        ).strip(),
-        "price": price,
-        "description": str(raw.get("description") or "").strip(),
-    }
-
-
-def _accessories(raw: dict[str, Any]) -> list[dict[str, Any]]:
-    """Normalize the user-ordered accessory list.
-
-    The stored list wins once present, even when empty; the factory list is
-    used only while the key has never been saved, so the four accessories that
-    were hard-coded before this tab existed are still offered. Blanks and
-    duplicates are dropped, keeping the first occurrence and the user's order.
-    """
-    if "accessories" in raw:
-        source: list[Any] = raw.get("accessories") or []
-    else:
-        source = [
-            {
-                "id": item["id"],
-                "label": item["label"],
-                "icon": item["icon"],
-                "price": item.get("price"),
-                "description": item.get("description"),
-            }
-            for item in ACCESSORY_DEFAULTS
-        ]
-    items: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for entry in source:
-        item = _norm_accessory(entry)
-        if item and item["id"] not in seen:
-            seen.add(item["id"])
-            items.append(item)
-    return items
-
-
-def _accessory_labels(
-    raw: dict[str, Any], accessories: list[dict[str, Any]]
-) -> dict[str, str]:
-    """Return ``id -> last known name``, the deleted accessories included.
-
-    An appointment keeps the accessory ids it was given. When one of those
-    accessories is later deleted the label must not vanish with it, so the map
-    is accumulated across saves and is what the card falls back to.
-    """
-    labels: dict[str, str] = {}
-    stored = raw.get("accessory_labels")
-    if isinstance(stored, dict):
-        labels.update({str(key): str(value) for key, value in stored.items()})
-    for item in ACCESSORY_DEFAULTS:
-        labels.setdefault(item["id"], item["label"])
-    for item in accessories:
-        labels[item["id"]] = item["label"]
-    return labels
-
-
-def _norm_extras(value: Any, known: set[str] | None = None) -> list[str]:
-    """Return the accessory ids among ``value``, unknown ones dropped.
-
-    Empty and unset both come out as an empty list, which is what every
-    appointment that predates the field means: no accessory was chosen. With
-    ``known`` left out every non-empty id is kept: the stored appointments must
-    hold on to the accessories the reception configured, which this module
-    cannot know at import time.
-    """
-    if not value:
-        return []
-    if isinstance(value, str):
-        value = [value]
-    chosen: list[str] = []
-    for item in value:
-        if item is None:
-            continue
-        item_id = str(item).strip()
-        if not item_id:
-            continue
-        if known is not None and item_id not in known:
-            continue
-        chosen.append(item_id)
-    return chosen
-
-
-def _norm_person(value: Any) -> int:
-    """Which person of her party an appointment is, 0 being the leader.
-
-    The form asks for one name — the person booking is the leader of the party
-    — and every guest of hers is booked on that same card, so the card alone
-    cannot say who is coming. This is the number that can: 0 is the person the
-    card is named after, 1.. are her guests. An appointment written before this
-    field existed is the card's own person, so it reads as 0.
-    """
-    try:
-        return max(0, int(value or 0))
-    except (TypeError, ValueError):
-        return 0
-
-
-def _norm_appointment(raw: dict[str, Any]) -> dict[str, Any]:
-    """Return an appointment with every expected key.
-
-    The ``offer_*`` fields only matter while the booking is waiting for an
-    operator to answer. ``operator_id`` already holds the operator currently
-    being asked, so her slot is reserved from the moment the offer is made and
-    every existing overlap rule keeps working unchanged; when she declines the
-    slot simply moves to the next candidate.
-    """
-    batch_raw = raw.get("batch_id") or raw.get("booking_id")
-    batch_id = str(batch_raw).strip() if batch_raw not in (None, "") else None
-
-    offer_state = raw.get("offer_state")
-    if offer_state not in (OFFER_NONE, OFFER_PENDING, OFFER_UNASSIGNED):
-        offer_state = OFFER_NONE
-    try:
-        offer_index = max(0, int(raw.get("offer_index") or 0))
-    except (TypeError, ValueError):
-        offer_index = 0
-    return {
-        "id": str(raw.get("id") or _new_id("appt")),
-        "client_id": str(raw.get("client_id") or "") or None,
-        "treatment_id": str(raw.get("treatment_id") or "") or None,
-        "operator_id": str(raw.get("operator_id") or "") or None,
-        "start": str(raw.get("start") or ""),
-        "end": str(raw.get("end") or ""),
-        "status": _norm_status(raw),
-        "guest_type": _norm_guest_type(raw.get("guest_type")),
-        "extras": _norm_extras(raw.get("extras")),
-        # Per-row price overrides, both editable from the card: the list
-        # price and the discounted one. None means "use the catalogue
-        # price of the treatment", so bookings saved before prices existed
-        # keep their meaning untouched.
-        "list_price": _norm_price_opt(raw.get("list_price")),
-        "price": _norm_price_opt(raw.get("price")),
-        # Which person of the party she is: 0 is the one written on the card,
-        # 1.. are her guests. Two appointments of one card may share an hour
-        # only when they are different persons, so this is what tells a party
-        # from the same person booked twice.
-        "person": _norm_person(raw.get("person")),
-        # A 5-char booking reference the desk can read out loud or text the
-        # guest: short enough to be unique, long enough not to be guessed.
-        "code": str(raw.get("code") or "").upper(),
-        "notes": str(raw.get("notes") or ""),
-        "cancel_reason": str(raw.get("cancel_reason") or ""),
-        "created_at": str(raw.get("created_at") or dt_util.utcnow().isoformat()),
-        "cancelled_at": str(raw.get("cancelled_at") or ""),
-        # Who confirmed the booking and when. A pending booking has neither:
-        # nobody has confirmed it yet.
-        "confirmed_by": str(raw.get("confirmed_by") or ""),
-        "confirmed_at": str(raw.get("confirmed_at") or ""),
-        "offer_state": offer_state,
-        "offer_candidates": [str(op) for op in (raw.get("offer_candidates") or [])],
-        "offer_index": offer_index,
-        "offer_expires_at": str(raw.get("offer_expires_at") or ""),
-        "offer_reminded": bool(raw.get("offer_reminded", False)),
-        # Check-in / check-out recorded by the reception from the agenda.
-        "checked_in": bool(raw.get("checked_in", False)),
-        "checked_in_at": str(raw.get("checked_in_at") or ""),
-        "checked_out": bool(raw.get("checked_out", False)),
-        "checked_out_at": str(raw.get("checked_out_at") or ""),
-        # The guest reminder is sent once, about a day before the appointment.
-        "reminder_sent": bool(raw.get("reminder_sent", False)),
-        # The review request is sent once, a few hours after the appointment is
-        # over. One flag per appointment: a guest with two treatments the same
-        # day is asked once, not twice.
-        "review_request_sent": bool(raw.get("review_request_sent", False)),
-        # The deposit request is sent once, asking the guest to pay her deposit
-        # by bank transfer while the booking is still waiting for confirmation.
-        "deposit_request_sent": bool(raw.get("deposit_request_sent", False)),
-        # What the guest handed over at the desk, written at booking time.
-        **_norm_payment(raw),
-        # The registered takings, one entry per payment: their sum is what
-        # has actually been collected, whatever the flags above say.
-        "payments": _norm_payment_list(raw.get("payments")),
-        "batch_id": batch_id,
-    }
-
-
-def _norm_status(raw: dict[str, Any]) -> str:
-    """Return a known appointment status."""
-    value = raw.get("status")
-    return value if value in BOOKING_STATUSES + (STATUS_CANCELLED,) else STATUS_CONFIRMED
-
-
-def _norm_request(raw: dict[str, Any]) -> dict[str, Any]:
-    """Return an appointment request with every expected key.
-
-    A request is not an appointment: it holds no slot, never enters the agenda
-    and never blocks anybody. It is the guest asking for one — by phone or on
-    WhatsApp — kept together with the treatments she asked for, until the desk
-    confirms it and the real appointments are created.
-    """
-    entries: list[dict[str, Any]] = []
-    for item in raw.get("entries") or []:
-        if not isinstance(item, dict):
-            continue
-        treatment_id = str(item.get("treatment_id") or "").strip()
-        if not treatment_id:
-            continue
-        entries.append(
-            {
-                "treatment_id": treatment_id,
-                "time": str(item.get("time") or "")[:5],
-                "extras": _norm_extras(item.get("extras")),
-            }
-        )
-    status = raw.get("status")
-    if status not in (REQUEST_PENDING, REQUEST_CONFIRMED):
-        status = REQUEST_PENDING
-    try:
-        people = max(1, int(raw.get("people") or 1))
-    except (TypeError, ValueError):
-        people = 1
-    return {
-        "id": str(raw.get("id") or _new_id("req")),
-        "code": str(raw.get("code") or "").upper(),
-        "client_id": str(raw.get("client_id") or ""),
-        "date": _norm_date(raw.get("date")),
-        "people": people,
-        "entries": entries,
-        "notes": str(raw.get("notes") or ""),
-        # A gift voucher the guest mentioned, or an outside one the desk will
-        # check. Old requests carry no key and simply have none.
-        "voucher_code": str(raw.get("voucher_code") or "").strip().upper()[:32],
-        "guest_type": _norm_guest_type(raw.get("guest_type")),
-        "status": status,
-        # Where the request came from, and whether the desk has opened it yet.
-        # A web request lights the bell in the card header; opening the list
-        # (or the request itself) sets ``seen`` and clears the bell. Old
-        # requests carry neither key and default to a desk request already
-        # seen, so nothing old ever rings.
-        "source": (
-            REQUEST_SOURCE_WEB
-            if raw.get("source") == REQUEST_SOURCE_WEB
-            else REQUEST_SOURCE_DESK
-        ),
-        "seen": bool(raw.get("seen", True)),
-        "created_at": str(raw.get("created_at") or dt_util.utcnow().isoformat()),
-        # The acknowledgement to the guest goes out once, right after the
-        # request is saved; the flag lets the desk see it and resend.
-        "message_sent": bool(raw.get("message_sent", False)),
-        "message_sent_at": str(raw.get("message_sent_at") or ""),
-        "confirmed_at": str(raw.get("confirmed_at") or ""),
-        "appointment_ids": [str(a) for a in (raw.get("appointment_ids") or [])],
-    }
-
-
-def _money_text(amount: Any) -> str:
-    """Return an amount the Italian way: 50,00 €."""
-    try:
-        value = round(float(amount or 0), 2)
-    except (TypeError, ValueError):
-        value = 0.0
-    return f"{value:.2f}".replace(".", ",") + " €"
-
-
-def _payment_confirms(payment: dict[str, Any] | None) -> bool:
-    """Whether the payment on its own confirms a booking.
-
-    Any money handed over settles the question of whether the client is coming:
-    a voucher, a deposit or the whole amount. It is the desk's own rule, so it
-    lives here rather than being re-implemented by the card.
-    """
-    if not payment:
-        return False
-    return bool(
-        payment.get("paid") or payment.get("deposit") or payment.get("voucher")
-    )
-
-
-def occupies_slot(appointment: dict[str, Any]) -> bool:
-    """Whether this booking holds its slot against anybody else.
-
-    A pending booking holds it just like a confirmed one: the room and the
-    operator are spoken for, and letting a second client into the same hour
-    would be the double booking this status exists to avoid.
-    """
-    return appointment.get("status") in BOOKING_STATUSES
-
-
-def _same_window(
-    appointment: dict[str, Any], start_dt: datetime, end_dt: datetime
-) -> bool:
-    """Whether a booked appointment overlaps the window of an edit.
-
-    A shared treatment exists as one appointment per person: moving the client
-    of one member of the party must therefore count the rest of the group that
-    already holds the slot, not pretend the member is alone.
-    """
-    other_start = dt_util.parse_datetime(appointment["start"])
-    other_end = dt_util.parse_datetime(appointment["end"])
-    return bool(
-        other_start
-        and other_end
-        and other_start < end_dt
-        and other_end > start_dt
-    )
-
-
-#: A refusal note may carry a date (gg-mm-aaaa) and one or two times (HH:MM).
-_REFUSE_DATE = re.compile(r"(\d{2})-(\d{2})-(\d{4})")
-_REFUSE_TIME = re.compile(r"(\d{1,2})[:.](\d{2})")
-
-
-def _norm_slot_block(raw: dict[str, Any]) -> dict[str, Any]:
-    """Return a refused time window with every expected key.
-
-    The window is stored on the calendar date in local time, because that is
-    what the reception reads and what an operator's "that slot" means; the
-    appointment it came from is kept so "available again" can clear exactly
-    the block it created.
-    """
-    return {
-        "id": str(raw.get("id") or _new_id("blk")),
-        "operator_id": str(raw.get("operator_id") or ""),
-        "date": str(raw.get("date") or "")[:10],
-        "start": str(raw.get("start") or "")[:5],
-        "end": str(raw.get("end") or "")[:5],
-        "appointment_id": str(raw.get("appointment_id") or ""),
-        "created_at": str(raw.get("created_at") or dt_util.utcnow().isoformat()),
-    }
-
-
-def _norm_closure(raw: dict[str, Any]) -> dict[str, Any]:
-    """Return a business closure with every expected key.
-
-    Dates are stored as plain calendar days in local time, because a closure is
-    written by a receptionist who thinks in days, not in UTC instants. An empty
-    ``start``/``end`` pair means the closure covers the whole day.
-    """
-    scope = str(raw.get("scope") or "facility").strip().lower()
-    if scope not in CLOSURE_SCOPES:
-        scope = "facility"
-
-    def clock(key: str) -> str:
-        value = str(raw.get(key) or "").strip()
-        return value[:5] if len(value) >= 5 else ""
-
-    return {
-        "id": str(raw.get("id") or _new_id("cls")),
-        "label": str(raw.get("label") or "").strip(),
-        "scope": scope,
-        "operator_id": str(raw.get("operator_id") or "").strip(),
-        "category_id": str(raw.get("category_id") or "").strip(),
-        "date_from": str(raw.get("date_from") or "")[:10],
-        "date_to": str(raw.get("date_to") or "")[:10],
-        "start": clock("start"),
-        "end": clock("end"),
-        "created_at": str(raw.get("created_at") or dt_util.utcnow().isoformat()),
-    }
-
-
-def _normalise(raw: dict[str, Any]) -> dict[str, Any]:
-    """Return a dataset with every expected key and record shape."""
-    return {
-        KEY_CATEGORIES: [_norm_category(c) for c in raw.get(KEY_CATEGORIES) or []],
-        KEY_TREATMENTS: [_norm_treatment(t) for t in raw.get(KEY_TREATMENTS) or []],
-        KEY_OPERATORS: [_norm_operator(o) for o in raw.get(KEY_OPERATORS) or []],
-        KEY_CLIENTS: [_norm_client(c) for c in raw.get(KEY_CLIENTS) or []],
-        KEY_APPOINTMENTS: [_norm_appointment(a) for a in raw.get(KEY_APPOINTMENTS) or []],
-        KEY_SLOT_BLOCKS: [
-            _norm_slot_block(b) for b in raw.get(KEY_SLOT_BLOCKS) or []
-        ],
-        KEY_CLOSURES: [_norm_closure(c) for c in raw.get(KEY_CLOSURES) or []],
-        KEY_VOUCHERS: [_norm_voucher(v) for v in raw.get(KEY_VOUCHERS) or []],
-        KEY_PROMO_VOUCHERS: [
-            _norm_promo_voucher(v) for v in raw.get(KEY_PROMO_VOUCHERS) or []
-        ],
-        KEY_REQUESTS: [_norm_request(r) for r in raw.get(KEY_REQUESTS) or []],
-        KEY_SETTINGS: _norm_settings(raw.get(KEY_SETTINGS) or {}),
-    }
-
-
-def default_data(operator_names: list[str] | None = None) -> dict[str, Any]:
-    """Return a usable starting dataset.
-
-    The user is expected to edit treatments and add operators from the
-    dashboard, so the seed only has to make the integration usable.
-    """
-    categories = [
-        _norm_category(
-            {"id": "cat_massaggi", "name": "Massaggi", "requires_operator": True}
-        ),
-        _norm_category(
-            {
-                "id": "cat_ingresso_spa",
-                "name": "Ingresso Spa",
-                "requires_operator": False,
-            }
-        ),
-    ]
-    treatments = [
-        _norm_treatment(
-            {
-                "id": f"trt_ingresso_{minutes}",
-                "name": f"Ingresso Spa {minutes} min",
-                "category_id": "cat_ingresso_spa",
-                "duration_min": minutes,
-            }
-        )
-        for minutes in (90, 120)
-    ] + [
-        _norm_treatment(
-            {
-                "id": f"trt_massaggio_relax_{minutes}",
-                "name": f"Massaggio Relax {minutes} min",
-                "category_id": "cat_massaggi",
-                "duration_min": minutes,
-            }
-        )
-        for minutes in (90, 120)
-    ]
-    operators = [
-        _norm_operator({"id": _new_id("op"), "name": name})
-        for name in (operator_names or [])
-        if str(name).strip()
-    ]
-    # A masseuse set up from the config flow starts able to perform every
-    # massage treatment, so the booking form is usable straight away.
-    for operator in operators:
-        operator["treatment_ids"] = [
-            t["id"] for t in treatments if t["category_id"] == "cat_massaggi"
-        ]
-    return {
-        KEY_CATEGORIES: categories,
-        KEY_TREATMENTS: treatments,
-        KEY_OPERATORS: operators,
-        KEY_CLIENTS: [],
-        KEY_APPOINTMENTS: [],
-        KEY_REQUESTS: [],
-        KEY_SLOT_BLOCKS: [],
-        KEY_CLOSURES: [],
-        KEY_SETTINGS: default_settings(),
-    }
-
-
-def default_settings() -> dict[str, Any]:
-    """Return the notification defaults for this installation.
-
-    The Telegram entry id and the three authorised chats are seeded so the
-    monthly report works on the first run; they stay editable from the card.
-    """
-    return _norm_settings(
-        {
-            "telegram_config_entry_id": DEFAULT_TELEGRAM_ENTRY_ID,
-            "report_telegram_chats": DEFAULT_REPORT_TELEGRAM_CHATS,
-            "report_whatsapp_chat": "",
-            "report_per_operator": True,
-            "report_enabled": True,
-            "report_time": DEFAULT_REPORT_TIME,
-            KEY_PERMISSIONS: {},
-        }
-    )
-
-
 class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Store and manage every SPA booking record."""
 
@@ -1740,12 +209,19 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.entry = entry
         self._store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
         self._lock = asyncio.Lock()
+        # Serialises the timed sending jobs among themselves, so the data lock
+        # is only held to read and mark records, never while WhatsApp answers.
+        self._send_lock = asyncio.Lock()
         self._data: dict[str, Any] = default_data()
         # The inbound WhatsApp handler, once the gateway is switched on.
         self._waha_inbound: WahaInbound | None = None
         # Recent WhatsApp messages from numbers that are neither clients nor
         # operators, so the desk can read and answer external requests.
         self._external_messages: deque[dict[str, Any]] = deque(maxlen=20)
+        # Content hash of the served card, computed in the executor at load.
+        self._card_version = ""
+        # The internal timers, attached by async_setup_entry.
+        self.scheduler: Any = None
         super().__init__(
             hass,
             _LOGGER,
@@ -1772,8 +248,11 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if stale:
                 await self._store.async_save(self._data)
         else:
-            self._data = default_data(self.entry.data.get("operator_names") or [])
+            self._data = _normalise(
+                default_data(self.entry.data.get("operator_names") or [])
+            )
             await self._store.async_save(self._data)
+        await self.async_refresh_card_version()
         self.async_set_updated_data(self._data)
 
     async def async_add_external_message(self, chat_id: str, text: str) -> None:
@@ -1828,8 +307,32 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             stale = True
         if self._migrate_appointment_codes():
             stale = True
+        if self._migrate_operator_chat_ids():
+            stale = True
         self._sync_treatment_operator_ids()
         return self._data, stale
+
+    def _migrate_operator_chat_ids(self) -> bool:
+        """Recompute operator chat ids derived with the old phone rules.
+
+        Up to 2.0.15 a TIM mobile (390-393, 397) written without +39 lost two
+        digits, and a landline lost its trunk zero. An id that equals what the
+        old rule derived from the phone was computed, not typed, so it is
+        replaced by the correct one; a chat id typed by hand stays untouched.
+        """
+        changed = False
+        for operator in self.operators:
+            phone = str(operator.get("phone") or "")
+            stored = str(operator.get("whatsapp_chat_id") or "").strip()
+            if not phone or not stored:
+                continue
+            if stored != messaging.legacy_whatsapp_chat_id(phone):
+                continue
+            correct = messaging.whatsapp_chat_id(phone)
+            if correct and correct != stored:
+                operator["whatsapp_chat_id"] = correct
+                changed = True
+        return changed
 
     def _migrate_appointment_codes(self) -> bool:
         """Assign a 5-char booking code to every appointment missing one.
@@ -2233,9 +736,20 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         candidates = appointment.get("offer_candidates") or []
         closed = self._closed_operator_ids(start, end)
+        treatment = next(
+            (t for t in self.treatments if t["id"] == appointment.get("treatment_id")),
+            None,
+        )
+        pause = self._treatment_pause_min(treatment) if treatment else 0
         for index in range(appointment.get("offer_index", 0) + 1, len(candidates)):
             operator_id = candidates[index]
             if self._slot_blocked(operator_id, start, end) or operator_id in closed:
+                continue
+            # Booked elsewhere since the offer started: asking her would only
+            # end in a double booking.
+            if self._operator_clash(
+                operator_id, start, end, pause, exclude_ids={appointment.get("id")}
+            ):
                 continue
             return operator_id, index
         return None, len(candidates)
@@ -2710,22 +1224,15 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Return the pause required after an appointment's category.
 
         The pause belongs to the appointment already on the book: it is what
-        its masseuse needs before taking the next one.
+        its masseuse needs before taking the next one. An appointment whose
+        treatment was deleted since needs no pause (and must not make every
+        later booking fail with "not found").
         """
-        treatment = self._find(
-            self.treatments, appointment["treatment_id"], "Trattamento"
+        treatment = next(
+            (t for t in self.treatments if t["id"] == appointment.get("treatment_id")),
+            None,
         )
-        if not treatment or not treatment.get("category_id"):
-            return 0
-        category = self._find(
-            self.categories, treatment["category_id"], "Categoria"
-        )
-        if not category:
-            return 0
-        try:
-            return max(0, int(category.get("pause_min") or 0))
-        except (TypeError, ValueError):
-            return 0
+        return self._treatment_pause_min(treatment) if treatment else 0
 
     def _treatment_pause_min(self, treatment: dict[str, Any]) -> int:
         """Return the pause required after this treatment's category.
@@ -2743,6 +1250,43 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except (TypeError, ValueError):
             return 0
 
+    def _operator_clash(
+        self,
+        operator_id: str,
+        start: datetime,
+        end: datetime,
+        pause_min: int = 0,
+        planned: list[dict[str, Any]] | None = None,
+        exclude_ids: set[str] | None = None,
+    ) -> dict[str, Any] | None:
+        """Return the appointment that keeps ``operator_id`` busy, if any.
+
+        The pause works both ways: an existing appointment keeps the operator
+        busy until its end plus its category's pause, and the new one needs
+        its own pause before the next appointment starts. Before 2.1 only the
+        first half was checked, so a massage ending at 10:00 could be booked
+        right before one starting at 10:00.
+        """
+        start_utc = dt_util.as_utc(start)
+        end_utc = dt_util.as_utc(end) + timedelta(minutes=max(0, pause_min))
+        for appointment in [*self.appointments, *(planned or [])]:
+            if appointment.get("operator_id") != operator_id:
+                continue
+            if exclude_ids and appointment.get("id") in exclude_ids:
+                continue
+            if not occupies_slot(appointment):
+                continue
+            other_start = dt_util.parse_datetime(appointment["start"])
+            other_end = dt_util.parse_datetime(appointment["end"])
+            if other_start is None or other_end is None:
+                continue
+            other_guard = dt_util.as_utc(other_end) + timedelta(
+                minutes=self._pause_min_for(appointment)
+            )
+            if dt_util.as_utc(other_start) < end_utc and other_guard > start_utc:
+                return appointment
+        return None
+
     def _find_conflict(
         self,
         operator_id: str | None,
@@ -2754,6 +1298,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         person_index: int | None = None,
         staged_clients: list[dict[str, Any]] | None = None,
         force_client_overlap: bool = False,
+        pause_min: int = 0,
     ) -> dict[str, Any] | None:
         """Return the first overlapping appointment, if any.
 
@@ -2812,13 +1357,10 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "reason": "client",
                     **self.appointment_payload(appointment, staged_clients),
                 }
-            if operator_id and appointment["operator_id"] == operator_id:
-                other_guard = dt_util.as_utc(other_end) + timedelta(
-                    minutes=self._pause_min_for(appointment)
-                )
-                if not (other_start < end_utc and other_guard > start_utc):
-                    continue
-                return {"reason": "operator", **self.appointment_payload(appointment)}
+        if operator_id:
+            clash = self._operator_clash(operator_id, start, end, pause_min, planned)
+            if clash is not None:
+                return {"reason": "operator", **self.appointment_payload(clash)}
         return None
 
     @staticmethod
@@ -2876,8 +1418,14 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         person_index: int | None = None,
         batch_id: str | None = None,
         defer_operator: bool = False,
+        forward_pause: bool = True,
     ) -> tuple[dict[str, Any], dict[str, Any], bool]:
         """Validate one booking and return it without appending anything.
+
+        ``forward_pause`` applies this treatment's own pause before the next
+        appointment of the operator. An edit that keeps the same time and
+        treatment passes False, so a back-to-back pair booked before the rule
+        existed can still be edited (notes, payment) without being refused.
 
         Everything that can be refused happens here, so a multi-row booking can
         be checked in full before a single record is written: a booking refused
@@ -2954,6 +1502,19 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             offer_state, assigned = OFFER_NONE, None
         elif candidates:
+            own_pause = self._treatment_pause_min(treatment) if forward_pause else 0
+            # Offer first to whoever is actually free: a busy first choice
+            # used to make the whole booking fail even with a colleague free.
+            # When everybody is busy the first one stays, so the error below
+            # names the appointment in the way.
+            free = [
+                oid
+                for oid in candidates
+                if self._operator_clash(oid, start_dt, end_dt, own_pause, planned)
+                is None
+            ]
+            if free:
+                candidates = free
             offer_state, assigned = OFFER_PENDING, candidates[0]
         else:
             # Every able operator already refused this window: the booking is
@@ -2980,6 +1541,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             person_index=person_index,
             staged_clients=staged_clients,
             force_client_overlap=force_client_overlap,
+            pause_min=self._treatment_pause_min(treatment) if forward_pause else 0,
         )
         if conflict is not None:
             raise self._overlap_error(conflict)
@@ -3244,6 +1806,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             try:
                 rebuilt, client, is_new_client = self._prepare_booking(
+                    forward_pause=not _same_slot(appointment, treatment_id, start),
                     treatment_id=treatment_id,
                     start=start,
                     client_id=client_id or appointment["client_id"],
@@ -3590,7 +2153,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 promo = self._promo_voucher_of_rows(rows)
 
                 # Everything validated: commit once.
-                for appointment, client, is_new in prepared:
+                for _appointment, client, is_new in prepared:
                     if is_new:
                         self.clients.append(client)
                 self.appointments.extend(item[0] for item in prepared)
@@ -3922,54 +2485,55 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         with no usable phone is marked sent without a message: there is nothing
         to retry and it should not pile up in the pending queue.
         """
+        async with self._send_lock:
+            return await self._async_send_promo_vouchers()
+
+    async def _async_send_promo_vouchers(self) -> dict[str, Any]:
+        """The body of ``async_send_promo_vouchers``, under the send lock."""
         now = dt_util.utcnow()
-        sent = 0
+        sent_ids: set[str] = set()
         failed = 0
-        skipped = 0
-        async with self._lock:
-            for voucher in self.promo_vouchers:
-                if voucher.get("status") != PROMO_VOUCHER_PENDING:
-                    continue
-                due = dt_util.parse_datetime(str(voucher.get("send_at") or ""))
-                if due is not None and due > now:
-                    continue
-                phone = str(voucher.get("phone") or "").strip()
-                chat_id = messaging.whatsapp_chat_id(phone)
-                if not chat_id:
-                    voucher["status"] = PROMO_VOUCHER_SENT
-                    voucher["sent_at"] = now.isoformat()
-                    skipped += 1
-                    continue
-                try:
-                    result = await messaging.async_send_whatsapp(
-                        self.hass,
-                        chat_id,
-                        self.format_promo_voucher(voucher),
-                        waha=self.waha,
-                    )
-                except Exception as err:  # noqa: BLE001
-                    failed += 1
-                    _LOGGER.warning(
-                        "Voucher fedelta %s non inviato a %s: %s",
-                        voucher.get("code") or "?",
-                        phone or "?",
-                        err,
-                    )
-                    continue
-                if result.get("sent"):
-                    voucher["status"] = PROMO_VOUCHER_SENT
-                    voucher["sent_at"] = now.isoformat()
-                    sent += 1
-                else:
-                    failed += 1
-                    _LOGGER.warning(
-                        "Voucher fedelta %s non inviato a %s: %s",
-                        voucher.get("code") or "?",
-                        phone or "?",
-                        result.get("error") or "errore sconosciuto",
-                    )
-            if sent or skipped:
+        skipped_ids: set[str] = set()
+        due: list[tuple[str, str, str, str]] = []
+        for voucher in self.promo_vouchers:
+            if voucher.get("status") != PROMO_VOUCHER_PENDING:
+                continue
+            when = dt_util.parse_datetime(str(voucher.get("send_at") or ""))
+            if when is not None and when > now:
+                continue
+            phone = str(voucher.get("phone") or "").strip()
+            chat_id = messaging.whatsapp_chat_id(phone)
+            if not chat_id:
+                skipped_ids.add(voucher["id"])
+                continue
+            due.append((voucher["id"], chat_id, self.format_promo_voucher(voucher), phone))
+
+        for voucher_id, chat_id, message, phone in due:
+            try:
+                result = await messaging.async_send_whatsapp(
+                    self.hass, chat_id, message, waha=self.waha
+                )
+            except Exception as err:  # noqa: BLE001
+                result = {"sent": False, "error": str(err)}
+            if result.get("sent"):
+                sent_ids.add(voucher_id)
+            else:
+                failed += 1
+                _LOGGER.warning(
+                    "Voucher fedelta %s non inviato a %s: %s",
+                    voucher_id,
+                    phone or "?",
+                    result.get("error") or "errore sconosciuto",
+                )
+
+        if sent_ids or skipped_ids:
+            async with self._lock:
+                for voucher in self.promo_vouchers:
+                    if voucher["id"] in sent_ids | skipped_ids:
+                        voucher["status"] = PROMO_VOUCHER_SENT
+                        voucher["sent_at"] = now.isoformat()
                 await self._async_save()
+        sent, skipped = len(sent_ids), len(skipped_ids)
         return {"sent": sent, "failed": failed, "skipped": skipped}
 
     async def async_cleanup_promo_vouchers(self) -> dict[str, Any]:
@@ -4078,6 +2642,13 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         rows: list[dict[str, Any]] = []
         for entry in request.get("entries") or []:
             clock = str(entry.get("time") or "00:00")
+            # A website entry names its person: one appointment for her. A
+            # desk entry does not: one appointment for each of the people.
+            persons = (
+                [entry["person"]]
+                if entry.get("person") is not None
+                else range(int(request.get("people") or 1))
+            )
             rows.append(
                 {
                     "treatment_id": entry["treatment_id"],
@@ -4088,7 +2659,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             "person": person,
                             "extras": entry.get("extras") or [],
                         }
-                        for person in range(int(request.get("people") or 1))
+                        for person in persons
                     ],
                     "pending": False,
                     "guest_type": request.get("guest_type") or GUEST_TYPE_DEFAULT,
@@ -4123,12 +2694,9 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             existing = [a for a in self.appointments if a.get("batch_id") == batch_id]
             id_map = {a["id"]: a for a in existing}
 
-            # Snapshot of the whole data tree and current _data so we can fully
-            # roll back on any failure (including partial client/appointment writes).
-            import copy as _copy
-            _data_snapshot = _copy.deepcopy(self._data)
-            _appointments_snapshot = [a for a in self._data[KEY_APPOINTMENTS]]
-            _clients_snapshot = [c for c in self._data[KEY_CLIENTS]]
+            # Snapshot of the whole data tree, taken before anything is
+            # touched, so any failure puts every record back exactly as it was.
+            _data_snapshot = copy.deepcopy(self._data)
 
             # Take the originals out so a rebuilt row never overlaps itself.
             for a in existing:
@@ -4261,6 +2829,8 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         force_new=force_new,
                         person_index=person_index,
                         batch_id=batch_id,
+                        forward_pause=existing_appt is None
+                        or not _same_slot(existing_appt, treatment_id, start),
                     )
                     # Preserve history on rebuild.
                     if existing_appt is not None:
@@ -4289,7 +2859,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
                 # Commit new clients.
                 created_clients = []
-                for appointment, client, is_new in prepared:
+                for _appointment, client, is_new in prepared:
                     if is_new and client["id"] not in {c["id"] for c in created_clients}:
                         self.clients.append(client)
                         created_clients.append(client)
@@ -4305,24 +2875,18 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     clone["batch_id"] = batch_id
                     self.appointments.append(clone)
 
-                voucher = None
-                if any(r.get("voucher_code") for r in rows if isinstance(r, dict)):
-                    # Preserve voucher redemption accounting from the anchor
-                    voucher = None
                 await self._async_save()
             except Exception:
-                # Full rollback: restore the entire data tree to its pre-mutation
-                # state.
-                self._data = _copy.deepcopy(_data_snapshot)
-                self._data[KEY_APPOINTMENTS] = [dict(a) for a in _appointments_snapshot]
-                self._data[KEY_CLIENTS] = [dict(c) for c in _clients_snapshot]
-                # Reflect the rollback back into the live views.
+                # Full rollback to the deep copy. (Up to 2.0.15 the copy was
+                # then overwritten with shallow lists of the very records the
+                # failed edit had already modified, so the "rollback" kept
+                # half of the changes.)
+                self._data = _data_snapshot
                 self.async_set_updated_data(self._data)
                 raise
             finally:
                 self._current_user_id = None
 
-        rebuilt_ids = [item[0]["id"] for item in prepared]
         return {
             "batch_id": batch_id,
             "appointments": [self.appointment_payload(item[0]) for item in prepared],
@@ -4390,15 +2954,16 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             clock = _norm_clock(entry.get("time"))
             if not clock:
                 raise ValidationError("Indica l'ora di ogni trattamento richiesto")
-            clean.append(
-                {
-                    "treatment_id": treatment_id,
-                    "time": clock,
-                    "extras": _norm_extras(
-                        entry.get("extras"), known=self._accessory_ids()
-                    ),
-                }
-            )
+            item = {
+                "treatment_id": treatment_id,
+                "time": clock,
+                "extras": _norm_extras(
+                    entry.get("extras"), known=self._accessory_ids()
+                ),
+            }
+            if entry.get("person") is not None:
+                item["person"] = _norm_person(entry.get("person"))
+            clean.append(item)
         if not clean:
             raise ValidationError("Aggiungi almeno un trattamento alla richiesta")
 
@@ -4571,15 +3136,15 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def async_web_snippet(self) -> dict[str, Any]:
         """Return the code to paste into the site, with the token already in it.
 
-        The base text is the published file in ``www/spa_booking`` — one
+        The base text is ``frontend/spa-booking-form.txt`` of the integration — one
         source, the same one the desk can download — and the placeholder
         ``INCOLLA_QUI_IL_TOKEN`` is swapped for the current token on the fly.
         The token is never written to disk: it lives only in this answer and
         in the clipboard of whoever pressed Copia.
         """
-        path = self.hass.config.path(
-            "www", "spa_booking", "spa-booking-form.txt"
-        )
+        from .card_view import FORM_FILE
+
+        path = str(FORM_FILE)
         snippet = await self.hass.async_add_executor_job(_read_text, path)
         found = WEB_SNIPPET_TOKEN_PLACEHOLDER in snippet
         token = self._web_token() if snippet else ""
@@ -4623,10 +3188,77 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if r.get("source") == REQUEST_SOURCE_WEB and not r.get("seen", True)
         )
 
+    def plan_public_entry(
+        self,
+        day: date,
+        treatment_id: str,
+        clock: str,
+        planned: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Place one entry of a web request, so the next entries see it.
+
+        Returns a pseudo-appointment (never stored) holding the first free
+        operator, or none for a shared treatment. Call it only for a time
+        ``async_public_availability`` has just offered with the same
+        ``planned`` list.
+        """
+        treatment = next(t for t in self.treatments if t["id"] == treatment_id)
+        hour, minute = (int(part) for part in clock.split(":"))
+        start = dt_util.start_of_local_day(day) + timedelta(hours=hour, minutes=minute)
+        end = start + timedelta(minutes=int(treatment.get("duration_min") or 0))
+        operator_id = None
+        if self._treatment_requires_operator(treatment):
+            busy = [
+                a
+                for a in (*self.appointments, *planned)
+                if occupies_slot(a) and a.get("operator_id")
+            ]
+            free = self._free_operators(
+                self.operators_for_treatment(treatment_id),
+                busy,
+                start,
+                end,
+                self._treatment_pause_min(treatment),
+            )
+            operator_id = free[0] if free else None
+        return {
+            "id": f"web_planned_{len(planned)}",
+            "treatment_id": treatment_id,
+            "operator_id": operator_id,
+            "start": dt_util.as_utc(start).isoformat(),
+            "end": dt_util.as_utc(end).isoformat(),
+            "status": STATUS_CONFIRMED,
+        }
+
+    def _category_allows(
+        self,
+        treatment: dict[str, Any],
+        start: datetime,
+        end: datetime,
+        planned: list[dict[str, Any]] | None = None,
+    ) -> bool:
+        """Whether the category rules of the booking engine accept the slot."""
+        try:
+            self._validate_category_window(
+                self._category(treatment.get("category_id")), start, end
+            )
+            self._category_exclusion(treatment, start, end, planned)
+        except ValidationError:
+            return False
+        return True
+
     async def async_public_availability(
-        self, day: date, treatment_id: str
+        self,
+        day: date,
+        treatment_id: str,
+        planned: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Return the start times the website may offer for one treatment.
+
+        ``planned`` holds the other entries of the same web request, already
+        placed (see ``plan_public_entry``): two people asking for a massage
+        at the same hour need two free operators, not one free operator
+        counted twice.
 
         The window (open/close/step) is the reception's, read from settings —
         it describes the day the site proposes, not the spa's real opening
@@ -4729,15 +3361,16 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
         day_start = dt_util.start_of_local_day(day)
+        booked = [*self.appointments, *(planned or [])]
         busy = [
             a
-            for a in self.appointments
+            for a in booked
             if occupies_slot(a) and a.get("operator_id")
         ]
         shared_bookings = (
             [
                 a
-                for a in self.appointments
+                for a in booked
                 if occupies_slot(a) and a["treatment_id"] == treatment["id"]
             ]
             if max_parallel
@@ -4770,6 +3403,12 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 continue
 
             if self._closure_block_for(treatment, start, end):
+                continue
+
+            # The category's own calendar (bookable weekdays, morning and
+            # afternoon windows) and the categories it must never overlap:
+            # the desk refuses those bookings, so the site must not offer them.
+            if not self._category_allows(treatment, start, end, planned):
                 continue
 
             if requires_operator:
@@ -4880,7 +3519,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 other_end = other_end + timedelta(
                     minutes=self._pause_min_for(appointment)
                 )
-                if other_start < end and other_end > start:
+                if other_start < end + timedelta(minutes=pause) and other_end > start:
                     clash = True
                     break
             if not clash:
@@ -5488,8 +4127,8 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise ValidationError(f"Metodo di pagamento non valido: '{method}'")
         try:
             value = round(float(amount), 2)
-        except (TypeError, ValueError):
-            raise ValidationError("Importo incasso non valido")
+        except (TypeError, ValueError) as err:
+            raise ValidationError("Importo incasso non valido") from err
         if value <= 0:
             raise ValidationError("L'importo incassato deve essere positivo")
         async with self._lock:
@@ -5929,7 +4568,12 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return {"sent": 0, "total": 0, "reason": "promo non programmata"}
         now_local = dt_util.as_local(dt_util.utcnow())
         current_hm = f"{now_local.hour:02d}:{now_local.minute:02d}"
-        if current_hm != promo_time:
+        # Due from ``promo_time`` for one hour: a tick that lands a minute late
+        # (busy system, restart) still sends, but a restart in the afternoon
+        # does not fire a morning promo hours later.
+        target = self._minutes_of(promo_time)
+        late = now_local.hour * 60 + now_local.minute - target
+        if target < 0 or not 0 <= late < 60:
             return {
                 "sent": 0,
                 "total": 0,
@@ -5941,6 +4585,12 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         single = str(settings.get("promo_date") or "")
         if single and now_local.date().strftime("%Y-%m-%d") != single:
             return {"sent": 0, "total": 0, "reason": f"data singola {single} diversa da oggi"}
+        today = now_local.date().isoformat()
+        if settings.get("promo_last_sent_on") == today:
+            # The internal timer and an old automation may both fire in the
+            # same minute: the broadcast goes out once a day, never twice.
+            return {"sent": 0, "total": 0, "reason": "promo già inviata oggi"}
+        await self._async_stamp_setting("promo_last_sent_on", today)
         result = await self.async_send_promo()
         if single:
             # A one-off send runs once: the date is cleared so it does not repeat.
@@ -6271,7 +4921,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def async_delete_closure(self, closure_id: str) -> dict[str, Any]:
         """Reopen the days a closure was holding."""
         async with self._lock:
-            closure = self._find(self.closures, closure_id, "Chiusura")
+            self._find(self.closures, closure_id, "Chiusura")
             self.closures[:] = [c for c in self.closures if c["id"] != closure_id]
             await self._async_save()
         return {"deleted": closure_id}
@@ -6422,7 +5072,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def async_delete_client(self, client_id: str) -> dict[str, Any]:
         """Delete a client, refusing to orphan future confirmed appointments."""
         async with self._lock:
-            client = self._find(self.clients, client_id, "Cliente")
+            self._find(self.clients, client_id, "Cliente")
             now = dt_util.utcnow()
             busy = [
                 a
@@ -6562,7 +5212,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     ) -> dict[str, Any]:
         """Delete a category, refusing to orphan treatments."""
         async with self._lock:
-            category = self._find(self.categories, category_id, "Categoria")
+            self._find(self.categories, category_id, "Categoria")
             used = [
                 t["name"] for t in self.treatments if t["category_id"] == category_id
             ]
@@ -6701,7 +5351,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     ) -> dict[str, Any]:
         """Delete a treatment, refusing to orphan future appointments."""
         async with self._lock:
-            treatment = self._find(self.treatments, treatment_id, "Trattamento")
+            self._find(self.treatments, treatment_id, "Trattamento")
             now = dt_util.utcnow()
             busy = [
                 a
@@ -6848,7 +5498,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     ) -> dict[str, Any]:
         """Delete an operator, refusing to orphan future appointments."""
         async with self._lock:
-            operator = self._find(self.operators, operator_id, "Operatore")
+            self._find(self.operators, operator_id, "Operatore")
             now = dt_util.utcnow()
             busy = [
                 a
@@ -6900,7 +5550,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                        created[:16] if created else None)
                 groups.setdefault(key, []).append(appt)
 
-        for (client_id, day), items in groups.items():
+        for (_client_id, _day), items in groups.items():
             # Clustering per contiguita' temporale
             clusters: list[list[dict[str, Any]]] = []
             for item in sorted(items, key=lambda a: str(a.get("start") or "")):
@@ -7123,17 +5773,15 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return dict(self._data[KEY_SETTINGS].get(KEY_PERMISSIONS) or {})
 
     def user_level(self, user_id: str | None) -> str:
-        """Return the SPA permission level for a Home Assistant user id.
+        """Return the level stored for a user in the Accessi tab, or "none".
 
-        A missing id is treated as ``none``: callers that represent the system
-        itself (automations without a user context) are handled separately by
-        the service layer and never reach the business logic in a way that
-        can be bypassed by an end user.
+        Home Assistant administrators and calls without a user are handled by
+        ``services.caller_level``, which needs the auth store.
         """
         if not user_id:
             return "none"
-        permissions = self.permissions_payload()
-        return permissions.get(user_id, "read") if isinstance(permissions, dict) else "none"
+        level = self.permissions_payload().get(user_id)
+        return level if level in PERMISSION_LEVELS else "none"
 
     @property
     def accessories(self) -> list[dict[str, Any]]:
@@ -7327,14 +5975,16 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._waha_inbound = None
 
     def _card_file_version(self) -> str:
-        """Return a short hash of the served card file, so its URL changes with it."""
-        try:
-            path = self.hass.config.path("www", "spa_booking", "spa-booking-card.js")
-            with open(path, "rb") as handle:
-                digest = hashlib.sha256(handle.read()).hexdigest()
-            return digest[:12]
-        except OSError:
-            return CARD_JS_VERSION
+        """Return the short content hash of the card, computed at load time."""
+        return self._card_version or CARD_JS_VERSION
+
+    async def async_refresh_card_version(self) -> str:
+        """Re-hash the card file in the executor and remember the result."""
+        from .card_view import card_version, read_card
+
+        read = await self.hass.async_add_executor_job(read_card)
+        self._card_version = card_version(read[0]) if read else ""
+        return self._card_file_version()
 
     def card_js_url(self) -> str:
         """Return the card URL to serve, auto-versioned by content hash."""
@@ -7370,6 +6020,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def async_reload_card(self, version: str = "") -> dict[str, Any]:
         """Re-register the served card URL at the current auto version."""
+        await self.async_refresh_card_version()
         async with self._lock:
             self._data[KEY_SETTINGS]["card_js_version"] = self._card_file_version()
             await self._async_save()
@@ -7760,7 +6411,6 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             template = DEFAULT_APPOINTMENT_REMINDER_MESSAGE
 
         start = payload.get("start_local") or ""
-        treatment = payload.get("treatment") or {}
         client = payload.get("client") or {}
 
         treatment_names = self._treatment_names_for_payload(payload)
@@ -7842,48 +6492,47 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return {"sent": 0, "failed": 0, "reason": "invio manuale disabilitato"}
 
         now = dt_util.utcnow()
-        if appointment_id:
-            deadline = None
-        else:
-            deadline = now + timedelta(hours=hours)
         advance_window: timedelta = timedelta(hours=hours)
-        sent = 0
-        failed = 0
-        async with self._lock:
-            for appointment in self.appointments:
-                if appointment_id and appointment["id"] != appointment_id:
-                    continue
-                if appointment["status"] != STATUS_CONFIRMED:
-                    continue
-                if not appointment_id:
-                    if appointment.get("reminder_sent"):
+        outbox: list[tuple[str, str]] = []
+        async with self._send_lock:
+            async with self._lock:
+                for appointment in self.appointments:
+                    if appointment_id and appointment["id"] != appointment_id:
                         continue
-                    start = dt_util.parse_datetime(appointment["start"])
-                    if start is None or start <= now:
+                    if appointment["status"] != STATUS_CONFIRMED:
                         continue
-                    if hours > 0 and (start - now).total_seconds() > advance_window.total_seconds():
+                    if not appointment_id:
+                        if appointment.get("reminder_sent"):
+                            continue
+                        start = dt_util.parse_datetime(appointment["start"])
+                        if start is None or start <= now:
+                            continue
+                        if hours > 0 and (start - now).total_seconds() > advance_window.total_seconds():
+                            continue
+                    payload = self.appointment_payload(appointment)
+                    phone = (payload.get("client") or {}).get("phone") or ""
+                    chat_id = messaging.whatsapp_chat_id(phone)
+                    if not chat_id:
                         continue
-                payload = self.appointment_payload(appointment)
-                phone = (payload.get("client") or {}).get("phone") or ""
-                chat_id = messaging.whatsapp_chat_id(phone)
-                if not chat_id:
-                    continue
-                appointment["reminder_sent"] = True
-                # Use the customizable message template
-                message = self.format_appointment_reminder(payload)
-                if not message:
-                    message = self.format_reminder(payload)
+                    # Marked before sending, as before: a reminder is sent
+                    # once, a failed one is not retried an hour later.
+                    appointment["reminder_sent"] = True
+                    message = self.format_appointment_reminder(payload)
+                    if not message:
+                        message = self.format_reminder(payload)
+                    outbox.append((chat_id, message))
+                if outbox:
+                    await self._async_save()
+            # Sent outside the data lock: the desk keeps booking meanwhile.
+            sent = failed = 0
+            for chat_id, message in outbox:
                 result = await messaging.async_send_whatsapp(
-                    self.hass,
-                    chat_id,
-                    message,
-                    waha=self.waha,
+                    self.hass, chat_id, message, waha=self.waha
                 )
                 if result.get("sent"):
                     sent += 1
                 else:
                     failed += 1
-            await self._async_save()
         return {"sent": sent, "failed": failed}
 
     async def async_send_review_requests(
@@ -7919,114 +6568,155 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # because the integration was down, and a message about last month
         # arriving today would be worse than no message at all.
         oldest = now - timedelta(hours=after_hours + REVIEW_REQUEST_WINDOW_HOURS)
-        sent = 0
-        failed = 0
         asked: set[tuple[str, str]] = set()
-        async with self._lock:
-            for appointment in self.appointments:
-                if appointment_id:
-                    if appointment["id"] != appointment_id:
-                        continue
-                    if appointment["status"] == STATUS_CANCELLED:
-                        continue
-                else:
-                    if appointment["status"] != STATUS_CONFIRMED:
-                        continue
-                    if appointment.get("review_request_sent"):
-                        continue
-                    end = dt_util.parse_datetime(appointment["end"])
-                    if end is None or end > earliest or end < oldest:
-                        continue
-                payload = self.appointment_payload(appointment)
-                phone = (payload.get("client") or {}).get("phone") or ""
-                chat_id = messaging.whatsapp_chat_id(phone)
-                if not chat_id:
-                    continue
-                if not appointment_id:
-                    end = dt_util.parse_datetime(appointment["end"])
-                    day = dt_util.as_local(end).date().isoformat() if end else ""
-                    guest_day = (appointment["client_id"], day)
-                    if guest_day in asked:
-                        # Same guest, same day, already asked: the review request
-                        # is per person, not per treatment.
-                        appointment["review_request_sent"] = True
-                        continue
-                    asked.add(guest_day)
-                result = await messaging.async_send_whatsapp(
-                    self.hass,
-                    chat_id,
-                    self.format_review_request(payload),
-                    waha=self.waha,
-                )
-                if result.get("sent"):
-                    # Only a message that really left marks the appointment, so
-                    # the button and the star on the card tell the truth and a
-                    # failed send can be tried again.
-                    appointment["review_request_sent"] = True
-                    sent += 1
-                else:
-                    failed += 1
-            await self._async_save()
-        return {"sent": sent, "failed": failed}
-
-    async def async_send_voucher_expiry_reminders(self) -> dict[str, Any]:
-        """Send voucher expiration reminders to recipients whose vouchers are
-        expiring within the configured number of days.
-
-        The reminder is sent only once per voucher: after it is sent, the
-        voucher gets a ``expiry_reminder_sent`` flag so it is not sent again.
-        """
-        settings = self._data.get(KEY_SETTINGS, {})
-        reminder_days = int(settings.get("voucher_expiry_reminder_days") or DEFAULT_VOUCHER_EXPIRY_REMINDER_DAYS)
-        reminder_message = str(settings.get("voucher_expiry_reminder_message") or DEFAULT_VOUCHER_EXPIRY_REMINDER_MESSAGE)
-
-        target_date = dt_util.now().date() + timedelta(days=reminder_days)
-        sent = 0
-        failed = 0
-        async with self._lock:
-            for voucher in self.vouchers:
-                if voucher.get("status") != VOUCHER_ACTIVE:
-                    continue
-                if voucher.get("expiry_reminder_sent"):
-                    continue
-                expires_on = _norm_date(voucher.get("expires_on"))
-                if not expires_on:
-                    continue
-                if expires_on != target_date:
-                    continue
-                # Send reminder for each person in the voucher.
-                for person in voucher.get("people", []):
-                    name = person.get("name") or ""
-                    phone = voucher.get("recipient_phone") or ""
+        outbox: list[tuple[str, str, str]] = []
+        async with self._send_lock:
+            async with self._lock:
+                for appointment in self.appointments:
+                    if appointment_id:
+                        if appointment["id"] != appointment_id:
+                            continue
+                        if appointment["status"] == STATUS_CANCELLED:
+                            continue
+                    else:
+                        if appointment["status"] != STATUS_CONFIRMED:
+                            continue
+                        if appointment.get("review_request_sent"):
+                            continue
+                        end = dt_util.parse_datetime(appointment["end"])
+                        if end is None or end > earliest or end < oldest:
+                            continue
+                    payload = self.appointment_payload(appointment)
+                    phone = (payload.get("client") or {}).get("phone") or ""
                     chat_id = messaging.whatsapp_chat_id(phone)
                     if not chat_id:
                         continue
-                    # Build the reminder message with placeholders.
-                    treatments_list = ", ".join(person.get("treatment_ids", [])) or "nessun trattamento"
-                    gift_amount = person.get("gift_card_amount")
-                    value_str = f"€ {gift_amount:.2f}" if gift_amount else "nessun valore"
-                    message = (
-                        reminder_message
-                        .replace("{nome}", name)
-                        .replace("{cognome}", "")
-                        .replace("{data_scadenza}", _date_it(expires_on))
-                        .replace("{codice}", voucher.get("code", ""))
-                        .replace("{valore}", value_str)
-                        .replace("{trattamenti}", treatments_list)
+                    if not appointment_id:
+                        end = dt_util.parse_datetime(appointment["end"])
+                        day = dt_util.as_local(end).date().isoformat() if end else ""
+                        guest_day = (appointment["client_id"], day)
+                        if guest_day in asked:
+                            # Same guest, same day, already asked: the review
+                            # request is per person, not per treatment.
+                            appointment["review_request_sent"] = True
+                            continue
+                        asked.add(guest_day)
+                    # Claimed now so a parallel run cannot ask twice; a failed
+                    # send is released below and tried again next time.
+                    appointment["review_request_sent"] = True
+                    outbox.append(
+                        (appointment["id"], chat_id, self.format_review_request(payload))
                     )
-                    result = await messaging.async_send_whatsapp(
-                        self.hass,
-                        chat_id,
-                        message,
-                        waha=self.waha,
-                    )
-                    if result.get("sent"):
-                        sent += 1
-                    else:
-                        failed += 1
-                voucher["expiry_reminder_sent"] = True
-            await self._async_save()
-        return {"sent": sent, "failed": failed}
+                if outbox or asked:
+                    await self._async_save()
+
+            sent = 0
+            failed_ids: set[str] = set()
+            for record_id, chat_id, message in outbox:
+                result = await messaging.async_send_whatsapp(
+                    self.hass, chat_id, message, waha=self.waha
+                )
+                if result.get("sent"):
+                    sent += 1
+                else:
+                    failed_ids.add(record_id)
+
+            if failed_ids:
+                async with self._lock:
+                    for appointment in self.appointments:
+                        if appointment["id"] in failed_ids:
+                            appointment["review_request_sent"] = False
+                    await self._async_save()
+        return {"sent": sent, "failed": len(failed_ids)}
+
+    async def async_send_voucher_expiry_reminders(self) -> dict[str, Any]:
+        """Remind each voucher recipient once that her voucher is expiring.
+
+        A voucher is due when it expires within ``voucher_expiry_reminder_days``
+        and has not expired yet: a window rather than one exact day, so a day
+        the system was off is caught up instead of skipped. The recipient gets
+        one message per voucher, listing every person and treatment on it. The
+        messages are sent outside the lock, so the desk can keep booking.
+        """
+        settings = self._data.get(KEY_SETTINGS, {})
+        reminder_days = int(
+            settings.get("voucher_expiry_reminder_days")
+            or DEFAULT_VOUCHER_EXPIRY_REMINDER_DAYS
+        )
+        template = str(
+            settings.get("voucher_expiry_reminder_message")
+            or DEFAULT_VOUCHER_EXPIRY_REMINDER_MESSAGE
+        )
+        today = dt_util.now().date()
+        horizon = today + timedelta(days=reminder_days)
+        async with self._send_lock:
+            return await self._async_send_voucher_expiry(
+                template, today, horizon
+            )
+
+    async def _async_send_voucher_expiry(
+        self, template: str, today: date, horizon: date
+    ) -> dict[str, Any]:
+        """The body of ``async_send_voucher_expiry_reminders``."""
+        names = {t["id"]: t["name"] for t in self.treatments}
+
+        due: list[tuple[str, str, str]] = []
+        for voucher in self.vouchers:
+            if voucher.get("status") != VOUCHER_ACTIVE:
+                continue
+            if voucher.get("expiry_reminder_sent"):
+                continue
+            expires_on = _norm_date(voucher.get("expires_on"))
+            if not expires_on:
+                continue
+            expiry = date.fromisoformat(expires_on)
+            if not today <= expiry <= horizon:
+                continue
+            chat_id = messaging.whatsapp_chat_id(
+                str(voucher.get("recipient_phone") or "")
+            )
+            if not chat_id:
+                continue
+            people = voucher.get("people") or []
+            treatments = ", ".join(
+                names.get(str(t), str(t))
+                for person in people
+                for t in (person.get("treatment_ids") or [])
+            ) or "nessun trattamento"
+            total = sum(
+                float(person.get("gift_card_amount") or 0) for person in people
+            )
+            recipient = str(voucher.get("recipient_name") or "").strip()
+            first, _, last = recipient.partition(" ")
+            message = (
+                template.replace("{nome}", first or "ospite")
+                .replace("{cognome}", last)
+                .replace("{data_scadenza}", _date_it(expires_on))
+                .replace("{codice}", str(voucher.get("code") or ""))
+                .replace("{valore}", f"€ {total:.2f}" if total else "")
+                .replace("{trattamenti}", treatments)
+            )
+            due.append((voucher["id"], chat_id, message))
+
+        sent_ids: list[str] = []
+        failed = 0
+        for voucher_id, chat_id, message in due:
+            result = await messaging.async_send_whatsapp(
+                self.hass, chat_id, message, waha=self.waha
+            )
+            if result.get("sent"):
+                sent_ids.append(voucher_id)
+            else:
+                # Left unflagged: the next tick tries again.
+                failed += 1
+
+        if sent_ids:
+            async with self._lock:
+                for voucher in self.vouchers:
+                    if voucher["id"] in sent_ids:
+                        voucher["expiry_reminder_sent"] = True
+                await self._async_save()
+        return {"sent": len(sent_ids), "failed": failed}
 
     @staticmethod
     def format_offer(payload: dict[str, Any]) -> str:
@@ -8180,8 +6870,12 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         today = dt_util.now().date()
         if not month or not str(month).strip():
-            last = today.replace(day=1) - timedelta(days=1)
-            return last.replace(day=1), last
+            # Last month: from its first day up to the first of this month.
+            # (Up to 2.0.15 the end was the last day itself, so the automatic
+            # report silently left out the last day of every month.)
+            this_month = today.replace(day=1)
+            last = this_month - timedelta(days=1)
+            return last.replace(day=1), this_month
 
         text = str(month).strip()
         try:
@@ -8310,6 +7004,36 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
         return "\n".join(lines)
 
+    async def _async_stamp_setting(self, key: str, value: Any) -> None:
+        """Persist one bookkeeping value of the settings (a last-run stamp)."""
+        async with self._lock:
+            self._data[KEY_SETTINGS][key] = value
+            await self._async_save()
+
+    async def async_monthly_report_tick(self) -> dict[str, Any]:
+        """Send last month's report once, on the 1st at ``report_time``.
+
+        Called every few minutes by the scheduler. The month is stamped before
+        sending, so a restart, a second timer or an old automation never send
+        the same report twice; a missed exact minute is caught up later the
+        same day.
+        """
+        settings = self._data[KEY_SETTINGS]
+        if not settings.get("report_enabled", True):
+            return {"sent": False, "reason": "report disattivato"}
+        now_local = dt_util.now()
+        if now_local.day != 1:
+            return {"sent": False, "reason": "non è il primo del mese"}
+        report_time = _norm_clock(settings.get("report_time")) or DEFAULT_REPORT_TIME
+        if now_local.strftime("%H:%M") < report_time:
+            return {"sent": False, "reason": f"in attesa delle {report_time}"}
+        month = (now_local.date().replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+        if settings.get("report_last_month") == month:
+            return {"sent": False, "reason": f"report {month} già inviato"}
+        await self._async_stamp_setting("report_last_month", month)
+        result = await self.async_send_monthly_report(month)
+        return {"sent": True, "month": month, **result}
+
     async def async_send_monthly_report(self, month: str | None = None) -> dict[str, Any]:
         """Build the monthly report and send it on every configured channel.
 
@@ -8402,98 +7126,3 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.hass, chat_id, text, waha=self.waha
             )
         raise ValidationError(f"Canale sconosciuto: {channel}")
-
-
-#: Month names used by the report, indexed from January.
-MESI = (
-    "Gennaio",
-    "Febbraio",
-    "Marzo",
-    "Aprile",
-    "Maggio",
-    "Giugno",
-    "Luglio",
-    "Agosto",
-    "Settembre",
-    "Ottobre",
-    "Novembre",
-    "Dicembre",
-)
-
-
-def split_chats(value: str) -> list[str]:
-    """Return the chat ids of a comma or space separated list."""
-    seen: list[str] = []
-    for part in str(value or "").replace(";", ",").replace(" ", ",").split(","):
-        chat_id = part.strip()
-        if chat_id and chat_id not in seen:
-            seen.append(chat_id)
-    return seen
-
-
-def _digits_only(value: str) -> str:
-    """Return a phone number reduced to its digits."""
-    return "".join(char for char in value if char.isdigit())
-
-
-def _phone_variants(digits: str) -> set[str]:
-    """Return the comparable forms of an Italian phone number.
-
-    The same number is often written as "+39 333 1234567", "00393331234567" or
-    "333 1234567". Comparing only the exact digits would miss those, and
-    comparing a fixed number of trailing digits could merge two different
-    numbers, so only the country code is normalised away.
-    """
-    variants = {digits}
-    for prefix in ("0039", "39"):
-        if digits.startswith(prefix) and len(digits) > len(prefix):
-            variants.add(digits[len(prefix) :])
-    return variants
-
-
-def _same_phone(first: str, second: str) -> bool:
-    """Return whether two phone numbers refer to the same subscriber."""
-    first_digits = _digits_only(first)
-    second_digits = _digits_only(second)
-    if not first_digits or not second_digits:
-        return False
-    return bool(_phone_variants(first_digits) & _phone_variants(second_digits))
-
-
-def as_aware_datetime(value: datetime | date | str) -> datetime:
-    """Return a timezone aware datetime, assuming local time when naive."""
-    if isinstance(value, datetime):
-        result = value
-    elif isinstance(value, date):
-        result = datetime.combine(value, time.min)
-    elif isinstance(value, str):
-        parsed = dt_util.parse_datetime(value)
-        if parsed is None:
-            try:
-                parsed = datetime.combine(date.fromisoformat(value.strip()), time.min)
-            except ValueError as err:
-                raise ValidationError(
-                    f"Data/ora non valida: '{value}'. Usa il formato "
-                    "AAAA-MM-GG HH:MM oppure ISO 8601."
-                ) from err
-        result = parsed
-    else:
-        raise ValidationError(f"Data/ora non valida: {value!r}")
-
-    if result.tzinfo is None:
-        result = result.replace(tzinfo=dt_util.DEFAULT_TIME_ZONE)
-    return result
-
-
-def as_date(value: date | datetime | str) -> date:
-    """Return a date from a date, datetime or ISO string."""
-    if isinstance(value, datetime):
-        return value.date()
-    if isinstance(value, date):
-        return value
-    try:
-        return date.fromisoformat(str(value).strip())
-    except ValueError as err:
-        raise ValidationError(
-            f"Data non valida: '{value}'. Usa il formato AAAA-MM-GG."
-        ) from err

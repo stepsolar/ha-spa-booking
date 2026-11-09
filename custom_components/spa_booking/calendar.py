@@ -21,7 +21,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN, STATUS_CONFIRMED
+from .const import BOOKING_STATUSES, DOMAIN, STATUS_PENDING
 from .coordinator import SpaBookingCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -77,7 +77,7 @@ async def async_setup_entry(
 
 
 class SpaOperatorCalendar(CoordinatorEntity[SpaBookingCoordinator], CalendarEntity):
-    """The confirmed appointments of a single operator."""
+    """The appointments (confirmed and pending) of a single operator."""
 
     _attr_has_entity_name = True
     _attr_should_poll = False
@@ -131,12 +131,16 @@ class SpaOperatorCalendar(CoordinatorEntity[SpaBookingCoordinator], CalendarEnti
         return events
 
     def _operator_appointments(self) -> list[dict]:
-        """Return the confirmed appointments of this operator, sorted by start."""
+        """Return the appointments holding this operator, sorted by start.
+
+        A booking waiting for confirmation occupies the operator just like a
+        confirmed one, so it is listed too (marked "in attesa").
+        """
         appointments = [
             appointment
             for appointment in self.coordinator.appointments
             if appointment["operator_id"] == self.operator_id
-            and appointment["status"] == STATUS_CONFIRMED
+            and appointment["status"] in BOOKING_STATUSES
         ]
         return sorted(appointments, key=lambda a: a["start"])
 
@@ -161,9 +165,12 @@ class SpaOperatorCalendar(CoordinatorEntity[SpaBookingCoordinator], CalendarEnti
         if appointment.get("notes"):
             description_lines.append(f"Note: {appointment['notes']}")
 
+        summary = f"{client['full_name']} - {treatment['name'] if treatment else 'Appuntamento'}"
+        if appointment["status"] == STATUS_PENDING:
+            summary = f"(in attesa) {summary}"
         return CalendarEvent(
             uid=appointment["id"],
-            summary=f"{client['full_name']} - {treatment['name'] if treatment else 'Appuntamento'}",
+            summary=summary,
             start=dt_util.as_local(start),
             end=dt_util.as_local(end),
             location="Spa",

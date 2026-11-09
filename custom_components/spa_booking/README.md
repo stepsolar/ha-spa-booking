@@ -4,22 +4,20 @@ Gestione degli appuntamenti della SPA dentro Home Assistant: categorie,
 trattamenti con durata propria, operatori, schede clienti e agenda del giorno
 raggruppata per operatore e per categoria.
 
-## Novità versione 1.106.0
+## Novità versione 2.1
 
-### Nuove funzionalità voucher
-- **Copia codice voucher** su ogni voucher emesso: un clic copia il codice negli appunti.
-- **Crea appuntamento con codice voucher**: apre la scheda "Nuovo appuntamento" con il codice voucher pre-compilato. Supporta voucher multi-persona: tutte le persone e i loro trattamenti vengono pre-compilati automaticamente.
-- **Ordinamento bottoni** su ogni voucher: 1) Copia codice, 2) Crea appuntamento, 3) Nuova scadenza, 4) Elimina.
-
-### Messaggio di benvenuto per richieste web
-- Nuovo setting `web_welcome_message` nella tab **Notifiche**: configura il numero WhatsApp su cui inviare un messaggio di benvenuto al cliente che fa una richiesta dal sito.
-- Placeholder disponibili: `{nome}`, `{cognome}`, `{codice}`, `{data}`, `{ora}`, `{persone}`, `{trattamento}`.
-- Messaggio predefinito personalizzabile dalla tab **Notifiche**.
-
-### Correzioni
-- Fix: import mancante `DEFAULT_WELCOME_MESSAGE` in `coordinator.py` (causava NameError all'avvio).
-- Fix: tasto "Crea appuntamento" sui voucher ora compila correttamente i trattamenti (anche per voucher multi-persona).
-- Fix: import internazionale numeri di telefono già in v1.105.0 (numeri con `+` o `00` usati come sono, altri letti come italiani con prefisso 39).
+- **Pianificatore interno**: promemoria, offerte scadute, richieste di
+  recensione, voucher fedeltà, scadenze voucher, promo giornaliera e report
+  mensile partono da soli, senza `packages/spa_booking.yaml`. Vedi
+  [Attività pianificate](#attività-pianificate).
+- **Permessi applicati anche dal server**: i livelli della scheda Accessi
+  valgono anche per chi chiama i servizi direttamente. Vedi
+  [Accessi](#accessi).
+- **Card dentro l'integrazione** (`frontend/`): HACS la installa insieme al
+  codice, la cartella `www/` non serve più.
+- Regole dell'agenda: pausa dell'operatrice anche *prima* dell'appuntamento
+  successivo; offerta alla prima operatrice libera; il sito propone solo
+  orari che la reception accetterebbe.
 
 ## Come funziona
 
@@ -55,14 +53,17 @@ viene saltato, e un invio che fallisce non blocca la prenotazione.
 
 ## Installazione
 
-Il codice è già in `/homeassistant/custom_components/spa_booking/` e la card in
-`/homeassistant/www/spa_booking/spa-booking-card.js`. Serve un **riavvio
-completo** di Home Assistant: per il codice delle integrazioni non esiste un
-reload.
+Con HACS (repository personalizzato `https://github.com/stepsolar/ha-spa-booking`,
+categoria *Integration*) oppure copiando `custom_components/spa_booking/` in
+`/config/custom_components/`. La card e il modulo del sito sono già dentro
+(`custom_components/spa_booking/frontend/`): non va copiato nient'altro.
 
-Poi: **Impostazioni → Dispositivi e servizi → Aggiungi integrazione → Spa
-Booking**. Nella prima schermata indica il nome e gli operatori iniziali
-separati da virgola.
+Dopo un **riavvio completo** di Home Assistant: **Impostazioni → Dispositivi e
+servizi → Aggiungi integrazione → Spa Booking**. Nella prima schermata indica il
+nome e gli operatori iniziali separati da virgola.
+
+Chi aggiorna da una versione precedente può cancellare
+`/config/www/spa_booking/`: non viene più letta.
 
 ## La dashboard di gestione
 
@@ -107,8 +108,8 @@ browser.
 La card è servita dalla vista HTTP dell'integrazione
 (`/api/spa_booking/card.js`, in `card_view.py`) con `Cache-Control: no-cache` e
 un `ETag`: il browser e l'app rivalidano a ogni caricamento, quindi una modifica
-a `spa-booking-card.js` si vede **al ricaricamento successivo, senza bump di
-versione e senza riavvio**. Aggiorna `CARD_VERSION` nel JS solo se vuoi il
+a `frontend/spa-booking-card.js` si vede **al ricaricamento successivo, senza
+bump di versione e senza riavvio**. Aggiorna `CARD_VERSION` nel JS solo se vuoi il
 numero che compare in console.
 
 ## Entità
@@ -117,9 +118,12 @@ numero che compare in console.
 |---|---|
 | `sensor.spa_booking_appuntamenti_oggi` | Numero, con attributi `appointments`, `by_operator`, `by_category` |
 | `sensor.spa_booking_appuntamenti_domani` | Idem per il giorno dopo |
-| `sensor.spa_booking_clienti_registrati` | Numero di schede, con attributo `clients` |
+| `sensor.spa_booking_clienti_registrati` | Numero di schede (l'elenco dei clienti non è più pubblicato) |
 | `sensor.spa_booking_prossimo_appuntamento` | Minuti dal prossimo appuntamento, con attributo `appointment` |
-| `calendar.spa_booking_appuntamenti_<operatore>` | Un calendario per operatore, con lo stato *on* durante il trattamento |
+| `calendar.spa_booking_appuntamenti_<operatore>` | Un calendario per operatore, con lo stato *on* durante il trattamento; le prenotazioni in attesa compaiono come "(in attesa)" |
+
+Gli elenchi negli attributi (appuntamenti, messaggi) contengono dati degli
+ospiti: restano leggibili ma non vengono salvati nello storico (recorder).
 
 Il calendario per operatore è la parte utile per le automazioni: ad esempio
 accendere le luci della stanza massaggi 10 minuti prima dell'inizio, usando lo
@@ -190,9 +194,9 @@ reazioni):
 - **Non disponibile** → la stessa fascia viene offerta alla successiva
   massaggiatrice abile della lista; chi rifiuta non viene ricontattata per
   quella fascia finché non si segnala di nuovo disponibile (`available_again`).
-- Scadenza o promemoria gestiti dall'automazione **SPA: offerte** in
-  `packages/spa_booking.yaml` con `spa_booking.expire_offers` ogni 5 minuti: a
-  scadenza l'offerta passa alla successiva senza creare blocchi.
+- Scadenza e promemoria gestiti dal pianificatore interno ogni 5 minuti: a
+  scadenza l'offerta passa alla successiva libera senza creare blocchi.
+- Una risposta negata ("non confermo", "non va bene") vale come rifiuto.
 
 Le finestre rifiutate si riaprono dal dashboard (tab **Fasce bloccate**) con
 `spa_booking.clear_slot_block` `{operator_id, appointment_id}`.
@@ -278,16 +282,12 @@ data:
 quanto prima della scadenza viene mandato un promemoria (0 = mai). Si cambiano
 anche dalla tab **Notifiche** della card.
 
-`packages/spa_booking.yaml` contiene l'automazione **SPA: report mensile
-massaggi**: il 1° di ogni mese alle 08:00 chiama il servizio con `notify: true`.
-Per una prova isolata, cambiare l'orario dell'automazione e riavviare Home
-Assistant.
+Il report del mese precedente parte da solo il 1° del mese all'orario
+`report_time` (predefinito 08:00), una sola volta: il mese inviato viene
+memorizzato.
 
-WhatsApp usa il `rest_command.spa_booking_whatsapp_send` dichiarato nello stesso
-pacchetto: è lo stesso endpoint di `packages/whatsapp.yaml`, ma con il testo
-passato attraverso `|to_json`, perché un report multi-riga non può essere
-interpolato grezzo dentro una stringa JSON. Se l'indirizzo dell'add-on cambia,
-va aggiornato anche quel comando.
+WhatsApp passa dal gateway WAHA configurato nella card. Senza gateway si usa
+ancora, se esiste, `rest_command.spa_booking_whatsapp_send`.
 
 ### Messaggio di benvenuto per le richieste web
 
@@ -323,6 +323,33 @@ oppure usare il messaggio predefinito.
   nell'elenco come record di vendita).
 - `spa_booking.delete_promo_voucher` → rimuove un voucher dall'elenco.
 
+## Attività pianificate
+
+Ogni minuto il pianificatore controlla la promo giornaliera; ogni 5 minuti
+esegue offerte scadute e report mensile e, fuori dall'orario di silenzio
+(predefinito 21:00-08:00), i messaggi agli ospiti: promemoria, richieste di
+recensione, voucher fedeltà e avvisi di scadenza dei voucher.
+
+Ogni attività è sicura se eseguita due volte (gli appuntamenti e i voucher
+ricordano cosa è già stato inviato; promo e report memorizzano giorno e mese),
+quindi una vecchia automazione ancora attiva non causa doppi invii e può essere
+tolta. `spa_booking.run_scheduled_jobs` le esegue subito; `scheduler_enabled:
+false` in `update_settings` le spegne.
+
+## Accessi
+
+I livelli della scheda **Accessi** (nessuno, lettura, operatore, manager,
+admin) valgono anche lato server. Regola: vale il livello assegnato; un
+amministratore di Home Assistant non assegnato è admin; chiunque altro non ha
+accesso. Le automazioni e gli script agiscono come sistema.
+
+- **lettura**: caricare i dati e l'agenda (senza chiave WAHA, token del sito e
+  segreto del webhook, visibili solo agli admin);
+- **operatore**: prenotare, modificare, check-in/out, incassi, richieste,
+  messaggi agli ospiti, voucher;
+- **manager**: in più gestione voucher e unione clienti;
+- **admin**: configurazione, import/export, promo, permessi.
+
 ## Eventi
 
 L'integrazione emette `spa_booking_appointment_created` e
@@ -339,10 +366,14 @@ Home Assistant gestisce da sé: non va modificata a mano.
 ## Numeri di telefono esteri
 
 Un numero scritto con il prefisso internazionale viene usato come è: il
-codice del paese fa parte del numero e non viene toccato. Tutti gli altri
-numeri si leggono come italiani, con il `39` aggiunto, come è sempre stato.
+codice del paese fa parte del numero e non viene toccato. Un numero italiano
+scritto senza prefisso (cellulare che inizia per 3, fisso che inizia per 0)
+riceve il `39`. Dalla 2.0.16 i cellulari TIM che iniziano per 390-393 e 397 non
+vengono più scambiati per "39 + numero", e il fisso conserva lo 0.
 
 - `333 1234567` → `393331234567@c.us`
+- `392 1234567` → `393921234567@c.us`
+- `0925 992446` → `390925992446@c.us`
 - `+39 333 1234567` → `393331234567@c.us`
 - `0039 333 1234567` → `393331234567@c.us`
 - `+41 79 123 45 67` → `41791234567@c.us`
@@ -367,31 +398,20 @@ un gruppo.
 
 ## Test
 
-Tre file di verifica stanno nello scratch, non nella cartella dell'integrazione.
+I test stanno in `tests/` alla radice del repository (non vengono installati):
 
-- `test_spa_booking.py` (130 controlli): logica con stub isolati di Home
-  Assistant — durate, sovrapposizioni, deduplica clienti, raggruppamento
-  dell'agenda, persistenza, schede operatrice con i tipi di massaggio,
-  derivazione dei chat id WhatsApp, invio su entrambi i canali, report mensile
-  e invio del report ai destinatari e a ciascuna massaggiatrice, la
-  rimozione effettiva di categorie/trattamenti/operatrici non impegnate,
-  l'aggiornamento di un archivio salvato prima di queste funzioni, la cascata
-  delle offerte (rifiuto → successiva, disponibile di nuovo → riapertura,
-  scadenza senza blocchi), il blocco della sola fascia rifiutata, il carico
-  multiplo tutto-o-niente e la risposta senza id dell'appuntamento.
-- `test_imports.py` (20 controlli): forma delle API di Home Assistant usate dal
-  codice.
-- `test_spa_card.js` (151 controlli): logica della card con un DOM finto —
-  caricamento dati, agenda, calendario, cascata massaggiatrice/massaggio, form
-  di creazione singola e multi-persona/multi-trattamento, ricerca clienti,
-  configurazione (l'editor operatrice elenca tutti i massaggi assegnabili,
-  anche quelli non ancora spuntati), tab notifiche con offerte e ore di
-  scadenza/promemoria, tab fasce bloccate con la riapertura, badge delle
-  offerte in agenda, controllo accessi. Verifica anche che ogni servizio sia
-  chiamato chiedendo la risposta attraverso il comando websocket e che
-  `callService` non compaia più.
+```bash
+pip install homeassistant pytest
+python -m pytest tests
+node tests/frontend/form_test.js custom_components/spa_booking/frontend/spa-booking-form.txt
+```
 
-Si eseguono con `python3` e `node` senza alcun ambiente Home Assistant.
+Coprono le regole dell'agenda (pause, scelta dell'operatrice, modifiche di
+gruppo con rollback), il pianificatore, i permessi, l'API del sito, i numeri di
+telefono e la lettura delle risposte. Il test del modulo WordPress lo esegue su
+una pagina simulata e controlla le regole di WordPress (niente righe vuote né
+`&` negli script). La CI di GitHub li esegue a ogni push, insieme a hassfest e
+alla validazione HACS.
 
 ## Visuale delle schede
 

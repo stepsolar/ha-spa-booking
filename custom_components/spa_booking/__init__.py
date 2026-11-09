@@ -13,9 +13,10 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import Event, HomeAssistant
 
-from .const import DOMAIN, EVENT_ANSWER_REQUEST, EVENT_EXTERNAL_MESSAGE
+from .const import DOMAIN, EVENT_ANSWER_REQUEST
 from .coordinator import SpaBookingCoordinator
 from .exceptions import SpaBookingError
+from .scheduler import SpaBookingScheduler
 from . import messaging
 from .services import async_register_services, async_unregister_services
 
@@ -42,22 +43,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if not hass.data.get(f"{DOMAIN}_card_view"):
         from .card_view import SpaBookingCardView
 
-        hass.http.register_view(
-            SpaBookingCardView(
-                hass.config.path("www", "spa_booking", "spa-booking-card.js")
-            )
-        )
+        hass.http.register_view(SpaBookingCardView())
         hass.data[f"{DOMAIN}_card_view"] = True
 
     # Serve the standalone HTML page for the SPA Booking interface
     if not hass.data.get(f"{DOMAIN}_page_view"):
         from .card_view import SpaBookingPageView
 
-        hass.http.register_view(
-            SpaBookingPageView(
-                hass.config.path("www", "spa_booking", "spa-booking-card.js")
-            )
-        )
+        hass.http.register_view(SpaBookingPageView())
         hass.data[f"{DOMAIN}_page_view"] = True
 
     # The hotel website's booking API: three unauthenticated views, guarded by
@@ -172,6 +165,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     async_register_services(hass)
+
+    # Timed jobs (reminders, offers, reports, promo...) run inside the
+    # integration: no YAML package is needed any more.
+    scheduler = SpaBookingScheduler(hass, coordinator)
+    coordinator.scheduler = scheduler
+    entry.async_on_unload(scheduler.async_start())
     return True
 
 

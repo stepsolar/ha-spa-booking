@@ -12,7 +12,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
-from .const import STATUS_CONFIRMED
+from .const import BOOKING_STATUSES
 from .coordinator import SpaBookingCoordinator
 
 KIND_TODAY = "appointments_today"
@@ -47,6 +47,12 @@ class SpaBookingSensor(CoordinatorEntity[SpaBookingCoordinator], SensorEntity):
 
     _attr_has_entity_name = True
     _attr_should_poll = False
+    #: Lists of appointments and messages carry guests' names and numbers:
+    #: they stay readable on the entity, but are never written to the
+    #: recorder database (and do not hit its 16 kB attribute limit).
+    _unrecorded_attributes = frozenset(
+        {"appointments", "by_operator", "by_category", "appointment", "messages", "last"}
+    )
 
     def __init__(self, coordinator: SpaBookingCoordinator, kind: str) -> None:
         """Initialize the sensor."""
@@ -80,19 +86,9 @@ class SpaBookingSensor(CoordinatorEntity[SpaBookingCoordinator], SensorEntity):
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return the agenda or client list behind the counter."""
         if self._kind == KIND_CLIENTS:
-            clients = self.coordinator.clients
-            return {
-                "clients": [
-                    {
-                        "id": client["id"],
-                        "full_name": self.coordinator.full_name(client),
-                        "phone": client["phone"],
-                        "email": client["email"],
-                    }
-                    for client in clients
-                ],
-                "count": len(clients),
-            }
+            # Only the count: the client list (names, phones, e-mails) used to
+            # be published here for any dashboard and stored in the history.
+            return {"count": len(self.coordinator.clients)}
 
         if self._kind == KIND_NEXT:
             upcoming = self._upcoming()
@@ -128,12 +124,12 @@ class SpaBookingSensor(CoordinatorEntity[SpaBookingCoordinator], SensorEntity):
         return self.coordinator.agenda(day)
 
     def _upcoming(self) -> dict[str, Any] | None:
-        """Return the next confirmed appointment that has not ended."""
+        """Return the next appointment holding a slot that has not ended."""
         now = dt_util.utcnow()
         upcoming = [
             self.coordinator.appointment_payload(appointment)
             for appointment in self.coordinator.appointments
-            if appointment["status"] == STATUS_CONFIRMED
+            if appointment["status"] in BOOKING_STATUSES
             and (dt_util.parse_datetime(appointment["end"]) or now) > now
         ]
         if not upcoming:

@@ -17,10 +17,11 @@ import hashlib
 import json
 import logging
 import os
+from pathlib import Path
 
 from aiohttp import web
 
-from homeassistant.components.http import HomeAssistantView
+from homeassistant.components.http import KEY_HASS, HomeAssistantView
 
 from .mdi_paths import MDI_PATHS
 
@@ -31,6 +32,28 @@ _LOGGER = logging.getLogger(__name__)
 CARD_VIEW_URL = "/api/spa_booking/card.js"
 #: Standalone HTML page for the SPA booking interface.
 SPA_BOOKING_PAGE_URL = "/spa_booking"
+
+#: The frontend files ship inside the integration, so HACS installs them with
+#: the Python code (HACS never copies a repository's ``www`` folder).
+FRONTEND_DIR = Path(__file__).parent / "frontend"
+CARD_FILE = FRONTEND_DIR / "spa-booking-card.js"
+FORM_FILE = FRONTEND_DIR / "spa-booking-form.txt"
+
+
+def read_card(path: Path = CARD_FILE) -> tuple[bytes, float] | None:
+    """Return the card's bytes and modification time, or None when missing.
+
+    Blocking: always called through the executor.
+    """
+    try:
+        return path.read_bytes(), os.path.getmtime(path)
+    except OSError:
+        return None
+
+
+def card_version(content: bytes) -> str:
+    """Return the short content hash used as the card's ``?v=`` and ETag."""
+    return hashlib.sha256(content).hexdigest()[:12]
 
 #: The standalone page. It is a plain string (not an f-string): the ``.replace``
 #: below only substitutes ``CARD_VIEW_URL``, so braces stay as they are and the
@@ -557,19 +580,22 @@ class SpaBookingCardView(HomeAssistantView):
     #: header; the file is not secret (it was public under /local too).
     requires_auth = False
 
-    def __init__(self, path: str) -> None:
+    def __init__(self, path: Path = CARD_FILE) -> None:
         """Store the file path to serve."""
         self._path = path
+        self._cache: tuple[bytes, float, str] | None = None
 
     async def get(self, request: web.Request) -> web.Response:
-        """Return the card file, or 304 when the client already has it."""
-        try:
-            with open(self._path, "rb") as handle:
-                content = handle.read()
-        except OSError:
-            return web.Response(status=404, text="Card not found")
+        """Return the card file, or 304 when the client already has it.
 
-        etag = '"' + hashlib.sha256(content).hexdigest()[:32] + '"'
+        The file is read in the executor (never on the event loop) and kept
+        in memory until its modification time changes.
+        """
+        hass = request.app[KEY_HASS]
+        loaded = await hass.async_add_executor_job(self._load)
+        if loaded is None:
+            return web.Response(status=404, text="Card not found")
+        content, etag = loaded
         if request.headers.get("If-None-Match") == etag:
             return web.Response(status=304, headers={"ETag": etag})
 
@@ -579,6 +605,21 @@ class SpaBookingCardView(HomeAssistantView):
             headers={"Cache-Control": "no-cache", "ETag": etag},
         )
 
+    def _load(self) -> tuple[bytes, str] | None:
+        """Return the cached card, re-reading it only when the file changed."""
+        try:
+            mtime = os.path.getmtime(self._path)
+        except OSError:
+            self._cache = None
+            return None
+        if self._cache is None or self._cache[1] != mtime:
+            read = read_card(self._path)
+            if read is None:
+                return None
+            content, mtime = read
+            self._cache = (content, mtime, f'"{card_version(content)}"')
+        return self._cache[0], self._cache[2]
+
 
 class SpaBookingPageView(HomeAssistantView):
     """Serve the standalone HTML page for the SPA Booking interface."""
@@ -587,9 +628,8 @@ class SpaBookingPageView(HomeAssistantView):
     name = "api:spa_booking:page"
     requires_auth = False  # Same as the card JS: the page itself holds no secret
 
-    def __init__(self, path: str) -> None:
-        """Store the card path so the page can load the same script."""
-        self._js_path = path
+    def __init__(self) -> None:
+        """Build the page once: it only changes with the integration."""
         self._html = PAGE_TEMPLATE.replace("CARD_VIEW_URL", CARD_VIEW_URL).replace(
             "/*MDI_PATHS*/", json.dumps(MDI_PATHS, separators=(",", ":"))
         )
