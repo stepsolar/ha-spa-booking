@@ -162,8 +162,15 @@
         var box = $l("sbw-persons"); if (!box) return;
         box.innerHTML = "";
         var n = parseInt(count || "1", 10); if (isNaN(n) || n < 1) n = 1; if (n > 6) n = 6;
-        if (voucherData) { if (Array.isArray(voucherData.people)) { if (voucherData.people.length) { for (var i = 0; i < voucherData.people.length; i++) { if (i >= n) break; var p = voucherData.people[i]; if (p) p._index = i + 1; box.appendChild(createPerson(p, i + 1)); } } }
-        } else { for (var i = 0; i < n; i++) { box.appendChild(createPerson(null, i + 1)); } }
+        if (voucherData && Array.isArray(voucherData.people)) {
+          for (var i = 0; i < n; i++) {
+            var p = i < voucherData.people.length ? voucherData.people[i] : null;
+            if (p) p._index = i + 1;
+            box.appendChild(createPerson(p, i + 1));
+          }
+        } else {
+          for (var i = 0; i < n; i++) { box.appendChild(createPerson(null, i + 1)); }
+        }
       }
       function collectEntries() {
         var all = [];
