@@ -75,6 +75,7 @@ Dopo l'installazione l'integrazione crea un'entry configurabile dall'UI:
 - Le schede clienti sono deduplicate per telefono; operatori e trattamenti si gestiscono da card.
 
 ## Changelog recente
+- **v2.0.15**: refine backend import handling for voucher status checks in public treatments endpoint.
 - **v2.0.14**: ampia zona tap agenda per aprire dettaglio; hover grigio rimosso.
 - **v2.0.13**: overlap popup su edit appuntamento + storico cliente cliccabile + modifica gruppo senza tuple error; tap agenda da allargare.
 - **v2.0.12**: annulla la modifica gruppo tornando in agenda automaticamente; fix stile termostato/switch; icone MDI standalone power/fire/snowflake; real-time e card_type persistence.

@@ -37,7 +37,7 @@ from aiohttp import web
 
 from homeassistant.components.http import KEY_HASS, HomeAssistantView
 
-from .const import DOMAIN, REQUEST_SOURCE_WEB, WEB_API_BASE
+from .const import DOMAIN, REQUEST_SOURCE_WEB, WEB_API_BASE, VOUCHER_ACTIVE
 from .coordinator import SpaBookingCoordinator, _norm_clock
 from .exceptions import SpaBookingError, ValidationError
 
@@ -183,7 +183,7 @@ class SpaBookingPublicTreatmentsView(_PublicView):
             )
             if voucher is None:
                 raise ValidationError(f"Voucher {code} non trovato")
-            if str(voucher.get("status") or "") != VOUCHER_ACTIVE:
+            if str(voucher.get("status") or "") != "active":
                 raise ValidationError(f"Il voucher {code} non è disponibile")
             expires = _norm_date(voucher.get("expires_on"))
             if expires and date.fromisoformat(expires) < date.today():
