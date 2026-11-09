@@ -7186,17 +7186,15 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return dict(self._data[KEY_SETTINGS].get(KEY_PERMISSIONS) or {})
 
     def user_level(self, user_id: str | None) -> str:
-        """Return the SPA permission level for a Home Assistant user id.
+        """Return the level stored for a user in the Accessi tab, or "none".
 
-        A missing id is treated as ``none``: callers that represent the system
-        itself (automations without a user context) are handled separately by
-        the service layer and never reach the business logic in a way that
-        can be bypassed by an end user.
+        Home Assistant administrators and calls without a user are handled by
+        ``services.caller_level``, which needs the auth store.
         """
         if not user_id:
             return "none"
-        permissions = self.permissions_payload()
-        return permissions.get(user_id, "read") if isinstance(permissions, dict) else "none"
+        level = self.permissions_payload().get(user_id)
+        return level if level in PERMISSION_LEVELS else "none"
 
     @property
     def accessories(self) -> list[dict[str, Any]]:

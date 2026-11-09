@@ -28,8 +28,10 @@ that says yes.
 
 from __future__ import annotations
 
+from collections import deque
 import json
 import logging
+import time
 from datetime import date
 from typing import Any
 
@@ -56,6 +58,50 @@ _MAX_EMAIL = 120
 _MAX_NOTES = 1000
 #: Voucher codes are short (VCH-XXXXXXXX); anything longer is not a code.
 _MAX_VOUCHER = 32
+
+
+#: Requests one address may make in the window, per kind of call. Generous
+#: for a guest clicking through the form (and behind a reverse proxy without
+#: ``use_x_forwarded_for`` every guest shares the proxy's address), tight
+#: enough that nobody can probe voucher codes or flood the Richieste list.
+_RATE_WINDOW_SECONDS = 600
+_RATE_LIMITS = {"read": 600, "voucher": 30, "request": 20}
+_MAX_TRACKED_ADDRESSES = 2048
+
+
+class RateLimiter:
+    """A sliding-window counter per (kind, client address), in memory."""
+
+    def __init__(self, limits: dict[str, int], window: float) -> None:
+        self._limits = limits
+        self._window = window
+        self._hits: dict[tuple[str, str], deque[float]] = {}
+
+    def allow(self, kind: str, address: str, now: float | None = None) -> bool:
+        """Record one hit; False when the address is over its limit."""
+        now = time.monotonic() if now is None else now
+        key = (kind, address or "?")
+        hits = self._hits.get(key)
+        if hits is None:
+            if len(self._hits) >= _MAX_TRACKED_ADDRESSES:
+                self._prune(now)
+            hits = self._hits[key] = deque()
+        while hits and now - hits[0] > self._window:
+            hits.popleft()
+        if len(hits) >= self._limits.get(kind, 60):
+            return False
+        hits.append(now)
+        return True
+
+    def _prune(self, now: float) -> None:
+        """Forget the addresses that have been quiet for a whole window."""
+        for key in [k for k, v in self._hits.items() if not v or now - v[-1] > self._window]:
+            del self._hits[key]
+        if len(self._hits) >= _MAX_TRACKED_ADDRESSES:
+            self._hits.clear()
+
+
+RATE_LIMITER = RateLimiter(_RATE_LIMITS, _RATE_WINDOW_SECONDS)
 
 
 def _bearer(request: web.Request) -> str:
@@ -85,7 +131,7 @@ class _PublicView(HomeAssistantView):
     cors_allowed = True
 
     def _gate(
-        self, request: web.Request
+        self, request: web.Request, kind: str = "read"
     ) -> SpaBookingCoordinator | web.Response:
         """Return the coordinator when the site may answer, else the refusal.
 
@@ -99,6 +145,11 @@ class _PublicView(HomeAssistantView):
             return web.Response(status=404, text="Not found")
         if not coordinator.web_enabled:
             return web.Response(status=404, text="Not found")
+        if not RATE_LIMITER.allow(kind, str(request.remote or "")):
+            return self.json(
+                {"message": "Troppe richieste: riprova tra qualche minuto"},
+                status_code=429,
+            )
         if not coordinator.web_token_ok(_bearer(request)):
             return self.json({"message": "Token non valido"}, status_code=401)
         return coordinator
@@ -151,7 +202,8 @@ class SpaBookingPublicTreatmentsView(_PublicView):
         A treatment the reception kept off the site never leaves this list:
         the site cannot offer what it cannot see.
         """
-        coordinator = self._gate(request)
+        kind = "voucher" if request.query.get("code") else "read"
+        coordinator = self._gate(request, kind)
         if isinstance(coordinator, web.Response):
             return coordinator
         try:
@@ -182,10 +234,10 @@ class SpaBookingPublicTreatmentsView(_PublicView):
                 (v for v in coordinator.vouchers if str(v.get("code") or "").upper() == code),
                 None,
             )
-            if voucher is None:
-                raise ValidationError(f"Voucher {code} non trovato")
-            if str(voucher.get("status") or "") != VOUCHER_ACTIVE:
-                raise ValidationError(f"Il voucher {code} non è disponibile")
+            # One answer for unknown and used codes: telling them apart would
+            # let a stranger learn which codes exist.
+            if voucher is None or str(voucher.get("status") or "") != VOUCHER_ACTIVE:
+                raise ValidationError(f"Il voucher {code} non è valido")
             expires = _norm_date(voucher.get("expires_on"))
             if expires and date.fromisoformat(expires) < dt_util.now().date():
                 raise ValidationError(f"Il voucher {code} è scaduto")
@@ -218,8 +270,9 @@ class SpaBookingPublicTreatmentsView(_PublicView):
                     "treatments": items,
                     "voucher": {
                         "code": code,
+                        # The name only pre-fills the form; the phone number
+                        # is never handed out to whoever types a code.
                         "recipient_name": str(voucher.get("recipient_name") or "").strip(),
-                        "recipient_phone": str(voucher.get("recipient_phone") or "").strip(),
                         "expires_on": expires,
                         "people": payload_people,
                     },
@@ -266,7 +319,7 @@ class SpaBookingPublicRequestView(_PublicView):
 
     async def post(self, request: web.Request) -> web.Response:
         """File the request as pending, and tell the guest its code."""
-        coordinator = self._gate(request)
+        coordinator = self._gate(request, "request")
         if isinstance(coordinator, web.Response):
             return coordinator
         try:

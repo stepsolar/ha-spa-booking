@@ -259,6 +259,16 @@
       if (count < 1) count = 1;
       if (count > MAX_PEOPLE) count = MAX_PEOPLE;
       peopleSelect.value = String(count);
+      var recipient = String(voucher.recipient_name || "").trim();
+      if (recipient) {
+        if (!first.value.trim()) {
+          if (!last.value.trim()) {
+            var parts = recipient.split(" ");
+            first.value = parts.shift();
+            last.value = parts.join(" ");
+          }
+        }
+      }
       voucherInfo.textContent = "Voucher valido: " + code + " (" + people.length + " persona/e). I trattamenti del voucher sono gia selezionati: scegli solo gli orari.";
       renderPersons();
     }).catch(function (err) {

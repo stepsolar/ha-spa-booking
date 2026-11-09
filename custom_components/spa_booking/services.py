@@ -1118,30 +1118,85 @@ def _coordinator(call: ServiceCall) -> SpaBookingCoordinator:
     return call.hass.data[DOMAIN]
 
 
-async def _require_admin(call: ServiceCall, coordinator: SpaBookingCoordinator) -> None:
-    """Reject the call unless the caller is a Home Assistant or SPA admin.
+#: Order of the access levels of the card's Accessi tab.
+_LEVEL_RANK = {level: rank for rank, level in enumerate(PERMISSION_LEVELS)}
 
-    System/internal callers (no user context, e.g. automations) pass through
-    to preserve backward compat. End users must have either HA admin/owner
-    rights or the SPA permission level "admin".
-    """
-    user_id = call.context.user_id if getattr(call, "context", None) else None
+#: The settings an operator may change: only the layout of her own screens
+#: and the Spa tab tiles. Everything else is configuration (admin).
+OPERATOR_SETTINGS = frozenset(
+    {
+        "appearance",
+        "tab_cols",
+        "form_order",
+        "edit_form_order",
+        "batch_form_order",
+        "operator_form_order",
+        "camera_entities",
+        "spa_entities",
+    }
+)
+
+
+async def _caller_is_ha_admin(call: ServiceCall) -> bool:
+    """Whether the caller is a Home Assistant administrator or the owner."""
+    user_id = call.context.user_id if call.context else None
     if not user_id:
-        return
-    if call.hass:
-        try:
-            user = await call.hass.auth.async_get_user(user_id)
-            if user is not None and (user.is_admin or user.is_owner):
-                return
-        except Exception as exc:  # noqa: BLE001 - never raise from auth lookup
-            import logging
+        return False
+    user = await call.hass.auth.async_get_user(user_id)
+    return bool(user is not None and (user.is_admin or user.is_owner))
 
-            logging.getLogger(__name__).debug("Auth lookup fallito: %s", exc)
-    if coordinator.user_level(user_id) == "admin":
-        return
-    raise ValidationError(
-        "Accesso negato: questa operazione richiede i permessi di amministratore."
-    )
+
+async def caller_level(call: ServiceCall, coordinator: SpaBookingCoordinator) -> str:
+    """Return the SPA access level of whoever made the call.
+
+    The same rule as the card: the level chosen in Accessi wins; a Home
+    Assistant admin or owner who is not listed is an administrator; anybody
+    else has no access. A call without a user (an automation, a script, the
+    integration itself) acts as the system and is an administrator.
+    """
+    user_id = call.context.user_id if call.context else None
+    if not user_id:
+        return "admin"
+    stored = coordinator.permissions_payload().get(user_id)
+    if stored in _LEVEL_RANK:
+        level = stored
+    else:
+        level = "none"
+    # A Home Assistant administrator can edit the storage file anyway:
+    # refusing her here would protect nothing.
+    if await _caller_is_ha_admin(call):
+        return "admin"
+    return level
+
+
+async def _require_level(
+    call: ServiceCall, coordinator: SpaBookingCoordinator, needed: str
+) -> str:
+    """Refuse the call unless the caller has at least ``needed``."""
+    level = await caller_level(call, coordinator)
+    if _LEVEL_RANK.get(level, 0) < _LEVEL_RANK.get(needed, len(_LEVEL_RANK)):
+        raise ValidationError(
+            f"Accesso negato: questa operazione richiede il livello '{needed}' "
+            f"(il tuo è '{level}')."
+        )
+    return level
+
+
+async def _require_admin(call: ServiceCall, coordinator: SpaBookingCoordinator) -> None:
+    """Refuse the call unless the caller is an administrator."""
+    await _require_level(call, coordinator, "admin")
+
+
+#: Secrets that only an administrator may read back from the dataset.
+_SECRET_SETTINGS = ("waha_api_key", "waha_webhook_secret", "waha_webhook_id", "web_token")
+
+
+def _without_secrets(settings: dict[str, Any]) -> dict[str, Any]:
+    """Return the settings with the gateway and website secrets blanked."""
+    return {
+        **settings,
+        **{key: "" for key in _SECRET_SETTINGS if key in settings},
+    }
 
 
 async def _async_create_appointment(call: ServiceCall) -> ServiceResponse:
@@ -1601,7 +1656,11 @@ async def _async_get_daily_agenda(call: ServiceCall) -> ServiceResponse:
 
 async def _async_get_config(call: ServiceCall) -> ServiceResponse:
     """Return categories, treatments and operators."""
-    return {"config": _coordinator(call).config_payload()}
+    coordinator = _coordinator(call)
+    config = coordinator.config_payload()
+    if await caller_level(call, coordinator) != "admin":
+        config["settings"] = _without_secrets(config["settings"])
+    return {"config": config}
 
 
 async def _async_add_category(call: ServiceCall) -> ServiceResponse:
@@ -1748,9 +1807,13 @@ async def _async_delete_operator(call: ServiceCall) -> ServiceResponse:
 
 
 async def _async_export_data(call: ServiceCall) -> ServiceResponse:
-    """Return the whole dataset."""
+    """Return the whole dataset (what the card loads)."""
+    coordinator = _coordinator(call)
+    data = coordinator.export_data()
+    if await caller_level(call, coordinator) != "admin":
+        data = {**data, "settings": _without_secrets(data.get("settings") or {})}
     return {
-        "data": _coordinator(call).export_data(),
+        "data": data,
         "integration_version": INTEGRATION_VERSION,
     }
 
@@ -1804,8 +1867,13 @@ async def _async_get_monthly_report(call: ServiceCall) -> ServiceResponse:
 
 
 async def _async_update_settings(call: ServiceCall) -> ServiceResponse:
-    """Update the notification settings."""
-    settings = await _coordinator(call).async_update_settings(**call.data)
+    """Update the settings: layout for operators, the rest for admins only."""
+    coordinator = _coordinator(call)
+    if set(call.data) - OPERATOR_SETTINGS:
+        await _require_admin(call, coordinator)
+    settings = await coordinator.async_update_settings(**call.data)
+    if await caller_level(call, coordinator) != "admin":
+        settings = _without_secrets(settings)
     return {"settings": settings}
 
 
@@ -2188,6 +2256,69 @@ _HANDLERS: dict[str, tuple[Any, Any, SupportsResponse]] = {
 }
 
 
+#: Minimum access level for each service, mirroring the card: what the
+#: Agenda, Nuovo, Spa, Clienti, Voucher and WhatsApp tabs do is "operator",
+#: the management actions the card reserves to "manage_clients" are
+#: "manager", and everything in Configurazione is "admin" (the default for any
+#: service not listed). Calls from automations act as the system.
+SERVICE_LEVELS: dict[str, str] = {
+    # Reading the day.
+    SERVICE_EXPORT_DATA: "read",
+    SERVICE_GET_CONFIG: "read",
+    SERVICE_GET_DAILY_AGENDA: "read",
+    SERVICE_GET_DASHBOARD_CONFIG: "read",
+    # Layout keys are checked again inside the handler.
+    SERVICE_UPDATE_SETTINGS: "read",
+    # Running the day at the desk.
+    SERVICE_CREATE_APPOINTMENT: "operator",
+    SERVICE_CREATE_BOOKINGS: "operator",
+    SERVICE_UPDATE_APPOINTMENT: "operator",
+    SERVICE_UPDATE_BOOKING_BATCH: "operator",
+    SERVICE_RESIZE_APPOINTMENT_GROUP: "operator",
+    SERVICE_CANCEL_APPOINTMENT: "operator",
+    SERVICE_CHECK_IN_APPOINTMENT: "operator",
+    SERVICE_CHECK_OUT_APPOINTMENT: "operator",
+    SERVICE_ADD_PAYMENT: "operator",
+    SERVICE_DELETE_PAYMENT: "operator",
+    SERVICE_SAVE_CLIENT: "operator",
+    SERVICE_SEARCH_CLIENTS: "operator",
+    SERVICE_GET_CLIENT_HISTORY: "operator",
+    SERVICE_RESPOND_TO_OFFER: "operator",
+    SERVICE_SET_OFFER_STATE: "operator",
+    SERVICE_MANUAL_CONFIRM_OFFER: "operator",
+    SERVICE_CREATE_REQUEST: "operator",
+    SERVICE_CONFIRM_REQUEST: "operator",
+    SERVICE_DELETE_REQUEST: "operator",
+    SERVICE_SEND_REQUEST_MESSAGE: "operator",
+    SERVICE_MARK_REQUESTS_SEEN: "operator",
+    SERVICE_SEND_GUEST_SUMMARY: "operator",
+    SERVICE_SEND_DEPOSIT_REQUEST: "operator",
+    SERVICE_SEND_REVIEW_REQUESTS: "operator",
+    SERVICE_SEND_REMINDERS: "operator",
+    SERVICE_SEND_EXTERNAL_MESSAGE: "operator",
+    SERVICE_CREATE_VOUCHER: "operator",
+    # What the card reserves to "manage_clients".
+    SERVICE_EXTEND_VOUCHER: "manager",
+    SERVICE_DELETE_VOUCHER: "manager",
+    SERVICE_REDEEM_PROMO_VOUCHER: "manager",
+    SERVICE_DELETE_PROMO_VOUCHER: "manager",
+    SERVICE_MERGE_CLIENTS: "manager",
+}
+
+
+def _guarded(service: str, handler: Any) -> Any:
+    """Wrap a handler so it first checks the caller's access level."""
+    needed = SERVICE_LEVELS.get(service, "admin")
+
+    async def _handler(call: ServiceCall) -> ServiceResponse:
+        await _require_level(call, _coordinator(call), needed)
+        return await handler(call)
+
+    _handler.__name__ = getattr(handler, "__name__", service)
+    _handler.__doc__ = handler.__doc__
+    return _handler
+
+
 def async_register_services(hass: HomeAssistant) -> None:
     """Register every service once, regardless of the entry count."""
     # Incremental registration: a reload keeps old service names loaded, so
@@ -2196,7 +2327,11 @@ def async_register_services(hass: HomeAssistant) -> None:
         if hass.services.has_service(DOMAIN, service):
             continue
         hass.services.async_register(
-            DOMAIN, service, handler, schema=schema, supports_response=response
+            DOMAIN,
+            service,
+            _guarded(service, handler),
+            schema=schema,
+            supports_response=response,
         )
 
 
