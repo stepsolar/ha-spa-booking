@@ -55,4 +55,5 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
-          ignore: brands
+          # The topics are set in the GitHub repository settings, not in code.
+          ignore: brands topics

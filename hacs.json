@@ -1,6 +1,5 @@
 {
-  "name": "Spa Bookings",
-  "domains": ["spa_booking"],
+  "name": "Spa Booking",
   "homeassistant": "2024.11.0",
   "render_readme": true
 }
