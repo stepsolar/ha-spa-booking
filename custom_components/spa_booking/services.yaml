@@ -1017,6 +1017,27 @@ update_settings:
         messaggio inviato automaticamente dopo le ore indicate.
       selector:
         boolean:
+    scheduler_enabled:
+      name: Pianificatore interno
+      description: >-
+        Se attivo (predefinito) promemoria, offerte scadute, richieste di
+        recensione, voucher, promo giornaliera e report mensile partono da
+        soli. Disattivalo solo se li comandi con automazioni tue.
+      selector:
+        boolean:
+    quiet_hours_start:
+      name: Inizio orario di silenzio
+      description: >-
+        Da quest'ora nessun messaggio automatico agli ospiti (le offerte alle
+        operatrici partono comunque).
+      example: "21:00"
+      selector:
+        text:
+    quiet_hours_end:
+      name: Fine orario di silenzio
+      example: "08:00"
+      selector:
+        text:
 
 reload_card:
   name: Ricarica la card senza riavvio
@@ -1229,15 +1250,16 @@ send_reminders:
   name: Invia promemoria appuntamenti
   description: >-
     Invia all'ospite il promemoria dell'appuntamento circa 24 ore prima, una
-    sola volta per appuntamento. Va richiamato periodicamente (automazione).
+    sola volta per appuntamento. Gira gia' ogni 5 minuti con il pianificatore
+    interno; chiamalo a mano solo per un invio immediato.
 
 send_review_requests:
   name: Invia richiesta di recensione
   description: >-
     Invia all'ospite, circa 6 ore dopo la fine del trattamento, il messaggio che
     chiede una recensione su Google e TripAdvisor. Una sola volta per ospite al
-    giorno, anche se ha fatto piu' trattamenti. Va richiamato periodicamente
-    (automazione).
+    giorno, anche se ha fatto piu' trattamenti. Gira gia' con il pianificatore
+    interno.
   fields:
     appointment_id:
       name: Appuntamento
@@ -1266,8 +1288,9 @@ promo_automatico:
   name: Invio automatico promo giornaliero
   description: >-
     Invia il messaggio promo a tutti i clienti con telefono, una volta al giorno
-    all'orario programmato. Va chiamato con una automazione time_pattern. Se
-    promo_time non e' impostato, non invia nulla.
+    all'orario programmato (entro un'ora). Gira gia' con il pianificatore
+    interno e non invia mai due volte nello stesso giorno. Se promo_time non e'
+    impostato, non invia nulla.
   fields: {}
 
 create_bookings:
@@ -1528,8 +1551,8 @@ promo_voucher_tick:
   name: Invio voucher fedelta in attesa
   description: >-
     Invia i messaggi dei voucher fedelta arrivati a scadenza di invio (le ore
-    dopo il check-out) ed elimina i voucher scaduti e mai usati. Va richiamato
-    periodicamente (automazione): ogni tick è un nessun-op se non c'è nulla da
+    dopo il check-out) ed elimina i voucher scaduti e mai usati. Gira gia' con
+    il pianificatore interno: ogni chiamata e' innocua se non c'e' nulla da
     fare.
 
 check_waha:
@@ -1716,3 +1739,88 @@ send_external_message:
       selector:
         text:
           multiline: true
+
+update_booking_batch:
+  name: Modifica gruppo di appuntamenti
+  description: >-
+    Modifica in un'unica operazione tutti gli appuntamenti dello stesso gruppo
+    (stessa prenotazione). Le righe con appointment_id aggiornano
+    l'appuntamento esistente conservando id, codice, check-in/out e incassi;
+    le righe senza id ne creano di nuovi; gli appuntamenti del gruppo non
+    presenti vengono annullati. Se una riga e' rifiutata non cambia nulla.
+  fields:
+    appointment_id:
+      name: Appuntamento del gruppo
+      required: true
+      selector:
+        text:
+    rows:
+      name: Righe
+      required: true
+      description: Elenco degli appuntamenti desiderati.
+      selector:
+        object:
+
+export_all:
+  name: Esporta tutti i dati
+  description: Restituisce l'intero archivio in JSON (solo amministratori).
+
+import_all:
+  name: Ripristina tutti i dati
+  description: >-
+    Sostituisce l'intero archivio con il JSON di un backup creato da
+    export_all (solo amministratori).
+  fields:
+    payload:
+      name: Backup JSON
+      required: true
+      selector:
+        object:
+
+get_dashboard_config:
+  name: Configurazione dashboard
+  description: Restituisce aspetto, titolo e riquadri Spa/telecamere della card.
+
+export_dashboard_yaml:
+  name: Esporta dashboard in YAML
+  description: Restituisce la configurazione della dashboard Spa in formato YAML.
+
+send_test_message:
+  name: Invia messaggio di prova
+  description: Invia un messaggio di prova su Telegram o WhatsApp a una chat.
+  fields:
+    channel:
+      name: Canale
+      required: true
+      selector:
+        select:
+          options:
+            - telegram
+            - whatsapp
+    chat_id:
+      name: Chat
+      required: true
+      selector:
+        text:
+    config_entry_id:
+      name: Bot Telegram
+      selector:
+        text:
+    message:
+      name: Testo
+      selector:
+        text:
+          multiline: true
+
+voucher_expiry_reminder:
+  name: Promemoria scadenza voucher
+  description: >-
+    Avvisa una sola volta il destinatario di ogni voucher che scade entro i
+    giorni impostati. Gira gia' da solo con il pianificatore interno.
+
+run_scheduled_jobs:
+  name: Esegui ora le attivita' pianificate
+  description: >-
+    Esegue subito promemoria, offerte scadute, richieste di recensione,
+    voucher fedelta', scadenze voucher, promo e report (rispettando l'orario
+    di silenzio). Utile per verificare la configurazione. Solo amministratori.

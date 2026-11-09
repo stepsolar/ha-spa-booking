@@ -1,93 +1,106 @@
 # Spa Booking — integrazione Home Assistant
 
-Gestione degli appuntamenti della SPA all'interno di Home Assistant: categorie,
-trattamenti con durata propria, operatori, schede cliente, agenda del giorno
-raggruppata per operatore e per categoria, pagamenti, voucher/promozioni,
-promemoria e report automatici.
+Gestione degli appuntamenti della SPA dentro Home Assistant: categorie,
+trattamenti con durata propria, operatrici, schede cliente, agenda del giorno
+per operatrice e per categoria, pagamenti, voucher, richieste dal sito web,
+promemoria e report automatici su WhatsApp e Telegram.
 
-Versione corrente: **2.0.5**
+Versione corrente: **2.1.0** — documentazione completa in
+[`custom_components/spa_booking/README.md`](custom_components/spa_booking/README.md).
 
-## Funzionalita' principali
+## Funzionalità principali
 
-- **Agenda giorno** per operatori e categorie, con colori per gruppo-partito.
-- **Nuovo appuntamento multipersona / multitreatment** ("Nuovo appuntamento"), gestito con `create_bookings` in un unico batch.
-- **Visualizzazione flessibile** del singolo appuntamento oppure **raggruppata** (tutti gli appuntamenti della stessa persona/giornata), con totali aggregati e schede pagamento.
-- **Modifica gruppo**: editor multi-riga (2 colonne, blocchi draggable) che aggiorna/aggiunge/cancella sotto-appuntamenti preservando id, codici, check-in/out e registrazioni incassi.
-- **Pagamenti e totali**: importi per persona/trattamento, takings multi-metodo, saldo da incassare.
-- **Clienti**: schede con deduplicazione per telefono.
-- **Operatori**: orari, pause, ruoli, recapiti, offerte (`offer_state`), conferma manuale.
-- **Voucher & promozioni**: creazione/vendita, estensione, promo automatica.
-- **Richieste dal sito**: endpoint pubblici per prenotazioni web con token sicuro.
-- **Notifiche**: WhatsApp via WAHA o webhook, Telegram, comandi di test.
-- **Report mensile**, promemoria appuntamenti, richieste recensioni.
-- **Backup/ripristino**: JSON completo (`export_all` / `import_all`) e CSV clienti.
-- **Card Lovelace** `spa-booking-card.js` servita automaticamente dal backend.
+- **Agenda del giorno** per operatrici e categorie, vista singola o raggruppata
+  per cliente.
+- **Prenotazioni multipersona e multitrattamento** in un'unica operazione, con
+  controllo di sovrapposizioni, pause delle operatrici, fasce orarie e
+  esclusioni tra categorie.
+- **Offerte alle operatrici** su WhatsApp/Telegram con conferma, rifiuto e
+  passaggio automatico alla successiva libera.
+- **Pagamenti** multi-metodo, acconti e saldo.
+- **Clienti** con deduplicazione per telefono (anche numeri esteri).
+- **Voucher regalo e voucher fedeltà**, con avviso di scadenza.
+- **Richieste dal sito WordPress** tramite API pubblica protetta da token e
+  limite di richieste.
+- **Attività automatiche** (promemoria, recensioni, promo, report mensile)
+  eseguite dall'integrazione stessa, con orario di silenzio.
+- **Permessi per utente** (lettura, operatore, manager, admin) applicati anche
+  lato server.
+- **Backup e ripristino** in JSON e CSV clienti.
 
-## Installazione manuale (senza HACS)
+## Installazione
 
-1. Copia il contenuto della cartella `custom_components/spa_booking/` in:
-   `/config/custom_components/spa_booking/`
-2. Copia il contenuto della cartella `www/spa_booking/` in:
-   `/config/www/spa_booking/`
-3. Riavvia Home Assistant (Supervisor -> Riavvia) oppure ricarica l'integrazione:
-   Impostazioni -> Integrazioni -> SPA Booking -> menu (tre punti) -> Ricarica.
-4. Aggiungi l'integrazione: Impostazioni -> Integrazioni -> Aggiungi -> "Spa Booking".
-5. Dopo il primo avvio, il frontend carica automaticamente la card dal backend (`card_js_url`).
+### HACS (consigliato)
+1. HACS → Integrazioni → tre puntini → *Repository personalizzati* →
+   `https://github.com/stepsolar/ha-spa-booking`, categoria *Integration*.
+2. Installa **Spa Booking** e riavvia Home Assistant.
+3. Impostazioni → Dispositivi e servizi → Aggiungi integrazione → *Spa Booking*.
 
-## Installazione tramite HACS (repository personalizzato)
-1. In HACS -> Integrations -> tre puntini -> Custom repositories -> inserisci:
-   `https://github.com/stepsolar/ha-spa-booking`
-2. Clicca "Add" e seleziona categoria "Integration".
-3. Cerca "Spa Booking", installa e riavvia HA.
+### Manuale
+Copia `custom_components/spa_booking/` in `/config/custom_components/` e
+riavvia. La card e il modulo del sito sono inclusi nella cartella
+`frontend/`: non serve copiare altro.
 
-## File importanti della repo
-- `custom_components/spa_booking/` — integrazione completa (Python).
-- `www/spa_booking/spa-booking-card.js` — card Lovelace.
-- `manifest.json` — metadati (`version`, `documentation`, `issue_tracker`).
-- `services.yaml` — definizioni dei servizi `spa_booking.*`.
-- `README.md` — questo file.
+La card di gestione viene caricata automaticamente in ogni dashboard; è
+disponibile anche come pagina a sé su `/spa_booking`.
 
-## Configurazione minima
-Dopo l'installazione l'integrazione crea un'entry configurabile dall'UI:
-- `telegram_config_entry_id`, `report_telegram_chats`, `report_whatsapp_chat`
-- orari web (`web_open_time`, `web_close_time`, `web_step_min`)
-- trattamenti/operatori configurabili da card e servizi dedicati.
+## Modulo per il sito web
 
-## Servizi principali
-- `spa_booking.create_bookings`, `create_appointment`, `update_appointment`, `cancel_appointment`
-- `spa_booking.update_booking_batch` (modifica completa multi-riga)
-- `spa_booking.export_data`, `spa_booking.export_all`
-- `spa_booking.import_data`, `spa_booking.import_all`
-- `spa_booking.export_clienti_csv`, `spa_booking.import_clienti_csv`
-- `spa_booking.reload_card` (bust-cache frontend)
-- `spa_booking.get_config`, `spa_booking.get_daily_agenda`
-- `spa_booking.add_payment`, `spa_booking.send_guest_summary`, `spa_booking.send_deposit_request`
-- `spa_booking.manual_confirm_offer`, `spa_booking.set_offer_state`
+Nella card: Configurazione → Sito web → attiva il sito, poi **Copia** e
+incolla il codice in un blocco "HTML personalizzato" di WordPress. Il token è
+già inserito.
 
-## Backup e restore
-- **Esporta JSON completo**: Impostazioni -> scheda "Backup / Ripristino" -> "Esporta JSON".
-- **Ripristina JSON**: Impostazioni -> scheda "Backup / Ripristino" -> "Ripristina JSON" (file picker).
-- Il file si chiama `spa_booking_backup_YYYY-MM-DD.json` e puo' essere importato via file picker.
+## Aggiornare dalla 2.0.x
 
-## Note operative
-- Il card si versiona automaticamente tramite hash del file; ricarica con `spa_booking.reload_card`.
-- Tutti i pagamenti/incassi restano associati anche durante l'editing (`update_batch` preserva id storici).
-- Le schede clienti sono deduplicate per telefono; operatori e trattamenti si gestiscono da card.
+- La cartella `/config/www/spa_booking/` non viene più letta e si può
+  cancellare.
+- Le automazioni del vecchio `packages/spa_booking.yaml` che chiamavano
+  promemoria, offerte, promo e report non servono più: l'integrazione le
+  esegue da sola e non invia mai due volte, quindi si possono togliere con
+  calma.
+- Gli utenti non amministratori di Home Assistant devono avere un livello
+  nella scheda **Accessi**, altrimenti i servizi rifiutano le loro chiamate
+  (la card già non mostrava nulla a chi non aveva accesso).
 
-## Changelog recente
-- **v2.0.16**: ripristinata la card di gestione (sovrascritta per errore dal modulo del sito) e riscritto il modulo WordPress; verifica voucher dal sito di nuovo funzionante; "non confermo"/"non va bene" letti come rifiuto; numeri TIM 390-393/397, fissi e stranieri convertiti correttamente per WhatsApp (con migrazione automatica delle operatrici); rimosse le costanti duplicate.
-- **v2.0.15**: refine backend import handling for voucher status checks in public treatments endpoint.
-- **v2.0.14**: ampia zona tap agenda per aprire dettaglio; hover grigio rimosso.
-- **v2.0.13**: overlap popup su edit appuntamento + storico cliente cliccabile + modifica gruppo senza tuple error; tap agenda da allargare.
-- **v2.0.12**: annulla la modifica gruppo tornando in agenda automaticamente; fix stile termostato/switch; icone MDI standalone power/fire/snowflake; real-time e card_type persistence.
-- **v2.0.11**: fix editing appointment in groups (tuple index error) and update readme changelog.
-- **v2.0.10**: aggiunto scaffold dashboard dedicato, servizio get_dashboard_config, persistenza features/tap/hold actions, aggiornamento stato real-time + icone MDI standalone.
-- **v2.0.9**: backend now persists card_type (norm + schema) so chosen riquadro survives update_settings (prima veniva scartato). (norm + schema) so chosen riquadro survives update_settings; plus validation schema already allowed value.\n- **v2.0.8**: scheda Spa con "Tipo di riquadro" (auto/tile/button/climate/sensor/switch/entity/thermostat/gauge), persiste impostazioni, offre variazioni visive per tipo, risolve problema validazione card_type.\n- **v2.0.7**: conserva lo stato dell’offerta agli operatori (pending/unassigned) durante la modifica di un appuntamento o del gruppo; invalidazione solo se cambiano trattamento, operatore o orario; pulsante check-in agenda.\n- **v2.0.6**: toggle "Mostra/Nascondi appuntamenti check-in" in agenda, permessi admin, rollback transazionale, migrazione batch_id, icone standalone.\n- **v2.0.5**: raggruppa tutti gli appuntamenti dello stesso cliente nella stessa giornata (incluse categorie diverse), Vista Singolo/Raggruppato, batch_id propagation, bug "Massaggi non raggruppati" risolto.
-- **v2.0.2–v2.0.4**: editor batch multi-riga, correzioni migrazione/premessa.
-- **v2.0.0–v2.0.1**: backup JSON/import_all, scheda "Backup", link docs GitHub.
+## Sviluppo
+
+```bash
+pip install homeassistant pytest ruff
+ruff check --select F,E9,B,ASYNC custom_components tests
+python -m pytest tests
+node tests/frontend/form_test.js custom_components/spa_booking/frontend/spa-booking-form.txt
+```
+
+La CI (`.github/workflows/ci.yml`) esegue lint, test, controllo della card,
+hassfest e validazione HACS a ogni push e pull request. Lavora su un branch e
+apri una pull request: `main` resta sempre installabile.
+
+## Changelog
+
+- **v2.1.0**: pianificatore interno (niente più package YAML), card e modulo
+  dentro l'integrazione (compatibile HACS), permessi applicati lato server e
+  segreti nascosti ai non amministratori, limite di richieste sull'API del
+  sito, pausa dell'operatrice in entrambi i sensi, offerta alla prima
+  operatrice libera, disponibilità del sito allineata alle regole della
+  reception, report mensile completo fino all'ultimo giorno, rollback corretto
+  della modifica di gruppo, invii WhatsApp fuori dal lock dei dati, avvisi di
+  scadenza voucher funzionanti, test e CI.
+- **v2.0.16**: ripristinata la card di gestione (sovrascritta per errore dal
+  modulo del sito) e riscritto il modulo WordPress; verifica voucher dal sito
+  di nuovo funzionante; "non confermo"/"non va bene" letti come rifiuto;
+  numeri TIM 390-393/397, fissi e stranieri convertiti correttamente.
+- **v2.0.15**: voucher precompilato dal sito tramite `/public/treatments`.
+- **v2.0.14**: ampia zona di tocco in agenda per aprire il dettaglio.
+- **v2.0.13**: avviso di sovrapposizione in modifica, storico cliente
+  cliccabile, modifica gruppo senza errore di tupla.
+- **v2.0.12**: annulla modifica gruppo torna all'agenda; icone MDI autonome.
+- **v2.0.10**: servizio `get_dashboard_config`, aggiornamento in tempo reale.
+- **v2.0.8–2.0.9**: tipo di riquadro nella scheda Spa, salvato correttamente.
+- **v2.0.5–2.0.7**: raggruppamento per cliente e giornata, stato delle offerte
+  conservato in modifica, check-in dall'agenda.
+- **v2.0.0–2.0.4**: backup JSON completo, editor di gruppo multi-riga.
 
 ## Licenza e autore
-Autore: stepsolar.
 
-## Contributi
-Apri issue/PR su `https://github.com/stepsolar/ha-spa-booking`.
+Autore: stepsolar. Segnalazioni e proposte:
+`https://github.com/stepsolar/ha-spa-booking/issues`.

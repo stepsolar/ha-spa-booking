@@ -24,7 +24,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from aiohttp import ClientResponseError, ClientSession
+from aiohttp import ClientResponseError, ClientSession, ClientTimeout
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -288,7 +288,7 @@ class WahaClient:
                 url,
                 json=json,
                 headers=headers,
-                timeout=REQUEST_TIMEOUT_SECONDS,
+                timeout=ClientTimeout(total=REQUEST_TIMEOUT_SECONDS),
             ) as response:
                 status = response.status
                 body = await response.json(content_type=None)

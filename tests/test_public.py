@@ -7,7 +7,7 @@ from datetime import date
 import pytest
 
 from custom_components.spa_booking.const import KEY_CATEGORIES, KEY_SETTINGS
-from custom_components.spa_booking.coordinator import default_data
+from custom_components.spa_booking.normalize import default_data
 from custom_components.spa_booking.public import RateLimiter
 
 from .conftest import build_coordinator, run

@@ -6,7 +6,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from custom_components.spa_booking.const import KEY_SETTINGS, KEY_VOUCHERS
-from custom_components.spa_booking.coordinator import _norm_voucher
+from custom_components.spa_booking.normalize import _norm_voucher
 from custom_components.spa_booking.scheduler import SpaBookingScheduler, in_quiet_hours
 
 from .conftest import run

@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Gestione Appuntamenti Spa",
-        "description": "Verrai creato un calendario interno per gli appuntamenti: categorie, trattamenti (90 e 120 minuti), operatori e schede clienti.\n\nGli operatori che scrivi qui sono i primi della lista; aggiungerai gli altri dalla dashboard.",
+        "description": "Verrà creato un calendario interno per gli appuntamenti: categorie, trattamenti con la loro durata, operatori e schede clienti.\n\nGli operatori che scrivi qui sono i primi della lista; aggiungerai gli altri dalla dashboard.",
         "data": {
           "name": "Nome",
           "operator_names": "Operatori (separati da virgola)"

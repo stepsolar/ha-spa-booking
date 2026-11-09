@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from custom_components.spa_booking.const import KEY_CATEGORIES
-from custom_components.spa_booking.exceptions import OverlapError
+from custom_components.spa_booking.exceptions import OverlapError, SpaBookingError
 
 from .conftest import run
 
@@ -121,6 +121,6 @@ def test_failed_batch_edit_leaves_everything_as_it_was(massages) -> None:
          "start": "2026-11-12 14:00", "operator_ids": [giulia]},
         {"treatment_id": "trt_does_not_exist", "start": "2026-11-12 16:00"},
     ]
-    with pytest.raises(Exception):
+    with pytest.raises(SpaBookingError):
         run(massages.async_update_booking_batch(first["id"], rows))
     assert massages._data == before

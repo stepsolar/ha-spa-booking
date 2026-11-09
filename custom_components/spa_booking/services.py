@@ -21,7 +21,6 @@ from homeassistant.helpers import config_validation as cv
 
 from .const import (
     APPEARANCE_MODES,
-    ATTR_ANSWER,
     CLOSURE_SCOPES,
     ATTR_APPOINTMENT_ID,
     ATTR_APPOINTMENT_IDS,
@@ -68,7 +67,8 @@ from .const import (
     PAYMENT_METHODS,
     PERMISSION_LEVELS,
 )
-from .coordinator import INTEGRATION_VERSION, SpaBookingCoordinator, as_date
+from .coordinator import INTEGRATION_VERSION, SpaBookingCoordinator
+from .normalize import as_date
 from .exceptions import ValidationError
 
 #: The accepted method names, taken from the single place they are declared.

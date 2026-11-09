@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
 
 
 def import_messaging():
@@ -82,7 +81,7 @@ def test_lid_is_never_matched_by_digits():
 
 
 def test_operator_chat_id_migration():
-    from custom_components.spa_booking.coordinator import default_data
+    from custom_components.spa_booking.normalize import default_data
 
     from .conftest import build_coordinator
 

@@ -41,7 +41,8 @@ from homeassistant.components.http import KEY_HASS, HomeAssistantView
 from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN, REQUEST_SOURCE_WEB, VOUCHER_ACTIVE, WEB_API_BASE
-from .coordinator import SpaBookingCoordinator, _norm_clock, _norm_date
+from .coordinator import SpaBookingCoordinator
+from .normalize import _norm_clock, _norm_date
 from .exceptions import SpaBookingError, ValidationError
 
 _LOGGER = logging.getLogger(__name__)

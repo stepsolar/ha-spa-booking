@@ -19,11 +19,8 @@ import pytest
 
 from custom_components.spa_booking import coordinator as coordinator_module
 from custom_components.spa_booking import messaging
-from custom_components.spa_booking.coordinator import (
-    SpaBookingCoordinator,
-    _normalise,
-    default_data,
-)
+from custom_components.spa_booking.coordinator import SpaBookingCoordinator
+from custom_components.spa_booking.normalize import _normalise, default_data
 
 TZ_NAME = "Europe/Rome"
 
