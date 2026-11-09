@@ -5,7 +5,7 @@ trattamenti con durata propria, operatrici, schede cliente, agenda del giorno
 per operatrice e per categoria, pagamenti, voucher, richieste dal sito web,
 promemoria e report automatici su WhatsApp e Telegram.
 
-Versione corrente: **2.1.1** — documentazione completa in
+Versione corrente: **2.1.2** — documentazione completa in
 [`custom_components/spa_booking/README.md`](custom_components/spa_booking/README.md).
 
 ## Funzionalità principali
@@ -70,6 +70,7 @@ ruff check --select F,E9,B,ASYNC custom_components tests
 python -m pytest tests
 node tests/frontend/form_test.js custom_components/spa_booking/frontend/spa-booking-form.txt
 node tests/frontend/card_request_test.js custom_components/spa_booking/frontend/spa-booking-card.js
+node tests/frontend/card_spa_test.js custom_components/spa_booking/frontend/spa-booking-card.js
 ```
 
 La CI (`.github/workflows/ci.yml`) esegue lint, test, controllo della card,
@@ -78,6 +79,13 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v2.1.2**: nuovo stile della scheda Spa. Riquadri divisi in sezioni (Luci,
+  Clima, Servizi e sensori) con riepilogo, colore secondo il tipo (luci ambra,
+  servizi verde acqua, clima arancio/azzurro), termostato con temperatura
+  grande e solo − e +, sensori con il valore in evidenza, una sola barra di
+  luminosità per luce, entità mancanti mostrate come "Non disponibile" invece
+  di bloccare la scheda. Le sezioni si spengono dal pulsante "Sezioni" in
+  modalità modifica.
 - **v2.1.1**: nella scheda Richiesta, con 2 o più persone compare un box per
   persona (trattamenti, orari e accessori di ciascuna, "Copia dalla 1ª"); alla
   conferma ogni trattamento viene prenotato solo per la sua persona. "Modifica"

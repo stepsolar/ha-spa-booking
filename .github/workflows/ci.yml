@@ -42,6 +42,8 @@ jobs:
       - run: node tests/frontend/form_test.js custom_components/spa_booking/frontend/spa-booking-form.txt
       # The Richiesta form of the card: one box per person, payload, editing.
       - run: node tests/frontend/card_request_test.js custom_components/spa_booking/frontend/spa-booking-card.js
+      # The Spa tab tiles: sections, colours, brightness, thermostat, sensors.
+      - run: node tests/frontend/card_spa_test.js custom_components/spa_booking/frontend/spa-booking-card.js
 
   hassfest:
     name: Hassfest

@@ -756,6 +756,9 @@ def _norm_settings(raw: dict[str, Any]) -> dict[str, Any]:
         # name, icon, visibility and column span). Default to the Spa-area set
         # until the user saves an explicit choice.
         "spa_entities": _spa_tiles(raw, "spa_entities", SPA_DEFAULT_ENTITIES),
+        # Spa tab: tiles grouped in sections by kind (lights, climate,
+        # services and sensors). False keeps the single grid of 2.1.1.
+        "spa_grouped": bool(raw.get("spa_grouped", True)),
         # Accessories of the Accessori tab, in user order (empty = none). Each
         # one carries its own label, icon, price and description; the price is
         # informational and never enters a total.
