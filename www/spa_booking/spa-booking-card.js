@@ -1,15 +1,97 @@
-    (function () {
+<!-- Home Assistant - Spa Booking card (standalone frontend) -->
+<div id="sbw-widget" class="sbw">
+  <style>
+    .sbw{--sbw-accent:var(--wp--preset--color--primary,#2f7de1);max-width:680px;margin:0 auto;color:inherit;font-size:15px;line-height:1.4;text-align:left}
+    .sbw *,.sbw *::before,.sbw *::after{box-sizing:border-box}
+    .sbw-card{border:1px solid rgba(128,128,128,.35);border-radius:14px;padding:14px;background:rgba(128,128,128,.06)}
+    .sbw-title{margin:0 0 4px;font-size:1.15em;line-height:1.2}
+    .sbw-intro{margin:0 0 10px;font-size:.85em;opacity:.8}
+    .sbw-note{margin:10px 0 0;font-size:.78em;opacity:.7}
+    .sbw-hint{font-size:.82em;opacity:.75}
+    .sbw-field{display:block;margin:0 0 8px}
+    .sbw-field>span{display:block;margin-bottom:3px;font-size:.74em;font-weight:600;letter-spacing:.04em;text-transform:uppercase;opacity:.7}
+    .sbw input,.sbw select,.sbw textarea{width:100%;padding:7px 10px;font:inherit;color:inherit;background:transparent;border:1px solid rgba(128,128,128,.5);border-radius:8px;-webkit-appearance:none;appearance:none}
+    .sbw select{background-image:none}
+    .sbw input:focus,.sbw select:focus,.sbw textarea:focus{outline:2px solid var(--sbw-accent);outline-offset:1px;border-color:transparent}
+    .sbw-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}
+    @media(max-width:520px){.sbw-grid{grid-template-columns:1fr}}
+    .sbw-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:4px}
+    .sbw-btn{padding:10px 20px;font:inherit;font-weight:600;color:#fff;cursor:pointer;background:var(--sbw-accent);border:0;border-radius:8px}
+    .sbw-btn[disabled]{opacity:.55;cursor:default}
+    .sbw-status{font-size:.9em}.sbw-status.err{color:#c62828}.sbw-status.ok{color:#2e7d32}
+    .sbw-receipt{text-align:center}.sbw-receipt .sbw-ok{font-size:2.2em;line-height:1;color:#2e7d32}
+    .sbw-receipt p{display:block;margin:10px 0;opacity:.85}
+    .sbw-code{display:inline-block;margin:4px 0 10px;padding:8px 18px;font-size:1.5em;font-weight:700;letter-spacing:.06em;border:1px dashed rgba(128,128,128,.6);border-radius:10px}
+    .sbw-flex{display:flex;gap:8px;align-items:center;margin:0 0 8px}
+    .sbw-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
+    .sbw-small{padding:6px 12px;font-size:.9em}
+    .sbw-warn{color:#b98f2f;font-size:.82em}
+  </style>
+  <style>#sbw-voucher{text-transform:uppercase}</style>
+  <div class="sbw-card">
+    <div id="sbw-form">
+      <h2 class="sbw-title">Richiedi un appuntamento SPA</h2>
+      <div class="sbw-intro">Compila voucher, persone, trattamenti e orari: la reception conferma l'appuntamento.</div>
+      <div class="sbw-flex">
+        <label class="sbw-field" for="sbw-voucher" style="flex:1"><span>Codice voucher</span>
+          <input id="sbw-voucher" type="text" maxlength="32" autocomplete="off" placeholder="es. VCH-7K2M9Q4P (se ne hai uno)">
+        </label>
+        <button id="sbw-voucher-check" class="sbw-btn sbw-small" type="button" style="align-self:end">Verifica</button>
+      </div>
+      <span id="sbw-voucher-info" class="sbw-hint"></span>
+      <div class="sbw-grid">
+        <label class="sbw-field" for="sbw-date"><span>Data *</span>
+          <input id="sbw-date" type="date">
+        </label>
+        <label class="sbw-field" for="sbw-people"><span>Persone</span>
+          <select id="sbw-people">
+            <option value="1">1 persona</option>
+            <option value="2">2 persone</option>
+            <option value="3">3 persone</option>
+            <option value="4">4 persone</option>
+            <option value="5">5 persone</option>
+            <option value="6">6 persone</option>
+          </select>
+        </label>
+      </div>
+      <div id="sbw-persons"></div>
+      <div class="sbw-grid">
+        <label class="sbw-field" for="sbw-first"><span>Nome *</span>
+          <input id="sbw-first" type="text" autocomplete="given-name" maxlength="60">
+        </label>
+        <label class="sbw-field" for="sbw-last"><span>Cognome</span>
+          <input id="sbw-last" type="text" autocomplete="family-name" maxlength="60">
+        </label>
+        <label class="sbw-field" for="sbw-phone"><span>Telefono *</span>
+          <input id="sbw-phone" type="tel" inputmode="tel" autocomplete="tel" maxlength="30" placeholder="es. 333 1234567">
+        </label>
+        <label class="sbw-field" for="sbw-email"><span>Email</span>
+          <input id="sbw-email" type="email" autocomplete="email" maxlength="120">
+        </label>
+      </div>
+      <label class="sbw-field" for="sbw-notes"><span>Note</span>
+        <textarea id="sbw-notes" rows="2" maxlength="1000" placeholder="Allergie, preferenze, orario migliore&hellip;"></textarea>
+      </label>
+      <div aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden">
+        <input id="sbw-website" type="text" tabindex="-1" autocomplete="off">
+      </div>
+      <div class="sbw-actions">
+        <button id="sbw-send" class="sbw-btn" type="button">Invia richiesta</button>
+        <span id="sbw-status" class="sbw-status" role="status" aria-live="polite"></span>
+      </div>
+      <div class="sbw-note">* campi obbligatori. La richiesta non e una prenotazione confermata: la reception ti ricontatta per confermare l'appuntamento.</div>
+    </div>
+    <div id="sbw-done" hidden></div>
+  </div>
+  <script>    (function () {
       "use strict";
-      /* ------------------------------- CONFIG ------------------------------- */
       var API_BASE = "https://hailmarchese.it/api/spa_booking/public";
       var TOKEN = "INCOLLA_QUI_IL_TOKEN";
       var MAX_DAYS_AHEAD = 60;
-      /* L'ampersand non puo' stare scritto nel codice (vedi regola 2 in
-         testa al file): lo costruiamo quando serve per la query string. */
       var AMP = String.fromCharCode(38);
-      /* --------------------------------------------------------------------- */
-      var root = document.getElementById("sbw-widget");
-      if (!root || typeof fetch !== "function") return;
+      function $(id) { return document.getElementById(id); }
+      var sbwRoot = document.getElementById("sbw-widget");
+      if (!sbwRoot || typeof fetch !== "function") return;
       function node(tag, attrs, children) {
         var el = document.createElement(tag);
         if (attrs) {
@@ -18,282 +100,170 @@
             if (value === null || value === undefined) return;
             if (key === "class") el.className = value;
             else if (key === "text") el.textContent = value;
-            else if (key === "on") Object.keys(value).forEach(function (ev) {
-              el.addEventListener(ev, value[ev]);
-            });
+            else if (key === "on") Object.keys(value).forEach(function (ev) { el.addEventListener(ev, value[ev]); });
             else el.setAttribute(key, value);
           });
         }
         (children || []).forEach(function (child) { if (child) el.appendChild(child); });
         return el;
       }
-      function $(id) { return root.querySelector("#" + id); }
-      var boxTreatment = $("sbw-treatment");
-      var voucherInput = $("sbw-voucher");
-      var voucherCheck = $("sbw-voucher-check");
-      var voucherInfo = $("sbw-voucher-info");
-      var voucherDetails = null;
-      var inputDate = $("sbw-date");
-      var inputPeople = $("sbw-people");
-      var slotsBox = $("sbw-slots");
-      var windowHint = $("sbw-window");
-      var statusBox = $("sbw-status");
-      var sendButton = $("sbw-send");
-      var honey = $("sbw-website");
-      var chosenTime = "";
-      var sending = false;
       function say(text, kind) {
-        statusBox.textContent = text || "";
-        statusBox.className = "sbw-status" + (kind ? " " + kind : "");
+        if (statusBox) { statusBox.textContent = text || ""; statusBox.className = "sbw-status" + (kind ? " " + kind : ""); }
       }
       function pad2(value) { return (value < 10 ? "0" : "") + value; }
-      function isoDay(day) {
-        return day.getFullYear() + "-" + pad2(day.getMonth() + 1) + "-" + pad2(day.getDate());
-      }
-      /* A gentle sentence for the guest; the server's own message wins when
-         it has one (it is written for a person, in Italian). */
-      function describe(error) {
-        var status = error ? error.status : 0;
-        if (status === 404) {
-          return "Il servizio di prenotazione online non \u00e8 attivo in questo momento: chiama la reception per prenotare.";
-        }
-        if (status === 401) {
-          return "Il modulo non \u00e8 configurato correttamente. Avvisa la reception.";
-        }
-        if (status) {
-          if (error.message) return error.message;
-        }
+      function isoDay(day) { return day.getFullYear() + "-" + pad2(day.getMonth() + 1) + "-" + pad2(day.getDate()); }
+      function describe(err) {
+        var status = err ? err.status : 0;
+        if (status === 404) return "Il servizio di prenotazione online non e attivo in questo momento: chiama la reception per prenotare.";
+        if (status === 401) return "Il modulo non e configurato correttamente. Avvisa la reception.";
+        if (status) { if (err.message) return err.message; }
         return "Non riesco a contattare il servizio di prenotazione: controlla la connessione e riprova, o chiama la reception.";
       }
       function api(path, options) {
         options = options || {};
-        var headers = { Authorization: "Bearer " + TOKEN };
-        if (options.body) headers["Content-Type"] = "application/json";
-        return fetch(API_BASE + path, {
-          method: options.method || "GET",
-          headers: headers,
-          body: options.body ? JSON.stringify(options.body) : undefined,
-          mode: "cors",
-          cache: "no-store",
-        }).then(function (response) {
-          return response.text().then(function (raw) {
-            var data = null;
-            try { data = raw ? JSON.parse(raw) : null; } catch (err) { data = null; }
-            if (!response.ok) {
-              var failure = new Error((data ? data.message : null) || "HTTP " + response.status);
-              failure.status = response.status;
-              throw failure;
-            }
-            return data;
-          });
+        var h = { "Authorization": "Bearer " + TOKEN };
+        if (options.body) h["Content-Type"] = "application/json";
+        return fetch(API_BASE + path, { method: options.method || "GET", headers: h, body: options.body ? JSON.stringify(options.body) : undefined, mode: "cors", cache: "no-store" }).then(function (r) { return r.text().then(function (raw) { var data = null; try { data = raw ? JSON.parse(raw) : null; } catch (e) { data = null; } if (!r.ok) { var f = new Error((data ? data.message : null) || ("HTTP " + r.status)); f.status = r.status; throw f; } return data; }); });
+      }
+      function option(t, selected) { var o = document.createElement("option"); o.value = t.id; o.textContent = t.name + " (" + t.duration_min + " min)"; if (selected === t.id) o.selected = true; return o; }
+      function fillSlots(sel, treatmentId) {
+        sel.innerHTML = "";
+        if (!treatmentId || !dateInput || !dateInput.value) { var ph = document.createElement("option"); ph.value = ""; ph.textContent = "Scegli trattamento e data"; sel.appendChild(ph); return; }
+        var ph2 = document.createElement("option"); ph2.value = ""; ph2.textContent = "Caricamento..."; sel.appendChild(ph2);
+        var q = "/availability?date=" + encodeURIComponent(dateInput.value) + AMP + "treatment_id=" + encodeURIComponent(treatmentId);
+        api(q).then(function (data) { var slots = (data ? data.slots : null) || []; sel.innerHTML = ""; if (!slots.length) { var none = document.createElement("option"); none.value = ""; none.textContent = "Nessun orario libero"; sel.appendChild(none); return; } slots.forEach(function (slot) { var o = document.createElement("option"); o.value = slot.time; o.textContent = slot.time; sel.appendChild(o); }); }).catch(function () { sel.innerHTML = ""; var e = document.createElement("option"); e.value = ""; e.textContent = "Errore orari"; sel.appendChild(e); });
+      }
+      function createEntryRow(seedTreatmentId) {
+        var row = document.createElement("div"); row.className = "sbw-entry";
+        var treatmentSelect = document.createElement("select");
+        addTreatmentOptions(treatmentSelect, seedTreatmentId ? seedTreatmentId : null);
+        var timeSelect = document.createElement("select"); timeSelect.innerHTML = "<option value=''>-- orario --</option>";
+        treatmentSelect.addEventListener("change", function () { fillSlots(timeSelect, treatmentSelect.value); });
+        row.appendChild(treatmentSelect); row.appendChild(timeSelect);
+        if (seedTreatmentId) { fillSlots(timeSelect, seedTreatmentId); }
+        return row;
+      }
+      function createPerson(personData) {
+        var box = document.createElement("div"); box.className = "sbw-person";
+        var title = document.createElement("h4"); title.textContent = "Persona " + (personData ? (personData._index ? personData._index : 1) : 1);
+        box.appendChild(title);
+        var entries = document.createElement("div"); entries.className = "sbw-person-entries"; box.appendChild(entries);
+        var seeds = []; if (personData) { if (Array.isArray(personData.treatments)) { seeds = personData.treatments; } }
+        if (!seeds.length) seeds = [{ treatment_id: "" }];
+        seeds.forEach(function (s) { entries.appendChild(createEntryRow(s.treatment_id || "", true)); });
+        var addBtn = document.createElement("button"); addBtn.type = "button"; addBtn.className = "sbw-btn sbw-small"; addBtn.textContent = "+ trattamento";
+        addBtn.addEventListener("click", function () { entries.appendChild(createEntryRow("")); });
+        box.appendChild(addBtn); return box;
+      }
+      function renderPersons(count, voucherData) {
+        var box = $l("sbw-persons"); if (!box) return;
+        box.innerHTML = "";
+        var n = parseInt(count || "1", 10); if (isNaN(n) || n < 1) n = 1; if (n > 6) n = 6;
+        if (voucherData) { if (Array.isArray(voucherData.people)) { if (voucherData.people.length) { for (var i = 0; i < voucherData.people.length; i++) { if (i >= n) break; var p = voucherData.people[i]; if (p) p._index = i + 1; box.appendChild(createPerson(p, i + 1)); } } } }
+        else { for (var i = 0; i < n; i++) { box.appendChild(createPerson(null, i + 1)); } }
+      }
+      function collectEntries() {
+        var all = [];
+        var rows = sbwRoot.querySelectorAll("#sbw-persons .sbw-entry");
+        rows.forEach(function (row) {
+          var selects = row.querySelectorAll("select");
+          var treatment = selects[0] ? selects[0].value : "";
+          var time = selects[1] ? selects[1].value : "";
+          if (!treatment || !time) return;
+          all.push({ treatment_id: treatment, time: time });
         });
+        return all;
       }
-      function safeLabel(row) { return (row || "").replace(/</g, "&lt;"); }
-      function loadVoucher() {
-        if (!voucherInput) return;
-        var code = voucherInput.value.trim().toUpperCase();
-        if (!code) { if (voucherInfo) voucherInfo.textContent = ""; voucherDetails = null; return; }
-        if (voucherInfo) voucherInfo.textContent = "Verifica in corso&hellip;";
-        api("/voucher?code=" + encodeURIComponent(code)).then(function (data) {
-          voucherDetails = data;
-          var people = (data ? data.people : null) || [];
-          if (voucherInfo) voucherInfo.textContent = "Voucher valido: " + code + " (" + people.length + " persona/e)";
-          if (data) {
-            if (data.recipient_name) {
-              var first = $("sbw-first"); var last = $("sbw-last"); var phone = $("sbw-phone");
-              if (first) { if (!first.value) first.value = data.recipient_name.split(" ")[0] || ""; }
-              if (last) { if (!last.value) last.value = data.recipient_name.split(" ").slice(1).join(" ") || ""; }
-              if (phone) { if (!phone.value) { if (data.recipient_phone) phone.value = data.recipient_phone; } }
-            }
-          }
-          if (people.length > 1) {
-            if (voucherInfo) {
-              voucherInfo.textContent += " - il sistema ha proposto i trattamenti per la prima persona; completare manualmente per le altre.";
-            }
-          }
-          if (people.length === 1) {
-            if (people[0].treatments) {
-              if (people[0].treatments.length === 1) {
-                var t = people[0].treatments[0].treatment_id;
-                if (t) { boxTreatment.value = t; }
-              }
-            }
-          }
-        }).catch(function (err) {
-          voucherDetails = null;
-          if (voucherInfo) voucherInfo.textContent = err ? (err.message ? err.message : "Voucher non valido.") : "Voucher non valido.";
-        });
-      }
-      if (voucherCheck) {
-        voucherCheck.addEventListener("click", loadVoucher);
-      }
-      /* ---------------------------- trattamenti ---------------------------- */
       function loadTreatments() {
-        return api("/treatments").then(function (data) {
-          var list = (data ? data.treatments : null) || [];
-          boxTreatment.innerHTML = "";
-          if (!list.length) {
-            boxTreatment.appendChild(node("option", { value: "", text: "Nessun trattamento disponibile" }));
-            say("Nessun trattamento prenotabile online in questo momento.", "err");
-            return;
-          }
-          boxTreatment.appendChild(node("option", { value: "", text: "\u2014 scegli un trattamento \u2014" }));
-          var groups = {};
-          list.forEach(function (treatment) {
-            var key = treatment.category_name || "Altri trattamenti";
-            (groups[key] = groups[key] || []).push(treatment);
-          });
-          Object.keys(groups).forEach(function (category) {
-            var group = node("optgroup", { label: category });
-            groups[category].forEach(function (treatment) {
-              var parts = [treatment.name, treatment.duration_min + " min"];
-              group.appendChild(node("option", { value: treatment.id, text: parts.join(" \u00b7 ") }));
-            });
-            boxTreatment.appendChild(group);
-          });
-        }).catch(function (error) { say(describe(error), "err"); });
+        return api("/treatments").then(function (data) { var list = (data ? data.treatments : null) || []; treatments = list; renderPersons(peopleSelect ? peopleSelect.value : "1", voucherData); }).catch(function (err) { say("Impossibile caricare i trattamenti. Controlla il token.", "err"); throw err; });
       }
-      /* ------------------------------- orari ------------------------------- */
-      function clearSlots(hint) {
-        chosenTime = "";
-        slotsBox.innerHTML = "";
-        windowHint.textContent = "";
-        if (hint) slotsBox.appendChild(node("span", { class: "sbw-hint", text: hint }));
-      }
-      function selectTime(time) {
-        chosenTime = time;
-        var buttons = slotsBox.querySelectorAll(".sbw-slot");
-        Array.prototype.forEach.call(buttons, function (button) {
-          button.setAttribute("aria-pressed", button.textContent === time ? "true" : "false");
-        });
-        say("");
-      }
-      function loadSlots() {
-        var treatmentId = boxTreatment.value;
-        var day = inputDate.value;
-        if (!treatmentId || !day) {
-          clearSlots("Scegli prima il trattamento e la data.");
-          return Promise.resolve();
-        }
-        clearSlots("Cerco gli orari liberi\u2026");
-        var query = "/availability?date=" + encodeURIComponent(day) +
-                    AMP + "treatment_id=" + encodeURIComponent(treatmentId);
-        return api(query).then(function (data) {
-          var slots = (data ? data.slots : null) || [];
-          clearSlots("");
-          if (!slots.length) {
-            slotsBox.appendChild(node("span", { class: "sbw-hint",
-              text: "Nessun orario libero in questa data: prova un altro giorno o chiama la reception." }));
-            return;
-          }
-          var windowText = data.open_time + "\u2013" + data.close_time;
-          if (data.break_start) {
-            if (data.break_end) {
-              windowText = data.open_time + "\u2013" + data.break_start +
-                           " e " + data.break_end + "\u2013" + data.close_time;
-            } else {
-              windowText = data.open_time + "\u2013" + data.break_start;
+      function loadVoucher() {
+        var code = voucherInput ? voucherInput.value.trim().toUpperCase() : "";
+        if (!code) { if (voucherInfo) voucherInfo.textContent = ""; return; }
+        if (voucherInfo) voucherInfo.textContent = "Verifica in corso...";
+        api("/treatments?code=" + encodeURIComponent(code)).then(function (data) {
+          var voucher = data ? data.voucher : null;
+          if (!voucher) { if (voucherInfo) voucherInfo.textContent = "Voucher non valido."; return; }
+          voucherData = voucher;
+          var people = voucher.people ? voucher.people : null;
+          if (!people) people = [];
+          if (voucherInfo) voucherInfo.textContent = "Voucher valido: " + code + " (" + people.length + " persona/e)";
+          if (voucher) {
+            if (voucher.recipient_name) {
+              var f = $("sbw-first"); var l = $("sbw-last"); var ph = $("sbw-phone");
+              if (f) if (!f.value) f.value = voucher.recipient_name.split(" ")[0] || "";
+              if (l) if (!l.value) l.value = voucher.recipient_name.split(" ").slice(1).join(" ") || "";
+              if (ph) if (!ph.value) if (voucher.recipient_phone) ph.value = voucher.recipient_phone;
             }
-          } else if (data.break_end) {
-            windowText = data.break_end + "\u2013" + data.close_time;
           }
-          windowHint.textContent = "Orari proposti: " + windowText +
-                                   " \u00b7 durata " + data.duration_min + " min";
-          slots.forEach(function (slot) {
-            slotsBox.appendChild(node("button", {
-              type: "button", class: "sbw-slot", text: slot.time,
-              "aria-pressed": "false", "aria-label": "Orario " + slot.time,
-              on: { click: function () { selectTime(slot.time); } },
-            }));
-          });
-        }).catch(function (error) {
-          clearSlots("");
-          slotsBox.appendChild(node("span", { class: "sbw-hint", text: describe(error) }));
+          var pc = $("sbw-people");
+          if (pc) { pc.value = people.length > 0 ? people.length : "1"; renderPersons(pc ? pc.value : 1, voucherData); }
+        }).catch(function (err) { if (voucherInfo) voucherInfo.textContent = err ? (err.message ? err.message : "Voucher non valido.") : "Voucher non valido."; });
+      }
+      if (voucherBtn) { voucherBtn.addEventListener("click", loadVoucher); }
+      if (peopleSelect) { peopleSelect.addEventListener("change", function () { renderPersons(peopleSelect.value, voucherData); }); }
+      function submit() {
+        var sendBtn = sbwRoot.querySelector("#sbw-send");
+        if (!sendBtn) { return; }
+        if (honey) { if (honey.value) { return; } }
+        if (!dateInput || !dateInput.value) { say("Scegli la data.", "err"); return; }
+        var entries = collectEntries();
+        if (!entries.length) { say("Aggiungi almeno un trattamento e un orario.", "err"); return; }
+        var firstVal = first ? first.value.trim() : "";
+        var lastVal = last ? last.value.trim() : "";
+        var phoneVal = phone ? phone.value.trim() : "";
+        var emailVal = email ? email.value.trim() : "";
+        var notesVal = notes ? notes.value.trim() : "";
+        var voucherVal = voucherInput ? voucherInput.value.trim().toUpperCase() : "";
+        if (!(firstVal || lastVal)) { say("Indica il tuo nome.", "err"); return; }
+        if (!phoneVal) { say("Indica un numero di telefono: serve per confermare.", "err"); return; }
+        sending = true;
+        sendBtn.disabled = true;
+        say("Invio la richiesta...");
+        var payload = { date: dateInput.value, entries: entries, first_name: firstVal, last_name: lastVal, phone: phoneVal, email: emailVal, notes: notesVal, voucher_code: voucherVal, people: parseInt(peopleSelect ? peopleSelect.value : "1", 10) || 1 };
+        api("/requests", { method: "POST", body: payload }).then(function (data) {
+          sending = false;
+          sendBtn.disabled = false;
+          var d = $("sbw-done");
+          var f = $("sbw-form");
+          if (f) f.hidden = true;
+          if (d) {
+            d.hidden = false;
+            d.innerHTML = "";
+            var receipt = document.createElement("div");
+            receipt.className = "sbw-receipt";
+            var codeValue = "\u2014";
+            if (data) { if (data.code) codeValue = data.code; }
+            receipt.textContent = "Richiesta inviata. Codice della richiesta: " + codeValue;
+            d.appendChild(receipt);
+          }
+          say("", "ok");
+        }).catch(function (err) {
+          sending = false;
+          sendBtn.disabled = false;
+          say(err ? (err.message ? err.message : "Errore") : "Errore", "err");
         });
       }
-      /* ------------------------------ invio ------------------------------- */
-      function receipt(data) {
-        $("sbw-form").hidden = true;
-        var done = $("sbw-done");
-        done.innerHTML = "";
-        done.hidden = false;
-        done.appendChild(node("div", { class: "sbw-receipt" }, [
-          node("div", { class: "sbw-ok", text: "\u2713" }),
-          node("h3", { class: "sbw-title", text: "Richiesta inviata" }),
-          node("p", { text: "Codice della richiesta" }),
-          node("div", { class: "sbw-code", text: String((data ? data.code : null) || "\u2014") }),
-          node("p", { text: "La reception ti ricontatta al numero indicato per confermare l'appuntamento." }),
-          node("button", { type: "button", class: "sbw-btn", text: "Fai un'altra richiesta",
-            on: { click: function () { resetForm(); } } }),
-        ]));
-      }
-      function resetForm() {
-        ["sbw-first", "sbw-last", "sbw-phone", "sbw-email", "sbw-notes", "sbw-voucher"].forEach(function (id) {
-          $(id).value = "";
-        });
-        $("sbw-done").hidden = true;
-        $("sbw-form").hidden = false;
-        sendButton.disabled = false;
-        spin(false);
-        say("");
-        clearSlots("Scegli prima il trattamento e la data.");
-        loadSlots();
-      }
-      function spin(on) {
-        sending = on;
-        sendButton.disabled = on;
-        sendButton.setAttribute("aria-busy", on ? "true" : "false");
-      }
-      function send() {
-        if (sending) return;
-        if (honey.value) return; /* esca: un robot l'ha compilata, si finge inviato */
-        if (!boxTreatment.value) { say("Scegli il trattamento.", "err"); return; }
-        if (!inputDate.value) { say("Scegli la data.", "err"); return; }
-        if (!chosenTime) { say("Scegli l'orario.", "err"); return; }
-        var first = $("sbw-first").value.trim();
-        var last = $("sbw-last").value.trim();
-        var phone = $("sbw-phone").value.trim();
-        var email = $("sbw-email").value.trim();
-        var notes = $("sbw-notes").value.trim();
-        var voucher = $("sbw-voucher").value.trim().toUpperCase();
-        if (!(first || last)) { say("Indica il tuo nome.", "err"); return; }
-        if (!phone) { say("Indica un numero di telefono: serve per confermare.", "err"); return; }
-        spin(true);
-        say("Invio la richiesta\u2026");
-        api("/requests", {
-          method: "POST",
-          body: {
-            date: inputDate.value,
-            entries: [{ treatment_id: boxTreatment.value, time: chosenTime }],
-            first_name: first,
-            last_name: last,
-            phone: phone,
-            email: email,
-            notes: notes,
-            voucher_code: voucher,
-            people: Number(inputPeople.value) || 1,
-          },
-        }).then(function (data) {
-          spin(false);
-          receipt(data || {});
-        }).catch(function (error) {
-          spin(false);
-          say(describe(error), "err");
-        });
-      }
-      /* ------------------------------ avvio ------------------------------- */
-      if (TOKEN.indexOf("INCOLLA") === 0) {
-        say("Modulo non configurato: manca il token. Avvisa la reception.", "err");
-      }
+      var sending = false;
       var start = new Date();
       start.setHours(12, 0, 0, 0);
       var end = new Date(start.getTime() + MAX_DAYS_AHEAD * 86400000);
-      inputDate.min = isoDay(start);
-      inputDate.max = isoDay(end);
-      if (boxTreatment) boxTreatment.addEventListener("change", function () { say(""); loadSlots(); });
-      if (inputDate) inputDate.addEventListener("change", function () { say(""); loadSlots(); });
-      if (sendButton) sendButton.addEventListener("click", send);
-      clearSlots("Scegli prima il trattamento e la data.");
-      loadTreatments();
+      if (dateInput) { dateInput.min = isoDay(start); dateInput.max = isoDay(end); }
+      if (dateInput) { dateInput.addEventListener("change", function () { /* no-op needed per row */ }); }
+      if (peopleSelect) { peopleSelect.addEventListener("change", function () { renderPersons(peopleSelect.value, voucherData); }); }
+      renderPersons(peopleSelect ? peopleSelect.value : "1", null);
+      if (voucherBtn) { voucherBtn.addEventListener("click", loadVoucher); }
+      loadTreatments().then(function () { renderPersons(peopleSelect ? peopleSelect.value : "1", voucherData); });
+      if (sendBtn) { sendBtn.addEventListener("click", submit); }
       window.__sbwStarted = true;
+    })();</script>
+  <script>
+    window.__sbwStarted || (function () {
+      var sel = document.getElementById("sbw-treatment");
+      var st = document.getElementById("sbw-status");
+      if (sel) { sel.innerHTML = '<option value="">Caricamento non riuscito: chiama la reception per prenotare.</option>'; }
+      if (st) { st.textContent = "Il modulo non e' stato caricato correttamente: contattare la reception."; st.className = "sbw-status err"; }
+      console.error("sbw: script principale non arrivato a fine esecuzione (codice alterato?)");
     })();
+  </script>
+</div>
