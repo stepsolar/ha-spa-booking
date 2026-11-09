@@ -1,4 +1,4 @@
-<!-- Home Assistant - Spa Booking card (standalone frontend) -->
+<!-- Spa Booking Card - gestione appuntamenti SPA -->
 <div id="sbw-widget" class="sbw">
   <style>
     .sbw{--sbw-accent:var(--wp--preset--color--primary,#2f7de1);max-width:680px;margin:0 auto;color:inherit;font-size:15px;line-height:1.4;text-align:left}
@@ -19,6 +19,10 @@
     .sbw-btn{padding:10px 20px;font:inherit;font-weight:600;color:#fff;cursor:pointer;background:var(--sbw-accent);border:0;border-radius:8px}
     .sbw-btn[disabled]{opacity:.55;cursor:default}
     .sbw-status{font-size:.9em}.sbw-status.err{color:#c62828}.sbw-status.ok{color:#2e7d32}
+    .sbw-person{border:1px solid rgba(128,128,128,.25);border-radius:10px;padding:10px;margin:0 0 14px;background:rgba(128,128,128,.04)}
+    .sbw-person h4{margin:0 0 6px;font-size:.95em}
+    .sbw-entry{display:flex;gap:8px;margin:0 0 8px}
+    .sbw-entry select{width:100%}
     .sbw-receipt{text-align:center}.sbw-receipt .sbw-ok{font-size:2.2em;line-height:1;color:#2e7d32}
     .sbw-receipt p{display:block;margin:10px 0;opacity:.85}
     .sbw-code{display:inline-block;margin:4px 0 10px;padding:8px 18px;font-size:1.5em;font-weight:700;letter-spacing:.06em;border:1px dashed rgba(128,128,128,.6);border-radius:10px}
@@ -83,7 +87,7 @@
     </div>
     <div id="sbw-done" hidden></div>
   </div>
-  <script>    (function () {
+  <script>    (function(){
       "use strict";
       var API_BASE = "https://hailmarchese.it/api/spa_booking/public";
       var TOKEN = "INCOLLA_QUI_IL_TOKEN";
@@ -133,10 +137,9 @@
         var q = "/availability?date=" + encodeURIComponent(dateInput.value) + AMP + "treatment_id=" + encodeURIComponent(treatmentId);
         api(q).then(function (data) { var slots = (data ? data.slots : null) || []; sel.innerHTML = ""; if (!slots.length) { var none = document.createElement("option"); none.value = ""; none.textContent = "Nessun orario libero"; sel.appendChild(none); return; } slots.forEach(function (slot) { var o = document.createElement("option"); o.value = slot.time; o.textContent = slot.time; sel.appendChild(o); }); }).catch(function () { sel.innerHTML = ""; var e = document.createElement("option"); e.value = ""; e.textContent = "Errore orari"; sel.appendChild(e); });
       }
-      function createEntryRow(seedTreatmentId) {
+      function createEntryRow(treatmentId) {
         var row = document.createElement("div"); row.className = "sbw-entry";
-        var treatmentSelect = document.createElement("select");
-        addTreatmentOptions(treatmentSelect, seedTreatmentId ? seedTreatmentId : null);
+        var treatmentSelect = document.createElement("select"); addTreatmentOptions(treatmentSelect, seedTreatmentId ? seedTreatmentId : "");
         var timeSelect = document.createElement("select"); timeSelect.innerHTML = "<option value=''>-- orario --</option>";
         treatmentSelect.addEventListener("change", function () { fillSlots(timeSelect, treatmentSelect.value); });
         row.appendChild(treatmentSelect); row.appendChild(timeSelect);
@@ -159,8 +162,8 @@
         var box = $l("sbw-persons"); if (!box) return;
         box.innerHTML = "";
         var n = parseInt(count || "1", 10); if (isNaN(n) || n < 1) n = 1; if (n > 6) n = 6;
-        if (voucherData) { if (Array.isArray(voucherData.people)) { if (voucherData.people.length) { for (var i = 0; i < voucherData.people.length; i++) { if (i >= n) break; var p = voucherData.people[i]; if (p) p._index = i + 1; box.appendChild(createPerson(p, i + 1)); } } } }
-        else { for (var i = 0; i < n; i++) { box.appendChild(createPerson(null, i + 1)); } }
+        if (voucherData) { if (Array.isArray(voucherData.people)) { if (voucherData.people.length) { for (var i = 0; i < voucherData.people.length; i++) { if (i >= n) break; var p = voucherData.people[i]; if (p) p._index = i + 1; box.appendChild(createPerson(p, i + 1)); } } }
+        } else { for (var i = 0; i < n; i++) { box.appendChild(createPerson(null, i + 1)); } }
       }
       function collectEntries() {
         var all = [];
