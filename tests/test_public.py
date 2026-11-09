@@ -96,3 +96,52 @@ def test_desk_request_still_books_every_person(web) -> None:
     )
     request_id = next(r["id"] for r in coordinator.requests if r["code"] == result["code"])
     assert run(coordinator.async_confirm_request(request_id))["count"] == 2
+
+
+def test_editing_a_request_rewrites_it(web, sent) -> None:
+    coordinator, day = web
+    first = run(
+        coordinator.async_create_request(
+            first_name="Anna", phone="392 1234567", date=day.isoformat(),
+            entries=[{"treatment_id": MASSAGE, "time": "10:00"}],
+        )
+    )
+    acknowledgements = len(sent)
+    original = next(r for r in coordinator.requests if r["code"] == first["code"])
+    edited = run(
+        coordinator.async_create_request(
+            first_name="Anna", phone="392 1234567", date=day.isoformat(), people=2,
+            entries=[
+                {"treatment_id": MASSAGE, "time": "10:00", "person": 0},
+                {"treatment_id": "trt_ingresso_90", "time": "11:00", "person": 1},
+            ],
+            request_id=original["id"],
+        )
+    )
+    assert len(coordinator.requests) == 1  # no duplicate left behind
+    assert edited["code"] == first["code"]
+    assert coordinator.requests[0]["people"] == 2
+    assert len(sent) == acknowledgements  # the guest is not messaged again
+
+
+def test_confirmed_request_cannot_be_rewritten(web) -> None:
+    from custom_components.spa_booking.exceptions import ValidationError
+
+    coordinator, day = web
+    first = run(
+        coordinator.async_create_request(
+            first_name="Anna", phone="392 1234567", date=day.isoformat(),
+            entries=[{"treatment_id": MASSAGE, "time": "10:00"}],
+        )
+    )
+    request_id = coordinator.requests[0]["id"]
+    run(coordinator.async_confirm_request(request_id))
+    with pytest.raises(ValidationError):
+        run(
+            coordinator.async_create_request(
+                first_name="Anna", phone="392 1234567", date=day.isoformat(),
+                entries=[{"treatment_id": MASSAGE, "time": "12:00"}],
+                request_id=request_id,
+            )
+        )
+    assert first["code"]

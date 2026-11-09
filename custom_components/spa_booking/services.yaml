@@ -1581,6 +1581,13 @@ create_request:
     occupa la fascia e non compare in agenda; al salvataggio parte un messaggio
     WhatsApp di presa in carico. Poi si conferma dalla scheda Richieste.
   fields:
+    request_id:
+      name: Richiesta da modificare
+      description: >-
+        Id di una richiesta ancora in attesa: viene riscritta (stesso codice,
+        nessun nuovo messaggio all'ospite) invece di crearne una nuova.
+      selector:
+        text:
     date:
       name: Data
       description: Giorno richiesto, in formato AAAA-MM-GG.

@@ -972,6 +972,8 @@ CREATE_REQUEST_SCHEMA = vol.Schema(
         vol.Optional(ATTR_GUEST_TYPE, default=GUEST_TYPE_DEFAULT): vol.In(
             GUEST_TYPE_NAMES
         ),
+        #: Rewrite this request instead of adding a new one (card "Modifica").
+        vol.Optional(ATTR_REQUEST_ID): vol.Any(cv.string, None),
     },
     extra=vol.PREVENT_EXTRA,
 )
@@ -1254,6 +1256,7 @@ async def _async_create_request(call: ServiceCall) -> ServiceResponse:
         voucher_code=data.get("voucher_code", ""),
         guest_type=data.get(ATTR_GUEST_TYPE, GUEST_TYPE_DEFAULT),
         user_id=user_id,
+        request_id=data.get(ATTR_REQUEST_ID),
     )
 
 
