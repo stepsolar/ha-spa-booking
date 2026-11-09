@@ -12,7 +12,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
-from .const import STATUS_CONFIRMED
+from .const import BOOKING_STATUSES
 from .coordinator import SpaBookingCoordinator
 
 KIND_TODAY = "appointments_today"
@@ -124,12 +124,12 @@ class SpaBookingSensor(CoordinatorEntity[SpaBookingCoordinator], SensorEntity):
         return self.coordinator.agenda(day)
 
     def _upcoming(self) -> dict[str, Any] | None:
-        """Return the next confirmed appointment that has not ended."""
+        """Return the next appointment holding a slot that has not ended."""
         now = dt_util.utcnow()
         upcoming = [
             self.coordinator.appointment_payload(appointment)
             for appointment in self.coordinator.appointments
-            if appointment["status"] == STATUS_CONFIRMED
+            if appointment["status"] in BOOKING_STATUSES
             and (dt_util.parse_datetime(appointment["end"]) or now) > now
         ]
         if not upcoming:

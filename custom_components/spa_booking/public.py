@@ -335,6 +335,9 @@ class SpaBookingPublicRequestView(_PublicView):
             if not isinstance(entries, list) or not entries:
                 raise ValidationError("Aggiungi almeno un trattamento")
             clean_entries: list[dict[str, Any]] = []
+            # The entries already placed, so two people cannot both be
+            # promised the one operator who is free at that hour.
+            planned: list[dict[str, Any]] = []
             for entry in entries:
                 if not isinstance(entry, dict):
                     continue
@@ -350,7 +353,7 @@ class SpaBookingPublicRequestView(_PublicView):
                 # that is already gone would only make the desk's first call
                 # an awkward one.
                 availability = await coordinator.async_public_availability(
-                    day, treatment_id
+                    day, treatment_id, planned
                 )
                 offered = {slot["time"] for slot in availability["slots"]}
                 if clock not in offered:
@@ -358,6 +361,9 @@ class SpaBookingPublicRequestView(_PublicView):
                         f"L'orario {clock} non è più disponibile per "
                         f"{availability['treatment_name']}"
                     )
+                planned.append(
+                    coordinator.plan_public_entry(day, treatment_id, clock, planned)
+                )
                 clean_entries.append({"treatment_id": treatment_id, "time": clock})
             if not clean_entries:
                 raise ValidationError("Trattamento non valido nella richiesta")

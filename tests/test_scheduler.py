@@ -154,3 +154,51 @@ def test_voucher_expiry_skips_expired_and_far(coordinator, sent, freeze) -> None
     coordinator._data[KEY_VOUCHERS] = [_voucher("2026-11-01"), {**_voucher("2027-06-01"), "id": "v2"}]
     assert run(coordinator.async_send_voucher_expiry_reminders())["sent"] == 0
     assert not sent
+
+
+def _confirmed_booking(coordinator, start, phone="333 1234567"):
+    maria = coordinator.operators[0]["id"]
+    booked = run(
+        coordinator.async_create_appointment(
+            treatment_id="trt_massaggio_relax_90",
+            start=start,
+            first_name="Anna",
+            phone=phone,
+            operator_ids=[maria],
+        )
+    )
+    for appointment in coordinator.appointments:
+        if appointment["id"] == booked["id"]:
+            appointment["status"] = "confirmed"
+    return booked
+
+
+def test_reminder_sent_once(coordinator, sent, freeze) -> None:
+    freeze("2026-11-10 10:00")
+    _confirmed_booking(coordinator, "2026-11-11 09:00")
+    assert run(coordinator.async_send_reminders())["sent"] == 1
+    assert run(coordinator.async_send_reminders())["sent"] == 0
+    assert len(sent) == 1
+
+
+def test_review_request_retried_after_failure(coordinator, sent, freeze, monkeypatch) -> None:
+    from custom_components.spa_booking import messaging
+
+    freeze("2026-11-10 08:00")
+    _confirmed_booking(coordinator, "2026-11-10 09:00")
+    freeze("2026-11-10 17:00")  # ended 10:30, asked after 6 hours
+
+    async def failing(hass, chat_id, message, blocking=True, waha=None):
+        return {"sent": False, "error": "telefono spento"}
+
+    monkeypatch.setattr(messaging, "async_send_whatsapp", failing)
+    assert run(coordinator.async_send_review_requests())["failed"] == 1
+    assert not coordinator.appointments[0]["review_request_sent"]
+
+    async def working(hass, chat_id, message, blocking=True, waha=None):
+        sent.append(chat_id)
+        return {"sent": True}
+
+    monkeypatch.setattr(messaging, "async_send_whatsapp", working)
+    assert run(coordinator.async_send_review_requests())["sent"] == 1
+    assert coordinator.appointments[0]["review_request_sent"]

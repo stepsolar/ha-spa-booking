@@ -57,6 +57,7 @@ def build_coordinator(data: dict[str, Any] | None = None) -> SpaBookingCoordinat
     coordinator.entry = MagicMock(entry_id="test_entry", data={}, title="Spa")
     coordinator._store = _FakeStore()
     coordinator._lock = asyncio.Lock()
+    coordinator._send_lock = asyncio.Lock()
     coordinator._external_messages = deque(maxlen=20)
     coordinator._waha_inbound = None
     coordinator._card_version = ""

@@ -1604,6 +1604,18 @@ _REFUSE_DATE = re.compile(r"(\d{2})-(\d{2})-(\d{4})")
 _REFUSE_TIME = re.compile(r"(\d{1,2})[:.](\d{2})")
 
 
+def _same_slot(appointment: dict[str, Any], treatment_id: str, start: Any) -> bool:
+    """Whether an edit keeps an appointment's treatment and start time."""
+    if appointment.get("treatment_id") != treatment_id:
+        return False
+    try:
+        new_start = dt_util.as_utc(as_aware_datetime(start))
+    except (TypeError, ValueError, HomeAssistantError):
+        return False
+    old_start = dt_util.parse_datetime(str(appointment.get("start") or ""))
+    return old_start is not None and dt_util.as_utc(old_start) == new_start
+
+
 def _norm_slot_block(raw: dict[str, Any]) -> dict[str, Any]:
     """Return a refused time window with every expected key.
 
@@ -1763,6 +1775,9 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.entry = entry
         self._store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
         self._lock = asyncio.Lock()
+        # Serialises the timed sending jobs among themselves, so the data lock
+        # is only held to read and mark records, never while WhatsApp answers.
+        self._send_lock = asyncio.Lock()
         self._data: dict[str, Any] = default_data()
         # The inbound WhatsApp handler, once the gateway is switched on.
         self._waha_inbound: WahaInbound | None = None
@@ -2285,9 +2300,20 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         candidates = appointment.get("offer_candidates") or []
         closed = self._closed_operator_ids(start, end)
+        treatment = next(
+            (t for t in self.treatments if t["id"] == appointment.get("treatment_id")),
+            None,
+        )
+        pause = self._treatment_pause_min(treatment) if treatment else 0
         for index in range(appointment.get("offer_index", 0) + 1, len(candidates)):
             operator_id = candidates[index]
             if self._slot_blocked(operator_id, start, end) or operator_id in closed:
+                continue
+            # Booked elsewhere since the offer started: asking her would only
+            # end in a double booking.
+            if self._operator_clash(
+                operator_id, start, end, pause, exclude_ids={appointment.get("id")}
+            ):
                 continue
             return operator_id, index
         return None, len(candidates)
@@ -2762,22 +2788,15 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Return the pause required after an appointment's category.
 
         The pause belongs to the appointment already on the book: it is what
-        its masseuse needs before taking the next one.
+        its masseuse needs before taking the next one. An appointment whose
+        treatment was deleted since needs no pause (and must not make every
+        later booking fail with "not found").
         """
-        treatment = self._find(
-            self.treatments, appointment["treatment_id"], "Trattamento"
+        treatment = next(
+            (t for t in self.treatments if t["id"] == appointment.get("treatment_id")),
+            None,
         )
-        if not treatment or not treatment.get("category_id"):
-            return 0
-        category = self._find(
-            self.categories, treatment["category_id"], "Categoria"
-        )
-        if not category:
-            return 0
-        try:
-            return max(0, int(category.get("pause_min") or 0))
-        except (TypeError, ValueError):
-            return 0
+        return self._treatment_pause_min(treatment) if treatment else 0
 
     def _treatment_pause_min(self, treatment: dict[str, Any]) -> int:
         """Return the pause required after this treatment's category.
@@ -2795,6 +2814,43 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except (TypeError, ValueError):
             return 0
 
+    def _operator_clash(
+        self,
+        operator_id: str,
+        start: datetime,
+        end: datetime,
+        pause_min: int = 0,
+        planned: list[dict[str, Any]] | None = None,
+        exclude_ids: set[str] | None = None,
+    ) -> dict[str, Any] | None:
+        """Return the appointment that keeps ``operator_id`` busy, if any.
+
+        The pause works both ways: an existing appointment keeps the operator
+        busy until its end plus its category's pause, and the new one needs
+        its own pause before the next appointment starts. Before 2.1 only the
+        first half was checked, so a massage ending at 10:00 could be booked
+        right before one starting at 10:00.
+        """
+        start_utc = dt_util.as_utc(start)
+        end_utc = dt_util.as_utc(end) + timedelta(minutes=max(0, pause_min))
+        for appointment in [*self.appointments, *(planned or [])]:
+            if appointment.get("operator_id") != operator_id:
+                continue
+            if exclude_ids and appointment.get("id") in exclude_ids:
+                continue
+            if not occupies_slot(appointment):
+                continue
+            other_start = dt_util.parse_datetime(appointment["start"])
+            other_end = dt_util.parse_datetime(appointment["end"])
+            if other_start is None or other_end is None:
+                continue
+            other_guard = dt_util.as_utc(other_end) + timedelta(
+                minutes=self._pause_min_for(appointment)
+            )
+            if dt_util.as_utc(other_start) < end_utc and other_guard > start_utc:
+                return appointment
+        return None
+
     def _find_conflict(
         self,
         operator_id: str | None,
@@ -2806,6 +2862,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         person_index: int | None = None,
         staged_clients: list[dict[str, Any]] | None = None,
         force_client_overlap: bool = False,
+        pause_min: int = 0,
     ) -> dict[str, Any] | None:
         """Return the first overlapping appointment, if any.
 
@@ -2864,13 +2921,10 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "reason": "client",
                     **self.appointment_payload(appointment, staged_clients),
                 }
-            if operator_id and appointment["operator_id"] == operator_id:
-                other_guard = dt_util.as_utc(other_end) + timedelta(
-                    minutes=self._pause_min_for(appointment)
-                )
-                if not (other_start < end_utc and other_guard > start_utc):
-                    continue
-                return {"reason": "operator", **self.appointment_payload(appointment)}
+        if operator_id:
+            clash = self._operator_clash(operator_id, start, end, pause_min, planned)
+            if clash is not None:
+                return {"reason": "operator", **self.appointment_payload(clash)}
         return None
 
     @staticmethod
@@ -2928,8 +2982,14 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         person_index: int | None = None,
         batch_id: str | None = None,
         defer_operator: bool = False,
+        forward_pause: bool = True,
     ) -> tuple[dict[str, Any], dict[str, Any], bool]:
         """Validate one booking and return it without appending anything.
+
+        ``forward_pause`` applies this treatment's own pause before the next
+        appointment of the operator. An edit that keeps the same time and
+        treatment passes False, so a back-to-back pair booked before the rule
+        existed can still be edited (notes, payment) without being refused.
 
         Everything that can be refused happens here, so a multi-row booking can
         be checked in full before a single record is written: a booking refused
@@ -3006,6 +3066,19 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             offer_state, assigned = OFFER_NONE, None
         elif candidates:
+            own_pause = self._treatment_pause_min(treatment) if forward_pause else 0
+            # Offer first to whoever is actually free: a busy first choice
+            # used to make the whole booking fail even with a colleague free.
+            # When everybody is busy the first one stays, so the error below
+            # names the appointment in the way.
+            free = [
+                oid
+                for oid in candidates
+                if self._operator_clash(oid, start_dt, end_dt, own_pause, planned)
+                is None
+            ]
+            if free:
+                candidates = free
             offer_state, assigned = OFFER_PENDING, candidates[0]
         else:
             # Every able operator already refused this window: the booking is
@@ -3032,6 +3105,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             person_index=person_index,
             staged_clients=staged_clients,
             force_client_overlap=force_client_overlap,
+            pause_min=self._treatment_pause_min(treatment) if forward_pause else 0,
         )
         if conflict is not None:
             raise self._overlap_error(conflict)
@@ -3296,6 +3370,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             try:
                 rebuilt, client, is_new_client = self._prepare_booking(
+                    forward_pause=not _same_slot(appointment, treatment_id, start),
                     treatment_id=treatment_id,
                     start=start,
                     client_id=client_id or appointment["client_id"],
@@ -3974,54 +4049,55 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         with no usable phone is marked sent without a message: there is nothing
         to retry and it should not pile up in the pending queue.
         """
+        async with self._send_lock:
+            return await self._async_send_promo_vouchers()
+
+    async def _async_send_promo_vouchers(self) -> dict[str, Any]:
+        """The body of ``async_send_promo_vouchers``, under the send lock."""
         now = dt_util.utcnow()
-        sent = 0
+        sent_ids: set[str] = set()
         failed = 0
-        skipped = 0
-        async with self._lock:
-            for voucher in self.promo_vouchers:
-                if voucher.get("status") != PROMO_VOUCHER_PENDING:
-                    continue
-                due = dt_util.parse_datetime(str(voucher.get("send_at") or ""))
-                if due is not None and due > now:
-                    continue
-                phone = str(voucher.get("phone") or "").strip()
-                chat_id = messaging.whatsapp_chat_id(phone)
-                if not chat_id:
-                    voucher["status"] = PROMO_VOUCHER_SENT
-                    voucher["sent_at"] = now.isoformat()
-                    skipped += 1
-                    continue
-                try:
-                    result = await messaging.async_send_whatsapp(
-                        self.hass,
-                        chat_id,
-                        self.format_promo_voucher(voucher),
-                        waha=self.waha,
-                    )
-                except Exception as err:  # noqa: BLE001
-                    failed += 1
-                    _LOGGER.warning(
-                        "Voucher fedelta %s non inviato a %s: %s",
-                        voucher.get("code") or "?",
-                        phone or "?",
-                        err,
-                    )
-                    continue
-                if result.get("sent"):
-                    voucher["status"] = PROMO_VOUCHER_SENT
-                    voucher["sent_at"] = now.isoformat()
-                    sent += 1
-                else:
-                    failed += 1
-                    _LOGGER.warning(
-                        "Voucher fedelta %s non inviato a %s: %s",
-                        voucher.get("code") or "?",
-                        phone or "?",
-                        result.get("error") or "errore sconosciuto",
-                    )
-            if sent or skipped:
+        skipped_ids: set[str] = set()
+        due: list[tuple[str, str, str, str]] = []
+        for voucher in self.promo_vouchers:
+            if voucher.get("status") != PROMO_VOUCHER_PENDING:
+                continue
+            when = dt_util.parse_datetime(str(voucher.get("send_at") or ""))
+            if when is not None and when > now:
+                continue
+            phone = str(voucher.get("phone") or "").strip()
+            chat_id = messaging.whatsapp_chat_id(phone)
+            if not chat_id:
+                skipped_ids.add(voucher["id"])
+                continue
+            due.append((voucher["id"], chat_id, self.format_promo_voucher(voucher), phone))
+
+        for voucher_id, chat_id, message, phone in due:
+            try:
+                result = await messaging.async_send_whatsapp(
+                    self.hass, chat_id, message, waha=self.waha
+                )
+            except Exception as err:  # noqa: BLE001
+                result = {"sent": False, "error": str(err)}
+            if result.get("sent"):
+                sent_ids.add(voucher_id)
+            else:
+                failed += 1
+                _LOGGER.warning(
+                    "Voucher fedelta %s non inviato a %s: %s",
+                    voucher_id,
+                    phone or "?",
+                    result.get("error") or "errore sconosciuto",
+                )
+
+        if sent_ids or skipped_ids:
+            async with self._lock:
+                for voucher in self.promo_vouchers:
+                    if voucher["id"] in sent_ids | skipped_ids:
+                        voucher["status"] = PROMO_VOUCHER_SENT
+                        voucher["sent_at"] = now.isoformat()
                 await self._async_save()
+        sent, skipped = len(sent_ids), len(skipped_ids)
         return {"sent": sent, "failed": failed, "skipped": skipped}
 
     async def async_cleanup_promo_vouchers(self) -> dict[str, Any]:
@@ -4175,12 +4251,9 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             existing = [a for a in self.appointments if a.get("batch_id") == batch_id]
             id_map = {a["id"]: a for a in existing}
 
-            # Snapshot of the whole data tree and current _data so we can fully
-            # roll back on any failure (including partial client/appointment writes).
-            import copy as _copy
-            _data_snapshot = _copy.deepcopy(self._data)
-            _appointments_snapshot = [a for a in self._data[KEY_APPOINTMENTS]]
-            _clients_snapshot = [c for c in self._data[KEY_CLIENTS]]
+            # Snapshot of the whole data tree, taken before anything is
+            # touched, so any failure puts every record back exactly as it was.
+            _data_snapshot = copy.deepcopy(self._data)
 
             # Take the originals out so a rebuilt row never overlaps itself.
             for a in existing:
@@ -4313,6 +4386,8 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         force_new=force_new,
                         person_index=person_index,
                         batch_id=batch_id,
+                        forward_pause=existing_appt is None
+                        or not _same_slot(existing_appt, treatment_id, start),
                     )
                     # Preserve history on rebuild.
                     if existing_appt is not None:
@@ -4357,24 +4432,18 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     clone["batch_id"] = batch_id
                     self.appointments.append(clone)
 
-                voucher = None
-                if any(r.get("voucher_code") for r in rows if isinstance(r, dict)):
-                    # Preserve voucher redemption accounting from the anchor
-                    voucher = None
                 await self._async_save()
             except Exception:
-                # Full rollback: restore the entire data tree to its pre-mutation
-                # state.
-                self._data = _copy.deepcopy(_data_snapshot)
-                self._data[KEY_APPOINTMENTS] = [dict(a) for a in _appointments_snapshot]
-                self._data[KEY_CLIENTS] = [dict(c) for c in _clients_snapshot]
-                # Reflect the rollback back into the live views.
+                # Full rollback to the deep copy. (Up to 2.0.15 the copy was
+                # then overwritten with shallow lists of the very records the
+                # failed edit had already modified, so the "rollback" kept
+                # half of the changes.)
+                self._data = _data_snapshot
                 self.async_set_updated_data(self._data)
                 raise
             finally:
                 self._current_user_id = None
 
-        rebuilt_ids = [item[0]["id"] for item in prepared]
         return {
             "batch_id": batch_id,
             "appointments": [self.appointment_payload(item[0]) for item in prepared],
@@ -4675,10 +4744,77 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if r.get("source") == REQUEST_SOURCE_WEB and not r.get("seen", True)
         )
 
+    def plan_public_entry(
+        self,
+        day: date,
+        treatment_id: str,
+        clock: str,
+        planned: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Place one entry of a web request, so the next entries see it.
+
+        Returns a pseudo-appointment (never stored) holding the first free
+        operator, or none for a shared treatment. Call it only for a time
+        ``async_public_availability`` has just offered with the same
+        ``planned`` list.
+        """
+        treatment = next(t for t in self.treatments if t["id"] == treatment_id)
+        hour, minute = (int(part) for part in clock.split(":"))
+        start = dt_util.start_of_local_day(day) + timedelta(hours=hour, minutes=minute)
+        end = start + timedelta(minutes=int(treatment.get("duration_min") or 0))
+        operator_id = None
+        if self._treatment_requires_operator(treatment):
+            busy = [
+                a
+                for a in (*self.appointments, *planned)
+                if occupies_slot(a) and a.get("operator_id")
+            ]
+            free = self._free_operators(
+                self.operators_for_treatment(treatment_id),
+                busy,
+                start,
+                end,
+                self._treatment_pause_min(treatment),
+            )
+            operator_id = free[0] if free else None
+        return {
+            "id": f"web_planned_{len(planned)}",
+            "treatment_id": treatment_id,
+            "operator_id": operator_id,
+            "start": dt_util.as_utc(start).isoformat(),
+            "end": dt_util.as_utc(end).isoformat(),
+            "status": STATUS_CONFIRMED,
+        }
+
+    def _category_allows(
+        self,
+        treatment: dict[str, Any],
+        start: datetime,
+        end: datetime,
+        planned: list[dict[str, Any]] | None = None,
+    ) -> bool:
+        """Whether the category rules of the booking engine accept the slot."""
+        try:
+            self._validate_category_window(
+                self._category(treatment.get("category_id")), start, end
+            )
+            self._category_exclusion(treatment, start, end, planned)
+        except ValidationError:
+            return False
+        return True
+
     async def async_public_availability(
-        self, day: date, treatment_id: str
+        self,
+        day: date,
+        treatment_id: str,
+        planned: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Return the start times the website may offer for one treatment.
+
+        ``planned`` holds the other entries of the same web request, already
+        placed (see ``plan_public_entry``): two people asking for a massage
+        at the same hour need two free operators, not one free operator
+        counted twice.
 
         The window (open/close/step) is the reception's, read from settings —
         it describes the day the site proposes, not the spa's real opening
@@ -4781,15 +4917,16 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
         day_start = dt_util.start_of_local_day(day)
+        booked = [*self.appointments, *(planned or [])]
         busy = [
             a
-            for a in self.appointments
+            for a in booked
             if occupies_slot(a) and a.get("operator_id")
         ]
         shared_bookings = (
             [
                 a
-                for a in self.appointments
+                for a in booked
                 if occupies_slot(a) and a["treatment_id"] == treatment["id"]
             ]
             if max_parallel
@@ -4822,6 +4959,12 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 continue
 
             if self._closure_block_for(treatment, start, end):
+                continue
+
+            # The category's own calendar (bookable weekdays, morning and
+            # afternoon windows) and the categories it must never overlap:
+            # the desk refuses those bookings, so the site must not offer them.
+            if not self._category_allows(treatment, start, end, planned):
                 continue
 
             if requires_operator:
@@ -4932,7 +5075,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 other_end = other_end + timedelta(
                     minutes=self._pause_min_for(appointment)
                 )
-                if other_start < end and other_end > start:
+                if other_start < end + timedelta(minutes=pause) and other_end > start:
                     clash = True
                     break
             if not clash:
@@ -7911,43 +8054,46 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         else:
             deadline = now + timedelta(hours=hours)
         advance_window: timedelta = timedelta(hours=hours)
-        sent = 0
-        failed = 0
-        async with self._lock:
-            for appointment in self.appointments:
-                if appointment_id and appointment["id"] != appointment_id:
-                    continue
-                if appointment["status"] != STATUS_CONFIRMED:
-                    continue
-                if not appointment_id:
-                    if appointment.get("reminder_sent"):
+        outbox: list[tuple[str, str]] = []
+        async with self._send_lock:
+            async with self._lock:
+                for appointment in self.appointments:
+                    if appointment_id and appointment["id"] != appointment_id:
                         continue
-                    start = dt_util.parse_datetime(appointment["start"])
-                    if start is None or start <= now:
+                    if appointment["status"] != STATUS_CONFIRMED:
                         continue
-                    if hours > 0 and (start - now).total_seconds() > advance_window.total_seconds():
+                    if not appointment_id:
+                        if appointment.get("reminder_sent"):
+                            continue
+                        start = dt_util.parse_datetime(appointment["start"])
+                        if start is None or start <= now:
+                            continue
+                        if hours > 0 and (start - now).total_seconds() > advance_window.total_seconds():
+                            continue
+                    payload = self.appointment_payload(appointment)
+                    phone = (payload.get("client") or {}).get("phone") or ""
+                    chat_id = messaging.whatsapp_chat_id(phone)
+                    if not chat_id:
                         continue
-                payload = self.appointment_payload(appointment)
-                phone = (payload.get("client") or {}).get("phone") or ""
-                chat_id = messaging.whatsapp_chat_id(phone)
-                if not chat_id:
-                    continue
-                appointment["reminder_sent"] = True
-                # Use the customizable message template
-                message = self.format_appointment_reminder(payload)
-                if not message:
-                    message = self.format_reminder(payload)
+                    # Marked before sending, as before: a reminder is sent
+                    # once, a failed one is not retried an hour later.
+                    appointment["reminder_sent"] = True
+                    message = self.format_appointment_reminder(payload)
+                    if not message:
+                        message = self.format_reminder(payload)
+                    outbox.append((chat_id, message))
+                if outbox:
+                    await self._async_save()
+            # Sent outside the data lock: the desk keeps booking meanwhile.
+            sent = failed = 0
+            for chat_id, message in outbox:
                 result = await messaging.async_send_whatsapp(
-                    self.hass,
-                    chat_id,
-                    message,
-                    waha=self.waha,
+                    self.hass, chat_id, message, waha=self.waha
                 )
                 if result.get("sent"):
                     sent += 1
                 else:
                     failed += 1
-            await self._async_save()
         return {"sent": sent, "failed": failed}
 
     async def async_send_review_requests(
@@ -7983,55 +8129,66 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # because the integration was down, and a message about last month
         # arriving today would be worse than no message at all.
         oldest = now - timedelta(hours=after_hours + REVIEW_REQUEST_WINDOW_HOURS)
-        sent = 0
-        failed = 0
         asked: set[tuple[str, str]] = set()
-        async with self._lock:
-            for appointment in self.appointments:
-                if appointment_id:
-                    if appointment["id"] != appointment_id:
+        outbox: list[tuple[str, str, str]] = []
+        async with self._send_lock:
+            async with self._lock:
+                for appointment in self.appointments:
+                    if appointment_id:
+                        if appointment["id"] != appointment_id:
+                            continue
+                        if appointment["status"] == STATUS_CANCELLED:
+                            continue
+                    else:
+                        if appointment["status"] != STATUS_CONFIRMED:
+                            continue
+                        if appointment.get("review_request_sent"):
+                            continue
+                        end = dt_util.parse_datetime(appointment["end"])
+                        if end is None or end > earliest or end < oldest:
+                            continue
+                    payload = self.appointment_payload(appointment)
+                    phone = (payload.get("client") or {}).get("phone") or ""
+                    chat_id = messaging.whatsapp_chat_id(phone)
+                    if not chat_id:
                         continue
-                    if appointment["status"] == STATUS_CANCELLED:
-                        continue
-                else:
-                    if appointment["status"] != STATUS_CONFIRMED:
-                        continue
-                    if appointment.get("review_request_sent"):
-                        continue
-                    end = dt_util.parse_datetime(appointment["end"])
-                    if end is None or end > earliest or end < oldest:
-                        continue
-                payload = self.appointment_payload(appointment)
-                phone = (payload.get("client") or {}).get("phone") or ""
-                chat_id = messaging.whatsapp_chat_id(phone)
-                if not chat_id:
-                    continue
-                if not appointment_id:
-                    end = dt_util.parse_datetime(appointment["end"])
-                    day = dt_util.as_local(end).date().isoformat() if end else ""
-                    guest_day = (appointment["client_id"], day)
-                    if guest_day in asked:
-                        # Same guest, same day, already asked: the review request
-                        # is per person, not per treatment.
-                        appointment["review_request_sent"] = True
-                        continue
-                    asked.add(guest_day)
+                    if not appointment_id:
+                        end = dt_util.parse_datetime(appointment["end"])
+                        day = dt_util.as_local(end).date().isoformat() if end else ""
+                        guest_day = (appointment["client_id"], day)
+                        if guest_day in asked:
+                            # Same guest, same day, already asked: the review
+                            # request is per person, not per treatment.
+                            appointment["review_request_sent"] = True
+                            continue
+                        asked.add(guest_day)
+                    # Claimed now so a parallel run cannot ask twice; a failed
+                    # send is released below and tried again next time.
+                    appointment["review_request_sent"] = True
+                    outbox.append(
+                        (appointment["id"], chat_id, self.format_review_request(payload))
+                    )
+                if outbox or asked:
+                    await self._async_save()
+
+            sent = 0
+            failed_ids: set[str] = set()
+            for record_id, chat_id, message in outbox:
                 result = await messaging.async_send_whatsapp(
-                    self.hass,
-                    chat_id,
-                    self.format_review_request(payload),
-                    waha=self.waha,
+                    self.hass, chat_id, message, waha=self.waha
                 )
                 if result.get("sent"):
-                    # Only a message that really left marks the appointment, so
-                    # the button and the star on the card tell the truth and a
-                    # failed send can be tried again.
-                    appointment["review_request_sent"] = True
                     sent += 1
                 else:
-                    failed += 1
-            await self._async_save()
-        return {"sent": sent, "failed": failed}
+                    failed_ids.add(record_id)
+
+            if failed_ids:
+                async with self._lock:
+                    for appointment in self.appointments:
+                        if appointment["id"] in failed_ids:
+                            appointment["review_request_sent"] = False
+                    await self._async_save()
+        return {"sent": sent, "failed": len(failed_ids)}
 
     async def async_send_voucher_expiry_reminders(self) -> dict[str, Any]:
         """Remind each voucher recipient once that her voucher is expiring.
@@ -8053,6 +8210,15 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         today = dt_util.now().date()
         horizon = today + timedelta(days=reminder_days)
+        async with self._send_lock:
+            return await self._async_send_voucher_expiry(
+                template, today, horizon
+            )
+
+    async def _async_send_voucher_expiry(
+        self, template: str, today: date, horizon: date
+    ) -> dict[str, Any]:
+        """The body of ``async_send_voucher_expiry_reminders``."""
         names = {t["id"]: t["name"] for t in self.treatments}
 
         due: list[tuple[str, str, str]] = []
@@ -8265,8 +8431,12 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         today = dt_util.now().date()
         if not month or not str(month).strip():
-            last = today.replace(day=1) - timedelta(days=1)
-            return last.replace(day=1), last
+            # Last month: from its first day up to the first of this month.
+            # (Up to 2.0.15 the end was the last day itself, so the automatic
+            # report silently left out the last day of every month.)
+            this_month = today.replace(day=1)
+            last = this_month - timedelta(days=1)
+            return last.replace(day=1), this_month
 
         text = str(month).strip()
         try:
