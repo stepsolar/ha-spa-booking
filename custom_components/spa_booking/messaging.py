@@ -32,7 +32,7 @@ from .const import (
     ANSWER_WORDS_DECLINE,
 )
 
-from .waha import WahaError
+from .waha import WahaClient, WahaError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -52,18 +52,67 @@ TELEGRAM_CHUNK = 3800
 WHATSAPP_CHUNK = 1200
 
 
-def national_number(phone: str) -> str:
-    """Return an Italian phone number without its country code or trunk zero.
+#: Italian country code, the default for a number written without one.
+ITALY_CC = "39"
 
-    Only the country code is normalised away: dropping a fixed number of
-    trailing digits would merge two different subscribers.
+
+def _is_italian_national(digits: str) -> bool:
+    """Whether ``digits`` looks like an Italian number without country code.
+
+    Mobile numbers start with 3 and have 9 or 10 digits; landlines start with
+    0 (the trunk zero stays in the international form, +39 0925 …) and have
+    6 to 11 digits.
     """
-    digits = "".join(char for char in (phone or "") if char.isdigit())
-    for prefix in ("0039", "39"):
-        if digits.startswith(prefix) and len(digits) > len(prefix):
-            digits = digits[len(prefix) :]
-            break
-    return digits.lstrip("0")
+    if not digits:
+        return False
+    if digits[0] == "3":
+        return 9 <= len(digits) <= 10
+    if digits[0] == "0":
+        return 6 <= len(digits) <= 11
+    return False
+
+
+def international_digits(phone: str) -> str:
+    """Return a phone number as international digits, without ``+`` or ``00``.
+
+    The rules, in order:
+
+    * ``+…`` or ``00…`` is already international and is kept as written, so a
+      foreign guest (``+49 151 …``) is never turned into an Italian number;
+    * a valid Italian national number (``333 1234567``, ``0925 992446``) gets
+      the Italian country code. This is checked *before* looking for a
+      leading 39, because TIM mobiles start with 390–393 and 397: the old
+      code took ``392 1234567`` for "+39 21234567" and wrote to a wrong
+      number;
+    * ``39`` followed by a valid national number is Italian with its country
+      code already in place;
+    * anything else is taken as an international number typed without ``+``.
+    """
+    raw = (phone or "").strip()
+    digits = "".join(char for char in raw if char.isdigit())
+    if not digits:
+        return ""
+    if raw.startswith("+"):
+        return digits
+    if digits.startswith("00"):
+        return digits[2:]
+    if _is_italian_national(digits):
+        return f"{ITALY_CC}{digits}"
+    if digits.startswith(ITALY_CC) and _is_italian_national(digits[len(ITALY_CC):]):
+        return digits
+    return digits
+
+
+def national_number(phone: str) -> str:
+    """Return an Italian phone number without its country code.
+
+    A foreign number is returned as its full international digits, so two
+    different subscribers can never be merged by dropping a prefix.
+    """
+    digits = international_digits(phone)
+    if digits.startswith(ITALY_CC) and _is_italian_national(digits[len(ITALY_CC):]):
+        return digits[len(ITALY_CC):]
+    return digits
 
 
 def whatsapp_chat_id(phone: str, explicit: str = "") -> str:
@@ -73,29 +122,39 @@ def whatsapp_chat_id(phone: str, explicit: str = "") -> str:
     group or a number that does not match the one on her card.
     """
     if explicit.strip():
-        return explicit.strip()
-    national = national_number(phone)
+        return to_whatsapp_chat_id(explicit)
+    digits = international_digits(phone)
+    return f"{digits}@c.us" if digits else ""
+
+
+def legacy_whatsapp_chat_id(phone: str) -> str:
+    """The chat id the versions up to 2.0.15 derived from a phone number.
+
+    Only used by the storage migration, to recognise an operator chat id that
+    was computed (wrongly, for 39x numbers or landlines) rather than typed.
+    """
+    digits = "".join(char for char in (phone or "") if char.isdigit())
+    for prefix in ("0039", "39"):
+        if digits.startswith(prefix) and len(digits) > len(prefix):
+            digits = digits[len(prefix):]
+            break
+    national = digits.lstrip("0")
     return f"39{national}@c.us" if national else ""
 
 
 def to_whatsapp_chat_id(chat_id: str) -> str:
-    """Return the chat id the Whatsapp add-on expects.
+    """Return the chat id the WhatsApp add-on expects.
 
     A group (``…@g.us``) or an already-formatted id passes through; a bare
-    phone number becomes ``39…@c.us``.
+    phone number becomes ``<international digits>@c.us``.
     """
     value = (chat_id or "").strip()
     if not value:
         return ""
     if "@" in value:
         return value
-    digits = "".join(char for char in value if char.isdigit())
-    if not digits:
-        return ""
-    # Italian default: add the country code when only the national part is given.
-    if not digits.startswith("39"):
-        digits = f"39{digits}"
-    return f"{digits}@c.us"
+    digits = international_digits(value)
+    return f"{digits}@c.us" if digits else ""
 
 
 def chunk_text(text: str, limit: int) -> list[str]:
@@ -304,17 +363,24 @@ def parse_answer(text: str) -> str | None:
 
     A refusal or a confirmation word only counts when the whole reply is short
     enough to be an answer, otherwise ordinary chat ("Arrivo tra 5 minuti,
-    no?") would close an offer by accident. A real confirmation word such as
+    no?") would close an offer by accident. A real confirmation phrase such as
     "confermo" is accepted whatever the length, because it cannot be part of
-    an unrelated sentence.
+    an unrelated sentence — unless it is negated: "non confermo", "non va
+    bene" and "non accetto" are refusals, never confirmations.
     """
     if not text:
         return None
-    lowered = text.lower()
-    if any(phrase in lowered for phrase in ANSWER_PHRASES_CONFIRM):
+    tokens = _words(text)
+    joined = " " + " ".join(tokens) + " "
+    for phrase in ANSWER_PHRASES_CONFIRM:
+        index = joined.find(f" {phrase} ")
+        if index < 0:
+            continue
+        before = joined[:index].split()
+        if before and before[-1] in ANSWER_WORDS_DECLINE:
+            return ANSWER_DECLINE
         return ANSWER_CONFIRM
 
-    tokens = _words(text)
     if len(tokens) > ANSWER_MAX_WORDS:
         return None
     if any(word in tokens for word in ANSWER_WORDS_DECLINE):
@@ -369,9 +435,13 @@ def find_operator_by_chat(
             return operator
         # The add-on may report the same number as @s.whatsapp.net, @c.us or a
         # bare number, so the digits are compared as a fallback.
-        phone_digits = "".join(
-            char for char in (operator.get("phone") or "") if char.isdigit()
-        )
-        if phone_digits and wanted_digits.endswith(phone_digits):
+        # A LID (…@lid) is an opaque id, not a phone number: never compare it.
+        if wanted.lower().endswith("@lid"):
+            continue
+        phone_digits = international_digits(str(operator.get("phone") or ""))
+        if phone_digits and wanted_digits == phone_digits:
+            return operator
+        explicit_digits = "".join(char for char in explicit if char.isdigit())
+        if explicit_digits and wanted_digits == explicit_digits and "@g.us" not in explicit:
             return operator
     return None

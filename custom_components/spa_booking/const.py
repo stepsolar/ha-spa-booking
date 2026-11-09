@@ -276,17 +276,6 @@ DEFAULT_REVIEW_MESSAGE: Final = "\n".join(
     ]
 )
 
-#: Bank details the deposit request message reads out to the guest. Both live
-#: in settings, so the reception can change them from the card without touching
-#: code. The defaults match the hotel's current transfer coordinates.
-DEFAULT_DEPOSIT_INTESTATARIO: Final = "IL MARCHESE SOC COOP ARL"
-DEFAULT_DEPOSIT_IBAN: Final = "IT92Q0326882970052705511040"
-
-#: The headline shown after the title of the guest-facing appointment summary
-#: (the "RIEPILOGO APPUNTAMENTO" the guest receives on WhatsApp). Editable from
-#: the notifications tab.
-DEFAULT_GUEST_HEADER: Final = "Il Marchese Hotel & Spa"
-
 #: The message a guest receives when the desk takes her appointment request:
 #: it says the request was received and is waiting for confirmation. It is the
 #: starting point the card shows in the notifications tab, where the reception
@@ -324,18 +313,6 @@ DEFAULT_APPOINTMENT_REMINDER_MESSAGE: Final = "\n".join(
 
 DEFAULT_APPOINTMENT_REMINDER_AUTO: Final = True
 DEFAULT_APPOINTMENT_REMINDER_HOURS: Final = 24
-
-DEFAULT_REQUEST_MESSAGE: Final = "\n".join(
-    [
-        "Gentile {nome}, abbiamo ricevuto la Sua richiesta 🧖‍♀️✨",
-        "Data: {data}",
-        "Persone: {persone}",
-        "Trattamenti: {trattamenti}",
-        "",
-        "La richiesta è in attesa di conferma: La contatteremo al più presto.",
-        "Riferimento: {codice}",
-    ]
-)
 
 #: The message sent to a voucher recipient 60 days before the voucher expires.
 #: Placeholders: {nome} recipient first name, {cognome} last name,
@@ -397,44 +374,6 @@ DEFAULT_PROMO_VOUCHER_AUTO: Final = False
 #: The number of days an unused loyalty voucher is kept in storage after its
 #: code was generated, computed from the "created_at" date, before auto-deletion.
 PROMO_VOUCHER_CODE_PREFIX: Final = "FID-"
-
-#: The message asking a guest to pay her deposit by bank transfer. ``{nome}``
-#: becomes the client's first name, ``{importo}`` the amount, ``{intestatario}``
-#: and ``{iban}`` the bank details, ``{codice}`` the booking reference. It lives
-#: here as the starting point the card shows in the notifications tab.
-DEFAULT_DEPOSIT_MESSAGE: Final = "\n".join(
-    [
-        "Gentile {nome}, la Sua prenotazione è stata registrata 📋",
-        "È in attesa di conferma: per bloccare il Suo posto Le chiediamo un "
-        "acconto di € {importo} tramite bonifico bancario istantaneo.",
-        "",
-        "Intestatario: {intestatario}",
-        "IBAN: {iban}",
-        "CAUSALE: NOME E COGNOME {codice}",
-        "",
-        "Non appena riceveremo il bonifico Le confermeremo l'appuntamento. "
-        "Grazie!",
-    ]
-)
-
-DEFAULT_PROMO_MESSAGE: Final = "\n".join(
-    [
-        "Gentile {nome}, dal Il Marchese Hotel & Spa ",
-        "",
-        "Le dedichiamo un'offerta speciale per il Suo prossimo trattamento "
-        "benessere: contattarci per scoprire i dettagli.",
-        "",
-        "Il Suo codice prenotazione: {codice}",
-        "",
-        "Ti aspettiamo!",
-        "Lo Staff - Il Marchese Hotel & Spa",
-        " +39 0925 992446",
-    ]
-)
-
-DEFAULT_PROMO_INTERVAL_SEC: Final = 3
-
-DEFAULT_PROMO_TIME: Final = ""
 
 #: The guest-facing appointment summary, the message sent when a booking is
 #: confirmed. A template the reception edits from the notifications tab, so it

@@ -55,4 +55,3 @@ def test_whatsapp_chat_id_italian():
     m = import_messaging()
     assert m.whatsapp_chat_id("3331234567", "") == "393331234567@c.us"
     assert m.whatsapp_chat_id("3331234567", "399999@c.us") == "399999@c.us"
-PY

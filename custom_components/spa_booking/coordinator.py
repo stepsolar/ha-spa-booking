@@ -1828,8 +1828,32 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             stale = True
         if self._migrate_appointment_codes():
             stale = True
+        if self._migrate_operator_chat_ids():
+            stale = True
         self._sync_treatment_operator_ids()
         return self._data, stale
+
+    def _migrate_operator_chat_ids(self) -> bool:
+        """Recompute operator chat ids derived with the old phone rules.
+
+        Up to 2.0.15 a TIM mobile (390-393, 397) written without +39 lost two
+        digits, and a landline lost its trunk zero. An id that equals what the
+        old rule derived from the phone was computed, not typed, so it is
+        replaced by the correct one; a chat id typed by hand stays untouched.
+        """
+        changed = False
+        for operator in self.operators:
+            phone = str(operator.get("phone") or "")
+            stored = str(operator.get("whatsapp_chat_id") or "").strip()
+            if not phone or not stored:
+                continue
+            if stored != messaging.legacy_whatsapp_chat_id(phone):
+                continue
+            correct = messaging.whatsapp_chat_id(phone)
+            if correct and correct != stored:
+                operator["whatsapp_chat_id"] = correct
+                changed = True
+        return changed
 
     def _migrate_appointment_codes(self) -> bool:
         """Assign a 5-char booking code to every appointment missing one.
@@ -8436,28 +8460,19 @@ def _digits_only(value: str) -> str:
     return "".join(char for char in value if char.isdigit())
 
 
-def _phone_variants(digits: str) -> set[str]:
-    """Return the comparable forms of an Italian phone number.
-
-    The same number is often written as "+39 333 1234567", "00393331234567" or
-    "333 1234567". Comparing only the exact digits would miss those, and
-    comparing a fixed number of trailing digits could merge two different
-    numbers, so only the country code is normalised away.
-    """
-    variants = {digits}
-    for prefix in ("0039", "39"):
-        if digits.startswith(prefix) and len(digits) > len(prefix):
-            variants.add(digits[len(prefix) :])
-    return variants
-
-
 def _same_phone(first: str, second: str) -> bool:
-    """Return whether two phone numbers refer to the same subscriber."""
-    first_digits = _digits_only(first)
-    second_digits = _digits_only(second)
+    """Return whether two phone numbers refer to the same subscriber.
+
+    Both numbers are brought to their international digits first, so
+    "+39 333 1234567", "0039 333 1234567" and "333 1234567" are the same,
+    while a 39x TIM mobile or a foreign number is never cut down to a
+    shorter number that could belong to somebody else.
+    """
+    first_digits = messaging.international_digits(first)
+    second_digits = messaging.international_digits(second)
     if not first_digits or not second_digits:
         return False
-    return bool(_phone_variants(first_digits) & _phone_variants(second_digits))
+    return first_digits == second_digits
 
 
 def as_aware_datetime(value: datetime | date | str) -> datetime:

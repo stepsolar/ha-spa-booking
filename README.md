@@ -75,6 +75,7 @@ Dopo l'installazione l'integrazione crea un'entry configurabile dall'UI:
 - Le schede clienti sono deduplicate per telefono; operatori e trattamenti si gestiscono da card.
 
 ## Changelog recente
+- **v2.0.16**: ripristinata la card di gestione (sovrascritta per errore dal modulo del sito) e riscritto il modulo WordPress; verifica voucher dal sito di nuovo funzionante; "non confermo"/"non va bene" letti come rifiuto; numeri TIM 390-393/397, fissi e stranieri convertiti correttamente per WhatsApp (con migrazione automatica delle operatrici); rimosse le costanti duplicate.
 - **v2.0.15**: refine backend import handling for voucher status checks in public treatments endpoint.
 - **v2.0.14**: ampia zona tap agenda per aprire dettaglio; hover grigio rimosso.
 - **v2.0.13**: overlap popup su edit appuntamento + storico cliente cliccabile + modifica gruppo senza tuple error; tap agenda da allargare.

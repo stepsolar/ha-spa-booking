@@ -36,9 +36,10 @@ from typing import Any
 from aiohttp import web
 
 from homeassistant.components.http import KEY_HASS, HomeAssistantView
+from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN, REQUEST_SOURCE_WEB, WEB_API_BASE, VOUCHER_ACTIVE
-from .coordinator import SpaBookingCoordinator, _norm_clock
+from .const import DOMAIN, REQUEST_SOURCE_WEB, VOUCHER_ACTIVE, WEB_API_BASE
+from .coordinator import SpaBookingCoordinator, _norm_clock, _norm_date
 from .exceptions import SpaBookingError, ValidationError
 
 _LOGGER = logging.getLogger(__name__)
@@ -183,10 +184,10 @@ class SpaBookingPublicTreatmentsView(_PublicView):
             )
             if voucher is None:
                 raise ValidationError(f"Voucher {code} non trovato")
-            if str(voucher.get("status") or "") != "active":
+            if str(voucher.get("status") or "") != VOUCHER_ACTIVE:
                 raise ValidationError(f"Il voucher {code} non è disponibile")
             expires = _norm_date(voucher.get("expires_on"))
-            if expires and date.fromisoformat(expires) < date.today():
+            if expires and date.fromisoformat(expires) < dt_util.now().date():
                 raise ValidationError(f"Il voucher {code} è scaduto")
 
             payload_people = []

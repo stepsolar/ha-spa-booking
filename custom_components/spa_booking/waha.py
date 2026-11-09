@@ -188,11 +188,11 @@ class WahaClient:
         phone = phone.strip()
         if "@" in phone:
             return phone
+        # WAHA reports the phone number with its country code: keep it as it
+        # is, so a foreign operator or guest is not turned into an Italian one.
         digits = "".join(char for char in phone if char.isdigit())
         if not digits:
             return None
-        if not digits.startswith("39"):
-            digits = f"39{digits}"
         return f"{digits}@c.us"
 
     async def async_get_server(self) -> WahaServer:
