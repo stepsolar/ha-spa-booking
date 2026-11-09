@@ -8687,7 +8687,7 @@ _renderClients() {
               const text = String((result && result.snippet) || "");
               if (!text) {
                 this._message = { kind: "error",
-                  text: "Codice non trovato in www/spa_booking/spa-booking-form.txt." };
+                  text: "Modulo del sito non trovato nell'integrazione (frontend/spa-booking-form.txt)." };
                 this._render();
                 return;
               }
@@ -11116,9 +11116,9 @@ _renderClients() {
 
     // Left column: the two channels, one box each, with a test button per chat.
     const telegramBox = box("telegram", "Telegram");
-    field(telegramBox, "ID configurazione bot", "telegram_config_entry_id", "01JZ6G7...",
+    field(telegramBox, "ID configurazione bot", "telegram_config_entry_id", "01J...",
       "ID della configurazione del bot Telegram da usare per i messaggi.");
-    field(telegramBox, "Chat Telegram del report", "report_telegram_chats", "933728087, 5400097873",
+    field(telegramBox, "Chat Telegram del report", "report_telegram_chats", "123456789, 987654321",
       "Separate da virgola. Ricevono il report completo di ogni mese.");
     add(telegramBox, this._testRows("telegram", draft.report_telegram_chats));
     left.appendChild(telegramBox);
@@ -13700,7 +13700,7 @@ _renderClients() {
       contattiBox.appendChild(
         el("label", { class: "field" }, el("span", {}, "Chat Telegram"),
           el("input", { class: "input", type: "text", value: draft.telegram_chat_id,
-            placeholder: "933728087",
+            placeholder: "123456789",
             on: { input: (event) => { draft.telegram_chat_id = event.target.value; } } }))
       );
 

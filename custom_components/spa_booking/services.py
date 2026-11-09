@@ -154,6 +154,7 @@ SERVICE_EXPORT_ALL = "export_all"
 SERVICE_EXPORT_DASHBOARD_YAML = "export_dashboard_yaml"
 SERVICE_IMPORT_ALL = "import_all"
 SERVICE_GET_DASHBOARD_CONFIG = "get_dashboard_config"
+SERVICE_RUN_SCHEDULED_JOBS = "run_scheduled_jobs"
 
 ALL_SERVICES = (
     SERVICE_CREATE_APPOINTMENT,
@@ -228,6 +229,7 @@ ALL_SERVICES = (
     SERVICE_GET_DASHBOARD_CONFIG,
     SERVICE_EXPORT_DASHBOARD_YAML,
     SERVICE_UPDATE_BOOKING_BATCH,
+    SERVICE_RUN_SCHEDULED_JOBS,
 )
 
 _CLIENT_FIELDS = {
@@ -818,6 +820,10 @@ UPDATE_SETTINGS_SCHEMA = vol.Schema(
             vol.All(cv.ensure_list, [cv.string]),
             None,
         ),
+        # Internal timers and the quiet window for guest messages.
+        vol.Optional("scheduler_enabled"): cv.boolean,
+        vol.Optional("quiet_hours_start"): vol.Any(cv.string, None),
+        vol.Optional("quiet_hours_end"): vol.Any(cv.string, None),
     },
     extra=vol.PREVENT_EXTRA,
 )
@@ -1284,6 +1290,17 @@ async def _async_delete_promo_voucher(call: ServiceCall) -> ServiceResponse:
     return await _coordinator(call).async_delete_promo_voucher(
         call.data["voucher_id"]
     )
+
+
+async def _async_run_scheduled_jobs(call: ServiceCall) -> ServiceResponse:
+    """Run every timed job now (reminders, offers, vouchers, report...)."""
+    coordinator = _coordinator(call)
+    await _require_admin(call, coordinator)
+    if coordinator.scheduler is None:
+        raise ValidationError("Pianificatore non avviato")
+    from homeassistant.util import dt as dt_util
+
+    return await coordinator.scheduler.async_run(dt_util.now(), force=True)
 
 
 async def _async_promo_voucher_tick(call: ServiceCall) -> ServiceResponse:
@@ -2111,6 +2128,11 @@ _HANDLERS: dict[str, tuple[Any, Any, SupportsResponse]] = {
     SERVICE_WEB_SNIPPET: (
         _async_web_snippet,
         WEB_SNIPPET_SCHEMA,
+        SupportsResponse.ONLY,
+    ),
+    SERVICE_RUN_SCHEDULED_JOBS: (
+        _async_run_scheduled_jobs,
+        None,
         SupportsResponse.ONLY,
     ),
     SERVICE_GET_DASHBOARD_CONFIG: (

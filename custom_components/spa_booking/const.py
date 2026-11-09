@@ -150,11 +150,20 @@ WEB_SNIPPET_TOKEN_PLACEHOLDER: Final = "INCOLLA_QUI_IL_TOKEN"
 #: il valore della configurazione della card, e se quello manca "Gestione SPA".
 DEFAULT_CARD_TITLE: Final = ""
 
-#: Chat Telegram già autorizzate per il bot "Hotel Il Marchese": il report
-#: mensile parte verso tutte e tre finché non vengono cambiate dalla card.
-DEFAULT_TELEGRAM_ENTRY_ID: Final = "01JZ6G7TT8APQ8WCXEPRCDNQFN"
-DEFAULT_REPORT_TELEGRAM_CHATS: Final = "933728087, 5400097873, 8144958044"
+#: Bot Telegram e chat che ricevono il report mensile. Vuoti di default: si
+#: impostano dalla card (Notifiche), così il codice pubblico non contiene
+#: chat personali. Un'installazione esistente conserva i valori già salvati.
+DEFAULT_TELEGRAM_ENTRY_ID: Final = ""
+DEFAULT_REPORT_TELEGRAM_CHATS: Final = ""
 DEFAULT_REPORT_TIME: Final = "08:00"
+
+#: Window in which the internal timers send nothing to guests (reminders,
+#: review requests, loyalty vouchers, voucher expiry). Offers to operators
+#: are business messages and are not held back.
+DEFAULT_QUIET_HOURS_START: Final = "21:00"
+DEFAULT_QUIET_HOURS_END: Final = "08:00"
+#: Minutes between two runs of the periodic jobs of the internal scheduler.
+SCHEDULER_INTERVAL_MIN: Final = 5
 
 #: Durations offered when seeding the first dataset.
 DEFAULT_DURATIONS: Final = (90, 120)

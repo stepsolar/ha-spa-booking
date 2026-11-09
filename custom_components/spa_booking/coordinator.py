@@ -34,6 +34,8 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    DEFAULT_QUIET_HOURS_END,
+    DEFAULT_QUIET_HOURS_START,
     KEY_VOUCHERS,
     KEY_PROMO_VOUCHERS,
     PROMO_VOUCHER_CODE_PREFIX,
@@ -274,6 +276,9 @@ def _norm_voucher(raw: Any) -> dict[str, Any]:
         "status": status if status in (VOUCHER_ACTIVE, VOUCHER_REDEEMED) else VOUCHER_ACTIVE,
         "redeemed_at": str(raw.get("redeemed_at") or ""),
         "appointment_ids": [str(i) for i in raw.get("appointment_ids") or [] if i],
+        # Kept through normalisation: without it every restart forgot that
+        # the expiry reminder had already gone out.
+        "expiry_reminder_sent": bool(raw.get("expiry_reminder_sent", False)),
     }
 
 
@@ -1039,6 +1044,21 @@ def _norm_settings(raw: dict[str, Any]) -> dict[str, Any]:
         "web_notify_whatsapp": str(
             raw.get("web_notify_whatsapp") or DEFAULT_WEB_NOTIFY_WHATSAPP
         ).strip(),
+        # Internal timers (scheduler.py): reminders, offer expiry, review
+        # requests, loyalty vouchers, voucher expiry, daily promo and monthly
+        # report run inside the integration. Switch off only to drive them
+        # from your own automations instead.
+        "scheduler_enabled": bool(raw.get("scheduler_enabled", True)),
+        # Guest messages are not sent in the quiet window (start > end means
+        # it spans midnight). The offers to the operators are not affected.
+        "quiet_hours_start": _norm_clock(raw.get("quiet_hours_start"))
+        or DEFAULT_QUIET_HOURS_START,
+        "quiet_hours_end": _norm_clock(raw.get("quiet_hours_end"))
+        or DEFAULT_QUIET_HOURS_END,
+        # Last runs of the once-only jobs, so a timer and an old automation
+        # firing in the same minute never send twice.
+        "promo_last_sent_on": _norm_date(raw.get("promo_last_sent_on")),
+        "report_last_month": str(raw.get("report_last_month") or "").strip()[:7],
     }
 
 
@@ -1452,6 +1472,9 @@ def _norm_appointment(raw: dict[str, Any]) -> dict[str, Any]:
         # has actually been collected, whatever the flags above say.
         "payments": _norm_payment_list(raw.get("payments")),
         "batch_id": batch_id,
+        # Which Home Assistant user took the booking: kept across restarts so
+        # the audit trail does not vanish at the first reload.
+        "created_by": str(raw.get("created_by") or "") or None,
     }
 
 
@@ -1746,6 +1769,10 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Recent WhatsApp messages from numbers that are neither clients nor
         # operators, so the desk can read and answer external requests.
         self._external_messages: deque[dict[str, Any]] = deque(maxlen=20)
+        # Content hash of the served card, computed in the executor at load.
+        self._card_version = ""
+        # The internal timers, attached by async_setup_entry.
+        self.scheduler: Any = None
         super().__init__(
             hass,
             _LOGGER,
@@ -1774,6 +1801,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         else:
             self._data = default_data(self.entry.data.get("operator_names") or [])
             await self._store.async_save(self._data)
+        await self.async_refresh_card_version()
         self.async_set_updated_data(self._data)
 
     async def async_add_external_message(self, chat_id: str, text: str) -> None:
@@ -4595,15 +4623,15 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def async_web_snippet(self) -> dict[str, Any]:
         """Return the code to paste into the site, with the token already in it.
 
-        The base text is the published file in ``www/spa_booking`` — one
+        The base text is ``frontend/spa-booking-form.txt`` of the integration — one
         source, the same one the desk can download — and the placeholder
         ``INCOLLA_QUI_IL_TOKEN`` is swapped for the current token on the fly.
         The token is never written to disk: it lives only in this answer and
         in the clipboard of whoever pressed Copia.
         """
-        path = self.hass.config.path(
-            "www", "spa_booking", "spa-booking-form.txt"
-        )
+        from .card_view import FORM_FILE
+
+        path = str(FORM_FILE)
         snippet = await self.hass.async_add_executor_job(_read_text, path)
         found = WEB_SNIPPET_TOKEN_PLACEHOLDER in snippet
         token = self._web_token() if snippet else ""
@@ -5953,7 +5981,12 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return {"sent": 0, "total": 0, "reason": "promo non programmata"}
         now_local = dt_util.as_local(dt_util.utcnow())
         current_hm = f"{now_local.hour:02d}:{now_local.minute:02d}"
-        if current_hm != promo_time:
+        # Due from ``promo_time`` for one hour: a tick that lands a minute late
+        # (busy system, restart) still sends, but a restart in the afternoon
+        # does not fire a morning promo hours later.
+        target = self._minutes_of(promo_time)
+        late = now_local.hour * 60 + now_local.minute - target
+        if target < 0 or not 0 <= late < 60:
             return {
                 "sent": 0,
                 "total": 0,
@@ -5965,6 +5998,12 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         single = str(settings.get("promo_date") or "")
         if single and now_local.date().strftime("%Y-%m-%d") != single:
             return {"sent": 0, "total": 0, "reason": f"data singola {single} diversa da oggi"}
+        today = now_local.date().isoformat()
+        if settings.get("promo_last_sent_on") == today:
+            # The internal timer and an old automation may both fire in the
+            # same minute: the broadcast goes out once a day, never twice.
+            return {"sent": 0, "total": 0, "reason": "promo già inviata oggi"}
+        await self._async_stamp_setting("promo_last_sent_on", today)
         result = await self.async_send_promo()
         if single:
             # A one-off send runs once: the date is cleared so it does not repeat.
@@ -7351,14 +7390,16 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._waha_inbound = None
 
     def _card_file_version(self) -> str:
-        """Return a short hash of the served card file, so its URL changes with it."""
-        try:
-            path = self.hass.config.path("www", "spa_booking", "spa-booking-card.js")
-            with open(path, "rb") as handle:
-                digest = hashlib.sha256(handle.read()).hexdigest()
-            return digest[:12]
-        except OSError:
-            return CARD_JS_VERSION
+        """Return the short content hash of the card, computed at load time."""
+        return self._card_version or CARD_JS_VERSION
+
+    async def async_refresh_card_version(self) -> str:
+        """Re-hash the card file in the executor and remember the result."""
+        from .card_view import card_version, read_card
+
+        read = await self.hass.async_add_executor_job(read_card)
+        self._card_version = card_version(read[0]) if read else ""
+        return self._card_file_version()
 
     def card_js_url(self) -> str:
         """Return the card URL to serve, auto-versioned by content hash."""
@@ -7394,6 +7435,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def async_reload_card(self, version: str = "") -> dict[str, Any]:
         """Re-register the served card URL at the current auto version."""
+        await self.async_refresh_card_version()
         async with self._lock:
             self._data[KEY_SETTINGS]["card_js_version"] = self._card_file_version()
             await self._async_save()
@@ -7994,63 +8036,84 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return {"sent": sent, "failed": failed}
 
     async def async_send_voucher_expiry_reminders(self) -> dict[str, Any]:
-        """Send voucher expiration reminders to recipients whose vouchers are
-        expiring within the configured number of days.
+        """Remind each voucher recipient once that her voucher is expiring.
 
-        The reminder is sent only once per voucher: after it is sent, the
-        voucher gets a ``expiry_reminder_sent`` flag so it is not sent again.
+        A voucher is due when it expires within ``voucher_expiry_reminder_days``
+        and has not expired yet: a window rather than one exact day, so a day
+        the system was off is caught up instead of skipped. The recipient gets
+        one message per voucher, listing every person and treatment on it. The
+        messages are sent outside the lock, so the desk can keep booking.
         """
         settings = self._data.get(KEY_SETTINGS, {})
-        reminder_days = int(settings.get("voucher_expiry_reminder_days") or DEFAULT_VOUCHER_EXPIRY_REMINDER_DAYS)
-        reminder_message = str(settings.get("voucher_expiry_reminder_message") or DEFAULT_VOUCHER_EXPIRY_REMINDER_MESSAGE)
+        reminder_days = int(
+            settings.get("voucher_expiry_reminder_days")
+            or DEFAULT_VOUCHER_EXPIRY_REMINDER_DAYS
+        )
+        template = str(
+            settings.get("voucher_expiry_reminder_message")
+            or DEFAULT_VOUCHER_EXPIRY_REMINDER_MESSAGE
+        )
+        today = dt_util.now().date()
+        horizon = today + timedelta(days=reminder_days)
+        names = {t["id"]: t["name"] for t in self.treatments}
 
-        target_date = dt_util.now().date() + timedelta(days=reminder_days)
-        sent = 0
+        due: list[tuple[str, str, str]] = []
+        for voucher in self.vouchers:
+            if voucher.get("status") != VOUCHER_ACTIVE:
+                continue
+            if voucher.get("expiry_reminder_sent"):
+                continue
+            expires_on = _norm_date(voucher.get("expires_on"))
+            if not expires_on:
+                continue
+            expiry = date.fromisoformat(expires_on)
+            if not today <= expiry <= horizon:
+                continue
+            chat_id = messaging.whatsapp_chat_id(
+                str(voucher.get("recipient_phone") or "")
+            )
+            if not chat_id:
+                continue
+            people = voucher.get("people") or []
+            treatments = ", ".join(
+                names.get(str(t), str(t))
+                for person in people
+                for t in (person.get("treatment_ids") or [])
+            ) or "nessun trattamento"
+            total = sum(
+                float(person.get("gift_card_amount") or 0) for person in people
+            )
+            recipient = str(voucher.get("recipient_name") or "").strip()
+            first, _, last = recipient.partition(" ")
+            message = (
+                template.replace("{nome}", first or "ospite")
+                .replace("{cognome}", last)
+                .replace("{data_scadenza}", _date_it(expires_on))
+                .replace("{codice}", str(voucher.get("code") or ""))
+                .replace("{valore}", f"€ {total:.2f}" if total else "")
+                .replace("{trattamenti}", treatments)
+            )
+            due.append((voucher["id"], chat_id, message))
+
+        sent_ids: list[str] = []
         failed = 0
-        async with self._lock:
-            for voucher in self.vouchers:
-                if voucher.get("status") != VOUCHER_ACTIVE:
-                    continue
-                if voucher.get("expiry_reminder_sent"):
-                    continue
-                expires_on = _norm_date(voucher.get("expires_on"))
-                if not expires_on:
-                    continue
-                if expires_on != target_date:
-                    continue
-                # Send reminder for each person in the voucher.
-                for person in voucher.get("people", []):
-                    name = person.get("name") or ""
-                    phone = voucher.get("recipient_phone") or ""
-                    chat_id = messaging.whatsapp_chat_id(phone)
-                    if not chat_id:
-                        continue
-                    # Build the reminder message with placeholders.
-                    treatments_list = ", ".join(person.get("treatment_ids", [])) or "nessun trattamento"
-                    gift_amount = person.get("gift_card_amount")
-                    value_str = f"€ {gift_amount:.2f}" if gift_amount else "nessun valore"
-                    message = (
-                        reminder_message
-                        .replace("{nome}", name)
-                        .replace("{cognome}", "")
-                        .replace("{data_scadenza}", _date_it(expires_on))
-                        .replace("{codice}", voucher.get("code", ""))
-                        .replace("{valore}", value_str)
-                        .replace("{trattamenti}", treatments_list)
-                    )
-                    result = await messaging.async_send_whatsapp(
-                        self.hass,
-                        chat_id,
-                        message,
-                        waha=self.waha,
-                    )
-                    if result.get("sent"):
-                        sent += 1
-                    else:
-                        failed += 1
-                voucher["expiry_reminder_sent"] = True
-            await self._async_save()
-        return {"sent": sent, "failed": failed}
+        for voucher_id, chat_id, message in due:
+            result = await messaging.async_send_whatsapp(
+                self.hass, chat_id, message, waha=self.waha
+            )
+            if result.get("sent"):
+                sent_ids.append(voucher_id)
+            else:
+                # Left unflagged: the next tick tries again.
+                failed += 1
+
+        if sent_ids:
+            async with self._lock:
+                for voucher in self.vouchers:
+                    if voucher["id"] in sent_ids:
+                        voucher["expiry_reminder_sent"] = True
+                await self._async_save()
+        return {"sent": len(sent_ids), "failed": failed}
 
     @staticmethod
     def format_offer(payload: dict[str, Any]) -> str:
@@ -8333,6 +8396,36 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "da assegnare."
             )
         return "\n".join(lines)
+
+    async def _async_stamp_setting(self, key: str, value: Any) -> None:
+        """Persist one bookkeeping value of the settings (a last-run stamp)."""
+        async with self._lock:
+            self._data[KEY_SETTINGS][key] = value
+            await self._async_save()
+
+    async def async_monthly_report_tick(self) -> dict[str, Any]:
+        """Send last month's report once, on the 1st at ``report_time``.
+
+        Called every few minutes by the scheduler. The month is stamped before
+        sending, so a restart, a second timer or an old automation never send
+        the same report twice; a missed exact minute is caught up later the
+        same day.
+        """
+        settings = self._data[KEY_SETTINGS]
+        if not settings.get("report_enabled", True):
+            return {"sent": False, "reason": "report disattivato"}
+        now_local = dt_util.now()
+        if now_local.day != 1:
+            return {"sent": False, "reason": "non è il primo del mese"}
+        report_time = _norm_clock(settings.get("report_time")) or DEFAULT_REPORT_TIME
+        if now_local.strftime("%H:%M") < report_time:
+            return {"sent": False, "reason": f"in attesa delle {report_time}"}
+        month = (now_local.date().replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+        if settings.get("report_last_month") == month:
+            return {"sent": False, "reason": f"report {month} già inviato"}
+        await self._async_stamp_setting("report_last_month", month)
+        result = await self.async_send_monthly_report(month)
+        return {"sent": True, "month": month, **result}
 
     async def async_send_monthly_report(self, month: str | None = None) -> dict[str, Any]:
         """Build the monthly report and send it on every configured channel.
