@@ -673,6 +673,7 @@ UPDATE_SETTINGS_SCHEMA = vol.Schema(
         vol.Optional("spa_entities"): vol.All(
             cv.ensure_list, [vol.Any(SPA_TILE_SCHEMA, cv.string)]
         ),
+        vol.Optional("spa_grouped"): cv.boolean,
         # Accessori tab: the accessories offered with a booking, in user order
         # (each one with label, icon, price and description). A bare id string
         # is accepted too, so a client that predates the tab keeps saving.
@@ -1106,6 +1107,7 @@ async def _async_get_dashboard_config(call: ServiceCall) -> ServiceResponse:
             "appearance": settings.get("appearance"),
             "card_title": settings.get("card_title"),
             "spa_entities": settings.get("spa_entities"),
+            "spa_grouped": settings.get("spa_grouped", True),
             "camera_entities": settings.get("camera_entities"),
             "accessories": settings.get("accessories"),
         }
@@ -1138,6 +1140,7 @@ OPERATOR_SETTINGS = frozenset(
         "operator_form_order",
         "camera_entities",
         "spa_entities",
+        "spa_grouped",
     }
 )
 

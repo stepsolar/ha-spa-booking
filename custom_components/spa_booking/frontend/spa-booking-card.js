@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.1.1";
+const CARD_VERSION = "2.1.2";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -4801,6 +4801,17 @@ class SpaBookingCard extends HTMLElement {
     return sec;
   }
 
+  /** Sections by kind, or the single grid: saved for everybody. */
+  async _spaSetGrouped(grouped) {
+    try {
+      await this._service("update_settings", { spa_grouped: grouped });
+      await this._loadData();
+    } catch (error) {
+      this._message = { kind: "error", text: String((error && error.message) || error) };
+    }
+    this._render();
+  }
+
   /** The pencil itself toggles edit mode: no intermediate Modifica menu. */
   _formEditEnter() {
     this._formEditMode = true;
@@ -9064,6 +9075,17 @@ _renderClients() {
     return head;
   }
 
+  /** Sections by kind, or the single grid: saved for everybody. */
+  async _spaSetGrouped(grouped) {
+    try {
+      await this._service("update_settings", { spa_grouped: grouped });
+      await this._loadData();
+    } catch (error) {
+      this._message = { kind: "error", text: String((error && error.message) || error) };
+    }
+    this._render();
+  }
+
   /** The pencil itself toggles edit mode: no intermediate Modifica menu. */
   _camEditEnter() {
     this._camEditMode = true;
@@ -9809,8 +9831,17 @@ _renderClients() {
         el("span", {}, this._spaEditMode ? "Modifica Spa" : "Spa"))
     );
     if (this._spaEditMode) {
+      const grouped = ((this._data && this._data.settings) || {}).spa_grouped !== false;
       head.appendChild(
         el("div", { class: "spa-head-actions" },
+          el("button", {
+            class: `btn small${grouped ? " active" : ""}`,
+            title: grouped
+              ? "Riquadri divisi in sezioni (Luci, Clima, Servizi e sensori): tocca per la griglia unica"
+              : "Griglia unica: tocca per dividere i riquadri in sezioni",
+            on: { click: () => this._spaSetGrouped(!grouped) },
+          }, el("ha-icon", { icon: grouped ? "mdi:view-agenda-outline" : "mdi:view-grid-outline" }),
+             el("span", {}, grouped ? "Sezioni" : "Griglia")),
           el("button", {
             class: "btn small",
             title: "Aggiungi entità",
@@ -9834,6 +9865,17 @@ _renderClients() {
     return head;
   }
 
+  /** Sections by kind, or the single grid: saved for everybody. */
+  async _spaSetGrouped(grouped) {
+    try {
+      await this._service("update_settings", { spa_grouped: grouped });
+      await this._loadData();
+    } catch (error) {
+      this._message = { kind: "error", text: String((error && error.message) || error) };
+    }
+    this._render();
+  }
+
   /** The pencil itself toggles edit mode: no intermediate Modifica menu. */
   _spaEditEnter() {
     this._spaEditMode = true;
@@ -9850,17 +9892,94 @@ _renderClients() {
     this._render();
   }
 
-  /** One single flat grid with every configured tile, in user order. */
+  /**
+   * The Spa tiles. Outside edit mode they are grouped in sections by kind
+   * (Luci, Clima, Servizi e sensori), each with a one-line summary; inside a
+   * section the user's order is kept. Edit mode always shows the single flat
+   * grid, because drag-to-reorder works on the whole list.
+   */
   _renderSpaGrid(tiles) {
-    const grid = el("div", {
-      class: "spa-grid" + (this._spaEditMode ? " editing" : ""),
+    const list = tiles || this._spaTiles();
+    const stateOf = (tile) =>
+      this._hass && this._hass.states ? this._hass.states[tile.entity_id] : null;
+    const settings = (this._data && this._data.settings) || {};
+    if (this._spaEditMode || settings.spa_grouped === false) {
+      const grid = el("div", {
+        class: "spa-grid" + (this._spaEditMode ? " editing" : ""),
+      });
+      list.forEach((tile) => grid.appendChild(this._spaTile(tile, stateOf(tile))));
+      if (this._spaEditMode) grid.appendChild(this._spaAddTile());
+      return grid;
+    }
+
+    const sections = [
+      { id: "luci", label: "Luci", icon: "mdi:lightbulb-group-outline", tiles: [] },
+      { id: "clima", label: "Clima", icon: "mdi:thermometer", tiles: [] },
+      { id: "servizi", label: "Servizi e sensori", icon: "mdi:power-socket-eu", tiles: [] },
+    ];
+    list.forEach((tile) => {
+      const kind = this._spaKind(tile);
+      const section = kind === "light" ? sections[0] : kind === "climate" ? sections[1] : sections[2];
+      section.tiles.push(tile);
     });
-    (tiles || this._spaTiles()).forEach((tile) => {
-      const state = this._hass && this._hass.states ? this._hass.states[tile.entity_id] : null;
-      grid.appendChild(this._spaTile(tile, state));
+    const wrap = el("div", { class: "spa-sections" });
+    sections.filter((section) => section.tiles.length).forEach((section) => {
+      const states = section.tiles.map(stateOf);
+      wrap.appendChild(
+        el("div", { class: "spa-section-head" },
+          el("ha-icon", { icon: section.icon }),
+          el("span", {}, section.label),
+          el("span", { class: "spa-section-sum" }, this._spaSectionSummary(section.id, section.tiles, states)))
+      );
+      const grid = el("div", { class: "spa-grid" });
+      section.tiles.forEach((tile, index) => grid.appendChild(this._spaTile(tile, states[index])));
+      wrap.appendChild(grid);
     });
-    if (this._spaEditMode) grid.appendChild(this._spaAddTile());
-    return grid;
+    return wrap;
+  }
+
+  /** What a tile is, for its colour and its section. */
+  _spaKind(item) {
+    const domain = String(item.entity_id || "").split(".")[0];
+    const type = this._resolveSpaCardType(item);
+    if (domain === "light") return "light";
+    if (domain === "climate" || domain === "water_heater" || type === "climate" || type === "thermostat") return "climate";
+    if (domain === "sensor" || type === "sensor" || type === "gauge") return "sensor";
+    return "service";
+  }
+
+  /** "2 accese su 4", "1 attivo", … for the head of a section. */
+  _spaSectionSummary(section, tiles, states) {
+    const isOn = (state) => {
+      if (!state) return false;
+      if (state.state === "unavailable" || state.state === "unknown") return false;
+      return section === "clima" ? state.state !== "off" : state.state === "on";
+    };
+    const on = states.filter(isOn).length;
+    if (section === "luci") return `${on} ${on === 1 ? "accesa" : "accese"} su ${tiles.length}`;
+    if (section === "clima") return on ? `${on} ${on === 1 ? "attivo" : "attivi"}` : "tutto spento";
+    const switchable = tiles.filter((tile) => this._spaKind(tile) !== "sensor").length;
+    return switchable ? `${on} ${on === 1 ? "acceso" : "accesi"} su ${switchable}` : "";
+  }
+
+  /** A number for people: Italian decimal comma, at most one decimal. */
+  _spaNumber(value) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return String(value);
+    return number.toLocaleString("it-IT", { maximumFractionDigits: 1 });
+  }
+
+  /** Brightness in percent of a light, or null when it cannot dim. */
+  _spaBrightness(state) {
+    if (!state) return null;
+    const attrs = state.attributes || {};
+    const modes = attrs.supported_color_modes || [];
+    const dims =
+      modes.some((mode) => mode !== "onoff" && mode !== "unknown") ||
+      (Number(attrs.supported_features || 0) & 1) === 1;
+    if (!dims) return null;
+    if (state.state !== "on") return 0;
+    return typeof attrs.brightness === "number" ? Math.round(attrs.brightness / 2.55) : 100;
   }
 
   _spaIcon(domain, id, state) {
@@ -9873,6 +9992,13 @@ _renderClients() {
       fan: on ? "mdi:fan" : "mdi:fan-off",
       lock: locked ? "mdi:lock" : "mdi:lock-open-variant",
       climate: "mdi:thermostat",
+      water_heater: "mdi:water-boiler",
+      sensor: "mdi:gauge",
+      binary_sensor: on ? "mdi:checkbox-marked-circle-outline" : "mdi:checkbox-blank-circle-outline",
+      cover: "mdi:window-shutter",
+      media_player: "mdi:speaker",
+      number: "mdi:tune-variant",
+      input_number: "mdi:tune-variant",
     }[domain] || "mdi:power-plug-outline";
   }
 
@@ -9889,71 +10015,26 @@ _renderClients() {
   /** The secondary line under the tile name. */
   _spaSub(domain, id, state) {
     if (!state || state.state === "unavailable") return "Non disponibile";
-    if (domain === "light" || domain === "switch" || domain === "input_boolean" || domain === "fan") {
+    if (state.state === "unknown") return "Sconosciuto";
+    const attrs = state.attributes || {};
+    if (domain === "light") {
       if (state.state !== "on") return "Spenta";
-      const attrs = state.attributes || {};
-      const pct = attrs.brightness != null
-        ? ` · ${Math.round((attrs.brightness / 255) * 100)}%`
-        : "";
-      return "Accesa" + pct;
+      const pct = this._spaBrightness(state);
+      return pct === null ? "Accesa" : `Accesa · ${pct}%`;
+    }
+    if (domain === "switch" || domain === "input_boolean" || domain === "fan") {
+      return state.state === "on" ? "Acceso" : "Spento";
     }
     if (domain === "lock") return state.state === "locked" ? "Chiusa" : "Aperta";
     if (domain === "climate") {
       if (state.state === "off") return "Spento";
-      const attrs = state.attributes || {};
       const current = attrs.current_temperature;
       const target = attrs.temperature;
-      return `Ora ${current != null ? Math.round(current) + "°" : "—"} · Target ${target != null ? Math.round(target) + "°" : "—"}`;
+      return `Ora ${current != null ? this._spaNumber(current) + "°" : "—"} · obiettivo ${target != null ? this._spaNumber(target) + "°" : "—"}`;
     }
-    return String(state.state);
-  }
-
-  /** The round on/off button on the right of a tile. */
-  /** Brightness slider under a light that is on and supports dimming. */
-  _spaSlider(domain, id, state) {
-    if (domain !== "light" || !state || state.state !== "on") return null;
-    const attrs = state.attributes || {};
-    const supports = Number(attrs.supported_features || 0);
-    if ((supports & 1) !== 1) return null; // SUPPORT_BRIGHTNESS
-    const pct = attrs.brightness != null
-      ? Math.round((attrs.brightness / 255) * 100)
-      : 100;
-    return el("div", {
-      class: "spa-slider",
-      on: { click: (event) => event.stopPropagation() },
-    },
-      el("input", {
-        type: "range",
-        min: "1",
-        max: "100",
-        value: String(pct),
-        on: {
-          change: (event) => this._spaSetBrightness(id, Number(event.target.value)),
-        },
-      })
-    );
-  }
-
-  /** Temperature +/− row under a climate that is on. */
-  _spaClimaRow(domain, id, state) {
-    if (domain !== "climate" || !state || state.state === "off" || state.state === "unavailable") return null;
-    const target = (state.attributes || {}).temperature;
-    return el("div", { class: "spa-clima" },
-      el("span", { class: "dim" },
-        target != null ? `Target ${Math.round(target)}°` : "Target —"),
-      el("div", { class: "row", style: "gap: 6px;" },
-        el("button", {
-          class: "btn small",
-          disabled: this._busySpa,
-          on: { click: (event) => { event.stopPropagation(); this._spaClimateTemp(id, -1); } },
-        }, el("ha-icon", { icon: "mdi:minus" })),
-        el("button", {
-          class: "btn small",
-          disabled: this._busySpa,
-          on: { click: (event) => { event.stopPropagation(); this._spaClimateTemp(id, 1); } },
-        }, el("ha-icon", { icon: "mdi:plus" }))
-      )
-    );
+    const unit = attrs.unit_of_measurement ? ` ${attrs.unit_of_measurement}` : "";
+    const numeric = state.state !== "" && Number.isFinite(Number(state.state));
+    return numeric ? `${this._spaNumber(state.state)}${unit}` : String(state.state);
   }
 
   /** One mushroom-like control tile. Tap toggles; in edit mode it shows ⋮
@@ -9969,7 +10050,9 @@ _renderClients() {
       switch: "switch",
       input_boolean: "switch",
       climate: "climate",
-      fan: "button",
+      // A fan is switched like a socket: a normal tile with its state (as a
+      // centred button it hid whether it was on).
+      fan: "switch",
       media_player: "button",
       sensor: "sensor",
       binary_sensor: "tile",
@@ -9986,43 +10069,54 @@ _renderClients() {
     const domain = String(id || "").split(".")[0];
     const editing = this._spaEditMode;
     const type = this._resolveSpaCardType(item);
+    const kind = this._spaKind(item);
+    const value = state ? state.state : "unavailable";
+    const unavailable = !state || value === "unavailable";
     const active =
-      domain === "lock" ? (state && state.state === "locked")
-        : domain === "climate" ? (state && state.state !== "off" && state.state !== "unavailable")
-          : (state && state.state === "on");
+      unavailable ? false
+        : domain === "lock" ? value === "locked"
+          : kind === "climate" ? value !== "off"
+            : value === "on";
+    const hvac = String(((state && state.attributes) || {}).hvac_action || value || "");
+    const heating = kind === "climate" && active && /heat/.test(hvac);
+    const cooling = kind === "climate" && active && /cool/.test(hvac);
     const tile = el("div", {
       class:
-        "spa-tile spa-tile--" + type +
-        ((state && state.state === "on") ? " on" : "") +
-        (domain === "climate" && state && state.state === "heat" ? " heating" : "") +
-        (domain === "climate" && state && state.state === "cool" ? " cooling" : "") +
+        `spa-tile spa-tile--${type} spa-kind--${kind}` +
+        (active ? " on" : "") +
+        (heating ? " heating" : "") +
+        (cooling ? " cooling" : "") +
+        (unavailable ? " unavailable" : "") +
         (editing ? " editing" : ""),
       "data-card-type": type,
       "data-eid": id,
-      style: "grid-column: span " + (item.span || 1) + ";",
+      // A thermostat needs room for its big temperature: at least 2 columns.
+      style: "grid-column: span " +
+        (kind === "climate" && domain === "climate" && !editing
+          ? Math.max(2, item.span || 1)
+          : (item.span || 1)) + ";",
     });
 
     const attrs = (state && state.attributes) || {};
-    const current = attrs.current_temperature;
-    const target = attrs.temperature;
+    const name = item.name || this._entityLabel(id);
+    const icon = () =>
+      el("div", { class: "spa-tile-icon" + (active ? "" : " off") },
+        el("ha-icon", { icon: item.icon || this._spaIcon(domain, id, state) }));
+    const toggle = () => {
+      if (unavailable) { this._moreInfo(id); return; }
+      if (domain === "lock") this._spaLock(id, value === "locked");
+      else if (domain === "climate") this._spaClimatePower(id, active);
+      else this._spaToggle(domain, id);
+    };
 
     if (!editing) {
       tile.addEventListener("click", (event) => {
         const tap = String((item && item.tap_action) || "toggle").trim().toLowerCase();
         if (tap === "more-info") { event.stopPropagation(); this._moreInfo(id); return; }
         if (tap === "none") { event.stopPropagation(); return; }
-        if (!state || state.state === "unavailable") {
-          this._moreInfo(id);
-          return;
-        }
-        if (domain === "lock") {
-          this._spaLock(id, state.state === "locked");
-        } else if (domain === "climate") {
-          const on = state.state !== "off" && state.state !== "unavailable";
-          this._spaClimatePower(id, on);
-        } else {
-          this._spaToggle(domain, id);
-        }
+        // A sensor has nothing to switch: a tap shows its history instead.
+        if (kind === "sensor") { this._moreInfo(id); return; }
+        toggle();
       });
 
       // Long press / hold action.
@@ -10032,12 +10126,7 @@ _renderClients() {
           holdTimer = null;
           const action = String(item.hold_action || "more-info").trim().toLowerCase();
           if (action === "none") return;
-          if (action === "toggle") {
-            if (domain === "lock") this._spaLock(id, state.state === "locked");
-            else if (domain === "climate") this._spaClimatePower(id, state.state !== "off");
-            else this._spaToggle(domain, id);
-            return;
-          }
+          if (action === "toggle" && kind !== "sensor") { toggle(); return; }
           if (action === "brightness" && domain === "light") {
             this._spaBrightnessDlg = id;
             this._render();
@@ -10052,71 +10141,99 @@ _renderClients() {
       tile.addEventListener("pointermove", cancelHold);
     }
 
-    if ((type === "climate" || type === "thermostat") && !editing) {
-      if (item.show_icon !== false) {
-        tile.appendChild(
-          el("div", { class: "spa-tile-icon" + (active ? "" : " off") },
-            el("ha-icon", { icon: item.icon || this._spaIcon(domain, id, state) }))
-        );
-      }
-      if (item.show_name !== false) {
-        tile.appendChild(el("span", { class: "spa-tile-name" }, item.name || this._entityLabel(id)));
-      }
-      tile.appendChild(el("div", { class: "spa-tile-sub" },
-        `${current != null ? current : "—"}° / ${target != null ? Math.round(target) : "—"}°`));
-      const row = el("div", { class: "row", style: "gap: 6px; flex-wrap: wrap; justify-content:center; width:100%;" });
-      row.appendChild(el("button", {
-        class: "btn small",
-        disabled: this._busySpa,
-        title: state.state === "off" ? "Accendi" : "Spegni",
-        on: { click: (event) => { event.stopPropagation(); this._spaClimatePower(id, state.state !== "off" && state.state !== "unavailable"); } },
-      }, el("ha-icon", { icon: state.state === "off" ? "mdi:power-off" : "mdi:power" })));
-      row.appendChild(el("button", {
-        class: "btn small",
-        disabled: this._busySpa,
-        title: "Riscaldamento",
-        on: { click: (event) => { event.stopPropagation(); this._spaClimateMode(id, "heat"); } },
-      }, el("ha-icon", { icon: "mdi:fire" })));
-      row.appendChild(el("button", {
-        class: "btn small",
-        disabled: this._busySpa,
-        title: "Freddo",
-        on: { click: (event) => { event.stopPropagation(); this._spaClimateMode(id, "cool"); } },
-      }, el("ha-icon", { icon: "mdi:snowflake" })));
-      row.appendChild(el("button", {
-        class: "btn small",
-        disabled: this._busySpa,
-        on: { click: (event) => { event.stopPropagation(); this._spaClimateTemp(id, -1); } },
-      }, el("ha-icon", { icon: "mdi:minus" })));
-      row.appendChild(el("button", {
-        class: "btn small",
-        disabled: this._busySpa,
-        on: { click: (event) => { event.stopPropagation(); this._spaClimateTemp(id, 1); } },
-      }, el("ha-icon", { icon: "mdi:plus" })));
-      tile.appendChild(row);
+    // Climate: big current temperature, target below, − and + only. Power and
+    // mode stay one tap / one long press away instead of five buttons.
+    if (kind === "climate" && domain === "climate" && !editing) {
+      const head = el("div", { class: "spa-clima-head" });
+      if (item.show_icon !== false) head.appendChild(icon());
+      head.appendChild(el("span", { class: "spa-tile-name" }, item.show_name !== false ? name : ""));
+      head.appendChild(
+        el("span", { class: "spa-clima-mode" },
+          unavailable ? "Non disponibile"
+            : !active ? "Spento"
+              : heating ? "Riscalda"
+                : cooling ? "Raffredda"
+                  : "Acceso")
+      );
+      tile.appendChild(head);
+      const current = attrs.current_temperature;
+      const target = attrs.temperature;
+      const step = Number(attrs.target_temp_step) || 1;
+      const body = el("div", { class: "spa-clima-body" },
+        el("div", {},
+          el("div", { class: "spa-clima-temp" }, current != null ? `${this._spaNumber(current)}°` : "—"),
+          el("div", { class: "spa-tile-sub" },
+            !active ? "tocca per accendere"
+              : target != null ? `obiettivo ${this._spaNumber(target)}°` : "obiettivo —")),
+        el("div", { class: "spa-clima-btns" },
+          el("button", {
+            class: "btn small",
+            title: "Abbassa",
+            disabled: this._busySpa || !active,
+            on: {
+              click: (event) => { event.stopPropagation(); this._spaClimateTemp(id, -step); },
+              pointerdown: (event) => event.stopPropagation(),
+            },
+          }, el("ha-icon", { icon: "mdi:minus" })),
+          el("button", {
+            class: "btn small",
+            title: "Alza",
+            disabled: this._busySpa || !active,
+            on: {
+              click: (event) => { event.stopPropagation(); this._spaClimateTemp(id, step); },
+              pointerdown: (event) => event.stopPropagation(),
+            },
+          }, el("ha-icon", { icon: "mdi:plus" }))));
+      tile.appendChild(body);
       return tile;
     }
 
-    if (item.show_icon !== false) {
-      tile.appendChild(
-        el("div", { class: "spa-tile-icon" + (active ? "" : " off") },
-          el("ha-icon", { icon: item.icon || this._spaIcon(domain, id, state) }))
-      );
-    }
+    if (item.show_icon !== false) tile.appendChild(icon());
     const main = el("div", { class: "spa-tile-main" });
-    if (item.show_name !== false) {
-      main.appendChild(el("span", { class: "spa-tile-name" }, item.name || this._entityLabel(id)));
+
+    if (kind === "sensor" && !editing) {
+      // The value is the point of a sensor: big, with its unit.
+      if (item.show_name !== false) main.appendChild(el("span", { class: "spa-tile-label" }, name));
+      if (item.show_state !== false) {
+        main.appendChild(el("span", { class: "spa-tile-value" }, this._spaSub(domain, id, state)));
+      }
+      if (type === "gauge") {
+        const number = Number(value);
+        if (Number.isFinite(number)) {
+          const pct = Math.max(0, Math.min(100, number));
+          main.appendChild(el("div", { class: "spa-tile-bar" }, el("i", { style: `width:${pct}%` })));
+        }
+      }
+      tile.appendChild(main);
+      return tile;
     }
+
+    if (item.show_name !== false) main.appendChild(el("span", { class: "spa-tile-name" }, name));
     if (item.show_state !== false && type !== "button") {
       main.appendChild(el("span", { class: "spa-tile-sub" }, this._spaSub(domain, id, state)));
     }
-    if (type === "gauge") {
-      const raw = state && state.state;
-      const val = Number(raw);
-      if (Number.isFinite(val)) {
-        const pct = Math.max(0, Math.min(100, val));
-        tile.appendChild(el("progress", { class: "spa-tile-gauge", value: pct, max: 100 }));
-      }
+
+    // One brightness control per light (2.1.1 could draw two): a thin bar
+    // that is also the slider.
+    const brightness = domain === "light" && !editing ? this._spaBrightness(state) : null;
+    if (brightness !== null && active) {
+      const slider = el("input", {
+        type: "range",
+        min: "1",
+        max: "100",
+        step: "1",
+        value: String(brightness || 1),
+        class: "spa-tile-brightness",
+        title: "Luminosità",
+        style: `--pct:${brightness}%`,
+      });
+      slider.addEventListener("click", (event) => event.stopPropagation());
+      slider.addEventListener("pointerdown", (event) => event.stopPropagation());
+      slider.addEventListener("input", (event) => {
+        event.target.style.setProperty("--pct", `${event.target.value}%`);
+      });
+      slider.addEventListener("change", (event) => this._spaSetBrightness(id, Number(event.target.value)));
+      main.appendChild(slider);
     }
     if (main.childNodes.length) tile.appendChild(main);
 
@@ -10133,42 +10250,7 @@ _renderClients() {
         }, el("ha-icon", { icon: "mdi:dots-vertical" }))
       );
       this._spaWireDrag(tile, id);
-      return tile;
     }
-
-    const brightness = typeof attrs.brightness === "number" ? Math.round(attrs.brightness / 2.55) : (state.state === "on" ? 100 : 0);
-    if (domain === "light" && !editing && state && (attrs.supported_color_modes || []).includes("brightness")) {
-      const slider = document.createElement("input");
-      slider.type = "range";
-      slider.min = 0;
-      slider.max = 100;
-      slider.step = 1;
-      slider.value = brightness;
-      slider.className = "spa-tile-brightness";
-      slider.addEventListener("input", (event) => {
-        const label = tile.querySelector(".spa-tile-brightness-value");
-        if (label) { label.textContent = `${event.target.value}%`; label.classList.add("show"); }
-      });
-      slider.addEventListener("change", (event) => {
-        const value = Number(event.target.value);
-        const label = tile.querySelector(".spa-tile-brightness-value");
-        if (value <= 0) this._spaCall("light", "turn_off", id);
-        else this._spaSetBrightness(id, value);
-        setTimeout(() => { if (label) label.classList.remove("show"); }, 1200);
-      });
-      slider.addEventListener("blur", () => {
-        const label = tile.querySelector(".spa-tile-brightness-value");
-        if (label) label.classList.remove("show");
-      });
-      slider.addEventListener("pointerdown", (event) => event.stopPropagation());
-      const row = el("div", { class: "spa-tile-bright-row" },
-        el("span", { class: "dim spa-tile-brightness-value" }, `${brightness}%`),
-        slider
-      );
-      tile.appendChild(row);
-    }
-    add(tile, this._spaSlider(domain, id, state));
-    add(tile, this._spaClimaRow(domain, id, state));
     return tile;
   }
 
@@ -10648,9 +10730,7 @@ _renderClients() {
     this._spaCall("climate", on ? "turn_off" : "turn_on", id);
   }
 
-  _spaClimateMode(id, mode) {
-    this._spaCall("climate", "set_hvac_mode", id, { hvac_mode: mode });
-  }
+
 
   _spaClimateTemp(id, delta) {
     const state = this._hass && this._hass.states && this._hass.states[id];
@@ -15681,58 +15761,87 @@ _renderClients() {
       .spa-chip.on { background: rgba(var(--rgb-primary-color, 77, 87, 240), .15);
                      border-color: var(--primary-color); color: var(--primary-color);
                      font-weight: 600; }
+      /* Spa tiles (2.1.2): colour by kind, not one yellow for everything.
+         Tints are translucent, so the same rules read on light and dark
+         Home Assistant themes. */
+      .spa { --spa-amber: #e8961e; --spa-teal: #1d9e75; --spa-heat: #e0683a;
+             --spa-cool: #378add; }
+      .spa-sections { display: flex; flex-direction: column; gap: 6px; }
+      .spa-section-head { display: flex; align-items: center; gap: 8px; margin: 6px 2px 2px;
+                          font-size: 13px; font-weight: 600; color: var(--secondary-text-color); }
+      .spa-section-head ha-icon { --mdc-icon-size: 18px; }
+      .spa-section-sum { font-weight: 400; margin-left: auto; font-size: 12px; }
       .spa-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
-                  gap: 12px; align-items: stretch; }
+                  gap: 10px; align-items: stretch; }
       .spa-tile { position: relative; display: flex; flex-direction: row; align-items: center;
-                  gap: 8px 12px; padding: 12px 14px; border: 1px solid var(--divider-color);
-                  border-radius: 12px; background: var(--card-background-color); cursor: pointer;
-                  transition: box-shadow .15s; text-align: left; }
-      .spa-tile .spa-tile-icon { --mdc-icon-size: 30px; flex-shrink: 0; }
+                  gap: 10px; padding: 10px 12px; min-height: 60px; box-sizing: border-box;
+                  border: 1px solid var(--divider-color); border-radius: 14px;
+                  background: var(--card-background-color); cursor: pointer; text-align: left;
+                  min-width: 0; --spa-c: var(--secondary-text-color);
+                  transition: background-color .2s, border-color .2s, box-shadow .15s; }
+      .spa-tile:hover { box-shadow: 0 2px 10px rgba(0, 0, 0, .10); }
+      .spa-tile:active { transform: scale(.985); }
+      .spa-tile .spa-tile-icon { width: 38px; height: 38px; border-radius: 50%; flex-shrink: 0;
+                                 display: flex; align-items: center; justify-content: center;
+                                 background: rgba(127, 127, 127, .12); color: var(--secondary-text-color);
+                                 transition: background-color .2s, color .2s; }
+      .spa-tile .spa-tile-icon ha-icon { --mdc-icon-size: 22px; }
       .spa-tile .spa-tile-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-      .spa-tile .spa-tile-name { font-weight: 500; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-      .spa-tile .spa-tile-sub { font-size: 12px; opacity: 0.9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-      .spa-tile:hover { box-shadow: 0 2px 10px rgba(0, 0, 0, .12); }
+      .spa-tile .spa-tile-name { font-weight: 500; font-size: 13px; color: var(--primary-text-color);
+                                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .spa-tile .spa-tile-sub { font-size: 12px; color: var(--secondary-text-color);
+                                white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .spa-kind--light { --spa-c: var(--spa-amber); }
+      .spa-kind--service { --spa-c: var(--spa-teal); }
+      .spa-kind--climate.heating { --spa-c: var(--spa-heat); }
+      .spa-kind--climate.cooling { --spa-c: var(--spa-cool); }
+      .spa-kind--climate { --spa-c: var(--spa-heat); }
+      .spa-tile.on { border-color: color-mix(in srgb, var(--spa-c) 55%, transparent);
+                     background: color-mix(in srgb, var(--spa-c) 7%, var(--card-background-color)); }
+      .spa-tile.on .spa-tile-icon { background: color-mix(in srgb, var(--spa-c) 20%, transparent);
+                                    color: var(--spa-c); }
+      .spa-tile.unavailable { opacity: .5; }
       .spa-tile.editing { cursor: grab; }
       .spa-tile.dragging { opacity: .75; outline: 2px dashed var(--primary-color);
                             cursor: grabbing; z-index: 5; }
-      /* yellow più soft per le tile accese */
-      .spa-tile.on { background: linear-gradient(180deg, var(--card-background-color, #ffffff) 0%, #fff59d 200%) !important; border-color: #f9e79f !important; }
-      .spa-tile.on .spa-tile-icon { color: #b7950b !important; }
-      .spa-tile.on .spa-tile-icon ha-icon { color: #b7950b !important; }
-      .spa-tile.on .spa-tile-name { color: #1a202c !important; font-weight: 700; }
-      .spa-tile.on .spa-tile-sub { color: #1a202c !important; }
-      .spa-tile-bright-row { display: flex; align-items: center; gap: 6px; width: 100%; margin-top: 4px; padding: 0 2px; box-sizing: border-box; overflow: hidden; }
-      .spa-tile-bright-row input[type=range] { flex: 1; min-width: 0; height: 12px; cursor: pointer; accent-color: var(--primary-color, #009ac7); }
-      .spa-tile-bright-row .spa-tile-brightness-value { display: none; font-size: 11px; min-width: 34px; text-align: right; white-space: nowrap; }
-      .spa-tile-bright-row .spa-tile-brightness-value.show { display: inline; }
-      /* termostato: bordo/icone riscaldamento/arancio; raffreddamento/azzurro */
-      .spa-tile--climate.heating { border-color: #ed8936 !important; }
-      .spa-tile--climate.heating .spa-tile-icon,
-      .spa-tile--climate.heating .spa-tile-icon ha-icon { color: #ed8936 !important; }
-      .spa-tile--climate.heating .btn ha-icon { color: #ed8936 !important; }
-      .spa-tile--climate.cooling { border-color: #3182ce !important; }
-      .spa-tile--climate.cooling .spa-tile-icon,
-      .spa-tile--climate.cooling .spa-tile-icon ha-icon { color: #3182ce !important; }
-      .spa-tile--climate.cooling .btn ha-icon { color: #3182ce !important; }
-      /* Phase 2: card types (visual variants) */
-      /* Phase 2 stronger visuals */
-      .spa-tile--button { justify-content: center; min-height: 74px; background: var(--secondary-background-color, #f1f3f5); }
-      .spa-tile--button .spa-tile-icon { --mdc-icon-size: 34px; }
-      .spa-tile--button .spa-tile-name { font-weight: 700; font-size: 13px; margin-top: 4px; }
-      .spa-tile--switch { cursor: pointer; background: linear-gradient(180deg, var(--card-background-color) 0%, var(--primary-color) 200%); }
-      .spa-tile--switch .spa-tile-icon { color: var(--primary-color); }
-      .spa-tile--switch.on { background: linear-gradient(180deg, var(--card-background-color, #ffffff) 0%, #fff59d 200%) !important; }
-      .spa-tile--switch.on .spa-tile-icon { color: #b7950b !important; }
-      .spa-tile--climate { border: 2px solid var(--primary-color); padding-bottom: 10px; background: var(--card-background-color); }
-      .spa-tile--climate .spa-tile-sub { font-size: 12px; font-weight: 500; }
-      .spa-tile--sensor .spa-tile-name { font-size: 11px; color: var(--secondary-text-color); }
-      .spa-tile--sensor .spa-tile-sub { font-size: 20px; font-weight: 700; }
-      .spa-tile--gauge { padding-bottom: 8px; }
-      .spa-tile--gauge .spa-tile-gauge { width: 100%; height: 8px; border-radius: 4px; accent-color: var(--primary-color); }
-      .spa-tile--entity { text-align: left; align-items: flex-start; background: var(--secondary-background-color, #f1f3f5); }
-      .spa-tile--thermostat .spa-tile-sub { font-size: 14px; }
-      .spa-tile--thermostat .spa-tile-main { width: 100%; }
-      .spa-tile--tile .spa-tile-icon { --mdc-icon-size: 20px; }
+      /* Brightness: a thin bar that is also the slider. */
+      .spa-tile-brightness { -webkit-appearance: none; appearance: none; width: 100%; height: 6px;
+                             margin: 5px 0 0; border-radius: 3px; cursor: pointer; outline: none;
+                             background: linear-gradient(to right, var(--spa-c) var(--pct, 50%),
+                               rgba(127, 127, 127, .2) var(--pct, 50%)); }
+      .spa-tile-brightness::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px;
+                             border-radius: 50%; background: var(--spa-c);
+                             border: 2px solid var(--card-background-color); }
+      .spa-tile-brightness::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%;
+                             background: var(--spa-c); border: 2px solid var(--card-background-color); }
+      /* Sensors: the value is the point. */
+      .spa-kind--sensor .spa-tile-label { font-size: 12px; color: var(--secondary-text-color);
+                             white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .spa-kind--sensor .spa-tile-value { font-size: 20px; font-weight: 600;
+                             color: var(--primary-text-color); white-space: nowrap; }
+      .spa-tile-bar { height: 5px; border-radius: 3px; margin-top: 4px; overflow: hidden;
+                      background: rgba(127, 127, 127, .2); }
+      .spa-tile-bar i { display: block; height: 100%; background: var(--primary-color); }
+      /* Climate: big temperature, target, − and +. */
+      .spa-kind--climate.spa-tile:not(.editing) { flex-direction: column; align-items: stretch;
+                                                  gap: 8px; }
+      .spa-clima-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+      .spa-clima-head .spa-tile-name { flex: 1; }
+      .spa-clima-mode { font-size: 11px; padding: 2px 8px; border-radius: 999px; white-space: nowrap;
+                        background: rgba(127, 127, 127, .14); color: var(--secondary-text-color); }
+      .spa-tile.on .spa-clima-mode { background: color-mix(in srgb, var(--spa-c) 18%, transparent);
+                                     color: var(--spa-c); font-weight: 600; }
+      .spa-clima-body { display: flex; align-items: flex-end; justify-content: space-between; gap: 8px; }
+      .spa-clima-temp { font-size: 30px; font-weight: 500; line-height: 1.1;
+                        color: var(--primary-text-color); }
+      .spa-tile:not(.on) .spa-clima-temp { color: var(--secondary-text-color); }
+      .spa-clima-btns { display: flex; gap: 6px; }
+      .spa-clima-btns .btn { min-width: 38px; justify-content: center; }
+      /* Button type: centred icon and name. */
+      .spa-tile--button { flex-direction: column; justify-content: center; min-height: 84px; }
+      .spa-tile--button .spa-tile-main { align-items: center; }
+      .spa-tile--button .spa-tile-name { white-space: normal; text-align: center; }
+      .btn.small.active { border-color: var(--primary-color); color: var(--primary-color); }
       .spa-tile-menu { position: absolute; top: 4px; right: 4px; z-index: 3;
                         width: 30px; height: 30px; padding: 0;
                         background: var(--card-background-color);
@@ -15775,11 +15884,11 @@ _renderClients() {
         .spa-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .spa-head { margin-bottom: 8px; }
         .spa-head-title { font-size: 16px; }
-        .spa-tile { padding: 13px 12px; gap: 4px 10px; }
-        .spa-tile-icon { width: 40px; height: 40px; }
-        .spa-tile-icon ha-icon { --mdc-icon-size: 22px; }
-        .spa-tile-name { font-size: 15px; }
-        .spa-tile-sub { font-size: 12px; }
+        .spa-tile { padding: 10px; gap: 8px; }
+        .spa-tile .spa-tile-icon { width: 34px; height: 34px; }
+        .spa-tile .spa-tile-icon ha-icon { --mdc-icon-size: 20px; }
+        .spa-tile .spa-tile-name { font-size: 14px; }
+        .spa-clima-temp { font-size: 26px; }
         .spa-menu-btn { width: 40px; height: 40px; }
         .spa-chip { padding: 9px 14px; font-size: 14px; }
       }
