@@ -5,7 +5,7 @@ trattamenti con durata propria, operatrici, schede cliente, agenda del giorno
 per operatrice e per categoria, pagamenti, voucher, richieste dal sito web,
 promemoria e report automatici su WhatsApp e Telegram.
 
-Versione corrente: **2.1.0** — documentazione completa in
+Versione corrente: **2.1.1** — documentazione completa in
 [`custom_components/spa_booking/README.md`](custom_components/spa_booking/README.md).
 
 ## Funzionalità principali
@@ -69,6 +69,7 @@ pip install homeassistant pytest ruff
 ruff check --select F,E9,B,ASYNC custom_components tests
 python -m pytest tests
 node tests/frontend/form_test.js custom_components/spa_booking/frontend/spa-booking-form.txt
+node tests/frontend/card_request_test.js custom_components/spa_booking/frontend/spa-booking-card.js
 ```
 
 La CI (`.github/workflows/ci.yml`) esegue lint, test, controllo della card,
@@ -77,6 +78,12 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v2.1.1**: nella scheda Richiesta, con 2 o più persone compare un box per
+  persona (trattamenti, orari e accessori di ciascuna, "Copia dalla 1ª"); alla
+  conferma ogni trattamento viene prenotato solo per la sua persona. "Modifica"
+  su una richiesta ora la aggiorna invece di crearne una nuova. "Crea
+  richiesta" e "Salva cliente" dai messaggi WhatsApp non aggiungono più "39"
+  ai numeri stranieri.
 - **v2.1.0**: pianificatore interno (niente più package YAML), card e modulo
   dentro l'integrazione (compatibile HACS), permessi applicati lato server e
   segreti nascosti ai non amministratori, limite di richieste sull'API del

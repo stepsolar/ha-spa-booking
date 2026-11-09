@@ -2912,8 +2912,15 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         guest_type: str = GUEST_TYPE_DEFAULT,
         user_id: str | None = None,
         source: str = REQUEST_SOURCE_DESK,
+        request_id: str | None = None,
     ) -> dict[str, Any]:
         """Take a guest's appointment request and acknowledge it on WhatsApp.
+
+        With ``request_id`` the request already on the list is rewritten in
+        place instead (the card's "Modifica"): same id, code, source and
+        creation time, and no second acknowledgement to the guest. Up to
+        2.1.0 an edit saved a new request and left the old one on the list.
+        Only a request still waiting can be changed.
 
         A request is lighter than a booking on purpose: it holds no slot, so it
         is not checked against the agenda — the desk only wrote down what the
@@ -2988,6 +2995,17 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             people = 1
 
         async with self._lock:
+            existing_request = None
+            if request_id:
+                existing_request = next(
+                    (r for r in self.requests if r["id"] == request_id), None
+                )
+                if existing_request is None:
+                    raise NotFoundError("Richiesta non trovata")
+                if existing_request.get("status") != REQUEST_PENDING:
+                    raise ValidationError(
+                        "La richiesta è già stata confermata: modifica gli appuntamenti"
+                    )
             client = self._resolve_client(
                 client_id,
                 first_name,
@@ -3000,6 +3018,23 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             if not any(existing["id"] == client["id"] for existing in self.clients):
                 self.clients.append(client)
+            if existing_request is not None:
+                updated = _norm_request(
+                    {
+                        **existing_request,
+                        "client_id": client["id"],
+                        "date": day,
+                        "people": people,
+                        "entries": clean,
+                        "notes": notes,
+                        "voucher_code": code,
+                        "guest_type": _norm_guest_type(guest_type),
+                    }
+                )
+                existing_request.clear()
+                existing_request.update(updated)
+                await self._async_save()
+                return self.request_payload(existing_request)
             codes = {r["code"] for r in self.requests if r.get("code")}
             request = _norm_request(
                 {

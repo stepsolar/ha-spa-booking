@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.0.15";
+const CARD_VERSION = "2.1.1";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -6153,6 +6153,7 @@ class SpaBookingCard extends HTMLElement {
       treatments: [],
       people: 1,
       persons: null,
+      request_id: "",
       pending: false,
       guest_type: GUEST_DEFAULT,
       voucher_query: "",
@@ -6545,9 +6546,32 @@ class SpaBookingCard extends HTMLElement {
     if (!entry.date) return null;
     const count = this._peopleCount();
     if (count < 1) return null;
-    const treatments = entry.treatments && entry.treatments.length ? entry.treatments : [this._blankTreatment()];
-    const validTreats = treatments.filter((t) => t.treatment_id);
-    if (!validTreats.length) return null;
+
+    // One person: the flat form, each entry for her. Several: one entry per
+    // treatment of each person, tagged with who it is for, so confirming the
+    // request books exactly these and nothing is doubled for the others.
+    const multi = Array.isArray(entry.persons);
+    const states = multi ? entry.persons : [entry];
+    const entries = [];
+    states.forEach((state, index) => {
+      this._treatmentsOf(state)
+        .filter((t) => t.treatment_id)
+        .forEach((t) => {
+          const item = {
+            treatment_id: t.treatment_id,
+            time: t.time || "10:00",
+            extras: state.extras || [],
+            // operator_id intentionally omitted for requests — reception assigns later
+          };
+          if (multi) item.person = index;
+          entries.push(item);
+        });
+    });
+    if (!entries.length) {
+      this._message = { kind: "error", text: "Aggiungi almeno un trattamento alla richiesta." };
+      this._render();
+      return null;
+    }
 
     let clientPayload;
     if (entry.client_mode === "existing") {
@@ -6566,14 +6590,7 @@ class SpaBookingCard extends HTMLElement {
       }
     }
 
-    const entries = validTreats.map((t) => ({
-      treatment_id: t.treatment_id,
-      time: t.time || "10:00",
-      extras: entry.extras || [],
-      // operator_id intentionally omitted for requests — reception assigns later
-    }));
-
-    return {
+    const payload = {
       date: entry.date,
       people: count,
       entries,
@@ -6582,6 +6599,9 @@ class SpaBookingCard extends HTMLElement {
       notes: entry.notes || "",
       voucher_code: (entry.voucher_code || "").trim().toUpperCase(),
     };
+    // Opened with "Modifica": rewrite that request instead of adding one.
+    if (entry.request_id) payload.request_id = entry.request_id;
+    return payload;
   }
 
   async _saveRequest() {
@@ -7570,7 +7590,7 @@ class SpaBookingCard extends HTMLElement {
           class: "btn primary",
           disabled: this._busy,
           on: { click: () => this._saveRequest() },
-        }, "Salva richiesta"),
+        }, this._form.request_id ? "Salva modifiche alla richiesta" : "Salva richiesta"),
         el("div", { class: "spacer" }),
         el("button", {
           class: "btn ghost",
@@ -7582,43 +7602,73 @@ class SpaBookingCard extends HTMLElement {
     return wrap;
   }
 
-  /** One box for the Richiesta form: treatments + shared accessories (like _bookingBlock). */
+  /**
+   * The treatments of the Richiesta form. One person: a single box, as
+   * always. Two or more (the "Persone" stepper): one box per person, like the
+   * Nuovo form, so each person asks for her own treatments and times. Before
+   * 2.1.1 the stepper filled the per-person list but this form kept drawing
+   * the single box, and every treatment ended up booked for everybody.
+   */
   _richiestaBlock() {
-    const entry = this._form;
-    const treats = entry.treatments && entry.treatments.length ? entry.treatments : [this._blankTreatment()];
+    const persons = this._form.persons;
+    if (!Array.isArray(persons)) return this._richiestaPersonBox(this._form, 0, false);
+    const wrap = el("div", { class: "stack tight" });
+    persons.forEach((person, index) => {
+      wrap.appendChild(this._richiestaPersonBox(person, index, true));
+    });
+    return wrap;
+  }
 
+  /** One person of the request: her treatments, times and accessories. */
+  _richiestaPersonBox(state, index, multi) {
+    const treats = this._treatmentsOf(state);
     const box = el("div", { class: "bk-person" });
 
     box.appendChild(
       el("div", { class: "bk-person-head" },
-        el("span", { class: "dim" }, "Trattamenti"),
-        el("div", { class: "spacer" }))
+        el("span", { class: "dim" }, multi ? `Persona ${index + 1}` : "Trattamenti"),
+        multi && index === 0 ? el("span", { class: "chip" }, "riferimento") : null,
+        el("div", { class: "spacer" }),
+        multi && index > 0
+          ? el("button", {
+              class: "btn small",
+              title: "Copia trattamenti e orari dalla persona 1",
+              disabled: this._busy,
+              on: { click: () => this._copyFromFirst(index) },
+            }, "Copia dalla 1ª")
+          : null,
+        multi
+          ? el("button", {
+              class: "icon-btn danger",
+              title: "Rimuovi persona",
+              disabled: this._busy,
+              on: { click: () => this._removePersonAt(index) },
+            }, el("ha-icon", { icon: "mdi:close" }))
+          : null)
     );
 
     treats.forEach((treat, j) => {
-      box.appendChild(this._richiestaTreatRow(entry, treat, j, treats.length > 1));
+      box.appendChild(this._richiestaTreatRow(state, treat, j, treats.length > 1));
     });
 
-    // "Aggiungi trattamento" button inside the box.
     box.appendChild(
       el("button", {
         class: "btn primary small add-treat-btn",
-        title: "Aggiungi un altro trattamento con un'altra fascia oraria",
+        title: multi
+          ? `Aggiungi un altro trattamento alla persona ${index + 1}, con un'altra fascia oraria`
+          : "Aggiungi un altro trattamento con un'altra fascia oraria",
         disabled: this._busy,
-        on: { click: () => this._addRichiestaTreatment() },
+        on: { click: () => this._addTreatment(state) },
       }, el("ha-icon", { icon: "mdi:plus-circle-outline" }), "Aggiungi trattamento")
     );
 
-    // Shared accessories for all treatments (like Nuovo: per person, here per request).
-    box.appendChild(this._extrasField(entry));
-
+    // The accessories belong to the person, as in the Nuovo form.
+    box.appendChild(this._extrasField(state));
     return box;
   }
 
   /** One treatment row in the Richiesta form: no masseuse, no per-treatment accessories. */
-  _richiestaTreatRow(entry, treat, j, hasMany) {
-    const treatment = this._lookup.treatment.get(treat.treatment_id) || null;
-
+  _richiestaTreatRow(state, treat, j, hasMany) {
     const row = el("div", { class: "bk-treat" });
     row.appendChild(el("span", { class: "bk-treat-label" }, `Trattamento ${j + 1}`));
     row.appendChild(this._treatmentSelect(treat, this._activeTreatments()));
@@ -7628,33 +7678,14 @@ class SpaBookingCard extends HTMLElement {
         class: "icon-btn bk-treat-x",
         title: "Rimuovi questo trattamento",
         disabled: this._busy,
-        on: { click: () => this._removeRichiestaTreatmentAt(entry.treatments.indexOf(treat)) },
+        on: { click: () => this._removeTreatment(state, treat) },
       }, el("ha-icon", { icon: "mdi:close" })));
     }
 
     const sub = el("div", { class: "bk-treat-sub" });
     // NO masseuse/operator field for requests — reception assigns later.
     add(sub, this._slotPreview(treat));
-    // NO accessories here: they are shared at the bottom of the box.
-
     return el("div", { class: "bk-treat-block" }, row, sub);
-  }
-
-  /** Add a new treatment row to the request. */
-  _addRichiestaTreatment() {
-    const entry = this._form;
-    if (!entry.treatments) entry.treatments = [];
-    entry.treatments.push(this._blankTreatment());
-    this._render();
-  }
-
-  /** Remove a treatment row from the request. */
-  _removeRichiestaTreatmentAt(index) {
-    const entry = this._form;
-    const treats = entry.treatments || [];
-    if (treats.length <= 1) return;
-    treats.splice(index, 1);
-    this._render();
   }
 
   _renderWhatsapp() {
@@ -7745,9 +7776,7 @@ class SpaBookingCard extends HTMLElement {
   }
 
   _createRequestFromWhatsapp(chatId) {
-    let phone = (chatId || "").replace(/\s+/g, "");
-    if (phone.includes("@")) phone = phone.split("@")[0];
-    if (!phone.startsWith("39")) phone = "39" + phone;
+    const phone = this._phoneFromChat(chatId);
     // The request form reads this._form, not this._draft: write the number
     // there and open it as a new client, so the phone field is the one shown.
     this._form = { ...this._form, phone, client_mode: "new" };
@@ -7758,10 +7787,30 @@ class SpaBookingCard extends HTMLElement {
     this._render();
   }
 
+  /**
+   * The phone number of a WhatsApp chat id, written with its "+".
+   *
+   * A chat id (393331234567@c.us) already carries the full international
+   * number. The old code put "39" in front of anything not starting with 39,
+   * so a Swiss or German guest became a wrong Italian number. The "+" keeps
+   * the server from guessing the country again. A @lid or a group id is not
+   * a phone number: nothing is filled in.
+   */
+  _phoneFromChat(chatId) {
+    const raw = String(chatId || "").replace(/\s+/g, "");
+    const [user, server] = raw.includes("@") ? raw.split("@") : [raw, "c.us"];
+    if (server && server !== "c.us" && server !== "s.whatsapp.net") return "";
+    const digits = user.replace(/\D/g, "");
+    return digits ? `+${digits}` : "";
+  }
+
   _saveAsClient(chatId) {
-    let phone = (chatId || "").replace(/\s+/g, "");
-    if (phone.includes("@")) phone = phone.split("@")[0];
-    if (!phone.startsWith("39")) phone = "39" + phone;
+    const phone = this._phoneFromChat(chatId);
+    if (!phone) {
+      this._message = { kind: "error", text: "Questa chat non ha un numero di telefono da salvare." };
+      this._render();
+      return;
+    }
     if (!this._draft) this._draft = {};
     this._call("save_client", {
       first_name: "Esterno",
@@ -7840,9 +7889,24 @@ class SpaBookingCard extends HTMLElement {
       const phone = client.phone || "—";
       const dateIt = req.date_it || "—";
       const people = req.people || 1;
-      const trList = (req.entries || []).map((e) =>
-        `${e.treatment_name || "—"}${e.start ? ` · ${e.start}` : ""}`
-      ).join(", ") || "—";
+      const label = (e) => `${e.treatment_name || "—"}${e.start ? ` · ${e.start}` : ""}`;
+      const tagged = (req.entries || []).some((e) => e.person !== undefined && e.person !== null);
+      let trList;
+      if (tagged && people > 1) {
+        // One line per person: "Persona 1: Massaggio · 10:00 — Persona 2: …"
+        const byPerson = new Map();
+        (req.entries || []).forEach((e) => {
+          const key = Number(e.person) || 0;
+          if (!byPerson.has(key)) byPerson.set(key, []);
+          byPerson.get(key).push(label(e));
+        });
+        trList = [...byPerson.keys()].sort((a, b) => a - b)
+          .map((key) => `Persona ${key + 1}: ${byPerson.get(key).join(", ")}`)
+          .join(" — ");
+      } else {
+        trList = (req.entries || []).map(label).join(", ") || "—";
+        if (people > 1 && (req.entries || []).length) trList += " (per ogni persona)";
+      }
       const code = req.code || "—";
       const status = req.is_confirmed ? "Confermata" : "In attesa";
       const row = el("div", { class: "row tight request-card" },
@@ -7896,18 +7960,39 @@ class SpaBookingCard extends HTMLElement {
 
     /** Load a request into the form for editing. */
   _editRequest(req) {
-    this._nuovoTab = "nuova";
+    const people = Math.max(1, Number(req.people) || 1);
+    const entries = req.entries || [];
+    const toTreat = (e) => ({
+      ...this._blankTreatment(),
+      treatment_id: e.treatment_id,
+      time: e.time || "10:00",
+    });
+    // Entries that name their person (website, or saved from 2.1.1 on) go
+    // in her box; older entries were meant for everybody, so each box gets
+    // them all — what is on screen is exactly what confirming would book.
+    const tagged = entries.some((e) => e.person !== undefined && e.person !== null);
+    let persons = null;
+    let treatments = entries.map(toTreat);
+    let extras = entries.length ? [...(entries[0].extras || [])] : [];
+    if (people > 1) {
+      persons = Array.from({ length: people }, (_, index) => {
+        const mine = tagged ? entries.filter((e) => (Number(e.person) || 0) === index) : entries;
+        return this._personFrom({
+          treatments: mine.length ? mine.map(toTreat) : [this._blankTreatment()],
+          extras: mine.length ? [...(mine[0].extras || [])] : [],
+        });
+      });
+      treatments = [];
+      extras = [];
+    }
     this._form = {
       ...this._form,
+      request_id: req.id,
       date: req.date,
-      people: req.people,
-      treatments: (req.entries || []).map((e) => ({
-        uid: this._uid(),
-        treatment_id: e.treatment_id,
-        time: e.time || "10:00",
-        operator_id: e.operator_id || "",
-      })),
-      extras: req.entries && req.entries.length ? (req.entries[0].extras || []) : [],
+      people,
+      persons,
+      treatments,
+      extras,
       client_mode: req.client_id ? "existing" : "new",
       client_id: req.client_id || "",
       first_name: req.client?.first_name || "",
