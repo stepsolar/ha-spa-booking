@@ -119,6 +119,7 @@ const assert = (c, m) => { if (!c) { console.error("FAIL:", m); process.exit(1);
   assert(posts.length === 1, "double click sends once");
   const payload = JSON.parse(posts[0].opts.body);
   assert(payload.entries.length === 3 && payload.voucher_code === "VCH-AAAA2222" && payload.people === 2, "payload complete");
+  assert(payload.entries.map((e) => e.person).join(",") === "0,0,1", "each entry says which person it is for");
   assert(calls.every((c) => c.opts.headers.Authorization === "Bearer INCOLLA_QUI_IL_TOKEN"), "token header sent");
   assert(els["sbw-done"].textContent.includes("R1234"), "receipt shows request code");
   console.log("ALL FORM TESTS PASSED");

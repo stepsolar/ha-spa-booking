@@ -365,7 +365,13 @@ class SpaBookingPublicRequestView(_PublicView):
                 planned.append(
                     coordinator.plan_public_entry(day, treatment_id, clock, planned)
                 )
-                clean_entries.append({"treatment_id": treatment_id, "time": clock})
+                item: dict[str, Any] = {"treatment_id": treatment_id, "time": clock}
+                # The form books person by person: keep who each entry is for,
+                # so confirming creates one appointment per entry.
+                person = entry.get("person")
+                if isinstance(person, int) and 0 <= person < 50:
+                    item["person"] = person
+                clean_entries.append(item)
             if not clean_entries:
                 raise ValidationError("Trattamento non valido nella richiesta")
 

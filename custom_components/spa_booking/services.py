@@ -948,6 +948,9 @@ REQUEST_ENTRY_SCHEMA = vol.Schema(
         vol.Required(ATTR_TREATMENT_ID): cv.string,
         vol.Required(ATTR_TIME): cv.string,
         vol.Optional(ATTR_EXTRAS): vol.All(cv.ensure_list, [cv.string]),
+        # Which person of the party (0 = the one booking); website requests
+        # carry it, desk requests leave it out (each entry is for everybody).
+        vol.Optional("person"): vol.Any(None, vol.All(vol.Coerce(int), vol.Range(min=0))),
     },
     extra=vol.PREVENT_EXTRA,
 )

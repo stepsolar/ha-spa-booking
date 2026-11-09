@@ -248,7 +248,9 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if stale:
                 await self._store.async_save(self._data)
         else:
-            self._data = default_data(self.entry.data.get("operator_names") or [])
+            self._data = _normalise(
+                default_data(self.entry.data.get("operator_names") or [])
+            )
             await self._store.async_save(self._data)
         await self.async_refresh_card_version()
         self.async_set_updated_data(self._data)
@@ -2640,6 +2642,13 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         rows: list[dict[str, Any]] = []
         for entry in request.get("entries") or []:
             clock = str(entry.get("time") or "00:00")
+            # A website entry names its person: one appointment for her. A
+            # desk entry does not: one appointment for each of the people.
+            persons = (
+                [entry["person"]]
+                if entry.get("person") is not None
+                else range(int(request.get("people") or 1))
+            )
             rows.append(
                 {
                     "treatment_id": entry["treatment_id"],
@@ -2650,7 +2659,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             "person": person,
                             "extras": entry.get("extras") or [],
                         }
-                        for person in range(int(request.get("people") or 1))
+                        for person in persons
                     ],
                     "pending": False,
                     "guest_type": request.get("guest_type") or GUEST_TYPE_DEFAULT,
@@ -2945,15 +2954,16 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             clock = _norm_clock(entry.get("time"))
             if not clock:
                 raise ValidationError("Indica l'ora di ogni trattamento richiesto")
-            clean.append(
-                {
-                    "treatment_id": treatment_id,
-                    "time": clock,
-                    "extras": _norm_extras(
-                        entry.get("extras"), known=self._accessory_ids()
-                    ),
-                }
-            )
+            item = {
+                "treatment_id": treatment_id,
+                "time": clock,
+                "extras": _norm_extras(
+                    entry.get("extras"), known=self._accessory_ids()
+                ),
+            }
+            if entry.get("person") is not None:
+                item["person"] = _norm_person(entry.get("person"))
+            clean.append(item)
         if not clean:
             raise ValidationError("Aggiungi almeno un trattamento alla richiesta")
 

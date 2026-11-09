@@ -59,3 +59,40 @@ def test_site_respects_category_windows(web) -> None:
     times = _times(run(coordinator.async_public_availability(day, MASSAGE)))
     assert "10:00" in times
     assert "15:00" not in times  # the desk would refuse it
+
+
+def test_web_request_books_each_person_once(web) -> None:
+    coordinator, day = web
+    coordinator._data[KEY_SETTINGS]["web_enabled"] = True
+    result = run(
+        coordinator.async_create_request(
+            first_name="Anna",
+            phone="392 1234567",
+            date=day.isoformat(),
+            people=2,
+            entries=[
+                {"treatment_id": MASSAGE, "time": "10:00", "person": 0},
+                {"treatment_id": "trt_ingresso_90", "time": "10:00", "person": 1},
+                {"treatment_id": "trt_ingresso_90", "time": "12:00", "person": 0},
+            ],
+            source="web",
+        )
+    )
+    request_id = next(r["id"] for r in coordinator.requests if r["code"] == result["code"])
+    confirmed = run(coordinator.async_confirm_request(request_id))
+    assert confirmed["count"] == 3  # not 3 entries x 2 people
+
+
+def test_desk_request_still_books_every_person(web) -> None:
+    coordinator, day = web
+    result = run(
+        coordinator.async_create_request(
+            first_name="Luca",
+            phone="333 7654321",
+            date=day.isoformat(),
+            people=2,
+            entries=[{"treatment_id": "trt_ingresso_90", "time": "15:00"}],
+        )
+    )
+    request_id = next(r["id"] for r in coordinator.requests if r["code"] == result["code"])
+    assert run(coordinator.async_confirm_request(request_id))["count"] == 2

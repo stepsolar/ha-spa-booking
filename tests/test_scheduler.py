@@ -202,3 +202,12 @@ def test_review_request_retried_after_failure(coordinator, sent, freeze, monkeyp
     monkeypatch.setattr(messaging, "async_send_whatsapp", working)
     assert run(coordinator.async_send_review_requests())["sent"] == 1
     assert coordinator.appointments[0]["review_request_sent"]
+
+
+def test_fresh_install_has_every_collection() -> None:
+    from custom_components.spa_booking.const import KEY_PROMO_VOUCHERS
+    from custom_components.spa_booking.normalize import default_data
+
+    data = default_data(["Maria"])
+    assert data[KEY_VOUCHERS] == []
+    assert data[KEY_PROMO_VOUCHERS] == []

@@ -227,13 +227,18 @@
     }
   }
   function collectEntries() {
+    // One entry per chosen treatment, with the person it is for (0 = the
+    // first): confirming the request books exactly these, nothing doubled.
     var all = [];
-    var rows = personsBox.querySelectorAll(".sbw-entry");
-    for (var i = 0; i < rows.length; i++) {
-      var selects = rows[i].querySelectorAll("select");
-      var treatment = selects[0] ? selects[0].value : "";
-      var time = selects[1] ? selects[1].value : "";
-      if (treatment) { if (time) all.push({ treatment_id: treatment, time: time }); }
+    var persons = personsBox.querySelectorAll(".sbw-person");
+    for (var p = 0; p < persons.length; p++) {
+      var rows = persons[p].querySelectorAll(".sbw-entry");
+      for (var i = 0; i < rows.length; i++) {
+        var selects = rows[i].querySelectorAll("select");
+        var treatment = selects[0] ? selects[0].value : "";
+        var time = selects[1] ? selects[1].value : "";
+        if (treatment) { if (time) all.push({ treatment_id: treatment, time: time, person: p }); }
+      }
     }
     return all;
   }

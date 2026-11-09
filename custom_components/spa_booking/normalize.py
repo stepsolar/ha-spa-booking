@@ -1425,13 +1425,17 @@ def _norm_request(raw: dict[str, Any]) -> dict[str, Any]:
         treatment_id = str(item.get("treatment_id") or "").strip()
         if not treatment_id:
             continue
-        entries.append(
-            {
-                "treatment_id": treatment_id,
-                "time": str(item.get("time") or "")[:5],
-                "extras": _norm_extras(item.get("extras")),
-            }
-        )
+        clean = {
+            "treatment_id": treatment_id,
+            "time": str(item.get("time") or "")[:5],
+            "extras": _norm_extras(item.get("extras")),
+        }
+        # Which person of the party this entry is for (0 = the one booking).
+        # The website asks person by person; a desk request has no such key
+        # and every entry is meant for each of the ``people``.
+        if item.get("person") is not None:
+            clean["person"] = _norm_person(item.get("person"))
+        entries.append(clean)
     status = raw.get("status")
     if status not in (REQUEST_PENDING, REQUEST_CONFIRMED):
         status = REQUEST_PENDING
@@ -1670,6 +1674,10 @@ def default_data(operator_names: list[str] | None = None) -> dict[str, Any]:
         KEY_REQUESTS: [],
         KEY_SLOT_BLOCKS: [],
         KEY_CLOSURES: [],
+        # Missing until 2.0.16: a fresh installation could not sell a voucher
+        # (KeyError) until the first restart normalised the stored file.
+        KEY_VOUCHERS: [],
+        KEY_PROMO_VOUCHERS: [],
         KEY_SETTINGS: default_settings(),
     }
 
