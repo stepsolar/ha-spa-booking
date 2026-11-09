@@ -1,53 +1,299 @@
-    (function(){
+    (function () {
       "use strict";
-      var API_BASE="https://hailmarchese.it/api/spa_booking/public";
-      var TOKEN="INCOLLA_QUI_IL_TOKEN";
-      var MAX_DAYS_AHEAD=60;
-      var AMP=String.fromCharCode(38);
-      function $(id){return document.getElementById(id);}
-      var sbwRoot=$("sbw-widget");
-      if(!sbwRoot){return;}
-      function node(tag,attrs,children){var el=document.createElement(tag);if(attrs){Object.keys(attrs).forEach(function(key){var value=attrs[key];if(value===null||value===undefined)return;if(key==="class")el.className=value;else if(key==="text")el.textContent=value;else if(key==="on")Object.keys(value).forEach(function(ev){el.addEventListener(ev,value[ev]);});else el.setAttribute(key,value);});}(children||[]).forEach(function(child){if(child)el.appendChild(child);});return el;}
-      function $l(id){return sbwRoot.querySelector("#"+id);}
-      var dateInput=$l("sbw-date");
-      var peopleSelect=$l("sbw-people");
-      var personsBox=$l("sbw-persons");
-      var voucherInput=$l("sbw-voucher");
-      var voucherBtn=$l("sbw-voucher-check");
-      var voucherInfo=$l("sbw-voucher-info");
-      var first=$("sbw-first");
-      var last=$("sbw-last");
-      var phone=$("sbw-phone");
-      var email=$("sbw-email");
-      var notes=$("sbw-notes");
-      var sendBtn=$("sbw-send");
-      var statusBox=$("sbw-status");
-      var honey=$("sbw-website");
-      var treatments=[];
-      var voucherData=null;
-      function say(text,kind){if(statusBox){statusBox.textContent=text||"";statusBox.className="sbw-status"+(kind?" "+kind:"");}}
-      function isoDay(d){return d.getFullYear()+"-"+(d.getMonth()+1<10?"0":"")+(d.getMonth()+1)+"-"+(d.getDate()<10?"0":"")+d.getDate();}
-      function describe(err){var status=err?err.status:0;if(status===404)return"Il servizio di prenotazione online non e attivo in questo momento: chiama la reception per prenotare.";if(status===401)return"Il modulo non e configurato correttamente. Avvisa la reception.";if(status){if(err.message)return err.message;}return"Non riesco a contattare il servizio di prenotazione: controlla la connessione e riprova, o chiama la reception.";}
-      function api(path,options){options=options||{};var h={"Authorization":"Bearer "+TOKEN};if(options.body)h["Content-Type"]="application/json";return fetch(API_BASE+path,{method:options.method||"GET",headers:h,body:options.body?JSON.stringify(options.body):undefined,mode:"cors",cache:"no-store"}).then(function(r){return r.text().then(function(raw){var data=null;try{data=raw?JSON.parse(raw):null;}catch(e){data=null;}if(!r.ok){var f=new Error((data?data.message:null)||("HTTP "+r.status));f.status=r.status;throw f;}return data;});});}
-      function addTreatmentOptions(sel,selectedId){sel.innerHTML="";var def=document.createElement("option");def.value="";def.textContent="-- scegli --";sel.appendChild(def);treatments.forEach(function(t){var o=document.createElement("option");o.value=t.id;o.textContent=t.name+" ("+t.duration_min+" min)";if(selectedId){ if(selectedId===t.id) o.selected=true; }sel.appendChild(o);});}
-      function fillSlots(sel,treatmentId){sel.innerHTML="";if(!treatmentId||!dateInput||!dateInput.value){var ph=document.createElement("option");ph.value="";ph.textContent="Scegli trattamento e data";sel.appendChild(ph);return;}var ph2=document.createElement("option");ph2.value="";ph2.textContent="Caricamento...";sel.appendChild(ph2);var q="/availability?date="+encodeURIComponent(dateInput.value)+AMP+"treatment_id="+encodeURIComponent(treatmentId);api(q).then(function(data){var slots=(data?data.slots:null)||[];sel.innerHTML="";if(!slots.length){var none=document.createElement("option");none.value="";none.textContent="Nessun orario libero";sel.appendChild(none);return;}slots.forEach(function(slot){var o=document.createElement("option");o.value=slot.time;o.textContent=slot.time;sel.appendChild(o);});}).catch(function(){sel.innerHTML="";var e=document.createElement("option");e.value="";e.textContent="Errore orari";sel.appendChild(e);});}
-      function createEntryRow(seedTreatmentId,locked){var row=document.createElement("div");row.className="sbw-entry";var treatmentSelect=document.createElement("select");if(locked){ if(seedTreatmentId){treatmentSelect.disabled=true;treatmentSelect.style.opacity="0.95";treatments.forEach(function(t){if(t.id===seedTreatmentId){var o=document.createElement("option");o.value=t.id;o.selected=true;o.textContent=t.name+" ("+t.duration_min+" min)";treatmentSelect.appendChild(o);}});} else {addTreatmentOptions(treatmentSelect,seedTreatmentId?seedTreatmentId:"");}var timeSelect=document.createElement("select");timeSelect.innerHTML="<option value=''>-- orario --</option>";treatmentSelect.addEventListener("change",function(){if(!locked) fillSlots(timeSelect,treatmentSelect.value);});row.appendChild(treatmentSelect);row.appendChild(timeSelect);if(seedTreatmentId){fillSlots(timeSelect,seedTreatmentId);}return row;}
-      function createPerson(personData){var box=document.createElement("div");box.className="sbw-person";var title=document.createElement("h4");title.textContent="Persona "+(personData? (personData._index?personData._index:1):1);box.appendChild(title);var entries=document.createElement("div");entries.className="sbw-person-entries";box.appendChild(entries);var seeds=[];if(personData){if(Array.isArray(personData.treatments)){seeds=personData.treatments;}}if(!seeds.length)seeds=[{treatment_id:""}];seeds.forEach(function(s){entries.appendChild(createEntryRow(s.treatment_id||"",true));});var addBtn=document.createElement("button");addBtn.type="button";addBtn.className="sbw-btn sbw-small";addBtn.textContent="+ trattamento";addBtn.addEventListener("click",function(){entries.appendChild(createEntryRow(""));});box.appendChild(addBtn);return box;}
-      function renderPersons(count,voucherData){var box=$l("sbw-persons");if(!box)return;box.innerHTML="";var n=parseInt(count||"1",10);if(isNaN(n)||n<1)n=1;if(n>6)n=6;if(voucherData){ if(Array.isArray(voucherData.people)){ if(voucherData.people.length){ for(var i=0;i<voucherData.people.length;i++){ if(i>=n) break; var p=voucherData.people[i]; if(p)p._index=i+1; box.appendChild(createPerson(p,i+1)); } } } } else {for(var i=0;i<n;i++){box.appendChild(createPerson(null,i+1));}}}
-      function collectEntries(){var all=[];var rows=sbwRoot.querySelectorAll("#sbw-persons .sbw-entry");rows.forEach(function(row){var selects=row.querySelectorAll("select");var treatment=selects[0]?selects[0].value:"";var time=selects[1]?selects[1].value:"";if(!treatment||!time)return;all.push({treatment_id:treatment,time:time});});return all;}
-      function loadTreatments(){return api("/treatments").then(function(data){var list=(data&&data.treatments)?data.treatments:null;if(list){treatments=list;}renderPersons(peopleSelect?peopleSelect.value:1,voucherData);}).catch(function(err){say("Impossibile caricare i trattamenti. Controlla il token.","err");throw err;});}
-      function loadVoucher(){var code=voucherInput?voucherInput.value.trim().toUpperCase():"";if(!code){if(voucherInfo)voucherInfo.textContent="";return;}if(voucherInfo)voucherInfo.textContent="Verifica in corso...";api("/treatments?code="+encodeURIComponent(code)).then(function(data){var voucher=(data?data.voucher:null);if(!voucher){if(voucherInfo)voucherInfo.textContent="Voucher non valido.";return;}voucherData=voucher;var people=voucher.people?voucher.people:null;if(!people)people=[];if(voucherInfo)voucherInfo.textContent="Voucher valido: "+code+" ("+people.length+" persona/e)";if(voucher) { if(voucher.recipient_name){var f=$("sbw-first");var l=$("sbw-last");var ph=$("sbw-phone");if(f) { if(!f.value) f.value=voucher.recipient_name.split(" ")[0]||""; } if(l) { if(!l.value) l.value=voucher.recipient_name.split(" ").slice(1).join(" ")||""; } if(ph) { if(!ph.value) { if(voucher.recipient_phone) ph.value=voucher.recipient_phone; } } } }var pc=$("sbw-people");if(pc){pc.value=people.length>0?people.length:"1";renderPersons(pc?pc.value:1,{people:people});}}).catch(function(err){if(voucherInfo)voucherInfo.textContent=err? (err.message?err.message:"Voucher non valido."):"Voucher non valido."});}
-      var voucherBtn=$l("sbw-voucher-check");if(voucherBtn){voucherBtn.addEventListener("click",loadVoucher);}
-      if(peopleSelect){peopleSelect.addEventListener("change",function(){renderPersons(peopleSelect.value,voucherData);});}
-      function submit(){var sendBtn=sbwRoot.querySelector("#sbw-send");if(!sendBtn){return;}if(honey){if(honey.value){return;}}if(!dateInput||!dateInput.value){say("Scegli la data.","err");return;}var entries=collectEntries();if(!entries.length){say("Aggiungi almeno un trattamento e un orario.","err");return;}var firstVal=first?first.value.trim():"";var lastVal=last?last.value.trim():"";var phoneVal=phone?phone.value.trim():"";var emailVal=email?email.value.trim():"";var notesVal=notes?notes.value.trim():"";var voucherVal=voucherInput?voucherInput.value.trim().toUpperCase():"";if(!(firstVal||lastVal)){say("Indica il tuo nome.","err");return;}if(!phoneVal){say("Indica un numero di telefono: serve per confermare.","err");return;}sending=true;sendBtn.disabled=true;say("Invio la richiesta...");var payload={date:dateInput.value,entries:entries,first_name:firstVal,last_name:lastVal,phone:phoneVal,email:emailVal,notes:notesVal,voucher_code:voucherVal,people:parseInt(peopleSelect?peopleSelect.value:"1",10)||1};api("/requests",{method:"POST",body:payload}).then(function(data){sending=false;sendBtn.disabled=false;var d=$("sbw-done");var f=$("sbw-form");if(f)f.hidden=true;if(d){d.hidden=false;d.innerHTML="";var receipt=document.createElement("div");receipt.className="sbw-receipt";var codeValue="\u2014"; if(data) { if(data.code) codeValue=data.code; } receipt.textContent="Richiesta inviata. Codice della richiesta: "+codeValue;d.appendChild(receipt);}say("","ok");}).catch(function(err){sending=false;sendBtn.disabled=false;say(err?(err.message?err.message:"Errore"):"Errore","err");});}
-      var sending=false;
-      var start=new Date();start.setHours(12,0,0,0);var end=new Date(start.getTime()+MAX_DAYS_AHEAD*86400000);if(dateInput){dateInput.min=isoDay(start);dateInput.max=isoDay(end);}
-      if(dateInput){dateInput.addEventListener("change",function(){/* no-op needed per row */});}
-      if(peopleSelect){peopleSelect.addEventListener("change",function(){renderPersons(peopleSelect.value,voucherData);});}
-      renderPersons(peopleSelect?peopleSelect.value:"1",null);
-      if(voucherBtn){voucherBtn.addEventListener("click",loadVoucher);}
-      loadTreatments().then(function(){renderPersons(peopleSelect?peopleSelect.value:"1",voucherData);});
-      if(sendBtn){sendBtn.addEventListener("click",submit);}
-      window.__sbwStarted=true;
+      /* ------------------------------- CONFIG ------------------------------- */
+      var API_BASE = "https://hailmarchese.it/api/spa_booking/public";
+      var TOKEN = "INCOLLA_QUI_IL_TOKEN";
+      var MAX_DAYS_AHEAD = 60;
+      /* L'ampersand non puo' stare scritto nel codice (vedi regola 2 in
+         testa al file): lo costruiamo quando serve per la query string. */
+      var AMP = String.fromCharCode(38);
+      /* --------------------------------------------------------------------- */
+      var root = document.getElementById("sbw-widget");
+      if (!root || typeof fetch !== "function") return;
+      function node(tag, attrs, children) {
+        var el = document.createElement(tag);
+        if (attrs) {
+          Object.keys(attrs).forEach(function (key) {
+            var value = attrs[key];
+            if (value === null || value === undefined) return;
+            if (key === "class") el.className = value;
+            else if (key === "text") el.textContent = value;
+            else if (key === "on") Object.keys(value).forEach(function (ev) {
+              el.addEventListener(ev, value[ev]);
+            });
+            else el.setAttribute(key, value);
+          });
+        }
+        (children || []).forEach(function (child) { if (child) el.appendChild(child); });
+        return el;
       }
+      function $(id) { return root.querySelector("#" + id); }
+      var boxTreatment = $("sbw-treatment");
+      var voucherInput = $("sbw-voucher");
+      var voucherCheck = $("sbw-voucher-check");
+      var voucherInfo = $("sbw-voucher-info");
+      var voucherDetails = null;
+      var inputDate = $("sbw-date");
+      var inputPeople = $("sbw-people");
+      var slotsBox = $("sbw-slots");
+      var windowHint = $("sbw-window");
+      var statusBox = $("sbw-status");
+      var sendButton = $("sbw-send");
+      var honey = $("sbw-website");
+      var chosenTime = "";
+      var sending = false;
+      function say(text, kind) {
+        statusBox.textContent = text || "";
+        statusBox.className = "sbw-status" + (kind ? " " + kind : "");
+      }
+      function pad2(value) { return (value < 10 ? "0" : "") + value; }
+      function isoDay(day) {
+        return day.getFullYear() + "-" + pad2(day.getMonth() + 1) + "-" + pad2(day.getDate());
+      }
+      /* A gentle sentence for the guest; the server's own message wins when
+         it has one (it is written for a person, in Italian). */
+      function describe(error) {
+        var status = error ? error.status : 0;
+        if (status === 404) {
+          return "Il servizio di prenotazione online non \u00e8 attivo in questo momento: chiama la reception per prenotare.";
+        }
+        if (status === 401) {
+          return "Il modulo non \u00e8 configurato correttamente. Avvisa la reception.";
+        }
+        if (status) {
+          if (error.message) return error.message;
+        }
+        return "Non riesco a contattare il servizio di prenotazione: controlla la connessione e riprova, o chiama la reception.";
+      }
+      function api(path, options) {
+        options = options || {};
+        var headers = { Authorization: "Bearer " + TOKEN };
+        if (options.body) headers["Content-Type"] = "application/json";
+        return fetch(API_BASE + path, {
+          method: options.method || "GET",
+          headers: headers,
+          body: options.body ? JSON.stringify(options.body) : undefined,
+          mode: "cors",
+          cache: "no-store",
+        }).then(function (response) {
+          return response.text().then(function (raw) {
+            var data = null;
+            try { data = raw ? JSON.parse(raw) : null; } catch (err) { data = null; }
+            if (!response.ok) {
+              var failure = new Error((data ? data.message : null) || "HTTP " + response.status);
+              failure.status = response.status;
+              throw failure;
+            }
+            return data;
+          });
+        });
+      }
+      function safeLabel(row) { return (row || "").replace(/</g, "&lt;"); }
+      function loadVoucher() {
+        if (!voucherInput) return;
+        var code = voucherInput.value.trim().toUpperCase();
+        if (!code) { if (voucherInfo) voucherInfo.textContent = ""; voucherDetails = null; return; }
+        if (voucherInfo) voucherInfo.textContent = "Verifica in corso&hellip;";
+        api("/voucher?code=" + encodeURIComponent(code)).then(function (data) {
+          voucherDetails = data;
+          var people = (data ? data.people : null) || [];
+          if (voucherInfo) voucherInfo.textContent = "Voucher valido: " + code + " (" + people.length + " persona/e)";
+          if (data) {
+            if (data.recipient_name) {
+              var first = $("sbw-first"); var last = $("sbw-last"); var phone = $("sbw-phone");
+              if (first) { if (!first.value) first.value = data.recipient_name.split(" ")[0] || ""; }
+              if (last) { if (!last.value) last.value = data.recipient_name.split(" ").slice(1).join(" ") || ""; }
+              if (phone) { if (!phone.value) { if (data.recipient_phone) phone.value = data.recipient_phone; } }
+            }
+          }
+          if (people.length > 1) {
+            if (voucherInfo) {
+              voucherInfo.textContent += " - il sistema ha proposto i trattamenti per la prima persona; completare manualmente per le altre.";
+            }
+          }
+          if (people.length === 1) {
+            if (people[0].treatments) {
+              if (people[0].treatments.length === 1) {
+                var t = people[0].treatments[0].treatment_id;
+                if (t) { boxTreatment.value = t; }
+              }
+            }
+          }
+        }).catch(function (err) {
+          voucherDetails = null;
+          if (voucherInfo) voucherInfo.textContent = err ? (err.message ? err.message : "Voucher non valido.") : "Voucher non valido.";
+        });
+      }
+      if (voucherCheck) {
+        voucherCheck.addEventListener("click", loadVoucher);
+      }
+      /* ---------------------------- trattamenti ---------------------------- */
+      function loadTreatments() {
+        return api("/treatments").then(function (data) {
+          var list = (data ? data.treatments : null) || [];
+          boxTreatment.innerHTML = "";
+          if (!list.length) {
+            boxTreatment.appendChild(node("option", { value: "", text: "Nessun trattamento disponibile" }));
+            say("Nessun trattamento prenotabile online in questo momento.", "err");
+            return;
+          }
+          boxTreatment.appendChild(node("option", { value: "", text: "\u2014 scegli un trattamento \u2014" }));
+          var groups = {};
+          list.forEach(function (treatment) {
+            var key = treatment.category_name || "Altri trattamenti";
+            (groups[key] = groups[key] || []).push(treatment);
+          });
+          Object.keys(groups).forEach(function (category) {
+            var group = node("optgroup", { label: category });
+            groups[category].forEach(function (treatment) {
+              var parts = [treatment.name, treatment.duration_min + " min"];
+              group.appendChild(node("option", { value: treatment.id, text: parts.join(" \u00b7 ") }));
+            });
+            boxTreatment.appendChild(group);
+          });
+        }).catch(function (error) { say(describe(error), "err"); });
+      }
+      /* ------------------------------- orari ------------------------------- */
+      function clearSlots(hint) {
+        chosenTime = "";
+        slotsBox.innerHTML = "";
+        windowHint.textContent = "";
+        if (hint) slotsBox.appendChild(node("span", { class: "sbw-hint", text: hint }));
+      }
+      function selectTime(time) {
+        chosenTime = time;
+        var buttons = slotsBox.querySelectorAll(".sbw-slot");
+        Array.prototype.forEach.call(buttons, function (button) {
+          button.setAttribute("aria-pressed", button.textContent === time ? "true" : "false");
+        });
+        say("");
+      }
+      function loadSlots() {
+        var treatmentId = boxTreatment.value;
+        var day = inputDate.value;
+        if (!treatmentId || !day) {
+          clearSlots("Scegli prima il trattamento e la data.");
+          return Promise.resolve();
+        }
+        clearSlots("Cerco gli orari liberi\u2026");
+        var query = "/availability?date=" + encodeURIComponent(day) +
+                    AMP + "treatment_id=" + encodeURIComponent(treatmentId);
+        return api(query).then(function (data) {
+          var slots = (data ? data.slots : null) || [];
+          clearSlots("");
+          if (!slots.length) {
+            slotsBox.appendChild(node("span", { class: "sbw-hint",
+              text: "Nessun orario libero in questa data: prova un altro giorno o chiama la reception." }));
+            return;
+          }
+          var windowText = data.open_time + "\u2013" + data.close_time;
+          if (data.break_start) {
+            if (data.break_end) {
+              windowText = data.open_time + "\u2013" + data.break_start +
+                           " e " + data.break_end + "\u2013" + data.close_time;
+            } else {
+              windowText = data.open_time + "\u2013" + data.break_start;
+            }
+          } else if (data.break_end) {
+            windowText = data.break_end + "\u2013" + data.close_time;
+          }
+          windowHint.textContent = "Orari proposti: " + windowText +
+                                   " \u00b7 durata " + data.duration_min + " min";
+          slots.forEach(function (slot) {
+            slotsBox.appendChild(node("button", {
+              type: "button", class: "sbw-slot", text: slot.time,
+              "aria-pressed": "false", "aria-label": "Orario " + slot.time,
+              on: { click: function () { selectTime(slot.time); } },
+            }));
+          });
+        }).catch(function (error) {
+          clearSlots("");
+          slotsBox.appendChild(node("span", { class: "sbw-hint", text: describe(error) }));
+        });
+      }
+      /* ------------------------------ invio ------------------------------- */
+      function receipt(data) {
+        $("sbw-form").hidden = true;
+        var done = $("sbw-done");
+        done.innerHTML = "";
+        done.hidden = false;
+        done.appendChild(node("div", { class: "sbw-receipt" }, [
+          node("div", { class: "sbw-ok", text: "\u2713" }),
+          node("h3", { class: "sbw-title", text: "Richiesta inviata" }),
+          node("p", { text: "Codice della richiesta" }),
+          node("div", { class: "sbw-code", text: String((data ? data.code : null) || "\u2014") }),
+          node("p", { text: "La reception ti ricontatta al numero indicato per confermare l'appuntamento." }),
+          node("button", { type: "button", class: "sbw-btn", text: "Fai un'altra richiesta",
+            on: { click: function () { resetForm(); } } }),
+        ]));
+      }
+      function resetForm() {
+        ["sbw-first", "sbw-last", "sbw-phone", "sbw-email", "sbw-notes", "sbw-voucher"].forEach(function (id) {
+          $(id).value = "";
+        });
+        $("sbw-done").hidden = true;
+        $("sbw-form").hidden = false;
+        sendButton.disabled = false;
+        spin(false);
+        say("");
+        clearSlots("Scegli prima il trattamento e la data.");
+        loadSlots();
+      }
+      function spin(on) {
+        sending = on;
+        sendButton.disabled = on;
+        sendButton.setAttribute("aria-busy", on ? "true" : "false");
+      }
+      function send() {
+        if (sending) return;
+        if (honey.value) return; /* esca: un robot l'ha compilata, si finge inviato */
+        if (!boxTreatment.value) { say("Scegli il trattamento.", "err"); return; }
+        if (!inputDate.value) { say("Scegli la data.", "err"); return; }
+        if (!chosenTime) { say("Scegli l'orario.", "err"); return; }
+        var first = $("sbw-first").value.trim();
+        var last = $("sbw-last").value.trim();
+        var phone = $("sbw-phone").value.trim();
+        var email = $("sbw-email").value.trim();
+        var notes = $("sbw-notes").value.trim();
+        var voucher = $("sbw-voucher").value.trim().toUpperCase();
+        if (!(first || last)) { say("Indica il tuo nome.", "err"); return; }
+        if (!phone) { say("Indica un numero di telefono: serve per confermare.", "err"); return; }
+        spin(true);
+        say("Invio la richiesta\u2026");
+        api("/requests", {
+          method: "POST",
+          body: {
+            date: inputDate.value,
+            entries: [{ treatment_id: boxTreatment.value, time: chosenTime }],
+            first_name: first,
+            last_name: last,
+            phone: phone,
+            email: email,
+            notes: notes,
+            voucher_code: voucher,
+            people: Number(inputPeople.value) || 1,
+          },
+        }).then(function (data) {
+          spin(false);
+          receipt(data || {});
+        }).catch(function (error) {
+          spin(false);
+          say(describe(error), "err");
+        });
+      }
+      /* ------------------------------ avvio ------------------------------- */
+      if (TOKEN.indexOf("INCOLLA") === 0) {
+        say("Modulo non configurato: manca il token. Avvisa la reception.", "err");
+      }
+      var start = new Date();
+      start.setHours(12, 0, 0, 0);
+      var end = new Date(start.getTime() + MAX_DAYS_AHEAD * 86400000);
+      inputDate.min = isoDay(start);
+      inputDate.max = isoDay(end);
+      if (boxTreatment) boxTreatment.addEventListener("change", function () { say(""); loadSlots(); });
+      if (inputDate) inputDate.addEventListener("change", function () { say(""); loadSlots(); });
+      if (sendButton) sendButton.addEventListener("click", send);
+      clearSlots("Scegli prima il trattamento e la data.");
+      loadTreatments();
+      window.__sbwStarted = true;
     })();
