@@ -69,7 +69,9 @@ from .const import (
 )
 from .coordinator import INTEGRATION_VERSION, SpaBookingCoordinator
 from .normalize import as_date
+from . import messaging
 from .exceptions import ValidationError
+from .waha import WahaError
 
 #: The accepted method names, taken from the single place they are declared.
 PAYMENT_METHOD_NAMES = tuple(name for name, _, _ in PAYMENT_METHODS)
@@ -155,6 +157,10 @@ SERVICE_EXPORT_DASHBOARD_YAML = "export_dashboard_yaml"
 SERVICE_IMPORT_ALL = "import_all"
 SERVICE_GET_DASHBOARD_CONFIG = "get_dashboard_config"
 SERVICE_RUN_SCHEDULED_JOBS = "run_scheduled_jobs"
+SERVICE_WHATSAPP_STATUS = "whatsapp_status"
+SERVICE_WHATSAPP_PAIR = "whatsapp_pair"
+SERVICE_WHATSAPP_PAIR_CODE = "whatsapp_pair_code"
+SERVICE_WHATSAPP_LOGOUT = "whatsapp_logout"
 
 ALL_SERVICES = (
     SERVICE_CREATE_APPOINTMENT,
@@ -230,6 +236,10 @@ ALL_SERVICES = (
     SERVICE_EXPORT_DASHBOARD_YAML,
     SERVICE_UPDATE_BOOKING_BATCH,
     SERVICE_RUN_SCHEDULED_JOBS,
+    SERVICE_WHATSAPP_STATUS,
+    SERVICE_WHATSAPP_PAIR,
+    SERVICE_WHATSAPP_PAIR_CODE,
+    SERVICE_WHATSAPP_LOGOUT,
 )
 
 _CLIENT_FIELDS = {
@@ -801,6 +811,7 @@ UPDATE_SETTINGS_SCHEMA = vol.Schema(
         vol.Optional("web_notify_whatsapp"): vol.Any(cv.string, None),
         # WAHA gateway: with an URL set, WhatsApp goes straight to the add-on
         # instead of through the rest_command fallback.
+        vol.Optional("whatsapp_engine"): vol.In(["waha", "integrated"]),
         vol.Optional("waha_url"): vol.Any(cv.string, None),
         vol.Optional("waha_api_key"): vol.Any(cv.string, None),
         vol.Optional("waha_session"): vol.Any(cv.string, None),
@@ -1354,6 +1365,53 @@ async def _async_delete_promo_voucher(call: ServiceCall) -> ServiceResponse:
     return await _coordinator(call).async_delete_promo_voucher(
         call.data["voucher_id"]
     )
+
+
+def _bridge(call: ServiceCall) -> Any:
+    """The built-in WhatsApp connection, or a clear error when it is off."""
+    bridge = _coordinator(call).wa_bridge
+    if bridge is None:
+        raise ValidationError(
+            "WhatsApp integrato non attivo: sceglilo in Configurazione › WhatsApp"
+        )
+    return bridge
+
+
+async def _async_whatsapp_status(call: ServiceCall) -> ServiceResponse:
+    """State of the built-in WhatsApp connection, with the QR code if linking."""
+    coordinator = _coordinator(call)
+    if coordinator.wa_bridge is None:
+        return {"engine": coordinator.whatsapp_engine, "state": "off", "label": "Non attivo"}
+    status = await coordinator.wa_bridge.async_status()
+    return {"engine": coordinator.whatsapp_engine, **status}
+
+
+async def _async_whatsapp_pair(call: ServiceCall) -> ServiceResponse:
+    """Start linking the number: the QR code appears in whatsapp_status."""
+    try:
+        return await _bridge(call).async_pair_start()
+    except WahaError as err:
+        raise ValidationError(str(err)) from err
+
+
+async def _async_whatsapp_pair_code(call: ServiceCall) -> ServiceResponse:
+    """A code to type on the phone, for when the QR code cannot be scanned."""
+    phone = messaging.international_digits(str(call.data.get("phone") or ""))
+    if not phone:
+        raise ValidationError("Indica il numero di telefono da collegare")
+    try:
+        return {"code": await _bridge(call).async_pair_code(phone)}
+    except WahaError as err:
+        raise ValidationError(str(err)) from err
+
+
+async def _async_whatsapp_logout(call: ServiceCall) -> ServiceResponse:
+    """Unlink the number from Spa Booking."""
+    try:
+        await _bridge(call).async_logout()
+    except WahaError as err:
+        raise ValidationError(str(err)) from err
+    return {"state": "not_linked"}
 
 
 async def _async_run_scheduled_jobs(call: ServiceCall) -> ServiceResponse:
@@ -2212,6 +2270,14 @@ _HANDLERS: dict[str, tuple[Any, Any, SupportsResponse]] = {
         None,
         SupportsResponse.ONLY,
     ),
+    SERVICE_WHATSAPP_STATUS: (_async_whatsapp_status, None, SupportsResponse.ONLY),
+    SERVICE_WHATSAPP_PAIR: (_async_whatsapp_pair, None, SupportsResponse.OPTIONAL),
+    SERVICE_WHATSAPP_PAIR_CODE: (
+        _async_whatsapp_pair_code,
+        vol.Schema({vol.Required("phone"): cv.string}),
+        SupportsResponse.ONLY,
+    ),
+    SERVICE_WHATSAPP_LOGOUT: (_async_whatsapp_logout, None, SupportsResponse.OPTIONAL),
     SERVICE_GET_DASHBOARD_CONFIG: (
         _async_get_dashboard_config,
         EXPORT_ALL_SCHEMA,

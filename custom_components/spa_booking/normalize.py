@@ -506,7 +506,7 @@ FORM_BLOCK_COLUMNS: dict[str, list[str]] = {
 #: The same idea for the notifications tab (Configurazione → Impostazioni): each
 #: box is a block the reception can drag around, freely crossing columns.
 NOTIFY_BLOCK_COLUMNS: dict[str, list[str]] = {
-    "left": ["telegram", "whatsapp", "waha", "preview"],
+    "left": ["telegram", "whatsapp", "whatsapp_engine", "waha", "preview"],
     "right": ["review", "report", "offers", "deposit", "guest_header", "summary"],
 }
 
@@ -921,6 +921,11 @@ def _norm_settings(raw: dict[str, Any]) -> dict[str, Any]:
         # ``rest_command.spa_booking_whatsapp_send``: the key and the session
         # name are stored here, never in a package, so one place configures
         # every WhatsApp send of this installation.
+        # Which WhatsApp connection sends and receives: the WAHA add-on, or
+        # the one built into the integration ("integrated", beta).
+        "whatsapp_engine": "integrated"
+        if str(raw.get("whatsapp_engine") or "") == "integrated"
+        else "waha",
         "waha_url": str(raw.get("waha_url") or "").strip(),
         "waha_api_key": str(raw.get("waha_api_key") or "").strip(),
         "waha_session": str(

@@ -10,7 +10,7 @@ import logging
 
 from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import Platform
+from homeassistant.const import EVENT_HOMEASSISTANT_STOP, Platform
 from homeassistant.core import Event, HomeAssistant
 
 from .const import DOMAIN, EVENT_ANSWER_REQUEST
@@ -162,6 +162,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # because only then is the session told where to post.
     coordinator._async_register_waha_inbound()
     entry.async_on_unload(coordinator.async_unregister_waha_inbound)
+
+    # WhatsApp built into Spa Booking (beta): started in the background when
+    # chosen, stopped with the entry and when Home Assistant closes.
+    await coordinator.async_apply_whatsapp_engine()
+    entry.async_on_unload(coordinator.async_stop_whatsapp)
+
+    async def _on_stop(_event: Event) -> None:
+        await coordinator.async_stop_whatsapp()
+
+    entry.async_on_unload(
+        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _on_stop)
+    )
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     async_register_services(hass)

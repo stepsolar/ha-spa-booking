@@ -5,7 +5,7 @@ trattamenti con durata propria, operatrici, schede cliente, agenda del giorno
 per operatrice e per categoria, pagamenti, voucher, richieste dal sito web,
 promemoria e report automatici su WhatsApp e Telegram.
 
-Versione corrente: **2.1.2** — documentazione completa in
+Versione corrente: **2.2.0b1** (beta; stabile: 2.1.2) — documentazione completa in
 [`custom_components/spa_booking/README.md`](custom_components/spa_booking/README.md).
 
 ## Funzionalità principali
@@ -44,6 +44,25 @@ riavvia. La card e il modulo del sito sono inclusi nella cartella
 La card di gestione viene caricata automaticamente in ogni dashboard; è
 disponibile anche come pagina a sé su `/spa_booking`.
 
+## WhatsApp integrato (beta, dalla 2.2.0b1)
+
+Spa Booking può collegarsi da solo al numero WhatsApp dell'hotel, come
+WhatsApp Web, senza l'add-on WAHA:
+
+1. Configurazione › WhatsApp › **Collegamento WhatsApp** › scegli
+   «WhatsApp integrato (beta)».
+2. Premi **Collega WhatsApp** e, dal telefono dell'hotel, WhatsApp ›
+   Dispositivi collegati › Collega un dispositivo: inquadra il codice QR.
+   Se la card è aperta sullo stesso telefono, scrivi il numero e premi
+   **Ottieni codice**, poi «Collega con il numero di telefono».
+3. Prova un invio con «Prova WhatsApp». Offerte, risposte, reazioni e
+   messaggi in arrivo funzionano come con WAHA.
+
+Per tornare a WAHA basta scegliere «Add-on WAHA». Come WAHA, non è un canale
+ufficiale di WhatsApp: il rischio sul numero è lo stesso. Il telefono deve
+restare con WhatsApp installato e connettersi almeno ogni 14 giorni. Per ora
+funziona su processori Intel/AMD a 64 bit (mini PC, NUC, macchine virtuali).
+
 ## Modulo per il sito web
 
 Nella card: Configurazione → Sito web → attiva il sito, poi **Copia** e
@@ -71,6 +90,8 @@ python -m pytest tests
 node tests/frontend/form_test.js custom_components/spa_booking/frontend/spa-booking-form.txt
 node tests/frontend/card_request_test.js custom_components/spa_booking/frontend/spa-booking-card.js
 node tests/frontend/card_spa_test.js custom_components/spa_booking/frontend/spa-booking-card.js
+node tests/frontend/card_whatsapp_test.js custom_components/spa_booking/frontend/spa-booking-card.js
+cd bridge && go test ./...   # programma WhatsApp integrato (Go 1.26+)
 ```
 
 La CI (`.github/workflows/ci.yml`) esegue lint, test, controllo della card,
@@ -79,6 +100,11 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v2.2.0b1** (beta): WhatsApp integrato in Spa Booking, alternativa
+  all'add-on WAHA: collegamento con QR code o codice dalla card, invio di
+  testi e immagini con ritmo umano (pausa tra i messaggi, "sta scrivendo"),
+  controllo che il numero sia su WhatsApp, ricezione di messaggi e reazioni,
+  riavvio automatico, sessione nei backup di Home Assistant.
 - **v2.1.2**: nuovo stile della scheda Spa. Riquadri divisi in sezioni (Luci,
   Clima, Servizi e sensori) con riepilogo, colore secondo il tipo (luci ambra,
   servizi verde acqua, clima arancio/azzurro), termostato con temperatura

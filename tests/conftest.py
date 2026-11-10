@@ -59,6 +59,7 @@ def build_coordinator(data: dict[str, Any] | None = None) -> SpaBookingCoordinat
     coordinator._waha_inbound = None
     coordinator._card_version = ""
     coordinator.scheduler = None
+    coordinator.wa_bridge = None
     coordinator._current_user_id = None
     coordinator.data = None
     coordinator.async_set_updated_data = lambda new: setattr(coordinator, "data", new)

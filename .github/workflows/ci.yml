@@ -44,6 +44,25 @@ jobs:
       - run: node tests/frontend/card_request_test.js custom_components/spa_booking/frontend/spa-booking-card.js
       # The Spa tab tiles: sections, colours, brightness, thermostat, sensors.
       - run: node tests/frontend/card_spa_test.js custom_components/spa_booking/frontend/spa-booking-card.js
+      # The WhatsApp connection box: engine choice, QR code, link code.
+      - run: node tests/frontend/card_whatsapp_test.js custom_components/spa_booking/frontend/spa-booking-card.js
+
+  bridge:
+    name: WhatsApp bridge (Go)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bridge
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+      - run: go mod tidy
+      - run: go vet ./...
+      - run: go test ./...
+      # The shipped program must build from these sources.
+      - run: CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o /tmp/spa-wa-bridge .
 
   hassfest:
     name: Hassfest

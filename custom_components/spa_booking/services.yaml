@@ -831,6 +831,16 @@ update_settings:
     Modifica destinatari e orario del report mensile. telegram_config_entry_id
     e' l'ID della configurazione del bot Telegram da usare.
   fields:
+    whatsapp_engine:
+      name: Collegamento WhatsApp
+      description: >-
+        "integrated" usa il collegamento integrato in Spa Booking (beta, come
+        WhatsApp Web); "waha" usa l'add-on WAHA.
+      selector:
+        select:
+          options:
+            - waha
+            - integrated
     telegram_config_entry_id:
       name: ID configurazione bot Telegram
       example: 01JZ6G7TT8APQ8WCXEPRCDNQFN
@@ -1831,3 +1841,33 @@ run_scheduled_jobs:
     Esegue subito promemoria, offerte scadute, richieste di recensione,
     voucher fedelta', scadenze voucher, promo e report (rispettando l'orario
     di silenzio). Utile per verificare la configurazione. Solo amministratori.
+
+whatsapp_status:
+  name: Stato di WhatsApp integrato
+  description: >-
+    Stato del collegamento integrato (beta): collegato, in attesa, numero
+    collegato e, durante il collegamento, il codice QR. Solo amministratori.
+
+whatsapp_pair:
+  name: Collega WhatsApp
+  description: >-
+    Avvia il collegamento del numero: il codice QR compare nello stato e nella
+    card. Si inquadra da WhatsApp › Dispositivi collegati. Solo amministratori.
+
+whatsapp_pair_code:
+  name: Collega WhatsApp con un codice
+  description: >-
+    Dopo "Collega WhatsApp", restituisce un codice di 8 caratteri da digitare
+    sul telefono (Collega con il numero di telefono), utile quando la card è
+    aperta sullo stesso telefono. Solo amministratori.
+  fields:
+    phone:
+      name: Numero dell'hotel
+      required: true
+      example: "333 1234567"
+      selector:
+        text:
+
+whatsapp_logout:
+  name: Scollega WhatsApp
+  description: Scollega il numero da Spa Booking. Solo amministratori.

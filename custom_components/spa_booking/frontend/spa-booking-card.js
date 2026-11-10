@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.1.2";
+const CARD_VERSION = "2.2.0b1";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -661,6 +661,7 @@ class SpaBookingCard extends HTMLElement {
   }
 
   disconnectedCallback() {
+    this._waStopPolling();
     if (this._clockTimer) {
       clearInterval(this._clockTimer);
       this._clockTimer = null;
@@ -1788,6 +1789,175 @@ class SpaBookingCard extends HTMLElement {
   }
 
   /**
+   * The "Collegamento WhatsApp" box: which connection is used and, for the
+   * one built into Spa Booking, its state, the QR code to scan, the code to
+   * type on the phone, and the buttons to link and unlink.
+   */
+  _whatsappEngineBox(box, settings) {
+    const engine = settings.whatsapp_engine || "waha";
+    const node = box("whatsapp_engine", "Collegamento WhatsApp");
+    const choice = (value, label, hint) =>
+      el("label", { class: "check" },
+        el("input", {
+          type: "radio",
+          name: "whatsapp_engine",
+          checked: engine === value,
+          disabled: this._busy,
+          on: { change: () => this._setWhatsappEngine(value) },
+        }),
+        el("span", {}, label, el("span", { class: "dim" }, ` — ${hint}`)));
+    node.appendChild(choice("integrated", "WhatsApp integrato (beta)",
+      "Spa Booking si collega da solo al numero, come WhatsApp Web: nessun add-on da installare"));
+    node.appendChild(choice("waha", "Add-on WAHA",
+      "il gateway esterno usato finora"));
+    if (engine !== "integrated") {
+      this._waStopPolling();
+      return node;
+    }
+
+    const status = this._waStatus || { state: "starting", label: "Avvio in corso" };
+    if (!this._waStatus && !this._waLoading) this._waRefresh();
+    const state = status.state;
+    const tone = state === "connected" ? "ok" : ["logged_out", "banned", "missing", "stopped"].includes(state) ? "error" : "";
+    node.appendChild(
+      el("div", { class: `wa-state ${tone}` },
+        el("ha-icon", { icon: state === "connected" ? "mdi:check-circle" : tone === "error" ? "mdi:alert-circle" : "mdi:progress-clock" }),
+        el("span", {},
+          status.label || state,
+          state === "connected" && status.phone ? ` · +${status.phone}${status.push_name ? ` (${status.push_name})` : ""}` : ""))
+    );
+    if (status.detail && state !== "connected") node.appendChild(el("div", { class: "hint" }, status.detail));
+
+    if (state === "pairing") {
+      if (status.qr) {
+        node.appendChild(el("div", { class: "wa-qr" }, el("img", { src: status.qr, alt: "Codice QR per collegare WhatsApp" })));
+        node.appendChild(el("div", { class: "hint" },
+          "Sul telefono del numero dell'hotel: WhatsApp › Impostazioni › Dispositivi collegati › Collega un dispositivo, poi inquadra il codice. Il codice si rinnova da solo."));
+      } else {
+        node.appendChild(el("div", { class: "hint" }, "Preparo il codice QR…"));
+      }
+      // The card is often open on the very phone to link: then a code is
+      // typed instead of scanning.
+      const phoneInput = el("input", {
+        class: "input", type: "tel", placeholder: "Numero dell'hotel, es. 333 1234567",
+        value: this._waPairPhone || "",
+        on: { input: (event) => { this._waPairPhone = event.target.value; } },
+      });
+      node.appendChild(el("label", { class: "field" }, el("span", {}, "Oppure collega con un codice"), phoneInput));
+      node.appendChild(
+        el("div", { class: "row tight" },
+          el("button", {
+            class: "btn small",
+            disabled: this._busy,
+            on: { click: () => this._waPairCode() },
+          }, el("ha-icon", { icon: "mdi:numeric" }), "Ottieni codice"))
+      );
+      if (this._waCode) {
+        node.appendChild(el("div", { class: "wa-code" }, this._waCode));
+        node.appendChild(el("div", { class: "hint" },
+          "Sul telefono: WhatsApp › Dispositivi collegati › Collega un dispositivo › «Collega con il numero di telefono», poi digita questo codice."));
+      }
+    }
+
+    const buttons = el("div", { class: "row tight" });
+    if (["not_linked", "logged_out", "pairing"].includes(state)) {
+      buttons.appendChild(el("button", {
+        class: "btn small primary",
+        disabled: this._busy,
+        on: { click: () => this._waPairStart() },
+      }, el("ha-icon", { icon: "mdi:qrcode-scan" }), state === "pairing" ? "Nuovo codice QR" : "Collega WhatsApp"));
+    }
+    if (["connected", "disconnected", "banned", "connecting"].includes(state)) {
+      buttons.appendChild(el("button", {
+        class: "btn small danger",
+        disabled: this._busy,
+        on: { click: () => this._waLogout() },
+      }, el("ha-icon", { icon: "mdi:link-off" }), "Scollega"));
+    }
+    buttons.appendChild(el("button", {
+      class: "btn small",
+      disabled: this._busy,
+      on: { click: () => this._waRefresh() },
+    }, el("ha-icon", { icon: "mdi:refresh" }), "Aggiorna"));
+    node.appendChild(buttons);
+    node.appendChild(el("div", { class: "hint" },
+      "Versione di prova. Il telefono deve restare con WhatsApp installato e connettersi almeno ogni 14 giorni. " +
+      "Per tornare all'add-on basta scegliere «Add-on WAHA»."));
+
+    // While something is changing, the state is asked again every few seconds.
+    if (["starting", "pairing", "connecting", "disconnected"].includes(state)) this._waStartPolling();
+    else this._waStopPolling();
+    return node;
+  }
+
+  async _setWhatsappEngine(engine) {
+    this._waStatus = null;
+    this._waCode = "";
+    try {
+      await this._call("update_settings", { whatsapp_engine: engine });
+    } catch (error) { /* shown */ }
+  }
+
+  async _waRefresh() {
+    if (this._waLoading) return;
+    this._waLoading = true;
+    try {
+      this._waStatus = await this._service("whatsapp_status", {});
+      if (this._waStatus.state !== "pairing") this._waCode = "";
+    } catch (error) {
+      this._waStatus = { state: "stopped", label: "Non raggiungibile", detail: this._friendlyError(error, "") };
+    } finally {
+      this._waLoading = false;
+      this._render();
+    }
+  }
+
+  _waStartPolling() {
+    if (this._waPoll) return;
+    this._waPoll = setInterval(() => {
+      if (!this.isConnected) { this._waStopPolling(); return; }
+      this._waRefresh();
+    }, 3000);
+  }
+
+  _waStopPolling() {
+    if (this._waPoll) {
+      clearInterval(this._waPoll);
+      this._waPoll = null;
+    }
+  }
+
+  async _waPairStart() {
+    this._waCode = "";
+    try {
+      await this._call("whatsapp_pair", {});
+    } catch (error) { /* shown */ }
+    await this._waRefresh();
+  }
+
+  async _waPairCode() {
+    const phone = String(this._waPairPhone || "").trim();
+    if (!phone) {
+      this._message = { kind: "error", text: "Scrivi il numero dell'hotel da collegare." };
+      this._render();
+      return;
+    }
+    try {
+      const result = await this._call("whatsapp_pair_code", { phone });
+      this._waCode = (result && result.code) || "";
+    } catch (error) { /* shown */ }
+    this._render();
+  }
+
+  async _waLogout() {
+    if (!window.confirm("Scollegare WhatsApp da Spa Booking? Offerte e promemoria non partiranno finché non lo ricolleghi.")) return;
+    try {
+      await this._call("whatsapp_logout", {});
+    } catch (error) { /* shown */ }
+    await this._waRefresh();
+  }
+
+  /**
    * Ask the configured WAHA gateway who it is: reachable, key accepted, which
    * router. Sends nothing and changes nothing, so it is safe to press first.
    */
@@ -1853,6 +2023,9 @@ class SpaBookingCard extends HTMLElement {
 
   _successText(service) {
     const map = {
+      whatsapp_pair: "Collegamento avviato: inquadra il codice QR.",
+      whatsapp_pair_code: "Codice pronto: digitalo sul telefono.",
+      whatsapp_logout: "WhatsApp scollegato.",
       create_appointment: "Appuntamento creato.",
       create_bookings: "Appuntamenti creati.",
       clear_slot_block: "Fascia riaperta.",
@@ -5212,7 +5385,7 @@ class SpaBookingCard extends HTMLElement {
     const settings = (this._data && this._data.settings) || {};
     const raw = (settings.notifiche_order && typeof settings.notifiche_order === "object")
       ? settings.notifiche_order : {};
-    const defaults = { left: ["telegram", "whatsapp", "waha", "preview"],
+    const defaults = { left: ["telegram", "whatsapp", "whatsapp_engine", "waha", "preview"],
                        right: ["review", "report", "offers", "deposit", "guest_header", "summary",
                                "request_message", "appointment_reminder"] };
     const seen = new Set();
@@ -11321,6 +11494,10 @@ _renderClients() {
     );
     left.appendChild(whatsappBox);
 
+    // Which connection carries WhatsApp: the one built into Spa Booking
+    // (beta), or the WAHA add-on.
+    left.appendChild(this._whatsappEngineBox(box, settings));
+
     // The WAHA gateway: where the add-on is, its key, the session, and the two
     // buttons that prove it. Everything here is local to this installation:
     // with an URL set, every WhatsApp send goes straight to the add-on, and the
@@ -11387,7 +11564,7 @@ _renderClients() {
           },
         }, el("ha-icon", { icon: "mdi:content-save" }), "Salva gateway"))
     );
-    left.appendChild(wahaBox);
+    if ((settings.whatsapp_engine || "waha") !== "integrated") left.appendChild(wahaBox);
 
     // Right column: how the report goes out, the offer timings, deposit request
     // and guest headline.
@@ -15842,6 +16019,15 @@ _renderClients() {
       .spa-tile--button .spa-tile-main { align-items: center; }
       .spa-tile--button .spa-tile-name { white-space: normal; text-align: center; }
       .btn.small.active { border-color: var(--primary-color); color: var(--primary-color); }
+      .wa-state { display: flex; align-items: center; gap: 8px; margin: 8px 0 4px; font-weight: 600; }
+      .wa-state ha-icon { --mdc-icon-size: 20px; color: var(--secondary-text-color); }
+      .wa-state.ok ha-icon { color: var(--success-color, #43a047); }
+      .wa-state.error ha-icon { color: var(--error-color, #e53953); }
+      .wa-qr { display: flex; justify-content: center; margin: 8px 0; }
+      .wa-qr img { width: 240px; max-width: 100%; height: auto; image-rendering: pixelated;
+                   background: #fff; padding: 10px; border-radius: 12px; }
+      .wa-code { font: 600 26px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 3px;
+                 text-align: center; margin: 8px 0; }
       .spa-tile-menu { position: absolute; top: 4px; right: 4px; z-index: 3;
                         width: 30px; height: 30px; padding: 0;
                         background: var(--card-background-color);

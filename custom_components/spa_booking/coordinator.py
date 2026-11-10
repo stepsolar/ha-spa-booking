@@ -121,6 +121,7 @@ from .exceptions import (
 from . import messaging
 from .waha import WahaAuthenticationError, WahaClient, WahaError
 from .waha_inbound import WahaInbound
+from .wa_bridge import WaBridge
 from .normalize import (
     _add_months,
     as_aware_datetime,
@@ -222,6 +223,8 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._card_version = ""
         # The internal timers, attached by async_setup_entry.
         self.scheduler: Any = None
+        # The built-in WhatsApp connection, when chosen (beta).
+        self.wa_bridge: WaBridge | None = None
         super().__init__(
             hass,
             _LOGGER,
@@ -5888,17 +5891,48 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 settings["web_token"] = secrets.token_urlsafe(32)
             self._data[KEY_SETTINGS] = settings
             await self._async_save()
+        if "whatsapp_engine" in changes:
+            await self.async_apply_whatsapp_engine()
         return dict(self._data[KEY_SETTINGS])
 
     # ------------------------------------------------------------------- WAHA
 
     @property
-    def waha(self) -> WahaClient | None:
-        """A client for the configured WAHA add-on, or None when unset.
+    def whatsapp_engine(self) -> str:
+        """"waha" (the add-on) or "integrated" (built into Spa Booking)."""
+        return str(self._data[KEY_SETTINGS].get("whatsapp_engine") or "waha")
 
-        An empty URL means "use the rest_command fallback", which is how this
-        installation worked before the gateway moved inside the integration.
+    async def async_apply_whatsapp_engine(self) -> None:
+        """Start or stop the built-in WhatsApp connection to match the settings."""
+        if self.whatsapp_engine == "integrated":
+            if self.wa_bridge is None:
+                inbound = WahaInbound(
+                    self.hass, self, webhook_id="", secret="", session="spa"
+                )
+                self.wa_bridge = WaBridge(self.hass, inbound)
+                self.wa_bridge.listeners.append(self.async_update_listeners)
+                await self.wa_bridge.async_start()
+        elif self.wa_bridge is not None:
+            bridge, self.wa_bridge = self.wa_bridge, None
+            await bridge.async_stop()
+
+    async def async_stop_whatsapp(self) -> None:
+        """Stop the built-in connection (entry unloaded, Home Assistant closing)."""
+        if self.wa_bridge is not None:
+            bridge, self.wa_bridge = self.wa_bridge, None
+            await bridge.async_stop()
+
+    @property
+    def waha(self) -> WahaClient | WaBridge | None:
+        """The WhatsApp gateway to send through, or None when unset.
+
+        With the built-in connection chosen, it is always that one (a send
+        fails clearly while it is not linked, rather than slipping through
+        another channel). Otherwise the WAHA add-on; an empty URL means "use
+        the rest_command fallback", as before the gateway moved inside.
         """
+        if self.whatsapp_engine == "integrated":
+            return self.wa_bridge
         settings = self._data[KEY_SETTINGS]
         url = str(settings.get("waha_url") or "")
         if not url:
@@ -5918,6 +5952,8 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         client = self.waha
         if client is None:
+            if self.whatsapp_engine == "integrated":
+                return {"configured": True, "ok": False, "error": "WhatsApp integrato non avviato"}
             return {"configured": False, "ok": False, "error": "WAHA non configurato"}
         try:
             server = await client.async_get_server()
@@ -5941,6 +5977,10 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         post to it. The secret is reported back only as "present", never as a
         value, so the card and the logs cannot leak it.
         """
+        if self.whatsapp_engine == "integrated":
+            raise ValidationError(
+                "Con WhatsApp integrato le risposte arrivano già da sole: non serve il webhook"
+            )
         client = self.waha
         if client is None:
             raise ValidationError(

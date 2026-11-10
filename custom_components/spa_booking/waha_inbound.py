@@ -144,6 +144,15 @@ class WahaInbound:
         # answer already applied must not apply it twice.
         return web.Response(status=200)
 
+    async def async_handle_event(self, data: dict[str, Any]) -> None:
+        """Handle one event that did not come through the webhook.
+
+        The built-in WhatsApp connection reports messages and reactions in
+        WAHA's shape over its own local channel: they are trusted as they are
+        (no HMAC) and go through the same filters and deduplication.
+        """
+        await self._handle_payload(data)
+
     # ----------------------------------------------------------------- parsing
 
     async def _handle_payload(self, data: dict[str, Any]) -> None:
