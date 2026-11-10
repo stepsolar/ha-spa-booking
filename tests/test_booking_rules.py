@@ -124,3 +124,28 @@ def test_failed_batch_edit_leaves_everything_as_it_was(massages) -> None:
     with pytest.raises(SpaBookingError):
         run(massages.async_update_booking_batch(first["id"], rows))
     assert massages._data == before
+
+
+def test_category_rule_can_be_forced(massages) -> None:
+    """'Privata' takes morning bookings Mon-Fri only: the desk may book anyway."""
+    from custom_components.spa_booking.coordinator import FORCE_RULES
+    from custom_components.spa_booking.exceptions import CategoryRuleError
+
+    for category in massages._data[KEY_CATEGORIES]:
+        if category["id"] == "cat_massaggi":
+            category.update(
+                name="Privata", morning_start="09:00", morning_end="13:00",
+                morning_days=[0, 1, 2, 3, 4],
+            )
+    maria, _ = _ops(massages)
+    with pytest.raises(CategoryRuleError, match="Privata' accetta prenotazioni di mattina solo"):
+        _book(massages, "2026-11-14 10:00", [maria])  # a Saturday
+    token = FORCE_RULES.set(True)
+    try:
+        booked = _book(massages, "2026-11-14 10:00", [maria])
+    finally:
+        FORCE_RULES.reset(token)
+    assert booked["id"]
+    # The flag lasted for that call only.
+    with pytest.raises(CategoryRuleError):
+        _book(massages, "2026-11-14 11:45", [maria], phone="333 4444444")

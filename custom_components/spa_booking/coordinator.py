@@ -8,12 +8,15 @@ booked, and neither can a client.
 
 from __future__ import annotations
 
+from contextvars import ContextVar
+
 import asyncio
 import copy
 import json
 from datetime import date, datetime, time, timedelta
 import hmac
 import logging
+import re
 import secrets
 from pathlib import Path
 from typing import Any, Final
@@ -83,6 +86,7 @@ from .const import (
     DEFAULT_WEB_STEP_MIN,
     REVIEW_REQUEST_WINDOW_HOURS,
     WEB_MAX_SLOTS,
+    WEB_API_BASE,
     WEB_SNIPPET_TOKEN_PLACEHOLDER,
     KEY_CATEGORIES,
     KEY_CLIENTS,
@@ -93,6 +97,7 @@ from .const import (
     KEY_SETTINGS,
     KEY_SLOT_BLOCKS,
     KEY_TREATMENTS,
+    KEY_PROFILES,
     PERMISSION_LEVELS,
     MAX_CLOSURE_DAYS,
     OPERATOR_ROLES,
@@ -113,14 +118,16 @@ from .const import (
     REQUEST_SOURCE_WEB,
 )
 from .exceptions import (
+    CategoryRuleError,
     NotFoundError,
     OverlapError,
     SpaBookingError,
     ValidationError,
 )
-from . import messaging
+from . import access, messaging
 from .waha import WahaAuthenticationError, WahaClient, WahaError
 from .waha_inbound import WahaInbound
+from .wa_bridge import WaBridge
 from .normalize import (
     _add_months,
     as_aware_datetime,
@@ -186,6 +193,11 @@ def _integration_version() -> str:
 #: The running backend version, shown in the card's "Versione del programma".
 INTEGRATION_VERSION: Final = _integration_version()
 
+#: Set by the services for a call where the desk saw the category warning
+#: and books anyway: the days, time windows and exclusions of the categories
+#: are skipped for that call only. Closures and operator clashes still apply.
+FORCE_RULES: ContextVar[bool] = ContextVar("spa_booking_force_rules", default=False)
+
 
 def _read_text(path: str) -> str:
     """Return a UTF-8 text file, or an empty string when it cannot be read.
@@ -222,6 +234,10 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._card_version = ""
         # The internal timers, attached by async_setup_entry.
         self.scheduler: Any = None
+        # The built-in WhatsApp connection, when chosen (beta).
+        self.wa_bridge: WaBridge | None = None
+        #: Who is using each shared reception tablet (in memory only).
+        self.pin_sessions = access.PinSessions()
         super().__init__(
             hass,
             _LOGGER,
@@ -911,7 +927,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         when either is set, the whole appointment (start and end) must fit
         inside one of them. Everything is evaluated in local time.
         """
-        if not category:
+        if not category or FORCE_RULES.get():
             return
         local_start = dt_util.as_local(start)
         local_end = dt_util.as_local(end)
@@ -934,7 +950,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 labels = ", ".join(
                     WEEKDAY_LABELS[d] for d in allowed if 0 <= d < len(WEEKDAY_LABELS)
                 )
-                raise ValidationError(
+                raise CategoryRuleError(
                     f"La categoria '{category['name']}' accetta prenotazioni "
                     f"{slot} solo {labels}"
                 )
@@ -947,7 +963,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             labels = " e ".join(
                 _fmt_window(*window) or "—" for window in windows
             )
-            raise ValidationError(
+            raise CategoryRuleError(
                 f"La categoria '{category['name']}' accetta appuntamenti "
                 f"solo nelle fasce {labels}: "
                 f"l'orario scelto ({local_start:%H:%M}-{local_end:%H:%M}) "
@@ -960,7 +976,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             labels = ", ".join(
                 WEEKDAY_LABELS[d] for d in allowed if 0 <= d < len(WEEKDAY_LABELS)
             )
-            raise ValidationError(
+            raise CategoryRuleError(
                 f"La categoria '{category['name']}' accetta prenotazioni "
                 f"solo {labels}"
             )
@@ -1045,6 +1061,8 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         itself too, no matter which side authored the rule. The window is
         exact — pauses only bind the masseuse, never other categories.
         """
+        if FORCE_RULES.get():
+            return
         category = self._category(treatment.get("category_id"))
         if not category:
             return
@@ -1075,7 +1093,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     and other_start < end_dt
                     and other_end > start_dt
                 ):
-                    raise ValidationError(
+                    raise CategoryRuleError(
                         f"La categoria '{category['name']}' non può sovrapporsi "
                         f"a '{other['name']}': "
                         f"{self._summary(self.appointment_payload(appointment))}"
@@ -2261,8 +2279,12 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         recipient_phone: str,
         people: list[dict[str, Any]],
         user_id: str | None = None,
+        created_by_name: str = "",
     ) -> dict[str, Any]:
         """Sell a gift voucher: its code, its people and its treatments, valid for months."""
+        created_by_name = str(created_by_name or "").strip()
+        if not created_by_name:
+            raise ValidationError("Indica chi ha creato il voucher")
         known = {t["id"] for t in self.treatments}
         clean: list[dict[str, Any]] = []
         for person in people:
@@ -2303,7 +2325,8 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "recipient_phone": recipient_phone,
                     "people": clean,
                     "created_at": dt_util.utcnow().isoformat(),
-                    "created_by": user_id,
+                    "created_by": user_id or "",
+                    "created_by_name": created_by_name,
                     "expires_on": _add_months(today, VOUCHER_VALID_MONTHS).strftime("%Y-%m-%d"),
                     "status": VOUCHER_ACTIVE,
                 }
@@ -3168,23 +3191,40 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     lines.append("        " + line)
         return {"yaml": "\n".join(lines)}
 
-    async def async_web_snippet(self) -> dict[str, Any]:
+    async def async_web_snippet(self, base_url: str = "") -> dict[str, Any]:
         """Return the code to paste into the site, with the token already in it.
 
-        The base text is ``frontend/spa-booking-form.txt`` of the integration — one
-        source, the same one the desk can download — and the placeholder
-        ``INCOLLA_QUI_IL_TOKEN`` is swapped for the current token on the fly.
-        The token is never written to disk: it lives only in this answer and
-        in the clipboard of whoever pressed Copia.
+        ``snippet`` is the two-line code of 2.2.0b3: a box and a script that
+        loads the form from Home Assistant (``/api/spa_booking/public/form.js``),
+        so a new version of the form reaches the site without touching
+        WordPress. The address is the public one of the settings, else the one
+        the desk is using (``base_url``), else the one written in the full
+        form.
+
+        ``snippet_full`` is the whole form of the versions before, from
+        ``frontend/spa-booking-form.txt``, for a site that cannot load a
+        script from another address. The token is never written to disk: it
+        lives only in this answer and in the clipboard of whoever pressed
+        Copia.
         """
         from .card_view import FORM_FILE
 
         path = str(FORM_FILE)
-        snippet = await self.hass.async_add_executor_job(_read_text, path)
-        found = WEB_SNIPPET_TOKEN_PLACEHOLDER in snippet
-        token = self._web_token() if snippet else ""
+        full = await self.hass.async_add_executor_job(_read_text, path)
+        found = WEB_SNIPPET_TOKEN_PLACEHOLDER in full
+        token = self._web_token()
+        base = str(self._web_settings.get("web_public_url") or "").strip().rstrip("/")
+        if not base:
+            match = re.search(r'var API_BASE = "(https?://[^"]+?)/api/spa_booking/public"', full or "")
+            base = match.group(1) if match else str(base_url or "").strip().rstrip("/")
+        short = (
+            '<div id="spa-booking"></div>\n'
+            f'<script src="{base}{WEB_API_BASE}/form.js" data-token="{token}" async></script>'
+        )
         return {
-            "snippet": snippet.replace(WEB_SNIPPET_TOKEN_PLACEHOLDER, token),
+            "snippet": short,
+            "snippet_full": full.replace(WEB_SNIPPET_TOKEN_PLACEHOLDER, token),
+            "base_url": base,
             "token_placeholder": WEB_SNIPPET_TOKEN_PLACEHOLDER,
             "found": found,
             "path": path,
@@ -5799,7 +5839,12 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             KEY_OPERATORS: [self.operator_payload(o) for o in self.operators],
             KEY_SLOT_BLOCKS: [dict(b) for b in self.slot_blocks],
             KEY_CLOSURES: [dict(c) for c in self.closures],
-            KEY_SETTINGS: dict(self._data[KEY_SETTINGS]),
+            KEY_SETTINGS: {
+                **self._data[KEY_SETTINGS],
+                KEY_PROFILES: access.public_profiles(
+                    self._data[KEY_SETTINGS].get(KEY_PROFILES) or {}
+                ),
+            },
             KEY_PERMISSIONS: self.permissions_payload(),
         }
 
@@ -5841,7 +5886,67 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             permissions[user_id] = level
             self._data[KEY_SETTINGS][KEY_PERMISSIONS] = permissions
             await self._async_save()
+        self.pin_sessions.end_user(user_id)
         return dict(permissions)
+
+    # ------------------------------------------------- logins and the PIN
+
+    def profiles(self) -> dict[str, dict[str, Any]]:
+        """The stored user profiles, PIN hashes included."""
+        return dict(self._data[KEY_SETTINGS].get(KEY_PROFILES) or {})
+
+    def profile(self, user_id: str | None) -> dict[str, Any]:
+        """One user's profile (empty when she has none)."""
+        return dict(self.profiles().get(user_id or "") or {})
+
+    @property
+    def pin_idle_minutes(self) -> int:
+        """Minutes of inactivity before the shared tablet signs out."""
+        return int(self._data[KEY_SETTINGS].get("pin_idle_minutes") or 10)
+
+    async def async_set_user_profile(
+        self,
+        user_id: str,
+        *,
+        operator_id: str | None = None,
+        shared: bool | None = None,
+        pin: str | None = None,
+        clear_pin: bool = False,
+    ) -> dict[str, Any]:
+        """Link a user to an operator, mark the shared tablet, set her PIN."""
+        if pin is not None and pin != "" and not access.valid_pin(pin):
+            raise SpaBookingError("Il PIN deve essere di 4 cifre")
+        async with self._lock:
+            profiles = self.profiles()
+            profile = dict(profiles.get(user_id) or {
+                "operator_id": "", "shared": False, "pin_salt": "", "pin_hash": "",
+            })
+            if operator_id is not None:
+                if operator_id and not any(
+                    op["id"] == operator_id for op in self.operators
+                ):
+                    raise SpaBookingError("Operatrice non trovata")
+                if operator_id:
+                    for other_id, other in profiles.items():
+                        if other_id != user_id and other.get("operator_id") == operator_id:
+                            raise SpaBookingError(
+                                "Questa operatrice è già collegata a un altro utente"
+                            )
+                profile["operator_id"] = operator_id
+            if shared is not None:
+                profile["shared"] = bool(shared)
+            if clear_pin:
+                profile["pin_salt"] = profile["pin_hash"] = ""
+            elif pin:
+                profile["pin_salt"], profile["pin_hash"] = await self.hass.async_add_executor_job(
+                    access.hash_pin, pin
+                )
+            profiles[user_id] = profile
+            self._data[KEY_SETTINGS][KEY_PROFILES] = profiles
+            await self._async_save()
+        # A new PIN, operator or role takes effect at the next sign-in.
+        self.pin_sessions.end_user(user_id)
+        return access.public_profiles({user_id: profile})[user_id]
 
     async def async_users_payload(self) -> list[dict[str, Any]]:
         """Return the Home Assistant users for the Accessi tab.
@@ -5851,6 +5956,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         try:
             users = await self.hass.auth.async_get_users()
+            profiles = access.public_profiles(self.profiles())
             return [
                 {
                     "id": user.id,
@@ -5858,10 +5964,19 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "is_admin": user.is_admin,
                     "is_owner": user.is_owner,
                     "is_active": user.is_active,
+                    "username": next(
+                        (
+                            str(cred.data.get("username") or "")
+                            for cred in getattr(user, "credentials", None) or []
+                            if cred.auth_provider_type == "homeassistant"
+                        ),
+                        "",
+                    ),
+                    **profiles.get(user.id, {"operator_id": "", "shared": False, "has_pin": False}),
                 }
                 for user in users
-                if user.is_active
-                and not user.system_generated
+                # A disabled user stays listed, so she can be enabled again.
+                if not user.system_generated
                 # "Mqtt" is the MQTT integration's service account: it exists
                 # as a normal user but is a machine, not a person, so it must
                 # never populate a row in the Accessi tab.
@@ -5888,17 +6003,48 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 settings["web_token"] = secrets.token_urlsafe(32)
             self._data[KEY_SETTINGS] = settings
             await self._async_save()
+        if "whatsapp_engine" in changes:
+            await self.async_apply_whatsapp_engine()
         return dict(self._data[KEY_SETTINGS])
 
     # ------------------------------------------------------------------- WAHA
 
     @property
-    def waha(self) -> WahaClient | None:
-        """A client for the configured WAHA add-on, or None when unset.
+    def whatsapp_engine(self) -> str:
+        """"waha" (the add-on) or "integrated" (built into Spa Booking)."""
+        return str(self._data[KEY_SETTINGS].get("whatsapp_engine") or "waha")
 
-        An empty URL means "use the rest_command fallback", which is how this
-        installation worked before the gateway moved inside the integration.
+    async def async_apply_whatsapp_engine(self) -> None:
+        """Start or stop the built-in WhatsApp connection to match the settings."""
+        if self.whatsapp_engine == "integrated":
+            if self.wa_bridge is None:
+                inbound = WahaInbound(
+                    self.hass, self, webhook_id="", secret="", session="spa"
+                )
+                self.wa_bridge = WaBridge(self.hass, inbound)
+                self.wa_bridge.listeners.append(self.async_update_listeners)
+                await self.wa_bridge.async_start()
+        elif self.wa_bridge is not None:
+            bridge, self.wa_bridge = self.wa_bridge, None
+            await bridge.async_stop()
+
+    async def async_stop_whatsapp(self) -> None:
+        """Stop the built-in connection (entry unloaded, Home Assistant closing)."""
+        if self.wa_bridge is not None:
+            bridge, self.wa_bridge = self.wa_bridge, None
+            await bridge.async_stop()
+
+    @property
+    def waha(self) -> WahaClient | WaBridge | None:
+        """The WhatsApp gateway to send through, or None when unset.
+
+        With the built-in connection chosen, it is always that one (a send
+        fails clearly while it is not linked, rather than slipping through
+        another channel). Otherwise the WAHA add-on; an empty URL means "use
+        the rest_command fallback", as before the gateway moved inside.
         """
+        if self.whatsapp_engine == "integrated":
+            return self.wa_bridge
         settings = self._data[KEY_SETTINGS]
         url = str(settings.get("waha_url") or "")
         if not url:
@@ -5918,6 +6064,8 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         client = self.waha
         if client is None:
+            if self.whatsapp_engine == "integrated":
+                return {"configured": True, "ok": False, "error": "WhatsApp integrato non avviato"}
             return {"configured": False, "ok": False, "error": "WAHA non configurato"}
         try:
             server = await client.async_get_server()
@@ -5941,6 +6089,10 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         post to it. The secret is reported back only as "present", never as a
         value, so the card and the logs cannot leak it.
         """
+        if self.whatsapp_engine == "integrated":
+            raise ValidationError(
+                "Con WhatsApp integrato le risposte arrivano già da sole: non serve il webhook"
+            )
         client = self.waha
         if client is None:
             raise ValidationError(

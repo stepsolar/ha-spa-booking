@@ -18,7 +18,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from custom_components.spa_booking import coordinator as coordinator_module
-from custom_components.spa_booking import messaging
+from custom_components.spa_booking import access, messaging
 from custom_components.spa_booking.coordinator import SpaBookingCoordinator
 from custom_components.spa_booking.normalize import _normalise, default_data
 
@@ -59,6 +59,8 @@ def build_coordinator(data: dict[str, Any] | None = None) -> SpaBookingCoordinat
     coordinator._waha_inbound = None
     coordinator._card_version = ""
     coordinator.scheduler = None
+    coordinator.wa_bridge = None
+    coordinator.pin_sessions = access.PinSessions()
     coordinator._current_user_id = None
     coordinator.data = None
     coordinator.async_set_updated_data = lambda new: setattr(coordinator, "data", new)

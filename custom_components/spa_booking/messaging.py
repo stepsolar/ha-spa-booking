@@ -226,7 +226,7 @@ async def async_send_whatsapp(
             if not result.get("sent"):
                 last_error = str(result.get("error") or "invio non riuscito")
                 _LOGGER.warning(
-                    "WhatsApp a %s rifiutato da WAHA: %s", target, last_error
+                    "WhatsApp a %s rifiutato: %s", target, last_error
                 )
                 break
         else:

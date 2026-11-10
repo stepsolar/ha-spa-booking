@@ -13,11 +13,20 @@ from custom_components.spa_booking.exceptions import ValidationError
 
 from .conftest import run
 
+def _user(uid, name, admin=False):
+    return SimpleNamespace(
+        id=uid, name=name, is_admin=admin, is_owner=False, is_active=True,
+        system_generated=False, credentials=[],
+    )
+
+
 USERS = {
-    "u_admin_ha": SimpleNamespace(is_admin=True, is_owner=False),
-    "u_operator": SimpleNamespace(is_admin=False, is_owner=False),
-    "u_reader": SimpleNamespace(is_admin=False, is_owner=False),
-    "u_stranger": SimpleNamespace(is_admin=False, is_owner=False),
+    "u_admin_ha": _user("u_admin_ha", "Stefano", admin=True),
+    "u_operator": _user("u_operator", "Laura"),
+    "u_reader": _user("u_reader", "Ospite"),
+    "u_stranger": _user("u_stranger", "Estraneo"),
+    "u_giulia": _user("u_giulia", "Giulia"),
+    "u_tablet": _user("u_tablet", "Tablet reception"),
 }
 
 
@@ -26,11 +35,13 @@ def setup(coordinator):
     coordinator._data[KEY_SETTINGS][KEY_PERMISSIONS] = {
         "u_operator": "operator",
         "u_reader": "read",
+        "u_giulia": "therapist",
     }
     coordinator._data[KEY_SETTINGS]["waha_api_key"] = "segreto"
     coordinator._data[KEY_SETTINGS]["web_token"] = "token-sito"
     hass = MagicMock()
     hass.data = {DOMAIN: coordinator}
+    hass.async_add_executor_job = coordinator.hass.async_add_executor_job
     hass.auth.async_get_user = AsyncMock(side_effect=lambda uid: USERS.get(uid))
     return hass, coordinator
 

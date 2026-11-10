@@ -51,4 +51,4 @@ const assert = (cond, msg) => { if (!cond) { console.error("FAIL:", msg); proces
 const all = (node) => [node, ...node.walk()];
 const byClass = (node, cls) => all(node).filter((n) => (" " + ((n.attrs && n.attrs.class) || "") + " ").includes(" " + cls + " "));
 
-module.exports = { loadCard, assert, all, byClass, Node };
+module.exports = { loadCard, assert, all, byClass, Node, sandbox };

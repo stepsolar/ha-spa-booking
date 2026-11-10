@@ -831,6 +831,16 @@ update_settings:
     Modifica destinatari e orario del report mensile. telegram_config_entry_id
     e' l'ID della configurazione del bot Telegram da usare.
   fields:
+    whatsapp_engine:
+      name: Collegamento WhatsApp
+      description: >-
+        "integrated" usa il collegamento integrato in Spa Booking (beta, come
+        WhatsApp Web); "waha" usa l'add-on WAHA.
+      selector:
+        select:
+          options:
+            - waha
+            - integrated
     telegram_config_entry_id:
       name: ID configurazione bot Telegram
       example: 01JZ6G7TT8APQ8WCXEPRCDNQFN
@@ -1443,10 +1453,11 @@ get_users:
 set_user_permissions:
   name: Imposta permessi utente
   description: >-
-    Salva il livello di accesso di un utente alla dashboard. I livelli sono
-    none (non vede la dashboard), read (sola lettura), operator (gestisce la
-    giornata), manager (anche clienti e messaggi) e admin (configurazione
-    completa).
+    Salva il ruolo di un utente nella dashboard: none (non vede la
+    dashboard), read (sola lettura), therapist (massaggiatrice: agenda e i
+    suoi appuntamenti), operator (reception: giornata, incassi, nuovi
+    voucher), manager (anche clienti, messaggi, voucher e totali) e admin
+    (configurazione e utenti).
   fields:
     user_id:
       name: ID utente
@@ -1464,9 +1475,11 @@ set_user_permissions:
               value: none
             - label: Solo lettura
               value: read
-            - label: Operatore
+            - label: Massaggiatrice
+              value: therapist
+            - label: Reception
               value: operator
-            - label: Gestore
+            - label: Manager
               value: manager
             - label: Amministratore
               value: admin
@@ -1499,6 +1512,13 @@ create_voucher:
       description: Elenco di persone, ciascuna con treatment_ids e extras.
       selector:
         object:
+    created_by:
+      name: Creato da
+      description: >-
+        Nome di chi ha creato il voucher. Obbligatorio solo per automazioni e
+        script: per un utente collegato si usa il suo nome.
+      selector:
+        text:
 
 extend_voucher:
   name: Estendi voucher
@@ -1831,3 +1851,197 @@ run_scheduled_jobs:
     Esegue subito promemoria, offerte scadute, richieste di recensione,
     voucher fedelta', scadenze voucher, promo e report (rispettando l'orario
     di silenzio). Utile per verificare la configurazione. Solo amministratori.
+
+whatsapp_status:
+  name: Stato di WhatsApp integrato
+  description: >-
+    Stato del collegamento integrato (beta): collegato, in attesa, numero
+    collegato e, durante il collegamento, il codice QR. Solo amministratori.
+
+whatsapp_pair:
+  name: Collega WhatsApp
+  description: >-
+    Avvia il collegamento del numero: il codice QR compare nello stato e nella
+    card. Si inquadra da WhatsApp › Dispositivi collegati. Solo amministratori.
+
+whatsapp_pair_code:
+  name: Collega WhatsApp con un codice
+  description: >-
+    Dopo "Collega WhatsApp", restituisce un codice di 8 caratteri da digitare
+    sul telefono (Collega con il numero di telefono), utile quando la card è
+    aperta sullo stesso telefono. Solo amministratori.
+  fields:
+    phone:
+      name: Numero dell'hotel
+      required: true
+      example: "333 1234567"
+      selector:
+        text:
+
+whatsapp_logout:
+  name: Scollega WhatsApp
+  description: Scollega il numero da Spa Booking. Solo amministratori.
+
+whoami:
+  name: Chi sono
+  description: >-
+    Restituisce l'utente con cui agisce la card, il suo ruolo e l'operatrice
+    collegata. Sul tablet condiviso elenca chi può entrare con il PIN.
+
+pin_login:
+  name: Entra con il PIN
+  description: >-
+    Sul tablet condiviso della reception: la persona sceglie il suo nome e
+    inserisce il PIN di 4 cifre. Da quel momento il tablet agisce come lei.
+  fields:
+    user_id:
+      name: ID utente
+      required: true
+      selector:
+        text:
+    pin:
+      name: PIN
+      required: true
+      selector:
+        text:
+          type: password
+
+pin_logout:
+  name: Esci dal tablet
+  description: Chiude la sessione PIN del tablet condiviso.
+
+set_user_profile:
+  name: Profilo utente
+  description: >-
+    Collega un utente a un'operatrice dell'agenda, imposta o cancella il suo
+    PIN, oppure lo segna come tablet condiviso della reception. Solo
+    amministratori.
+  fields:
+    user_id:
+      name: ID utente
+      required: true
+      selector:
+        text:
+    operator_id:
+      name: Operatrice collegata
+      selector:
+        text:
+    shared:
+      name: Tablet condiviso
+      selector:
+        boolean:
+    pin:
+      name: PIN (4 cifre)
+      selector:
+        text:
+          type: password
+    clear_pin:
+      name: Cancella il PIN
+      selector:
+        boolean:
+
+create_user:
+  name: Crea utente
+  description: >-
+    Crea un utente di Home Assistant con nome utente e password, con il suo
+    ruolo in Spa Booking e, se serve, l'operatrice collegata e il PIN. Solo
+    amministratori.
+  fields:
+    name:
+      name: Nome
+      required: true
+      selector:
+        text:
+    username:
+      name: Nome utente
+      required: true
+      selector:
+        text:
+    password:
+      name: Password
+      required: true
+      selector:
+        text:
+          type: password
+    level:
+      name: Ruolo
+      required: true
+      selector:
+        select:
+          options:
+            - label: Massaggiatrice
+              value: therapist
+            - label: Reception
+              value: operator
+            - label: Manager
+              value: manager
+            - label: Amministratore
+              value: admin
+    operator_id:
+      name: Operatrice collegata
+      selector:
+        text:
+    pin:
+      name: PIN (4 cifre)
+      selector:
+        text:
+          type: password
+    shared:
+      name: Tablet condiviso
+      selector:
+        boolean:
+    local_only:
+      name: Solo rete locale
+      selector:
+        boolean:
+
+set_user_password:
+  name: Nuova password utente
+  description: Assegna una nuova password a un utente. Solo amministratori.
+  fields:
+    user_id:
+      name: ID utente
+      required: true
+      selector:
+        text:
+    password:
+      name: Nuova password
+      required: true
+      selector:
+        text:
+          type: password
+
+set_user_active:
+  name: Attiva o disattiva utente
+  description: Disattiva chi non lavora più qui, o la riattiva. Solo amministratori.
+  fields:
+    user_id:
+      name: ID utente
+      required: true
+      selector:
+        text:
+    active:
+      name: Attivo
+      required: true
+      selector:
+        boolean:
+
+update_status:
+  name: Stato aggiornamenti
+  description: >-
+    Versione in uso, versione installata su disco, aggiornamento disponibile
+    in HACS e se serve riavviare Home Assistant. Solo amministratori.
+
+install_update:
+  name: Installa aggiornamento
+  description: >-
+    Installa da HACS la nuova versione di Spa Booking. Se cambia solo la card
+    basta ricaricare la pagina, altrimenti serve un riavvio. Solo
+    amministratori.
+
+restart_home_assistant:
+  name: Riavvia Home Assistant
+  description: >-
+    Riavvia Home Assistant per caricare la nuova versione di Spa Booking. Solo
+    amministratori.
+

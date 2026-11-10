@@ -7,6 +7,9 @@ that Home Assistant surfaces as a readable error in the UI.
 
 from __future__ import annotations
 
+from contextvars import ContextVar
+from dataclasses import dataclass
+import time
 from typing import Any
 
 import voluptuous as vol
@@ -65,11 +68,14 @@ from .const import (
     OPERATOR_ROLE_DEFAULT,
     OPERATOR_ROLES,
     PAYMENT_METHODS,
+    KEY_PROFILES,
     PERMISSION_LEVELS,
 )
-from .coordinator import INTEGRATION_VERSION, SpaBookingCoordinator
+from .coordinator import FORCE_RULES, INTEGRATION_VERSION, SpaBookingCoordinator
 from .normalize import as_date
-from .exceptions import ValidationError
+from . import access, messaging, updates
+from .exceptions import SpaBookingError, ValidationError
+from .waha import WahaError
 
 #: The accepted method names, taken from the single place they are declared.
 PAYMENT_METHOD_NAMES = tuple(name for name, _, _ in PAYMENT_METHODS)
@@ -137,6 +143,16 @@ SERVICE_SEND_REVIEW_REQUESTS = "send_review_requests"
 SERVICE_VOUCHER_EXPIRY_REMINDER = "voucher_expiry_reminder"
 SERVICE_GET_USERS = "get_users"
 SERVICE_SET_USER_PERMISSIONS = "set_user_permissions"
+SERVICE_WHOAMI = "whoami"
+SERVICE_UPDATE_STATUS = "update_status"
+SERVICE_INSTALL_UPDATE = "install_update"
+SERVICE_RESTART_HOME_ASSISTANT = "restart_home_assistant"
+SERVICE_PIN_LOGIN = "pin_login"
+SERVICE_PIN_LOGOUT = "pin_logout"
+SERVICE_SET_USER_PROFILE = "set_user_profile"
+SERVICE_CREATE_USER = "create_user"
+SERVICE_SET_USER_PASSWORD = "set_user_password"
+SERVICE_SET_USER_ACTIVE = "set_user_active"
 SERVICE_CREATE_REQUEST = "create_request"
 SERVICE_DELETE_REQUEST = "delete_request"
 SERVICE_CONFIRM_REQUEST = "confirm_request"
@@ -155,6 +171,10 @@ SERVICE_EXPORT_DASHBOARD_YAML = "export_dashboard_yaml"
 SERVICE_IMPORT_ALL = "import_all"
 SERVICE_GET_DASHBOARD_CONFIG = "get_dashboard_config"
 SERVICE_RUN_SCHEDULED_JOBS = "run_scheduled_jobs"
+SERVICE_WHATSAPP_STATUS = "whatsapp_status"
+SERVICE_WHATSAPP_PAIR = "whatsapp_pair"
+SERVICE_WHATSAPP_PAIR_CODE = "whatsapp_pair_code"
+SERVICE_WHATSAPP_LOGOUT = "whatsapp_logout"
 
 ALL_SERVICES = (
     SERVICE_CREATE_APPOINTMENT,
@@ -214,6 +234,16 @@ ALL_SERVICES = (
     SERVICE_PROMO_AUTOMATIC,
     SERVICE_GET_USERS,
     SERVICE_SET_USER_PERMISSIONS,
+    SERVICE_WHOAMI,
+    SERVICE_UPDATE_STATUS,
+    SERVICE_INSTALL_UPDATE,
+    SERVICE_RESTART_HOME_ASSISTANT,
+    SERVICE_PIN_LOGIN,
+    SERVICE_PIN_LOGOUT,
+    SERVICE_SET_USER_PROFILE,
+    SERVICE_CREATE_USER,
+    SERVICE_SET_USER_PASSWORD,
+    SERVICE_SET_USER_ACTIVE,
     SERVICE_CREATE_REQUEST,
     SERVICE_DELETE_REQUEST,
     SERVICE_CONFIRM_REQUEST,
@@ -230,6 +260,10 @@ ALL_SERVICES = (
     SERVICE_EXPORT_DASHBOARD_YAML,
     SERVICE_UPDATE_BOOKING_BATCH,
     SERVICE_RUN_SCHEDULED_JOBS,
+    SERVICE_WHATSAPP_STATUS,
+    SERVICE_WHATSAPP_PAIR,
+    SERVICE_WHATSAPP_PAIR_CODE,
+    SERVICE_WHATSAPP_LOGOUT,
 )
 
 _CLIENT_FIELDS = {
@@ -299,6 +333,9 @@ CREATE_APPOINTMENT_SCHEMA = vol.Schema(
         #: same-person client refusal, never an operator double-booking.
         vol.Optional("batch_id"): vol.Any(cv.string, None),
         vol.Optional("force_client_overlap", default=False): cv.boolean,
+        #: The desk saw the category warning (days, time windows,
+        #: exclusions) and books anyway. Reception and above only.
+        vol.Optional("force_rules", default=False): cv.boolean,
     },
     extra=vol.PREVENT_EXTRA,
 )
@@ -376,6 +413,9 @@ UPDATE_APPOINTMENT_SCHEMA = vol.Schema(
         #: The desk saw the overlap warning and confirms anyway: skips only
         #: the same-person client refusal, never an operator double-booking.
         vol.Optional("force_client_overlap", default=False): cv.boolean,
+        #: The desk saw the category warning (days, time windows,
+        #: exclusions) and books anyway. Reception and above only.
+        vol.Optional("force_rules", default=False): cv.boolean,
         #: Apply the same edit to every appointment of the group (same client,
         #: treatment and slot) instead of only this one.
         vol.Optional("whole_group", default=False): cv.boolean,
@@ -662,6 +702,7 @@ UPDATE_SETTINGS_SCHEMA = vol.Schema(
         vol.Optional("appearance"): vol.Any(vol.In(APPEARANCE_MODES), None),
         # Titolo in testata della card, scritto dalla reception in Impostazioni.
         vol.Optional("card_title"): vol.Any(cv.string, None),
+        vol.Optional("pin_idle_minutes"): vol.All(vol.Coerce(int), vol.Range(min=1, max=240)),
         # Telecamere tab: one flat, user-ordered tile list (each camera carries
         # its name/icon/visibility/span). A bare entity-id string is accepted
         # too, so a client that predates the tiles keeps saving without error.
@@ -799,8 +840,12 @@ UPDATE_SETTINGS_SCHEMA = vol.Schema(
         # Numero WhatsApp della reception per l'avviso di una nuova richiesta
         # dal sito (vuoto = nessun avviso).
         vol.Optional("web_notify_whatsapp"): vol.Any(cv.string, None),
+        vol.Optional("web_show_prices"): cv.boolean,
+        vol.Optional("web_accent"): vol.Any(cv.string, None),
+        vol.Optional("web_public_url"): vol.Any(cv.string, None),
         # WAHA gateway: with an URL set, WhatsApp goes straight to the add-on
         # instead of through the rest_command fallback.
+        vol.Optional("whatsapp_engine"): vol.In(["waha", "integrated"]),
         vol.Optional("waha_url"): vol.Any(cv.string, None),
         vol.Optional("waha_api_key"): vol.Any(cv.string, None),
         vol.Optional("waha_session"): vol.Any(cv.string, None),
@@ -838,7 +883,13 @@ EXPORT_ALL_SCHEMA = vol.Schema({})
 
 IMPORT_DATA_SCHEMA = vol.Schema({vol.Required(ATTR_PAYLOAD): dict})
 IMPORT_ALL_SCHEMA = vol.Schema({vol.Required(ATTR_PAYLOAD): dict})
-UPDATE_BOOKING_BATCH_SCHEMA = vol.Schema({vol.Required("appointment_id"): cv.string, vol.Required(ATTR_ROWS): vol.All(cv.ensure_list, [dict])})
+UPDATE_BOOKING_BATCH_SCHEMA = vol.Schema(
+    {
+        vol.Required("appointment_id"): cv.string,
+        vol.Required(ATTR_ROWS): vol.All(cv.ensure_list, [dict]),
+        vol.Optional("force_rules", default=False): cv.boolean,
+    }
+)
 
 EXPORT_CLIENTS_CSV_SCHEMA = vol.Schema({})
 
@@ -896,7 +947,10 @@ BOOKING_ROW_SCHEMA = vol.Schema(
 )
 
 CREATE_BOOKINGS_SCHEMA = vol.Schema(
-    {vol.Required(ATTR_ROWS): vol.All(cv.ensure_list, [BOOKING_ROW_SCHEMA])},
+    {
+        vol.Required(ATTR_ROWS): vol.All(cv.ensure_list, [BOOKING_ROW_SCHEMA]),
+        vol.Optional("force_rules", default=False): cv.boolean,
+    },
     extra=vol.PREVENT_EXTRA,
 )
 
@@ -989,7 +1043,7 @@ MARK_REQUESTS_SEEN_SCHEMA = vol.Schema({})
 REGENERATE_PUBLIC_TOKEN_SCHEMA = vol.Schema({})
 
 #: No fields: the snippet is read from the published file.
-WEB_SNIPPET_SCHEMA = vol.Schema({})
+WEB_SNIPPET_SCHEMA = vol.Schema({vol.Optional("base_url", default=""): cv.string})
 
 SEND_EXTERNAL_MESSAGE_SCHEMA = vol.Schema(
     {
@@ -1015,6 +1069,8 @@ CREATE_VOUCHER_SCHEMA = vol.Schema(
         vol.Optional("recipient_name", default=""): cv.string,
         vol.Optional("recipient_phone", default=""): cv.string,
         vol.Required("people"): vol.All(cv.ensure_list, [VOUCHER_PERSON_SCHEMA]),
+        #: Who made it. Ignored for a signed-in person: her own name is used.
+        vol.Optional("created_by", default=""): cv.string,
     },
     extra=vol.PREVENT_EXTRA,
 )
@@ -1154,27 +1210,83 @@ async def _caller_is_ha_admin(call: ServiceCall) -> bool:
     return bool(user is not None and (user.is_admin or user.is_owner))
 
 
-async def caller_level(call: ServiceCall, coordinator: SpaBookingCoordinator) -> str:
-    """Return the SPA access level of whoever made the call.
+@dataclass
+class Caller:
+    """Who is acting: a person, the shared tablet waiting for a PIN, or the system."""
 
-    The same rule as the card: the level chosen in Accessi wins; a Home
-    Assistant admin or owner who is not listed is an administrator; anybody
-    else has no access. A call without a user (an automation, a script, the
-    integration itself) acts as the system and is an administrator.
+    user_id: str | None
+    name: str
+    level: str
+    operator_id: str = ""
+    #: The shared reception tablet the call came from, if any.
+    device: str | None = None
+    system: bool = False
+
+
+#: The caller of the service being run, set by ``_guarded``.
+_ACTING: ContextVar[Caller | None] = ContextVar("spa_booking_caller", default=None)
+
+
+async def caller_identity(
+    call: ServiceCall, coordinator: SpaBookingCoordinator, *, refresh: bool = False
+) -> Caller:
+    """Return who made the call and with which SPA level.
+
+    The level chosen in Accessi wins; a Home Assistant admin or owner who is
+    not listed is an administrator; anybody else has no access. A call
+    without a user (an automation, a script, the integration itself) acts as
+    the system and is an administrator. A call from the shared reception
+    tablet acts as the person who typed her PIN, or has no access while
+    nobody did. ``refresh`` keeps that person's session alive.
     """
     user_id = call.context.user_id if call.context else None
     if not user_id:
-        return "admin"
+        return Caller(None, "Sistema", "admin", system=True)
+    device: str | None = None
+    if coordinator.profile(user_id).get("shared"):
+        device = user_id
+        sessions = coordinator.pin_sessions
+        now = time.monotonic()
+        acting = (
+            sessions.current(device, now, coordinator.pin_idle_minutes)
+            if refresh
+            else sessions.peek(device, now, coordinator.pin_idle_minutes)
+        )
+        if not acting:
+            return Caller(None, "", "none", device=device)
+        user_id = acting
+    user = await call.hass.auth.async_get_user(user_id)
+    if user is None or not user.is_active:
+        return Caller(None, "", "none", device=device)
     stored = coordinator.permissions_payload().get(user_id)
-    if stored in _LEVEL_RANK:
-        level = stored
-    else:
-        level = "none"
+    level = stored if stored in _LEVEL_RANK else "none"
     # A Home Assistant administrator can edit the storage file anyway:
     # refusing her here would protect nothing.
-    if await _caller_is_ha_admin(call):
-        return "admin"
-    return level
+    if user.is_admin or user.is_owner:
+        level = "admin"
+    return Caller(
+        user_id,
+        user.name or "",
+        level,
+        coordinator.profile(user_id).get("operator_id") or "",
+        device,
+    )
+
+
+async def caller_level(call: ServiceCall, coordinator: SpaBookingCoordinator) -> str:
+    """Return the SPA access level of whoever made the call."""
+    acting = _ACTING.get()
+    if acting is not None:
+        return acting.level
+    return (await caller_identity(call, coordinator)).level
+
+
+def _acting_user_id(call: ServiceCall) -> str | None:
+    """The person behind the call: on the shared tablet, who typed her PIN."""
+    acting = _ACTING.get()
+    if acting is not None and not acting.system:
+        return acting.user_id
+    return call.context.user_id if call.context else None
 
 
 async def _require_level(
@@ -1204,6 +1316,7 @@ def _without_secrets(settings: dict[str, Any]) -> dict[str, Any]:
     return {
         **settings,
         **{key: "" for key in _SECRET_SETTINGS if key in settings},
+        KEY_PROFILES: access.public_profiles(settings.get(KEY_PROFILES) or {}),
     }
 
 
@@ -1236,14 +1349,14 @@ async def _async_create_appointment(call: ServiceCall) -> ServiceResponse:
 
 async def _async_create_bookings(call: ServiceCall) -> ServiceResponse:
     """Create every appointment of a multi-row booking."""
-    user_id = call.context.user_id if call.context else None
+    user_id = _acting_user_id(call)
     return await _coordinator(call).async_create_bookings(call.data[ATTR_ROWS], user_id)
 
 
 async def _async_create_request(call: ServiceCall) -> ServiceResponse:
     """Take a guest's appointment request and acknowledge it."""
     data = call.data
-    user_id = call.context.user_id if call.context else None
+    user_id = _acting_user_id(call)
     return await _coordinator(call).async_create_request(
         client_id=data.get(ATTR_CLIENT_ID),
         first_name=data.get("first_name", ""),
@@ -1306,9 +1419,16 @@ async def _async_set_offer_state(call: ServiceCall) -> ServiceResponse:
 
 
 async def _async_create_voucher(call: ServiceCall) -> ServiceResponse:
-    """Sell a gift voucher."""
+    """Sell a gift voucher, signed by whoever is signed in."""
     data = call.data
-    user_id = call.context.user_id if call.context else None
+    acting = _ACTING.get()
+    # A personal login (or the PIN on the tablet) signs the voucher with her
+    # name; only an automation has to say who made it.
+    if acting is not None and acting.user_id and acting.name:
+        user_id, name = acting.user_id, acting.name
+    else:
+        user_id = call.context.user_id if call.context else None
+        name = data.get("created_by", "")
     voucher = await _coordinator(call).async_create_voucher(
         data["buyer_name"],
         data["buyer_phone"],
@@ -1316,6 +1436,7 @@ async def _async_create_voucher(call: ServiceCall) -> ServiceResponse:
         data["recipient_phone"],
         data["people"],
         user_id,
+        name,
     )
     return {"voucher": voucher}
 
@@ -1330,15 +1451,11 @@ async def _async_extend_voucher(call: ServiceCall) -> ServiceResponse:
 
 async def _async_delete_voucher(call: ServiceCall) -> ServiceResponse:
     """Remove a voucher. Admin can delete redeemed vouchers."""
-    user_id = call.context.user_id if call.context else None
-    is_admin = False
-    is_owner = False
-    if user_id and call.hass:
-        user = await call.hass.auth.async_get_user(user_id)
-        if user:
-            is_admin = user.is_admin
-            is_owner = user.is_owner
-    return await _coordinator(call).async_delete_voucher(call.data["voucher_id"], user_id, is_admin, is_owner)
+    coordinator = _coordinator(call)
+    is_admin = await caller_level(call, coordinator) == "admin"
+    return await coordinator.async_delete_voucher(
+        call.data["voucher_id"], _acting_user_id(call), is_admin, False
+    )
 
 
 async def _async_redeem_promo_voucher(call: ServiceCall) -> ServiceResponse:
@@ -1354,6 +1471,53 @@ async def _async_delete_promo_voucher(call: ServiceCall) -> ServiceResponse:
     return await _coordinator(call).async_delete_promo_voucher(
         call.data["voucher_id"]
     )
+
+
+def _bridge(call: ServiceCall) -> Any:
+    """The built-in WhatsApp connection, or a clear error when it is off."""
+    bridge = _coordinator(call).wa_bridge
+    if bridge is None:
+        raise ValidationError(
+            "WhatsApp integrato non attivo: sceglilo in Configurazione › WhatsApp"
+        )
+    return bridge
+
+
+async def _async_whatsapp_status(call: ServiceCall) -> ServiceResponse:
+    """State of the built-in WhatsApp connection, with the QR code if linking."""
+    coordinator = _coordinator(call)
+    if coordinator.wa_bridge is None:
+        return {"engine": coordinator.whatsapp_engine, "state": "off", "label": "Non attivo"}
+    status = await coordinator.wa_bridge.async_status()
+    return {"engine": coordinator.whatsapp_engine, **status}
+
+
+async def _async_whatsapp_pair(call: ServiceCall) -> ServiceResponse:
+    """Start linking the number: the QR code appears in whatsapp_status."""
+    try:
+        return await _bridge(call).async_pair_start()
+    except WahaError as err:
+        raise ValidationError(str(err)) from err
+
+
+async def _async_whatsapp_pair_code(call: ServiceCall) -> ServiceResponse:
+    """A code to type on the phone, for when the QR code cannot be scanned."""
+    phone = messaging.international_digits(str(call.data.get("phone") or ""))
+    if not phone:
+        raise ValidationError("Indica il numero di telefono da collegare")
+    try:
+        return {"code": await _bridge(call).async_pair_code(phone)}
+    except WahaError as err:
+        raise ValidationError(str(err)) from err
+
+
+async def _async_whatsapp_logout(call: ServiceCall) -> ServiceResponse:
+    """Unlink the number from Spa Booking."""
+    try:
+        await _bridge(call).async_logout()
+    except WahaError as err:
+        raise ValidationError(str(err)) from err
+    return {"state": "not_linked"}
 
 
 async def _async_run_scheduled_jobs(call: ServiceCall) -> ServiceResponse:
@@ -1630,7 +1794,7 @@ async def _async_regenerate_public_token(call: ServiceCall) -> ServiceResponse:
 
 async def _async_web_snippet(call: ServiceCall) -> ServiceResponse:
     """Return the code to paste into the site's page, token included."""
-    return await _coordinator(call).async_web_snippet()
+    return await _coordinator(call).async_web_snippet(call.data.get("base_url", ""))
 
 
 async def _async_send_external_message(call: ServiceCall) -> ServiceResponse:
@@ -1819,8 +1983,12 @@ async def _async_export_data(call: ServiceCall) -> ServiceResponse:
     """Return the whole dataset (what the card loads)."""
     coordinator = _coordinator(call)
     data = coordinator.export_data()
+    settings = data.get("settings") or {}
     if await caller_level(call, coordinator) != "admin":
-        data = {**data, "settings": _without_secrets(data.get("settings") or {})}
+        settings = _without_secrets(settings)
+    # The card never needs the PIN hashes (the full backup keeps them).
+    settings = {**settings, KEY_PROFILES: access.public_profiles(settings.get(KEY_PROFILES) or {})}
+    data = {**data, "settings": settings}
     return {
         "data": data,
         "integration_version": INTEGRATION_VERSION,
@@ -1850,7 +2018,7 @@ async def _async_update_booking_batch(call: ServiceCall) -> ServiceResponse:
     """Update or rebuild a batch of appointments."""
     data = call.data
     return await _coordinator(call).async_update_booking_batch(
-        data["appointment_id"], data[ATTR_ROWS], call.context.user_id if call.context else None
+        data["appointment_id"], data[ATTR_ROWS], _acting_user_id(call)
     )
 
 
@@ -1883,6 +2051,11 @@ async def _async_update_settings(call: ServiceCall) -> ServiceResponse:
     settings = await coordinator.async_update_settings(**call.data)
     if await caller_level(call, coordinator) != "admin":
         settings = _without_secrets(settings)
+    else:
+        settings = {
+            **settings,
+            KEY_PROFILES: access.public_profiles(settings.get(KEY_PROFILES) or {}),
+        }
     return {"settings": settings}
 
 
@@ -1910,6 +2083,284 @@ async def _async_set_user_permissions(call: ServiceCall) -> ServiceResponse:
         call.data[ATTR_USER_ID], call.data[ATTR_LEVEL]
     )
     return {"permissions": permissions}
+
+
+# ------------------------------------------------------------------ logins
+
+
+async def _async_whoami(call: ServiceCall) -> ServiceResponse:
+    """Who the card is acting as, and on the shared tablet who may sign in.
+
+    Called by the card when it opens and while somebody uses it, so it also
+    keeps the PIN session of the tablet alive.
+    """
+    coordinator = _coordinator(call)
+    acting = await caller_identity(call, coordinator, refresh=True)
+    result: dict[str, Any] = {
+        "user_id": acting.user_id,
+        "name": acting.name,
+        "level": acting.level,
+        "operator_id": acting.operator_id,
+        "shared": acting.device is not None,
+        "idle_minutes": coordinator.pin_idle_minutes,
+    }
+    if acting.device is not None:
+        result["locked_for"] = coordinator.pin_sessions.locked_for(
+            acting.device, time.monotonic()
+        )
+        result["people"] = await _pin_people(call, coordinator)
+    return result
+
+
+async def _pin_people(
+    call: ServiceCall, coordinator: SpaBookingCoordinator
+) -> list[dict[str, Any]]:
+    """The people who can sign in on the tablet: an active user with a PIN."""
+    people = []
+    permissions = coordinator.permissions_payload()
+    for user_id, profile in coordinator.profiles().items():
+        if profile.get("shared") or not profile.get("pin_hash"):
+            continue
+        user = await call.hass.auth.async_get_user(user_id)
+        if user is None or not user.is_active:
+            continue
+        level = "admin" if (user.is_admin or user.is_owner) else permissions.get(user_id, "none")
+        if level == "none":
+            continue
+        people.append({"user_id": user_id, "name": user.name or "", "level": level})
+    return sorted(people, key=lambda person: person["name"].lower())
+
+
+async def _async_pin_login(call: ServiceCall) -> ServiceResponse:
+    """On the shared tablet: the person picks her face and types her PIN."""
+    coordinator = _coordinator(call)
+    device = call.context.user_id if call.context else None
+    if not device or not coordinator.profile(device).get("shared"):
+        raise ValidationError("Il PIN si usa solo sul tablet condiviso della reception")
+    sessions = coordinator.pin_sessions
+    now = time.monotonic()
+    wait = sessions.locked_for(device, now)
+    if wait:
+        raise ValidationError(f"Troppi PIN sbagliati: riprova tra {wait} secondi")
+    user_id = call.data[ATTR_USER_ID]
+    profile = coordinator.profile(user_id)
+    people = {person["user_id"] for person in await _pin_people(call, coordinator)}
+    ok = user_id in people and await call.hass.async_add_executor_job(
+        access.check_pin,
+        call.data["pin"],
+        profile.get("pin_salt", ""),
+        profile.get("pin_hash", ""),
+    )
+    if not ok:
+        wait = sessions.failure(device, now)
+        if wait:
+            raise ValidationError(f"PIN sbagliato. Tablet bloccato per {wait} secondi")
+        raise ValidationError("PIN sbagliato")
+    sessions.start(device, user_id, now)
+    return await _async_whoami(call)
+
+
+async def _async_pin_logout(call: ServiceCall) -> ServiceResponse:
+    """Sign the shared tablet out (the next person types her own PIN)."""
+    device = call.context.user_id if call.context else None
+    if device:
+        _coordinator(call).pin_sessions.end(device)
+    return {"ok": True}
+
+
+async def _target_user(call: ServiceCall, user_id: str) -> Any:
+    """A Home Assistant user an administrator of the card may manage."""
+    user = await call.hass.auth.async_get_user(user_id)
+    if user is None or user.system_generated:
+        raise ValidationError("Utente non trovato")
+    if (user.is_owner or user.is_admin) and not await _caller_is_ha_admin(call):
+        raise ValidationError(
+            "Solo un amministratore di Home Assistant può modificare un altro amministratore"
+        )
+    return user
+
+
+async def _async_set_user_profile(call: ServiceCall) -> ServiceResponse:
+    """Link a user to an operator, set her PIN or mark the shared tablet."""
+    coordinator = _coordinator(call)
+    data = call.data
+    user = await _target_user(call, data[ATTR_USER_ID])
+    shared = data.get("shared")
+    if shared and (user.is_admin or user.is_owner):
+        raise ValidationError(
+            "Un amministratore di Home Assistant non può essere il tablet condiviso"
+        )
+    try:
+        profile = await coordinator.async_set_user_profile(
+            user.id,
+            operator_id=data.get(ATTR_OPERATOR_ID),
+            shared=shared,
+            pin=data.get("pin"),
+            clear_pin=data.get("clear_pin", False),
+        )
+    except SpaBookingError as err:
+        raise ValidationError(str(err)) from err
+    return {"profile": profile}
+
+
+def _ha_auth_provider(call: ServiceCall) -> Any:
+    """The username-and-password provider of Home Assistant."""
+    provider = call.hass.auth.get_auth_provider("homeassistant", None)
+    if provider is None:
+        raise ValidationError("Gli utenti con password non sono attivi in Home Assistant")
+    return provider
+
+
+def _username_of(user: Any) -> str:
+    for credential in getattr(user, "credentials", None) or []:
+        if credential.auth_provider_type == "homeassistant":
+            return str(credential.data.get("username") or "")
+    return ""
+
+
+async def _async_create_user(call: ServiceCall) -> ServiceResponse:
+    """Create a Home Assistant user for an operator, with her role.
+
+    The user is an ordinary (non administrator) Home Assistant user: what she
+    may do in Spa Booking is the level chosen here.
+    """
+    coordinator = _coordinator(call)
+    data = call.data
+    provider = _ha_auth_provider(call)
+    username = data["username"].strip().lower()
+    if len(data["password"]) < 6:
+        raise ValidationError("La password deve avere almeno 6 caratteri")
+    for existing in await call.hass.auth.async_get_users():
+        if _username_of(existing) == username:
+            raise ValidationError(f"Il nome utente «{username}» esiste già")
+    user = await call.hass.auth.async_create_user(
+        data["name"].strip(), group_ids=["system-users"], local_only=data.get("local_only", False)
+    )
+    try:
+        await provider.async_add_auth(username, data["password"])
+        credentials = await provider.async_get_or_create_credentials({"username": username})
+        await call.hass.auth.async_link_user(user, credentials)
+    except Exception as err:  # noqa: BLE001 - undo the half-made user
+        await call.hass.auth.async_remove_user(user)
+        raise ValidationError(f"Utente non creato: {err}") from err
+    await coordinator.async_set_user_permissions(user.id, data[ATTR_LEVEL])
+    if data.get(ATTR_OPERATOR_ID) or data.get("pin") or data.get("shared"):
+        try:
+            await coordinator.async_set_user_profile(
+                user.id,
+                operator_id=data.get(ATTR_OPERATOR_ID) or "",
+                shared=data.get("shared", False),
+                pin=data.get("pin") or None,
+            )
+        except SpaBookingError as err:
+            raise ValidationError(f"Utente creato, ma: {err}") from err
+    return {"user": {"id": user.id, "name": user.name, "username": username}}
+
+
+async def _async_set_user_password(call: ServiceCall) -> ServiceResponse:
+    """Give a user a new password (she forgot hers)."""
+    user = await _target_user(call, call.data[ATTR_USER_ID])
+    username = _username_of(user)
+    if not username:
+        raise ValidationError("Questo utente non accede con nome utente e password")
+    if len(call.data["password"]) < 6:
+        raise ValidationError("La password deve avere almeno 6 caratteri")
+    await _ha_auth_provider(call).async_change_password(username, call.data["password"])
+    return {"ok": True}
+
+
+async def _async_set_user_active(call: ServiceCall) -> ServiceResponse:
+    """Disable a user who left (or enable her again)."""
+    user = await _target_user(call, call.data[ATTR_USER_ID])
+    if user.is_owner:
+        raise ValidationError("Il proprietario di Home Assistant non si può disattivare")
+    active = call.data["active"]
+    await call.hass.auth.async_update_user(user, is_active=active)
+    if not active:
+        _coordinator(call).pin_sessions.end_user(user.id)
+    return {"ok": True}
+
+
+_PIN = vol.All(cv.string, vol.Match(r"^\d{4}$", msg="Il PIN deve essere di 4 cifre"))
+
+PIN_LOGIN_SCHEMA = vol.Schema(
+    {vol.Required(ATTR_USER_ID): cv.string, vol.Required("pin"): _PIN}
+)
+SET_USER_PROFILE_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_USER_ID): cv.string,
+        vol.Optional(ATTR_OPERATOR_ID): vol.Any(cv.string, None),
+        vol.Optional("shared"): cv.boolean,
+        vol.Optional("pin"): _PIN,
+        vol.Optional("clear_pin", default=False): cv.boolean,
+    }
+)
+CREATE_USER_SCHEMA = vol.Schema(
+    {
+        vol.Required("name"): vol.All(cv.string, vol.Length(min=1, max=60)),
+        vol.Required("username"): vol.All(
+            cv.string, vol.Match(r"^[A-Za-z0-9._-]{3,32}$",
+                                 msg="Nome utente: 3-32 lettere, numeri, punto o trattino")
+        ),
+        vol.Required("password"): cv.string,
+        vol.Required(ATTR_LEVEL): vol.In(PERMISSION_LEVELS),
+        vol.Optional(ATTR_OPERATOR_ID): vol.Any(cv.string, None),
+        vol.Optional("pin"): vol.Any(_PIN, ""),
+        vol.Optional("shared", default=False): cv.boolean,
+        vol.Optional("local_only", default=False): cv.boolean,
+    }
+)
+SET_USER_PASSWORD_SCHEMA = vol.Schema(
+    {vol.Required(ATTR_USER_ID): cv.string, vol.Required("password"): cv.string}
+)
+SET_USER_ACTIVE_SCHEMA = vol.Schema(
+    {vol.Required(ATTR_USER_ID): cv.string, vol.Required("active"): cv.boolean}
+)
+
+
+# ----------------------------------------------------------------- updates
+
+
+async def _async_update_status(call: ServiceCall) -> ServiceResponse:
+    """Installed, running and available versions, and whether to restart."""
+    coordinator = _coordinator(call)
+    hass = call.hass
+    on_disk = await hass.async_add_executor_job(updates.disk_version)
+    fingerprint = await hass.async_add_executor_job(updates.code_fingerprint)
+    running_print = getattr(coordinator, "code_fingerprint", "") or fingerprint
+    restart = fingerprint != running_print
+    entity = updates.find_update_entity(hass.states.async_all("update"))
+    return {
+        "running_version": INTEGRATION_VERSION,
+        "disk_version": on_disk,
+        "restart_needed": restart,
+        # Only the card or the form changed: a page reload is enough.
+        "reload_only": (not restart) and bool(on_disk) and on_disk != INTEGRATION_VERSION,
+        "update": entity,
+    }
+
+
+async def _async_install_update(call: ServiceCall) -> ServiceResponse:
+    """Install the new version through the HACS update entity."""
+    entity = updates.find_update_entity(call.hass.states.async_all("update"))
+    if entity is None:
+        raise ValidationError(
+            "Aggiornamento non trovato: Spa Booking va installato da HACS per aggiornarsi dalla card"
+        )
+    if not entity["available"]:
+        raise ValidationError("Spa Booking è già all'ultima versione")
+    # Not blocking: the download takes a while and the card follows the
+    # progress on the entity itself.
+    await call.hass.services.async_call(
+        "update", "install", {"entity_id": entity["entity_id"]}, blocking=False
+    )
+    return {"entity_id": entity["entity_id"], "version": entity["latest_version"]}
+
+
+async def _async_restart_home_assistant(call: ServiceCall) -> ServiceResponse:
+    """Restart Home Assistant to load the new version of the integration."""
+    await call.hass.services.async_call("homeassistant", "restart", {}, blocking=False)
+    return {"ok": True}
 
 
 _HANDLERS: dict[str, tuple[Any, Any, SupportsResponse]] = {
@@ -2212,6 +2663,14 @@ _HANDLERS: dict[str, tuple[Any, Any, SupportsResponse]] = {
         None,
         SupportsResponse.ONLY,
     ),
+    SERVICE_WHATSAPP_STATUS: (_async_whatsapp_status, None, SupportsResponse.ONLY),
+    SERVICE_WHATSAPP_PAIR: (_async_whatsapp_pair, None, SupportsResponse.OPTIONAL),
+    SERVICE_WHATSAPP_PAIR_CODE: (
+        _async_whatsapp_pair_code,
+        vol.Schema({vol.Required("phone"): cv.string}),
+        SupportsResponse.ONLY,
+    ),
+    SERVICE_WHATSAPP_LOGOUT: (_async_whatsapp_logout, None, SupportsResponse.OPTIONAL),
     SERVICE_GET_DASHBOARD_CONFIG: (
         _async_get_dashboard_config,
         EXPORT_ALL_SCHEMA,
@@ -2262,6 +2721,24 @@ _HANDLERS: dict[str, tuple[Any, Any, SupportsResponse]] = {
         SET_USER_PERMISSIONS_SCHEMA,
         SupportsResponse.ONLY,
     ),
+    SERVICE_WHOAMI: (_async_whoami, None, SupportsResponse.ONLY),
+    SERVICE_UPDATE_STATUS: (_async_update_status, None, SupportsResponse.ONLY),
+    SERVICE_INSTALL_UPDATE: (_async_install_update, None, SupportsResponse.ONLY),
+    SERVICE_RESTART_HOME_ASSISTANT: (
+        _async_restart_home_assistant, None, SupportsResponse.OPTIONAL,
+    ),
+    SERVICE_PIN_LOGIN: (_async_pin_login, PIN_LOGIN_SCHEMA, SupportsResponse.ONLY),
+    SERVICE_PIN_LOGOUT: (_async_pin_logout, None, SupportsResponse.OPTIONAL),
+    SERVICE_SET_USER_PROFILE: (
+        _async_set_user_profile, SET_USER_PROFILE_SCHEMA, SupportsResponse.ONLY,
+    ),
+    SERVICE_CREATE_USER: (_async_create_user, CREATE_USER_SCHEMA, SupportsResponse.ONLY),
+    SERVICE_SET_USER_PASSWORD: (
+        _async_set_user_password, SET_USER_PASSWORD_SCHEMA, SupportsResponse.ONLY,
+    ),
+    SERVICE_SET_USER_ACTIVE: (
+        _async_set_user_active, SET_USER_ACTIVE_SCHEMA, SupportsResponse.ONLY,
+    ),
 }
 
 
@@ -2278,20 +2755,26 @@ SERVICE_LEVELS: dict[str, str] = {
     SERVICE_GET_DASHBOARD_CONFIG: "read",
     # Layout keys are checked again inside the handler.
     SERVICE_UPDATE_SETTINGS: "read",
+    # Signing in: anybody, the tablet before a PIN included.
+    SERVICE_WHOAMI: "none",
+    SERVICE_PIN_LOGIN: "none",
+    SERVICE_PIN_LOGOUT: "none",
+    # A masseuse books, moves and checks in her own appointments only
+    # (THERAPIST_OWN_SERVICES); the reception does it for everybody.
+    SERVICE_CREATE_APPOINTMENT: "therapist",
+    SERVICE_CREATE_BOOKINGS: "therapist",
+    SERVICE_UPDATE_APPOINTMENT: "therapist",
+    SERVICE_UPDATE_BOOKING_BATCH: "therapist",
+    SERVICE_RESIZE_APPOINTMENT_GROUP: "therapist",
+    SERVICE_CANCEL_APPOINTMENT: "therapist",
+    SERVICE_CHECK_IN_APPOINTMENT: "therapist",
+    SERVICE_CHECK_OUT_APPOINTMENT: "therapist",
+    SERVICE_SEARCH_CLIENTS: "therapist",
+    SERVICE_GET_CLIENT_HISTORY: "therapist",
     # Running the day at the desk.
-    SERVICE_CREATE_APPOINTMENT: "operator",
-    SERVICE_CREATE_BOOKINGS: "operator",
-    SERVICE_UPDATE_APPOINTMENT: "operator",
-    SERVICE_UPDATE_BOOKING_BATCH: "operator",
-    SERVICE_RESIZE_APPOINTMENT_GROUP: "operator",
-    SERVICE_CANCEL_APPOINTMENT: "operator",
-    SERVICE_CHECK_IN_APPOINTMENT: "operator",
-    SERVICE_CHECK_OUT_APPOINTMENT: "operator",
     SERVICE_ADD_PAYMENT: "operator",
     SERVICE_DELETE_PAYMENT: "operator",
     SERVICE_SAVE_CLIENT: "operator",
-    SERVICE_SEARCH_CLIENTS: "operator",
-    SERVICE_GET_CLIENT_HISTORY: "operator",
     SERVICE_RESPOND_TO_OFFER: "operator",
     SERVICE_SET_OFFER_STATE: "operator",
     SERVICE_MANUAL_CONFIRM_OFFER: "operator",
@@ -2315,13 +2798,77 @@ SERVICE_LEVELS: dict[str, str] = {
 }
 
 
+#: What a masseuse may do only on her own appointments.
+THERAPIST_OWN_SERVICES = frozenset(
+    {
+        SERVICE_CREATE_APPOINTMENT,
+        SERVICE_CREATE_BOOKINGS,
+        SERVICE_UPDATE_APPOINTMENT,
+        SERVICE_UPDATE_BOOKING_BATCH,
+        SERVICE_RESIZE_APPOINTMENT_GROUP,
+        SERVICE_CANCEL_APPOINTMENT,
+        SERVICE_CHECK_IN_APPOINTMENT,
+        SERVICE_CHECK_OUT_APPOINTMENT,
+    }
+)
+_THERAPIST_CREATES = frozenset({SERVICE_CREATE_APPOINTMENT, SERVICE_CREATE_BOOKINGS})
+
+
+def _check_own_appointment(
+    service: str, call: ServiceCall, coordinator: SpaBookingCoordinator, acting: Caller
+) -> None:
+    """A masseuse touches only her own appointments and takes no money."""
+    mine = acting.operator_id
+    if not mine:
+        raise ValidationError(
+            "Il tuo utente non è collegato a un'operatrice: chiedi all'amministratore "
+            "(Configurazione › Accessi)."
+        )
+    data = dict(call.data)
+    named = access.operator_ids_in(data)
+    if named - {mine}:
+        raise ValidationError("Puoi prenotare e modificare solo i tuoi appuntamenti")
+    if service in _THERAPIST_CREATES and not named:
+        raise ValidationError("Scegli te stessa come operatrice")
+    if access.has_payment(data):
+        raise ValidationError("Gli incassi li registra la reception")
+    appointment_id = data.get(ATTR_APPOINTMENT_ID)
+    if appointment_id:
+        appointment = next(
+            (a for a in coordinator.appointments if a.get("id") == appointment_id), None
+        )
+        if appointment is not None and appointment.get("operator_id") != mine:
+            raise ValidationError("Puoi modificare solo i tuoi appuntamenti")
+
+
 def _guarded(service: str, handler: Any) -> Any:
-    """Wrap a handler so it first checks the caller's access level."""
+    """Wrap a handler so it first checks who is calling and her level."""
     needed = SERVICE_LEVELS.get(service, "admin")
 
     async def _handler(call: ServiceCall) -> ServiceResponse:
-        await _require_level(call, _coordinator(call), needed)
-        return await handler(call)
+        coordinator = _coordinator(call)
+        acting = await caller_identity(
+            call, coordinator, refresh=needed not in ("none", "read")
+        )
+        if _LEVEL_RANK.get(acting.level, 0) < _LEVEL_RANK.get(needed, len(_LEVEL_RANK)):
+            if acting.device is not None and acting.user_id is None:
+                raise ValidationError("Tablet della reception: inserisci il tuo PIN")
+            raise ValidationError(
+                f"Accesso negato: questa operazione richiede il livello '{needed}' "
+                f"(il tuo è '{acting.level}')."
+            )
+        if acting.level == "therapist" and service in THERAPIST_OWN_SERVICES:
+            _check_own_appointment(service, call, coordinator, acting)
+        force = bool((call.data or {}).get("force_rules"))
+        if force and _LEVEL_RANK.get(acting.level, 0) < _LEVEL_RANK["operator"]:
+            raise ValidationError("Solo la reception può prenotare fuori dalle regole della categoria")
+        token = _ACTING.set(acting)
+        force_token = FORCE_RULES.set(force)
+        try:
+            return await handler(call)
+        finally:
+            FORCE_RULES.reset(force_token)
+            _ACTING.reset(token)
 
     _handler.__name__ = getattr(handler, "__name__", service)
     _handler.__doc__ = handler.__doc__

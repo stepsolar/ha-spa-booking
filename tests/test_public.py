@@ -145,3 +145,53 @@ def test_confirmed_request_cannot_be_rewritten(web) -> None:
             )
         )
     assert first["code"]
+
+
+def test_two_line_code_loads_the_form_from_home_assistant(web) -> None:
+    coordinator, _ = web
+    result = run(coordinator.async_web_snippet("http://192.168.1.10:8123"))
+    short = result["snippet"]
+    # No public address set: the one already written in the full form wins
+    # over the local address the desk happens to use.
+    assert short.count("\n") == 1
+    assert 'src="https://hailmarchese.it/api/spa_booking/public/form.js"' in short
+    assert 'data-token="t"' in short
+    assert "INCOLLA_QUI_IL_TOKEN" not in result["snippet_full"]
+    coordinator._data[KEY_SETTINGS]["web_public_url"] = "https://spa.example.org"
+    short = run(coordinator.async_web_snippet())["snippet"]
+    assert 'src="https://spa.example.org/api/spa_booking/public/form.js"' in short
+
+
+def test_form_file_is_served_with_an_etag() -> None:
+    from custom_components.spa_booking.public import FORM_JS_FILE, SpaBookingPublicFormView
+
+    body, etag = SpaBookingPublicFormView._read()
+    assert FORM_JS_FILE.name == "spa-booking-form.js"
+    assert "spa_booking/public/form.js" in body and etag.startswith('"')
+    assert SpaBookingPublicFormView._read()[1] == etag
+
+
+def test_update_fingerprint_separates_card_from_code(tmp_path) -> None:
+    from types import SimpleNamespace
+
+    from custom_components.spa_booking import updates
+
+    (tmp_path / "frontend").mkdir()
+    (tmp_path / "coordinator.py").write_text("A = 1\n")
+    (tmp_path / "manifest.json").write_text('{"version": "2.2.0b4"}')
+    (tmp_path / "frontend" / "spa-booking-card.js").write_text("// v1")
+    first = updates.code_fingerprint(tmp_path)
+    (tmp_path / "frontend" / "spa-booking-card.js").write_text("// v2")
+    assert updates.code_fingerprint(tmp_path) == first  # card only: reload
+    (tmp_path / "coordinator.py").write_text("A = 2\n")
+    assert updates.code_fingerprint(tmp_path) != first  # code: restart
+    assert updates.disk_version(tmp_path) == "2.2.0b4"
+    states = [
+        SimpleNamespace(entity_id="update.other", state="on", attributes={"title": "Altro"}),
+        SimpleNamespace(entity_id="update.spa_booking_update", state="on", attributes={
+            "release_url": "https://github.com/stepsolar/ha-spa-booking/releases/v2.2.0",
+            "installed_version": "v2.2.0b4", "latest_version": "v2.2.0", "in_progress": False}),
+    ]
+    found = updates.find_update_entity(states)
+    assert found["entity_id"] == "update.spa_booking_update" and found["available"]
+    assert updates.find_update_entity(states[:1]) is None

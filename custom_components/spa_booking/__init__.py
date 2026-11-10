@@ -10,7 +10,7 @@ import logging
 
 from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import Platform
+from homeassistant.const import EVENT_HOMEASSISTANT_STOP, Platform
 from homeassistant.core import Event, HomeAssistant
 
 from .const import DOMAIN, EVENT_ANSWER_REQUEST
@@ -30,6 +30,11 @@ SpaBookingConfigEntry = ConfigEntry[SpaBookingCoordinator]
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up the coordinator, platforms and services."""
     coordinator = SpaBookingCoordinator(hass, entry)
+    # The code that runs now: an update that changes it needs a restart, one
+    # that only changes the card or the website form does not (updates.py).
+    from . import updates
+
+    coordinator.code_fingerprint = await hass.async_add_executor_job(updates.code_fingerprint)
     await coordinator.async_load()
 
     entry.runtime_data = coordinator
@@ -60,6 +65,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if not hass.data.get(f"{DOMAIN}_public_views"):
         from .public import (
             SpaBookingPublicAvailabilityView,
+            SpaBookingPublicFormView,
             SpaBookingPublicRequestView,
             SpaBookingPublicTreatmentsView,
         )
@@ -67,6 +73,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.http.register_view(SpaBookingPublicTreatmentsView)
         hass.http.register_view(SpaBookingPublicAvailabilityView)
         hass.http.register_view(SpaBookingPublicRequestView)
+        hass.http.register_view(SpaBookingPublicFormView)
         hass.data[f"{DOMAIN}_public_views"] = True
 
     add_extra_js_url(hass, coordinator.card_js_url())
@@ -162,6 +169,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # because only then is the session told where to post.
     coordinator._async_register_waha_inbound()
     entry.async_on_unload(coordinator.async_unregister_waha_inbound)
+
+    # WhatsApp built into Spa Booking (beta): started in the background when
+    # chosen, stopped with the entry and when Home Assistant closes.
+    await coordinator.async_apply_whatsapp_engine()
+    entry.async_on_unload(coordinator.async_stop_whatsapp)
+
+    async def _on_stop(_event: Event) -> None:
+        await coordinator.async_stop_whatsapp()
+
+    entry.async_on_unload(
+        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _on_stop)
+    )
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     async_register_services(hass)

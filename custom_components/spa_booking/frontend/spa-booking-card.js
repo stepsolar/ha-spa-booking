@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.1.2";
+const CARD_VERSION = "2.2.0";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -164,6 +164,30 @@ body { margin: 0; font-family: var(--mdc-typography-font-family, Roboto, Arial, 
   .report-page { padding: 0; }
 }
 `;
+
+// One line under the title of each page, saying what it is for.
+const PAGE_DESCRIPTIONS = {
+  Trattamenti: "Durata, prezzo, persone insieme, visibilità sul sito e operatrici abilitate. La matita cambia l'ordine.",
+  Operatori: "Contatti, canali dei messaggi, trattamenti che sanno fare e priorità nelle offerte.",
+  Notifiche: "Messaggi automatici agli ospiti e alle operatrici, report e collegamento WhatsApp.",
+  Impostazioni: "Titolo, aspetto, sito web, ordine dei campi, backup e ripristino.",
+  Promo: "Invio promozionale e voucher fedeltà automatici dopo la visita.",
+  Accessori: "Kit, accappatoio, cuffia… che si aggiungono a una prenotazione.",
+  Telecamere: "Le immagini dal vivo della spa.",
+  Spa: "",
+  Richiesta: "",
+  "Nuovo appuntamento": "",
+};
+
+// The roles of the Accessi tab, as the people at the hotel call them.
+const ROLE_LABELS = {
+  none: "Nessun accesso",
+  read: "Solo lettura",
+  therapist: "Massaggiatrice",
+  operator: "Reception",
+  manager: "Manager",
+  admin: "Amministratore",
+};
 
 const TABS = [
   { id: "agenda", label: "Agenda", icon: "mdi:clipboard-text-clock-outline" },
@@ -405,6 +429,173 @@ function el(tag, props, ...children) {
       node.appendChild(child instanceof Node ? child : document.createTextNode(String(child)));
     });
   return node;
+}
+
+// -----------------------------------------------------------------------------
+// phone numbers with an international prefix
+// -----------------------------------------------------------------------------
+
+// Country calling codes: the ones the hotel sees most first, then all the
+// others in alphabetical order. ISO code, calling code, Italian name.
+const PHONE_COMMON = [
+  ["IT", "39", "Italia"], ["CH", "41", "Svizzera"], ["DE", "49", "Germania"],
+  ["AT", "43", "Austria"], ["FR", "33", "Francia"], ["GB", "44", "Regno Unito"],
+  ["US", "1", "Stati Uniti / Canada"], ["NL", "31", "Paesi Bassi"],
+  ["BE", "32", "Belgio"], ["ES", "34", "Spagna"], ["SM", "378", "San Marino"],
+  ["MT", "356", "Malta"],
+];
+const PHONE_OTHERS = [
+  ["AF", "93", "Afghanistan"], ["AL", "355", "Albania"], ["DZ", "213", "Algeria"],
+  ["AD", "376", "Andorra"], ["AO", "244", "Angola"], ["SA", "966", "Arabia Saudita"],
+  ["AR", "54", "Argentina"], ["AM", "374", "Armenia"], ["AU", "61", "Australia"],
+  ["AZ", "994", "Azerbaigian"], ["BH", "973", "Bahrein"], ["BD", "880", "Bangladesh"],
+  ["BY", "375", "Bielorussia"], ["BO", "591", "Bolivia"], ["BA", "387", "Bosnia ed Erzegovina"],
+  ["BR", "55", "Brasile"], ["BG", "359", "Bulgaria"], ["KH", "855", "Cambogia"],
+  ["CM", "237", "Camerun"], ["CL", "56", "Cile"], ["CN", "86", "Cina"],
+  ["CY", "357", "Cipro"], ["CO", "57", "Colombia"], ["KR", "82", "Corea del Sud"],
+  ["CI", "225", "Costa d'Avorio"], ["CR", "506", "Costa Rica"], ["HR", "385", "Croazia"],
+  ["CU", "53", "Cuba"], ["DK", "45", "Danimarca"], ["EC", "593", "Ecuador"],
+  ["EG", "20", "Egitto"], ["AE", "971", "Emirati Arabi Uniti"], ["EE", "372", "Estonia"],
+  ["ET", "251", "Etiopia"], ["PH", "63", "Filippine"], ["FI", "358", "Finlandia"],
+  ["GE", "995", "Georgia"], ["GH", "233", "Ghana"], ["JP", "81", "Giappone"],
+  ["GI", "350", "Gibilterra"], ["JO", "962", "Giordania"], ["GR", "30", "Grecia"],
+  ["GT", "502", "Guatemala"], ["IN", "91", "India"], ["ID", "62", "Indonesia"],
+  ["IR", "98", "Iran"], ["IQ", "964", "Iraq"], ["IE", "353", "Irlanda"],
+  ["IS", "354", "Islanda"], ["IL", "972", "Israele"], ["KZ", "7", "Kazakistan / Russia"],
+  ["KE", "254", "Kenya"], ["XK", "383", "Kosovo"], ["KW", "965", "Kuwait"],
+  ["LV", "371", "Lettonia"], ["LB", "961", "Libano"], ["LY", "218", "Libia"],
+  ["LI", "423", "Liechtenstein"], ["LT", "370", "Lituania"], ["LU", "352", "Lussemburgo"],
+  ["MK", "389", "Macedonia del Nord"], ["MG", "261", "Madagascar"], ["MY", "60", "Malesia"],
+  ["MV", "960", "Maldive"], ["MA", "212", "Marocco"], ["MU", "230", "Mauritius"],
+  ["MX", "52", "Messico"], ["MD", "373", "Moldavia"], ["MC", "377", "Monaco"],
+  ["MN", "976", "Mongolia"], ["ME", "382", "Montenegro"], ["NP", "977", "Nepal"],
+  ["NG", "234", "Nigeria"], ["NO", "47", "Norvegia"], ["NZ", "64", "Nuova Zelanda"],
+  ["OM", "968", "Oman"], ["PK", "92", "Pakistan"], ["PA", "507", "Panama"],
+  ["PY", "595", "Paraguay"], ["PE", "51", "Perù"], ["PL", "48", "Polonia"],
+  ["PT", "351", "Portogallo"], ["QA", "974", "Qatar"], ["CZ", "420", "Repubblica Ceca"],
+  ["DO", "1809", "Repubblica Dominicana"], ["RO", "40", "Romania"], ["SN", "221", "Senegal"],
+  ["RS", "381", "Serbia"], ["SC", "248", "Seychelles"], ["SG", "65", "Singapore"],
+  ["SK", "421", "Slovacchia"], ["SI", "386", "Slovenia"], ["LK", "94", "Sri Lanka"],
+  ["ZA", "27", "Sudafrica"], ["SE", "46", "Svezia"], ["TH", "66", "Thailandia"],
+  ["TW", "886", "Taiwan"], ["TZ", "255", "Tanzania"], ["TN", "216", "Tunisia"],
+  ["TR", "90", "Turchia"], ["UA", "380", "Ucraina"], ["HU", "36", "Ungheria"],
+  ["UY", "598", "Uruguay"], ["UZ", "998", "Uzbekistan"], ["VA", "379", "Vaticano"],
+  ["VE", "58", "Venezuela"], ["VN", "84", "Vietnam"],
+];
+const PHONE_COUNTRIES = [...PHONE_COMMON, ...PHONE_OTHERS];
+const PHONE_DEFAULT_CC = "39";
+
+/** The flag emoji of an ISO country code (XK has none: a plain globe). */
+function phoneFlag(iso) {
+  if (!/^[A-Z]{2}$/.test(iso) || iso === "XK") return "🌐";
+  return String.fromCodePoint(...[...iso].map((c) => 0x1f1a5 + c.charCodeAt(0)));
+}
+
+/** Whether digits look like an Italian number without its country code. */
+function italianNational(digits) {
+  if (!digits) return false;
+  if (digits[0] === "3") return digits.length >= 9 && digits.length <= 10;
+  if (digits[0] === "0") return digits.length >= 6 && digits.length <= 11;
+  return false;
+}
+
+/**
+ * Split a stored phone number into calling code and national number.
+ *
+ * Same rules as the server (messaging.international_digits): "+…" and
+ * "00…" are international; an Italian national number, or 39 followed by
+ * one, is Italian; a number saved before 2.2 without a code opens as +39.
+ */
+function splitPhone(value) {
+  const raw = String(value || "").trim();
+  let digits = raw.replace(/\D/g, "");
+  if (!digits) return { cc: PHONE_DEFAULT_CC, number: "" };
+  let international = raw.startsWith("+");
+  if (!international && digits.startsWith("00")) {
+    digits = digits.slice(2);
+    international = true;
+  }
+  if (!international) {
+    if (italianNational(digits)) return { cc: "39", number: digits };
+    if (digits.startsWith("39") && italianNational(digits.slice(2))) {
+      return { cc: "39", number: digits.slice(2) };
+    }
+    return { cc: PHONE_DEFAULT_CC, number: digits };
+  }
+  // The longest calling code that matches wins (1809 before 1).
+  const codes = [...new Set(PHONE_COUNTRIES.map((row) => row[1]))]
+    .sort((a, b) => b.length - a.length);
+  const cc = codes.find((code) => digits.startsWith(code)) || digits.slice(0, 2);
+  return { cc, number: digits.slice(cc.length) };
+}
+
+/** "+CC number" as stored, or "" when no number was typed. */
+function joinPhone(cc, number) {
+  const digits = String(number || "").replace(/[^\d ]/g, "").trim();
+  if (!digits) return "";
+  return `+${cc} ${digits}`;
+}
+
+/**
+ * A phone field: the international prefix (default +39) beside the number.
+ *
+ * `onChange` receives "+CC number" ("" when empty). Typing a number that
+ * starts with + or 00 in the number box moves its code into the prefix.
+ */
+function phoneInput(value, onChange, options = {}) {
+  const state = splitPhone(value);
+  const select = el("select", {
+    class: "input phone-cc",
+    "aria-label": "Prefisso internazionale",
+    title: "Prefisso internazionale",
+    disabled: options.disabled,
+  });
+  const known = PHONE_COUNTRIES.some((row) => row[1] === state.cc);
+  const rows = known ? PHONE_COUNTRIES : [["", state.cc, "Altro"], ...PHONE_COUNTRIES];
+  let selectedDone = false;
+  rows.forEach(([iso, code, name], index) => {
+    if (index === PHONE_COMMON.length + (known ? 0 : 1)) {
+      select.appendChild(el("option", { disabled: true, value: "" }, "──────────"));
+    }
+    const selected = !selectedDone && code === state.cc;
+    if (selected) selectedDone = true;
+    select.appendChild(
+      el("option", { value: code, selected }, `${phoneFlag(iso)} +${code} ${name}`)
+    );
+  });
+  const emit = () => onChange(joinPhone(state.cc, state.number));
+  select.addEventListener("change", (event) => {
+    state.cc = event.target.value || state.cc;
+    emit();
+  });
+  const input = el("input", {
+    class: `input phone-number${options.grow ? " grow" : ""}`,
+    type: "tel",
+    inputmode: "tel",
+    autocomplete: "off",
+    value: state.number,
+    placeholder: options.placeholder || "es. 333 1234567",
+    disabled: options.disabled,
+    on: {
+      input: (event) => {
+        const typed = event.target.value;
+        if (/^\s*(\+|00)/.test(typed) && typed.replace(/\D/g, "").length > 4) {
+          const parsed = splitPhone(typed);
+          state.cc = parsed.cc;
+          state.number = parsed.number;
+          select.value = parsed.cc;
+          event.target.value = parsed.number;
+        } else {
+          state.number = typed;
+        }
+        emit();
+      },
+      keydown: (event) => event.stopPropagation(),
+      keyup: (event) => event.stopPropagation(),
+      keypress: (event) => event.stopPropagation(),
+    },
+  });
+  return el("div", { class: `phone-field${options.grow ? " grow" : ""}` }, select, input);
 }
 
 // -----------------------------------------------------------------------------
@@ -661,6 +852,7 @@ class SpaBookingCard extends HTMLElement {
   }
 
   disconnectedCallback() {
+    this._waStopPolling();
     if (this._clockTimer) {
       clearInterval(this._clockTimer);
       this._clockTimer = null;
@@ -749,6 +941,15 @@ class SpaBookingCard extends HTMLElement {
     if (!this._hass) return;
     this._loading = true;
     this._render();
+    await this._loadMe();
+    // The shared reception tablet before a PIN: nothing to load, the card
+    // shows who may sign in.
+    if (this._pinNeeded()) {
+      this._loading = false;
+      this._loadedOnce = true;
+      this._render();
+      return;
+    }
     try {
       const response = await this._service("export_data");
       const data = (response && response.data) || {};
@@ -807,6 +1008,7 @@ class SpaBookingCard extends HTMLElement {
         notify_whatsapp: this._data.settings.web_notify_whatsapp || "",
       };
       this._reindex();
+      this._checkUpdates();
     } catch (error) {
       this._data = {
         categories: [],
@@ -1043,7 +1245,7 @@ class SpaBookingCard extends HTMLElement {
 
   /** A blank treatment row of a person: picker, slot and masseuse. */
   _blankTreatment() {
-    return { uid: this._uid(), treatment_id: "", operator_id: "", time: "10:00", list_price: null, price: null };
+    return { uid: this._uid(), treatment_id: "", operator_id: this._userLevel() === "therapist" ? this._myOperatorId() : "", time: "10:00", list_price: null, price: null };
   }
 
   /** The treatment rows of a booking state (one person, or the flat form).
@@ -1546,6 +1748,7 @@ class SpaBookingCard extends HTMLElement {
 
   /** Open the taking popup with today and the first method preselected. */
   _openPayPopup() {
+    if (!this._can("payments")) return;
     this._payPopup = {
       target: { kind: "form" },
       method: "cash",
@@ -1557,6 +1760,7 @@ class SpaBookingCard extends HTMLElement {
 
   /** Open the taking popup writing straight onto an existing appointment. */
   _openPayPopupFor(appointmentId) {
+    if (!this._can("payments")) return;
     this._payPopup = {
       target: { kind: "appointment", id: appointmentId },
       method: "cash",
@@ -1788,6 +1992,173 @@ class SpaBookingCard extends HTMLElement {
   }
 
   /**
+   * The "Collegamento WhatsApp" box: which connection is used and, for the
+   * one built into Spa Booking, its state, the QR code to scan, the code to
+   * type on the phone, and the buttons to link and unlink.
+   */
+  _whatsappEngineBox(box, settings) {
+    const engine = settings.whatsapp_engine || "waha";
+    const node = box("whatsapp_engine", "Collegamento WhatsApp");
+    const choice = (value, label, hint) =>
+      el("label", { class: "check" },
+        el("input", {
+          type: "radio",
+          name: "whatsapp_engine",
+          checked: engine === value,
+          disabled: this._busy,
+          on: { change: () => this._setWhatsappEngine(value) },
+        }),
+        el("span", {}, label, el("span", { class: "dim" }, ` — ${hint}`)));
+    node.appendChild(choice("integrated", "WhatsApp integrato (beta)",
+      "Spa Booking si collega da solo al numero, come WhatsApp Web: nessun add-on da installare"));
+    node.appendChild(choice("waha", "Add-on WAHA",
+      "il gateway esterno usato finora"));
+    if (engine !== "integrated") {
+      this._waStopPolling();
+      return node;
+    }
+
+    const status = this._waStatus || { state: "starting", label: "Avvio in corso" };
+    if (!this._waStatus && !this._waLoading) this._waRefresh();
+    const state = status.state;
+    const tone = state === "connected" ? "ok" : ["logged_out", "banned", "missing", "stopped"].includes(state) ? "error" : "";
+    node.appendChild(
+      el("div", { class: `wa-state ${tone}` },
+        el("ha-icon", { icon: state === "connected" ? "mdi:check-circle" : tone === "error" ? "mdi:alert-circle" : "mdi:progress-clock" }),
+        el("span", {},
+          status.label || state,
+          state === "connected" && status.phone ? ` · +${status.phone}${status.push_name ? ` (${status.push_name})` : ""}` : ""))
+    );
+    if (status.detail && state !== "connected") node.appendChild(el("div", { class: "hint" }, status.detail));
+
+    if (state === "pairing") {
+      if (status.qr) {
+        node.appendChild(el("div", { class: "wa-qr" }, el("img", { src: status.qr, alt: "Codice QR per collegare WhatsApp" })));
+        node.appendChild(el("div", { class: "hint" },
+          "Sul telefono del numero dell'hotel: WhatsApp › Impostazioni › Dispositivi collegati › Collega un dispositivo, poi inquadra il codice. Il codice si rinnova da solo."));
+      } else {
+        node.appendChild(el("div", { class: "hint" }, "Preparo il codice QR…"));
+      }
+      // The card is often open on the very phone to link: then a code is
+      // typed instead of scanning.
+      const pairPhone = phoneInput(this._waPairPhone || "",
+        (value) => { this._waPairPhone = value; },
+        { placeholder: "Numero dell'hotel, es. 333 1234567" });
+      node.appendChild(el("label", { class: "field" }, el("span", {}, "Oppure collega con un codice"), pairPhone));
+      node.appendChild(
+        el("div", { class: "row tight" },
+          el("button", {
+            class: "btn small",
+            disabled: this._busy,
+            on: { click: () => this._waPairCode() },
+          }, el("ha-icon", { icon: "mdi:numeric" }), "Ottieni codice"))
+      );
+      if (this._waCode) {
+        node.appendChild(el("div", { class: "wa-code" }, this._waCode));
+        node.appendChild(el("div", { class: "hint" },
+          "Sul telefono: WhatsApp › Dispositivi collegati › Collega un dispositivo › «Collega con il numero di telefono», poi digita questo codice."));
+      }
+    }
+
+    const buttons = el("div", { class: "row tight" });
+    if (["not_linked", "logged_out", "pairing"].includes(state)) {
+      buttons.appendChild(el("button", {
+        class: "btn small primary",
+        disabled: this._busy,
+        on: { click: () => this._waPairStart() },
+      }, el("ha-icon", { icon: "mdi:qrcode-scan" }), state === "pairing" ? "Nuovo codice QR" : "Collega WhatsApp"));
+    }
+    if (["connected", "disconnected", "banned", "connecting"].includes(state)) {
+      buttons.appendChild(el("button", {
+        class: "btn small danger",
+        disabled: this._busy,
+        on: { click: () => this._waLogout() },
+      }, el("ha-icon", { icon: "mdi:link-off" }), "Scollega"));
+    }
+    buttons.appendChild(el("button", {
+      class: "btn small",
+      disabled: this._busy,
+      on: { click: () => this._waRefresh() },
+    }, el("ha-icon", { icon: "mdi:refresh" }), "Aggiorna"));
+    node.appendChild(buttons);
+    node.appendChild(el("div", { class: "hint" },
+      "Versione di prova. Il telefono deve restare con WhatsApp installato e connettersi almeno ogni 14 giorni. " +
+      "Per tornare all'add-on basta scegliere «Add-on WAHA»."));
+
+    // While something is changing, the state is asked again every few seconds.
+    if (["starting", "pairing", "connecting", "disconnected"].includes(state)) this._waStartPolling();
+    else this._waStopPolling();
+    return node;
+  }
+
+  async _setWhatsappEngine(engine) {
+    this._waStatus = null;
+    this._waCode = "";
+    try {
+      await this._call("update_settings", { whatsapp_engine: engine });
+    } catch (error) { /* shown */ }
+  }
+
+  async _waRefresh() {
+    if (this._waLoading) return;
+    this._waLoading = true;
+    try {
+      this._waStatus = await this._service("whatsapp_status", {});
+      if (this._waStatus.state !== "pairing") this._waCode = "";
+    } catch (error) {
+      this._waStatus = { state: "stopped", label: "Non raggiungibile", detail: this._friendlyError(error, "") };
+    } finally {
+      this._waLoading = false;
+      this._render();
+    }
+  }
+
+  _waStartPolling() {
+    if (this._waPoll) return;
+    this._waPoll = setInterval(() => {
+      if (!this.isConnected) { this._waStopPolling(); return; }
+      this._waRefresh();
+    }, 3000);
+  }
+
+  _waStopPolling() {
+    if (this._waPoll) {
+      clearInterval(this._waPoll);
+      this._waPoll = null;
+    }
+  }
+
+  async _waPairStart() {
+    this._waCode = "";
+    try {
+      await this._call("whatsapp_pair", {});
+    } catch (error) { /* shown */ }
+    await this._waRefresh();
+  }
+
+  async _waPairCode() {
+    const phone = String(this._waPairPhone || "").trim();
+    if (!phone) {
+      this._message = { kind: "error", text: "Scrivi il numero dell'hotel da collegare." };
+      this._render();
+      return;
+    }
+    try {
+      const result = await this._call("whatsapp_pair_code", { phone });
+      this._waCode = (result && result.code) || "";
+    } catch (error) { /* shown */ }
+    this._render();
+  }
+
+  async _waLogout() {
+    if (!window.confirm("Scollegare WhatsApp da Spa Booking? Offerte e promemoria non partiranno finché non lo ricolleghi.")) return;
+    try {
+      await this._call("whatsapp_logout", {});
+    } catch (error) { /* shown */ }
+    await this._waRefresh();
+  }
+
+  /**
    * Ask the configured WAHA gateway who it is: reachable, key accepted, which
    * router. Sends nothing and changes nothing, so it is safe to press first.
    */
@@ -1853,6 +2224,9 @@ class SpaBookingCard extends HTMLElement {
 
   _successText(service) {
     const map = {
+      whatsapp_pair: "Collegamento avviato: inquadra il codice QR.",
+      whatsapp_pair_code: "Codice pronto: digitalo sul telefono.",
+      whatsapp_logout: "WhatsApp scollegato.",
       create_appointment: "Appuntamento creato.",
       create_bookings: "Appuntamenti creati.",
       clear_slot_block: "Fascia riaperta.",
@@ -1877,7 +2251,11 @@ class SpaBookingCard extends HTMLElement {
       update_operator: "Operatrice aggiornata.",
       delete_operator: "Operatrice eliminata.",
       update_settings: "Destinatari aggiornati.",
-      set_user_permissions: "Permessi aggiornati.",
+      set_user_permissions: "Ruolo aggiornato.",
+      set_user_profile: "Profilo aggiornato.",
+      create_user: "Utente creato.",
+      set_user_password: "Password cambiata.",
+      set_user_active: "Utente aggiornato.",
       create_request: "Richiesta salvata.",
       delete_request: "Richiesta eliminata.",
       confirm_request: "Richiesta confermata.",
@@ -1918,6 +2296,8 @@ class SpaBookingCard extends HTMLElement {
    * shut out of the card. Everyone else has no access until granted.
    */
   _userLevel() {
+    // The server says who is acting (on the shared tablet: who typed her PIN).
+    if (this._me && typeof this._me.level === "string") return this._me.level;
     const user = this._hass && this._hass.user;
     if (!user) return "admin";
     const permissions =
@@ -1929,20 +2309,37 @@ class SpaBookingCard extends HTMLElement {
 
   /** Whether the signed-in user may do <capability>. */
   _can(capability) {
-    const rank = { none: 0, read: 1, operator: 2, manager: 3, admin: 4 };
+    const rank = { none: 0, read: 1, therapist: 2, operator: 3, manager: 4, admin: 5 };
     const need =
       {
         view_agenda: "read",
         view_calendar: "read",
+        // A masseuse books and moves her own appointments (the server checks
+        // that they are hers: see _ownsAppointment).
+        book: "therapist",
         view_clients: "operator",
-        book: "operator",
         day: "operator",
         offers: "operator",
+        payments: "operator",
+        create_voucher: "operator",
         messages: "manager",
         manage_clients: "manager",
+        totals: "manager",
         config: "admin",
       }[capability] || "admin";
     return (rank[this._userLevel()] || 0) >= (rank[need] || 0);
+  }
+
+  /** The agenda operator the signed-in person is ("" when none). */
+  _myOperatorId() {
+    return (this._me && this._me.operator_id) || "";
+  }
+
+  /** Whether the signed-in person may change this appointment. */
+  _ownsAppointment(appointment) {
+    if (!this._can("book")) return false;
+    if (this._userLevel() !== "therapist") return true;
+    return Boolean(appointment) && appointment.operator_id === this._myOperatorId();
   }
 
   /** The tabs the signed-in user may see, in their usual order. */
@@ -1951,6 +2348,7 @@ class SpaBookingCard extends HTMLElement {
       {
         none: [],
         read: ["agenda"],
+        therapist: ["agenda", "nuovo", "spa"],
         operator: ["agenda", "nuovo", "spa", "clienti", "voucher", "whatsapp"],
         manager: ["agenda", "nuovo", "spa", "clienti", "voucher", "whatsapp"],
         admin: ["agenda", "nuovo", "spa", "clienti", "voucher", "whatsapp", "config"],
@@ -1967,6 +2365,7 @@ class SpaBookingCard extends HTMLElement {
       {
         none: [],
         read: ["agenda", "calendario"],
+        therapist: ["agenda", "calendario"],
         operator: ["agenda", "calendario"],
         manager: ["agenda", "calendario"],
         admin: ["agenda", "calendario"],
@@ -1984,6 +2383,7 @@ class SpaBookingCard extends HTMLElement {
       {
         none: [],
         read: [],
+        therapist: ["controlli"],
         operator: ["controlli", "telecamere"],
         manager: ["controlli", "telecamere"],
         admin: ["controlli", "telecamere"],
@@ -1996,11 +2396,297 @@ class SpaBookingCard extends HTMLElement {
       {
         none: [],
         read: [],
+        therapist: ["appuntamento"],
         operator: ["appuntamento", "nuova", "lista"],
         manager: ["appuntamento", "nuova", "lista"],
         admin: ["appuntamento", "nuova", "lista"],
       }[this._userLevel()] || [];
     return NUOVO_TABS.filter((tab) => allowed.includes(tab.id));
+  }
+
+  // ---------------------------------------------------------------- updates
+
+  /** Ask the server about updates, at most every 10 minutes (admins only). */
+  async _checkUpdates(force = false) {
+    if (!this._can("config")) return;
+    const now = Date.now();
+    if (!force && this._updateCheckedAt && now - this._updateCheckedAt < 600000) return;
+    this._updateCheckedAt = now;
+    try {
+      this._updateStatus = await this._service("update_status");
+    } catch (error) {
+      this._updateStatus = null;  // an older integration without the service
+    }
+    this._render();
+  }
+
+  /**
+   * The update banner: a new version to install, the installation running,
+   * or an installed version waiting for a page reload or a restart.
+   */
+  _updateBanner() {
+    const status = this._updateStatus;
+    if (!status || !this._can("config")) return null;
+    // The live state of the HACS entity, so the progress shows at once.
+    const live = status.update && this._hass && this._hass.states[status.update.entity_id];
+    const attrs = (live && live.attributes) || {};
+    const available = live ? live.state === "on" : Boolean(status.update && status.update.available);
+    const inProgress = Boolean(attrs.in_progress) || this._updateInstalling;
+    const latest = attrs.latest_version || (status.update && status.update.latest_version) || "";
+    const url = attrs.release_url || (status.update && status.update.release_url) || "";
+    const dismissKey = `${status.disk_version}|${latest}|${status.restart_needed}`;
+    if (this._updateDismissed === dismissKey) return null;
+    const later = el("button", {
+      class: "btn small ghost",
+      on: { click: () => { this._updateDismissed = dismissKey; this._render(); } },
+    }, "Più tardi");
+
+    if (status.restart_needed || status.reload_only) {
+      // Installed on disk, not running yet.
+      if (inProgress) this._updateInstalling = false;
+      const restart = status.restart_needed;
+      return el("div", { class: "update-banner restart", role: "status" },
+        el("ha-icon", { icon: restart ? "mdi:refresh" : "mdi:check-circle-outline" }),
+        el("div", { class: "grow" },
+          el("div", { class: "update-title" }, `Spa Booking ${status.disk_version} è installato`),
+          el("div", { class: "dim small" }, restart
+            ? `Per usarlo serve riavviare Home Assistant (ora gira la ${status.running_version}). Il riavvio dura circa un minuto: le prenotazioni non si perdono.`
+            : "Cambia solo la card: basta ricaricare la pagina, senza riavviare Home Assistant.")),
+        restart
+          ? el("button", {
+            class: "btn primary small", disabled: this._busy,
+            on: { click: async () => {
+              if (!window.confirm("Riavviare Home Assistant adesso? Per circa un minuto la dashboard non risponde.")) return;
+              try { await this._service("restart_home_assistant"); } catch (error) { /* it is going down */ }
+              this._message = { kind: "ok", text: "Riavvio in corso: tra circa un minuto ricarica la pagina." };
+              this._render();
+            } },
+          }, el("ha-icon", { icon: "mdi:refresh" }), "Riavvia ora")
+          : el("button", {
+            class: "btn primary small",
+            on: { click: () => location.reload() },
+          }, el("ha-icon", { icon: "mdi:refresh" }), "Ricarica la pagina"),
+        later);
+    }
+    if (!available && !inProgress) return null;
+    return el("div", { class: "update-banner", role: "status" },
+      el("ha-icon", { icon: inProgress ? "mdi:download" : "mdi:gift-outline" }),
+      el("div", { class: "grow" },
+        el("div", { class: "update-title" },
+          inProgress ? `Installazione di Spa Booking ${latest} in corso…` : `Nuova versione di Spa Booking: ${latest}`),
+        el("div", { class: "dim small" }, inProgress
+          ? "Puoi continuare a lavorare: al termine ti dico se basta ricaricare la pagina o se serve un riavvio."
+          : `Ora è installata la ${status.running_version}.`)),
+      url ? el("a", { class: "btn small", href: url, target: "_blank", rel: "noopener" },
+        el("ha-icon", { icon: "mdi:note-text-outline" }), "Novità") : null,
+      inProgress ? null : el("button", {
+        class: "btn primary small", disabled: this._busy,
+        on: { click: async () => {
+          try {
+            await this._service("install_update");
+            this._updateInstalling = true;
+            this._render();
+            // Follow the installation, then ask again what it needs.
+            const poll = setInterval(async () => {
+              const entity = this._hass.states[(status.update || {}).entity_id] || {};
+              if (!(entity.attributes || {}).in_progress) {
+                clearInterval(poll);
+                this._updateInstalling = false;
+                await this._checkUpdates(true);
+              }
+            }, 5000);
+          } catch (error) {
+            this._message = { kind: "error", text: this._friendlyError(error, "Installazione non riuscita.") };
+            this._render();
+          }
+        } },
+      }, el("ha-icon", { icon: "mdi:download" }), "Installa"),
+      inProgress ? null : later);
+  }
+
+  // ------------------------------------------------------------- signing in
+
+  /** Ask the server who the card acts as (and keep the tablet session alive). */
+  async _loadMe() {
+    try {
+      const me = await this._service("whoami");
+      this._me = me && typeof me === "object" ? me : null;
+    } catch (error) {
+      // An older integration without logins: the card falls back to the
+      // Home Assistant user, as before.
+      this._me = null;
+    }
+    this._setupIdleWatch();
+  }
+
+  /** On the shared tablet, nobody has typed her PIN yet. */
+  _pinNeeded() {
+    return Boolean(this._me && this._me.shared && !this._me.user_id);
+  }
+
+  /**
+   * The shared tablet signs out after a few idle minutes. Every touch counts
+   * as activity; at most once a minute it also tells the server, so the
+   * session there stays alive exactly as long as the one here.
+   */
+  _setupIdleWatch() {
+    if (this._idleWatch) return;
+    if (!(this._me && this._me.shared)) return;
+    this._idleWatch = true;
+    this._lastActivity = Date.now();
+    this._lastPing = Date.now();
+    const touch = () => {
+      this._lastActivity = Date.now();
+      if (this._me && this._me.user_id && Date.now() - this._lastPing > 60000) {
+        this._lastPing = Date.now();
+        this._service("whoami").then((me) => {
+          if (me && !me.user_id && this._me && this._me.user_id) {
+            this._me = me;
+            this._render();
+          }
+        }).catch(() => {});
+      }
+    };
+    ["pointerdown", "keydown"].forEach((type) =>
+      this.shadowRoot.addEventListener(type, touch, true));
+    this._idleTimer = setInterval(() => {
+      if (!(this._me && this._me.shared && this._me.user_id)) return;
+      const limit = Math.max(1, Number(this._me.idle_minutes) || 10) * 60000;
+      if (Date.now() - this._lastActivity > limit) this._pinLogout();
+    }, 15000);
+  }
+
+  _initials(name) {
+    return String(name || "")
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0].toUpperCase())
+      .join("") || "?";
+  }
+
+  _roleLabel(level) {
+    return ROLE_LABELS[level] || level || "";
+  }
+
+  /** Name and role of who is signed in; "Cambia utente" on the tablet. */
+  _userChip() {
+    const me = this._me;
+    const name = (me && me.name) || (this._hass && this._hass.user && this._hass.user.name) || "";
+    if (!name) return null;
+    const chip = el("div", { class: "user-chip", title: `${name} · ${this._roleLabel(this._userLevel())}` },
+      el("span", { class: "user-avatar" }, this._initials(name)),
+      el("span", { class: "user-text" },
+        el("span", { class: "user-name" }, name),
+        el("span", { class: "user-role" }, this._roleLabel(this._userLevel()))));
+    if (me && me.shared) {
+      chip.appendChild(
+        el("button", {
+          class: "btn small ghost user-switch",
+          title: "Esci e lascia il tablet al collega",
+          on: { click: () => this._pinLogout() },
+        }, el("ha-icon", { icon: "mdi:lock" }), el("span", { class: "label" }, "Cambia utente")));
+    }
+    return chip;
+  }
+
+  async _pinLogout() {
+    try {
+      await this._service("pin_logout");
+    } catch (error) { /* the server session expires anyway */ }
+    this._pinPerson = null;
+    this._pinTyped = "";
+    this._pinError = "";
+    this._me = { ...(this._me || {}), user_id: null, name: "", level: "none" };
+    // Nothing of the previous person stays on screen.
+    this._editing = null;
+    this._detailId = null;
+    this._message = null;
+    await this._loadMe();
+    this._render();
+  }
+
+  async _pinSubmit() {
+    const person = this._pinPerson;
+    const pin = this._pinTyped || "";
+    if (!person || pin.length !== 4 || this._pinBusy) return;
+    this._pinBusy = true;
+    this._pinError = "";
+    this._render();
+    try {
+      const me = await this._service("pin_login", { user_id: person, pin });
+      this._me = me;
+      this._pinTyped = "";
+      this._pinPerson = null;
+      this._lastActivity = Date.now();
+      this._lastPing = Date.now();
+      this._tab = "agenda";
+      this._pinBusy = false;
+      await this._loadData();
+      return;
+    } catch (error) {
+      this._pinError = this._friendlyError(error, "PIN sbagliato");
+      this._pinTyped = "";
+    }
+    this._pinBusy = false;
+    this._render();
+  }
+
+  /** The shared tablet: pick your face, type your PIN. */
+  _renderPinScreen() {
+    const people = (this._me && this._me.people) || [];
+    const wrap = el("div", { class: "pin-screen" });
+    wrap.appendChild(el("ha-icon", { class: "pin-logo", icon: "mdi:spa-outline" }));
+    wrap.appendChild(el("h2", {}, "Tablet della reception"));
+    if (!people.length) {
+      wrap.appendChild(el("p", { class: "dim" },
+        "Nessuno ha ancora un PIN. Un amministratore lo assegna da Configurazione › Accessi, " +
+        "entrando da un altro dispositivo con il proprio utente."));
+      return el("div", { class: "wrap" }, wrap);
+    }
+    wrap.appendChild(el("p", { class: "dim" }, this._pinPerson ? "Inserisci il tuo PIN di 4 cifre" : "Chi sei?"));
+    const faces = el("div", { class: "pin-people" });
+    people.forEach((person, index) => {
+      faces.appendChild(
+        el("button", {
+          class: `pin-person${this._pinPerson === person.user_id ? " on" : ""}`,
+          on: { click: () => { this._pinPerson = person.user_id; this._pinTyped = ""; this._pinError = ""; this._render(); } },
+        },
+        el("span", { class: `user-avatar tone-${index % 6}` }, this._initials(person.name)),
+        el("span", { class: "pin-name" }, person.name),
+        el("span", { class: "pin-role" }, this._roleLabel(person.level))));
+    });
+    wrap.appendChild(faces);
+    if (this._pinPerson) {
+      const typed = this._pinTyped || "";
+      wrap.appendChild(el("div", { class: "pin-dots", "aria-label": `${typed.length} cifre su 4` },
+        [0, 1, 2, 3].map((i) => el("span", { class: i < typed.length ? "on" : "" }))));
+      const press = (digit) => {
+        if (this._pinBusy) return;
+        if (digit === "del") this._pinTyped = typed.slice(0, -1);
+        else if (typed.length < 4) this._pinTyped = typed + digit;
+        this._pinError = "";
+        if ((this._pinTyped || "").length === 4) this._pinSubmit();
+        else this._render();
+      };
+      const pad = el("div", { class: "pin-pad" });
+      ["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "del"].forEach((key) => {
+        if (!key) { pad.appendChild(el("span")); return; }
+        pad.appendChild(el("button", {
+          class: "pin-key",
+          "aria-label": key === "del" ? "Cancella" : key,
+          disabled: this._pinBusy,
+          on: { click: () => press(key) },
+        }, key === "del" ? el("ha-icon", { icon: "mdi:arrow-left" }) : key));
+      });
+      wrap.appendChild(pad);
+    }
+    const locked = this._me && this._me.locked_for;
+    if (this._pinError || locked) {
+      wrap.appendChild(el("div", { class: "pin-error", role: "alert" },
+        this._pinError || `Troppi PIN sbagliati: riprova tra ${locked} secondi`));
+    }
+    return el("div", { class: "wrap" }, wrap);
   }
 
   /** What an account without access to this dashboard sees. */
@@ -2115,6 +2801,11 @@ class SpaBookingCard extends HTMLElement {
       );
       return;
     }
+    // The shared reception tablet waits for somebody's PIN.
+    if (this._pinNeeded()) {
+      root.appendChild(this._renderPinScreen());
+      return;
+    }
     // An account with no access sees the reason and nothing else: no data, no
     // tabs, no header.
     if (this._userLevel() === "none") {
@@ -2138,6 +2829,7 @@ class SpaBookingCard extends HTMLElement {
     root.appendChild(topbar);
 
     const body = el("div", { class: "wrap" });
+    add(body, this._updateBanner());
     if (this._message) add(body, this._messageBox());
     if (this._loading && !this._data.appointments.length) {
       body.appendChild(el("div", { class: "hint" }, "Caricamento…"));
@@ -2431,6 +3123,7 @@ class SpaBookingCard extends HTMLElement {
         el("div", { class: "clock-time" }, this._fmtTime()),
         el("div", { class: "clock-date" }, this._fmtDate())
       ));
+    add(head, this._userChip());
     return head;
   }
 
@@ -2618,6 +3311,7 @@ class SpaBookingCard extends HTMLElement {
       );
     }
 
+    add(wrap, this._agendaStats(dayList));
     wrap.appendChild(el("div", { class: "day-title" }, longDay(day)));
 
     // Today only: the clients leaving now or shortly, so the reception can
@@ -2759,7 +3453,19 @@ class SpaBookingCard extends HTMLElement {
               String(partyList.reduce((sum, members) => sum + members.length, 0)))
           )
         );
+        const partOf = (members) => {
+          const start = parseDate(members[0].start);
+          const hour = start ? start.getHours() : 12;
+          return hour < 13 ? "Mattina" : hour < 18 ? "Pomeriggio" : "Sera";
+        };
+        const parts = new Set(partyList.map(partOf));
+        let lastPart = "";
         partyList.forEach((members) => {
+          const part = partOf(members);
+          if (parts.size > 1 && part !== lastPart) {
+            card.appendChild(el("div", { class: "daypart" }, part));
+            lastPart = part;
+          }
           add(card, this._appointmentRow(members[0]));
           const groupKey = [
             members[0].treatment_id,
@@ -2807,6 +3513,34 @@ class SpaBookingCard extends HTMLElement {
     }
 
     return wrap;
+  }
+
+  /**
+   * The day at a glance: appointments, who is in the spa now, what still
+   * waits for a confirmation and, for whoever takes payments, what is still
+   * to be collected.
+   */
+  _agendaStats(dayList) {
+    const live = dayList.filter((appointment) => appointment.status !== "cancelled");
+    if (!live.length) return null;
+    const inside = live.filter((appointment) => appointment.checked_in && !appointment.checked_out).length;
+    const waiting = live.filter((appointment) =>
+      appointment.status === "pending" || appointment.offer_state === "offered").length;
+    const tile = (label, value, tone) => el("div", { class: `stat${tone ? ` ${tone}` : ""}` },
+      el("span", { class: "stat-label" }, label), el("span", { class: "stat-value" }, value));
+    const stats = el("div", { class: "stats" },
+      tile(this._day === todayStr() ? "Appuntamenti oggi" : "Appuntamenti", String(live.length)),
+      tile("In sala ora", String(inside), inside ? "info" : ""),
+      tile("Da confermare", String(waiting), waiting ? "warn" : ""));
+    if (this._can("payments")) {
+      const due = live.reduce((sum, appointment) => {
+        const price = Number(this._lineBreakdown(appointment).price) || 0;
+        const paid = (appointment.payments || []).reduce((inner, item) => inner + (Number(item.amount) || 0), 0);
+        return sum + Math.max(0, price - paid);
+      }, 0);
+      stats.appendChild(tile("Da incassare", euro(Math.round(due * 100) / 100)));
+    }
+    return stats;
   }
 
   /** Category filter chips shown next to "Oggi"; "" = no filter. */
@@ -3317,7 +4051,7 @@ class SpaBookingCard extends HTMLElement {
         if (member.status === "pending") bits.push(" (in attesa)");
         if (member.status === "cancelled") bits.push(" (annullato)");
         const row = el("div", { class: "detail-line" }, bits.join(""));
-        const editable = this._can("book") && member.status !== "cancelled";
+        const editable = this._ownsAppointment(member) && member.status !== "cancelled";
         if (editable) {
           row.appendChild(el("button", {
             class: "btn small",
@@ -3355,7 +4089,7 @@ class SpaBookingCard extends HTMLElement {
     // The same actions as on the row, so the popup is a shortcut and not a
     // second, different way of working.
     const actions = el("div", { class: "detail-actions" });
-    if (grouped && related.length > 1 && this._can("book")) {
+    if (grouped && related.length > 1 && related.every((member) => this._ownsAppointment(member))) {
       actions.appendChild(el("button", {
         class: "btn primary",
         disabled: this._busy,
@@ -3366,7 +4100,7 @@ class SpaBookingCard extends HTMLElement {
     const phone = client ? client.phone : "";
     const whatsapp = waLink(phone);
     // Management buttons follow the same rule as the row: operators and above.
-    const canBook = this._can("book");
+    const canBook = this._ownsAppointment(appointment);
     if (canBook && !cancelled) {
       // Waiting: confirming comes first here too, for the same reason.
       if (appointment.status === "pending") {
@@ -3819,7 +4553,7 @@ class SpaBookingCard extends HTMLElement {
     const actions = el("div", { class: "appt-actions" });
     // Management actions are for operators and above; a read-only account
     // still sees the row, the popup and the contact shortcuts.
-    const canOperate = this._can("book");
+    const canOperate = this._ownsAppointment(appointment);
     // A zero-height break, used on phones to push phone and WhatsApp onto
     // their own row under the management actions.
     actions.appendChild(el("div", { class: "appt-actions-break" }));
@@ -4270,7 +5004,7 @@ class SpaBookingCard extends HTMLElement {
   }
 
 
-  async _saveBatchEdit() {
+  async _saveBatchEdit(forceRules = false) {
     try {
       this._batchBusy = true;
       this._render();
@@ -4289,6 +5023,7 @@ class SpaBookingCard extends HTMLElement {
       await this._call("update_booking_batch", {
         appointment_id: this._batchAnchorId,
         rows: flattened,
+        ...(forceRules ? { force_rules: true } : {}),
       });
       this._batchEditing = false;
       this._batchAnchorId = null;
@@ -4297,7 +5032,12 @@ class SpaBookingCard extends HTMLElement {
       this._tab = "agenda";
       this._message = { kind: "ok", text: "Gruppo aggiornato." };
     } catch (error) {
-      /* message shown by _call */
+      const text = String((error && error.message) || "");
+      if (!forceRules && this._isCategoryRule(text)) {
+        this._message = null;
+        this._overlapPopup = { kind: "rules", message: text, retry: { run: () => this._saveBatchEdit(true) } };
+      }
+      /* any other message shown by _call */
     } finally {
       this._batchBusy = false;
       this._render();
@@ -4540,7 +5280,7 @@ class SpaBookingCard extends HTMLElement {
       return box;
     }
     if (id === "totali") return this._totaliBlock();
-    if (id === "incassi") return this._incassiBlock();
+    if (id === "incassi") return this._can("payments") ? this._incassiBlock() : null;
     if (id === "client") {
       const box = el("div", { class: "stack tight" });
       box.appendChild(this._clientSection(this._form));
@@ -4656,9 +5396,7 @@ class SpaBookingCard extends HTMLElement {
     const head = el("div", { class: "spa-head" });
     if (this._notifyEditMode) head.appendChild(this._colChooser("notifiche"));
     head.appendChild(
-      el("div", { class: "spa-head-title" },
-        el("ha-icon", { icon: "mdi:bell-outline" }),
-        el("span", {}, this._notifyEditMode ? "Modifica notifiche" : "Notifiche"))
+      this._headTitle("mdi:bell-outline", this._notifyEditMode ? "Modifica notifiche" : "Notifiche", "Notifiche")
     );
     if (this._notifyEditMode) {
       head.appendChild(
@@ -4686,9 +5424,7 @@ class SpaBookingCard extends HTMLElement {
     const head = el("div", { class: "spa-head" });
     if (this._settingsEditMode) head.appendChild(this._colChooser("settings"));
     head.appendChild(
-      el("div", { class: "spa-head-title" },
-        el("ha-icon", { icon: "mdi:cog-outline" }),
-        el("span", {}, this._settingsEditMode ? "Modifica impostazioni" : "Impostazioni"))
+      this._headTitle("mdi:cog-outline", this._settingsEditMode ? "Modifica impostazioni" : "Impostazioni", "Impostazioni")
     );
     if (this._settingsEditMode) {
       head.appendChild(
@@ -4733,9 +5469,7 @@ class SpaBookingCard extends HTMLElement {
     const head = el("div", { class: "spa-head" });
     if (this._formEditMode) head.appendChild(this._colChooser("form"));
     head.appendChild(
-      el("div", { class: "spa-head-title" },
-        el("ha-icon", { icon: "mdi:calendar-plus" }),
-        el("span", {}, this._batchEditing ? "Modifica gruppo" : (this._formEditMode ? "Modifica scheda" : "Nuovo appuntamento")))
+      this._headTitle("mdi:calendar-plus", this._batchEditing ? "Modifica gruppo" : (this._formEditMode ? "Modifica scheda" : "Nuovo appuntamento"), "Nuovo appuntamento")
     );
     if (this._formEditMode) {
       head.appendChild(
@@ -4762,9 +5496,7 @@ class SpaBookingCard extends HTMLElement {
     const head = el("div", { class: "spa-head" });
     if (this._richiestaEditMode) head.appendChild(this._colChooser("richiesta"));
     head.appendChild(
-      el("div", { class: "spa-head-title" },
-        el("ha-icon", { icon: "mdi:form-select" }),
-        el("span", {}, this._richiestaEditMode ? "Modifica ordine" : "Richiesta"))
+      this._headTitle("mdi:form-select", this._richiestaEditMode ? "Modifica ordine" : "Richiesta", "Richiesta")
     );
     if (this._richiestaEditMode) {
       head.appendChild(
@@ -5212,7 +5944,7 @@ class SpaBookingCard extends HTMLElement {
     const settings = (this._data && this._data.settings) || {};
     const raw = (settings.notifiche_order && typeof settings.notifiche_order === "object")
       ? settings.notifiche_order : {};
-    const defaults = { left: ["telegram", "whatsapp", "waha", "preview"],
+    const defaults = { left: ["telegram", "whatsapp", "whatsapp_engine", "waha", "preview"],
                        right: ["review", "report", "offers", "deposit", "guest_header", "summary",
                                "request_message", "appointment_reminder"] };
     const seen = new Set();
@@ -5334,6 +6066,8 @@ class SpaBookingCard extends HTMLElement {
    */
   _paymentBlock(target) {
     const payment = target.payment || (target.payment = this._blankPayment());
+    // Payments are the reception's: a masseuse books without them.
+    if (!this._can("payments")) return null;
     // One list, so a flag and its field can never drift apart: the chip that
     // opens a detail and the detail itself are declared together.
     const flags = [
@@ -5732,7 +6466,8 @@ class SpaBookingCard extends HTMLElement {
         status = "In attesa di conferma";
         statusClass = "pending";
       }
-      const payment = this._paymentSummary(appointment.payment) || "—";
+      // Money is for the manager: the others print the day without it.
+      const payment = this._can("totals") ? (this._paymentSummary(appointment.payment) || "—") : "";
       return el("div", { class: "report-row" },
         el("div", { class: "r-time" }, timeOf(start)),
         el("div", { class: "r-client" },
@@ -5759,7 +6494,7 @@ class SpaBookingCard extends HTMLElement {
         el("div", { class: "r-treat" }, "Trattamento"),
         el("div", { class: "r-persons" }, "Persone"),
         el("div", { class: "r-op" }, "Operatrice"),
-        el("div", { class: "r-pay" }, "Pagamento"),
+        el("div", { class: "r-pay" }, this._can("totals") ? "Pagamento" : ""),
         el("div", { class: "r-status" }, "Stato")));
 
     // One row per booking group (same treatment, client and slot), with the
@@ -6112,11 +6847,7 @@ class SpaBookingCard extends HTMLElement {
         el("div", { class: "field-grid" },
           el("label", { class: "field" },
             el("span", {}, "Telefono"),
-            el("input", {
-              class: "input", type: "tel", value: state.phone, autocomplete: "off",
-              placeholder: "es. 333 1234567 · estero: +41 79 1234567",
-              on: { input: (event) => { state.phone = event.target.value; } },
-            })),
+            phoneInput(state.phone, (value) => { state.phone = value; })),
           el("label", { class: "field" },
             el("span", {}, "Email"),
             el("input", {
@@ -6386,7 +7117,7 @@ class SpaBookingCard extends HTMLElement {
 
   /** All-or-nothing booking: create_bookings creates every row or none. The
    *  single-appointment case is just one row, so there is a single path. */
-  async _createBookings(force = false) {
+  async _createBookings(force = false, forceRules = false) {
     const rows = this._bookingRows();
     if (!rows.length) return;
     if (force) {
@@ -6398,7 +7129,10 @@ class SpaBookingCard extends HTMLElement {
     }
 
     try {
-      const response = await this._call("create_bookings", { rows });
+      const response = await this._call("create_bookings", {
+        rows,
+        ...(forceRules ? { force_rules: true } : {}),
+      });
       const appointments = (response && response.appointments) || [];
       const first = appointments[0];
       // Staged takings belong to the whole booking: they are written onto
@@ -6453,8 +7187,21 @@ class SpaBookingCard extends HTMLElement {
       // go back and fix the form, which stays untouched. An operator clash
       // keeps the plain error, it can never be forced.
       const text = String((error && error.message) || "");
+      if (!forceRules && this._isCategoryRule(text)) {
+        this._message = null;
+        this._overlapPopup = {
+          kind: "rules", message: text,
+          retry: { run: () => this._createBookings(force, true) },
+        };
+        this._render();
+        return;
+      }
       if (!force && /sovrappone/i.test(text) && /cliente/i.test(text)) {
-        this._overlapPopup = { message: text };
+        this._message = null;
+        this._overlapPopup = {
+          message: text,
+          retry: { run: () => this._createBookings(true, forceRules) },
+        };
         this._render();
         return;
       }
@@ -6513,6 +7260,14 @@ class SpaBookingCard extends HTMLElement {
     }
   }
 
+  /**
+   * Whether a refusal is a category rule (days, morning/afternoon windows,
+   * categories that must not overlap): the desk can book anyway.
+   */
+  _isCategoryRule(text) {
+    return /^La categoria '.*' (accetta|non può sovrapporsi)/.test(String(text || ""));
+  }
+
   /** The overlap question, over a backdrop like the other popups. */
   _renderOverlapPopup() {
     const draft = this._overlapPopup || {};
@@ -6531,18 +7286,25 @@ class SpaBookingCard extends HTMLElement {
         this._createBookings(true);
       }
     };
-    const sheet = el("div", { class: "detail-sheet overlap-sheet" },
+    const rules = draft.kind === "rules";
+    // Forcing a category rule is the reception's call, as on the server.
+    const mayForce = !rules || this._can("payments");
+    const sheet = el("div", { class: `detail-sheet overlap-sheet${rules ? " rules" : ""}` },
       el("div", { class: "overlap-icon" },
-        el("ha-icon", { icon: "mdi:alert-octagon-outline" })),
-      el("h3", { class: "overlap-title" }, "Sovrapposizione cliente"),
+        el("ha-icon", { icon: rules ? "mdi:calendar-clock" : "mdi:alert-octagon-outline" })),
+      el("h3", { class: "overlap-title" }, rules ? "Fuori dalle regole della categoria" : "Sovrapposizione cliente"),
       el("div", { class: "detail-text overlap-text" }, draft.message || ""),
       el("div", { class: "hint" },
-        "Continuando, l'appuntamento viene inserito anche se si sovrappone. Annullando, torni al form invariato per le modifiche."));
+        rules
+          ? (mayForce
+            ? "«Prenota comunque» inserisce l'appuntamento anche fuori da questa regola. «Annulla e modifica» torna al modulo invariato per scegliere un altro giorno o orario."
+            : "Solo la reception può prenotare fuori da questa regola. «Annulla e modifica» torna al modulo invariato.")
+          : "Continuando, l'appuntamento viene inserito anche se si sovrappone. Annullando, torni al form invariato per le modifiche."));
     sheet.appendChild(el("div", { class: "row" },
-      el("button", {
+      mayForce ? el("button", {
         class: "btn primary", disabled: this._busy,
         on: { click: () => retryNow() },
-      }, "Continua comunque"),
+      }, rules ? "Prenota comunque" : "Continua comunque") : null,
       el("div", { class: "spacer" }),
       el("button", { class: "btn", on: { click: () => { this._overlapPopup = null; this._render(); } } }, "Annulla e modifica")));
     return el("div", {
@@ -6822,6 +7584,12 @@ class SpaBookingCard extends HTMLElement {
       if (isSameDay(day, today)) classes.push("today");
       if (key === this._day) classes.push("sel");
       if (items.length) classes.push("has");
+      // How full the day is, as a tint: four steps against the busiest day
+      // of the month, so a glance finds the free days.
+      if (items.length && inMonth) {
+        const busiest = Math.max(1, ...[...monthAppointments.values()].map((list) => list.length));
+        classes.push(`heat-${Math.min(4, Math.ceil((items.length / busiest) * 4))}`);
+      }
       if (shut) classes.push("closed");
       else if (closures.length) classes.push("closed-soft");
 
@@ -6898,6 +7666,8 @@ class SpaBookingCard extends HTMLElement {
         buyer_phone: "",
         recipient_name: "",
         recipient_phone: "",
+        created_by: "",
+        step: 1,
         people: [{ name: "", treatment_ids: [], extras: [] }],
       };
     }
@@ -6923,7 +7693,7 @@ class SpaBookingCard extends HTMLElement {
         if (!needle) return true;
         const haystack = [
           voucher.code, voucher.buyer_name, voucher.buyer_phone,
-          voucher.recipient_name, voucher.recipient_phone,
+          voucher.recipient_name, voucher.recipient_phone, voucher.created_by_name,
         ].filter(Boolean).join(" ").toLowerCase();
         return haystack.includes(needle);
       })
@@ -7013,36 +7783,197 @@ class SpaBookingCard extends HTMLElement {
   }
 
   _renderVouchers() {
-    const wrap = el("div", { class: "stack" });
-    wrap.appendChild(
-      el("div", { class: "spa-head" },
-        el("div", { class: "spa-head-title" },
-          el("ha-icon", { icon: "mdi:ticket-percent-outline" }),
-          el("span", {}, "Voucher")))
-    );
+    const wrap = el("div", { class: "stack voucher-tab" });
+    const canCreate = this._can("create_voucher");
     const canManage = this._can("manage_clients");
-    if (canManage) wrap.appendChild(this._voucherForm());
-    wrap.appendChild(this._voucherListBox(canManage));
-    wrap.appendChild(this._promoVoucherListBox(canManage));
+    const draft = this._voucherDraft;
+    wrap.appendChild(this._sectionHead("mdi:ticket-percent-outline", "Voucher",
+      "Voucher regalo con i loro trattamenti, e voucher fedeltà inviati ai clienti.",
+      canCreate && !draft
+        ? el("button", {
+          class: "btn primary",
+          disabled: this._busy,
+          on: { click: () => { this._voucherDraftState(); this._voucherCreated = null; this._render(); } },
+        }, el("ha-icon", { icon: "mdi:plus" }), "Nuovo voucher")
+        : null));
+    if (this._voucherCreated) wrap.appendChild(this._voucherCreatedBox(this._voucherCreated));
+    if (canCreate && draft) wrap.appendChild(this._voucherForm());
+    wrap.appendChild(this._voucherStats());
+    wrap.appendChild(this._voucherFilters());
+    if (this._voucherFilter === "fedelta") {
+      wrap.appendChild(this._promoVoucherListBox(canManage));
+    } else {
+      wrap.appendChild(this._voucherListBox(canManage));
+    }
     return wrap;
   }
 
+  /** Days from today to a YYYY-MM-DD date (negative when past). */
+  _daysTo(date) {
+    if (!date) return null;
+    const target = new Date(`${date}T00:00:00`);
+    const today = new Date(`${todayStr()}T00:00:00`);
+    return Math.round((target - today) / 86400000);
+  }
+
+  /** "attivo", "scadenza" (within 30 days), "riscattato" or "scaduto". */
+  _voucherState(voucher) {
+    if (voucher.status === "redeemed") return "riscattato";
+    const days = this._daysTo(voucher.expires_on);
+    if (voucher.expired || (days !== null && days < 0)) return "scaduto";
+    if (days !== null && days <= 30) return "scadenza";
+    return "attivo";
+  }
+
+  _voucherStats() {
+    const vouchers = this._data.vouchers || [];
+    const month = todayStr().slice(0, 7);
+    const active = vouchers.filter((v) => ["attivo", "scadenza"].includes(this._voucherState(v)));
+    const expiring = vouchers.filter((v) => this._voucherState(v) === "scadenza");
+    const redeemed = vouchers.filter((v) => v.status === "redeemed" && String(v.redeemed_at || "").slice(0, 7) === month);
+    const gift = active.reduce((sum, v) => sum + (v.people || [])
+      .reduce((inner, p) => inner + (Number(p.gift_card_amount) || 0), 0), 0);
+    const tile = (label, value, tone, filter) => el("button", {
+      class: `stat${tone ? ` ${tone}` : ""}${filter && this._voucherFilter === filter ? " on" : ""}`,
+      disabled: !filter,
+      on: filter ? { click: () => { this._voucherFilter = this._voucherFilter === filter ? "" : filter; this._render(); } } : undefined,
+    }, el("span", { class: "stat-label" }, label), el("span", { class: "stat-value" }, value));
+    return el("div", { class: "stats" },
+      tile("Attivi", String(active.length), "", "attivo"),
+      tile("In scadenza (30 gg)", String(expiring.length), expiring.length ? "warn" : "", "scadenza"),
+      tile("Riscattati questo mese", String(redeemed.length), "", "riscattato"),
+      this._can("totals") ? tile("Valore gift card attive", euro(gift), "", "") : null);
+  }
+
+  _voucherFilters() {
+    const filters = [
+      ["", "Tutti"], ["attivo", "Attivi"], ["scadenza", "In scadenza"],
+      ["riscattato", "Riscattati"], ["scaduto", "Scaduti"], ["fedelta", "Fedeltà"],
+    ];
+    const bar = el("div", { class: "filter-bar" });
+    const chips = el("div", { class: "chips" }, filters.map(([id, label]) =>
+      el("button", {
+        class: `fchip${(this._voucherFilter || "") === id ? " on" : ""}`,
+        "aria-pressed": (this._voucherFilter || "") === id ? "true" : "false",
+        on: { click: () => { this._voucherFilter = id; this._render(); } },
+      }, label)));
+    bar.appendChild(chips);
+    if (this._voucherFilter !== "fedelta") {
+      const search = el("input", {
+        class: "input voucher-list-search",
+        type: "search",
+        placeholder: "Cerca codice, nome, telefono o chi l'ha creato",
+        value: this._voucherQuery || "",
+      });
+      this._searchInputRedraw(search, ".voucher-list-search", (value) => { this._voucherQuery = value; });
+      bar.appendChild(search);
+    }
+    return bar;
+  }
+
+  /** Who is signed in, for "Creato da" ("" when the card cannot tell). */
+  _signedInName() {
+    if (this._me && this._me.user_id && this._me.name) return this._me.name;
+    return "";
+  }
+
+  /** The guided "Nuovo voucher": who, then people and treatments, then the summary. */
   _voucherForm() {
     const draft = this._voucherDraftState();
-    const box = el("div", { class: "cfg-box" }, el("h3", {}, "Nuovo voucher"));
-    const field = (label, key, placeholder) => el("label", { class: "field" },
+    const step = draft.step || 1;
+    const box = el("div", { class: "cfg-box wizard" });
+    const steps = ["Acquirente e destinatario", "Persone e trattamenti", "Riepilogo"];
+    box.appendChild(el("div", { class: "wizard-head" },
+      el("h3", {}, "Nuovo voucher"),
+      el("button", {
+        class: "icon-btn", title: "Chiudi senza salvare",
+        on: { click: () => { this._voucherDraft = null; this._render(); } },
+      }, el("ha-icon", { icon: "mdi:close" }))));
+    box.appendChild(el("ol", { class: "steps" }, steps.map((label, index) =>
+      el("li", { class: index + 1 === step ? "on" : index + 1 < step ? "done" : "" },
+        el("span", { class: "step-n" }, index + 1 < step ? "✓" : String(index + 1)),
+        el("span", { class: "step-label" }, label)))));
+
+    if (step === 1) box.appendChild(this._voucherStepWho(draft));
+    if (step === 2) box.appendChild(this._voucherStepPeople(draft));
+    if (step === 3) box.appendChild(this._voucherStepSummary(draft));
+
+    const back = step > 1
+      ? el("button", { class: "btn ghost", on: { click: () => { draft.step = step - 1; this._render(); } } },
+        el("ha-icon", { icon: "mdi:chevron-left" }), "Indietro")
+      : el("span");
+    const next = step < 3
+      ? el("button", {
+        class: "btn primary",
+        on: { click: () => {
+          const problem = this._voucherStepProblem(draft, step);
+          if (problem) { this._message = { kind: "error", text: problem }; this._render(); return; }
+          this._message = null;
+          draft.step = step + 1;
+          this._render();
+        } },
+      }, "Avanti", el("ha-icon", { icon: "mdi:chevron-right" }))
+      : el("button", {
+        class: "btn primary",
+        disabled: this._busy,
+        on: { click: () => this._createVoucher() },
+      }, el("ha-icon", { icon: "mdi:ticket-confirmation-outline" }), "Crea voucher");
+    box.appendChild(el("div", { class: "wizard-nav" }, back, next));
+    return box;
+  }
+
+  _voucherStepProblem(draft, step) {
+    if (step >= 1) {
+      if (!(draft.created_by || "").trim()) return "Indica chi sta creando il voucher.";
+      if (!(draft.buyer_name || "").trim() && !(draft.recipient_name || "").trim()) {
+        return "Scrivi almeno il nome dell'acquirente o del destinatario.";
+      }
+    }
+    if (step >= 2) {
+      if (draft.people.some((person) => !person.treatment_ids.length && !person.gift_card_amount)) {
+        return "Ogni persona deve avere almeno un trattamento o una gift card.";
+      }
+    }
+    return "";
+  }
+
+  _voucherStepWho(draft) {
+    if (!draft.created_by) draft.created_by = this._signedInName();
+    const locked = Boolean(this._signedInName());
+    const text = (label, key, placeholder) => el("label", { class: "field" },
       el("span", {}, label),
       el("input", {
         class: "input", type: "text", value: draft[key] || "", placeholder: placeholder || "",
-        on: { input: (event) => { draft[key] = event.target.value; } },
+        on: { input: (event) => { draft[key] = event.target.value; }, keydown: (event) => event.stopPropagation() },
       }));
-    box.appendChild(el("div", { class: "row tight" },
-      field("Nome acquirente", "buyer_name"),
-      field("Telefono acquirente", "buyer_phone", "333..."),
-      field("Nome destinatario", "recipient_name"),
-      field("Telefono destinatario", "recipient_phone", "333...")));
+    const phone = (label, key) => el("label", { class: "field" },
+      el("span", {}, label), phoneInput(draft[key] || "", (value) => { draft[key] = value; }));
+    const wrap = el("div", { class: "stack tight" });
+    wrap.appendChild(el("div", { class: "field-grid" },
+      el("div", { class: "who-card" },
+        el("div", { class: "who-title" }, el("ha-icon", { icon: "mdi:hand-coin-outline" }), "Acquirente"),
+        text("Nome e cognome", "buyer_name"),
+        phone("Telefono", "buyer_phone")),
+      el("div", { class: "who-card" },
+        el("div", { class: "who-title" }, el("ha-icon", { icon: "mdi:gift-outline" }), "Destinatario"),
+        text("Nome e cognome", "recipient_name"),
+        phone("Telefono", "recipient_phone"))));
+    wrap.appendChild(el("label", { class: "field created-by" },
+      el("span", {}, "Creato da *"),
+      el("input", {
+        class: "input", type: "text", required: true, readonly: locked ? "readonly" : null,
+        value: draft.created_by || "",
+        placeholder: "Nome di chi crea il voucher",
+        on: { input: (event) => { draft.created_by = event.target.value; }, keydown: (event) => event.stopPropagation() },
+      }),
+      el("span", { class: "dim" }, locked
+        ? "È il nome di chi è collegato: resta scritto sul voucher."
+        : "Obbligatorio: resta scritto sul voucher.")));
+    return wrap;
+  }
 
-    // Group active treatments by category.
+  /** Active treatments grouped by category, in the desk's category order. */
+  _voucherTreatmentGroups() {
     const activeTreatments = this._data.treatments.filter((treatment) => treatment.active);
     const categories = this._data.categories || [];
     const catOrder = ((this._data.settings && this._data.settings.categories_order) || {});
@@ -7055,98 +7986,29 @@ class SpaBookingCard extends HTMLElement {
       const rankB = leftB >= 0 ? leftB : rightB >= 0 ? rightB + 1000 : 2000;
       return rankA - rankB || a.name.localeCompare(b.name);
     });
-    const treatmentsByCat = new Map();
+    const groups = [];
     orderedCats.forEach((cat) => {
       const trts = activeTreatments.filter((t) => t.category_id === cat.id);
-      if (trts.length) treatmentsByCat.set(cat.id, { category: cat, treatments: trts.sort((a, b) => a.name.localeCompare(b.name)) });
+      if (trts.length) groups.push({ category: cat, treatments: trts.sort((a, b) => a.name.localeCompare(b.name)) });
     });
-    // Treatments without a category.
     const uncategorized = activeTreatments.filter((t) => !t.category_id || !categories.some((c) => c.id === t.category_id));
-    if (uncategorized.length) treatmentsByCat.set("__none__", { category: { id: "__none__", name: "Altri" }, treatments: uncategorized.sort((a, b) => a.name.localeCompare(b.name)) });
+    if (uncategorized.length) groups.push({ category: { id: "__none__", name: "Altri" }, treatments: uncategorized.sort((a, b) => a.name.localeCompare(b.name)) });
+    return groups;
+  }
 
+  _voucherStepPeople(draft) {
+    const groups = this._voucherTreatmentGroups();
+    const wrap = el("div", { class: "stack tight" });
     draft.people.forEach((person, index) => {
-      const block = el("div", { class: "cfg-box" },
-        el("h3", {}, `Persona ${index + 1}`),
-        el("label", { class: "field" }, el("span", {}, "Nome (facoltativo)"),
-          el("input", {
-            class: "input", type: "text", value: person.name || "",
-            on: { input: (event) => { person.name = event.target.value; } },
-          })));
-
-      // Treatments grouped by category.
-      treatmentsByCat.forEach(({ category, treatments }) => {
-        const catBox = el("div", { class: "cfg-box cat-box" });
-        catBox.appendChild(el("h4", { class: "cat-header" }, category.name));
-        const grid = el("div", { class: "checks-grid" });
-        treatments.forEach((treatment) => {
-          grid.appendChild(el("label", { class: "check" },
-            el("input", {
-              type: "checkbox",
-              checked: person.treatment_ids.includes(treatment.id),
-              on: { change: (event) => {
-                const on = event.target.checked;
-                person.treatment_ids = on
-                  ? [...person.treatment_ids, treatment.id]
-                  : person.treatment_ids.filter((id) => id !== treatment.id);
-              } },
-            }),
-            el("span", {}, `${treatment.name}${treatment.price ? ` · ${euro(treatment.price)}` : ""}`)));
-        });
-        catBox.appendChild(grid);
-        block.appendChild(catBox);
-      });
-
-      // Gift card (monetary value) — not a treatment.
-      const giftCardBox = el("div", { class: "cfg-box" });
-      giftCardBox.appendChild(el("div", { class: "hint small" }, "Gift card (valore in denaro)"));
-      giftCardBox.appendChild(el("label", { class: "field" },
-        el("span", {}, "Importo (€)"),
+      const block = el("div", { class: "person-card" });
+      block.appendChild(el("div", { class: "person-head" },
+        el("span", { class: "person-n" }, String(index + 1)),
         el("input", {
-          class: "input", type: "number", step: "0.01", min: "0",
-          value: person.gift_card_amount || "",
-          placeholder: "es. 50.00",
-          on: { input: (event) => { person.gift_card_amount = event.target.value ? parseFloat(event.target.value) : null; } },
-        })));
-      giftCardBox.appendChild(el("label", { class: "check" },
-        el("input", {
-          type: "checkbox",
-          checked: !!person.gift_card_amount,
-          on: { change: (event) => {
-            if (!event.target.checked) person.gift_card_amount = null;
-          } },
+          class: "input", type: "text", value: person.name || "", placeholder: `Persona ${index + 1} (nome facoltativo)`,
+          on: { input: (event) => { person.name = event.target.value; }, keydown: (event) => event.stopPropagation() },
         }),
-        el("span", {}, "Aggiungi gift card a questo voucher")));
-      block.appendChild(giftCardBox);
-
-      const extras = el("div", { class: "checks-grid" });
-      this._accessories().forEach((extra) => {
-        extras.appendChild(el("label", { class: "check" },
-          el("input", {
-            type: "checkbox",
-            checked: person.extras.includes(extra.id),
-            on: { change: (event) => {
-              const on = event.target.checked;
-              person.extras = on
-                ? [...person.extras, extra.id]
-                : person.extras.filter((id) => id !== extra.id);
-            } },
-          }),
-          el("span", {}, extra.label)));
-      });
-      block.appendChild(el("div", { class: "hint small" }, "Accessori"));
-      block.appendChild(extras);
-
-      if (draft.people.length > 1) {
-        block.appendChild(el("button", {
-          class: "btn small danger",
-          on: { click: () => { draft.people = draft.people.filter((_, i) => i !== index); this._render(); } },
-        }, el("ha-icon", { icon: "mdi:delete" }), "Rimuovi persona"));
-      }
-      // "Copia dalla prima persona" button for persons 2+.
-      if (index > 0 && draft.people.length > 1) {
-        block.appendChild(el("button", {
-          class: "btn small",
-          disabled: this._busy,
+        index > 0 ? el("button", {
+          class: "btn small ghost", title: "Copia trattamenti dalla persona 1",
           on: { click: () => {
             const first = draft.people[0];
             person.treatment_ids = [...first.treatment_ids];
@@ -7154,171 +8016,305 @@ class SpaBookingCard extends HTMLElement {
             person.gift_card_amount = first.gift_card_amount;
             this._render();
           } },
-        }, el("ha-icon", { icon: "mdi:content-copy" }), "Copia dalla prima persona"));
+        }, el("ha-icon", { icon: "mdi:content-copy" }), el("span", { class: "label" }, "Copia dalla 1ª")) : null,
+        draft.people.length > 1 ? el("button", {
+          class: "btn small ghost danger", title: "Rimuovi persona",
+          on: { click: () => { draft.people = draft.people.filter((_, i) => i !== index); this._render(); } },
+        }, el("ha-icon", { icon: "mdi:delete" })) : null));
+      groups.forEach(({ category, treatments }) => {
+        block.appendChild(el("div", { class: "cat-label" }, category.name));
+        block.appendChild(el("div", { class: "pick-grid" }, treatments.map((treatment) => {
+          const on = person.treatment_ids.includes(treatment.id);
+          return el("button", {
+            class: `pick${on ? " on" : ""}`,
+            "aria-pressed": on ? "true" : "false",
+            on: { click: () => {
+              person.treatment_ids = on
+                ? person.treatment_ids.filter((id) => id !== treatment.id)
+                : [...person.treatment_ids, treatment.id];
+              this._render();
+            } },
+          }, el("span", { class: "pick-name" }, treatment.name),
+          treatment.price ? el("span", { class: "pick-price" }, euro(treatment.price)) : null);
+        })));
+      });
+      const accessories = this._accessories();
+      if (accessories.length) {
+        block.appendChild(el("div", { class: "cat-label" }, "Accessori"));
+        block.appendChild(el("div", { class: "chips" }, accessories.map((extra) => {
+          const on = person.extras.includes(extra.id);
+          return el("button", {
+            class: `fchip${on ? " on" : ""}`,
+            on: { click: () => {
+              person.extras = on ? person.extras.filter((id) => id !== extra.id) : [...person.extras, extra.id];
+              this._render();
+            } },
+          }, extra.label);
+        })));
       }
-      box.appendChild(block);
+      block.appendChild(el("label", { class: "field inline gift" },
+        el("span", {}, el("ha-icon", { icon: "mdi:gift-outline" }), "Gift card (€)"),
+        el("input", {
+          class: "input narrow", type: "number", step: "0.01", min: "0",
+          value: person.gift_card_amount || "", placeholder: "es. 50",
+          on: {
+            input: (event) => { person.gift_card_amount = event.target.value ? parseFloat(event.target.value) : null; },
+            keydown: (event) => event.stopPropagation(),
+          },
+        })));
+      wrap.appendChild(block);
     });
+    wrap.appendChild(el("button", {
+      class: "btn ghost add-person",
+      on: { click: () => { draft.people.push({ name: "", treatment_ids: [], extras: [] }); this._render(); } },
+    }, el("ha-icon", { icon: "mdi:account-plus" }), "Aggiungi persona"));
+    return wrap;
+  }
 
-    box.appendChild(el("div", { class: "row tight" },
-      el("button", {
-        class: "btn small",
-        disabled: this._busy,
-        on: { click: () => { draft.people.push({ name: "", treatment_ids: [], extras: [] }); this._render(); } },
-      }, el("ha-icon", { icon: "mdi:plus" }), "Aggiungi persona"),
-      el("button", {
-        class: "btn primary small",
-        disabled: this._busy,
-        on: { click: () => this._createVoucher() },
-      }, el("ha-icon", { icon: "mdi:ticket-confirmation-outline" }), "Crea voucher")));
-    return box;
+  /** The value of a voucher: list price of its treatments plus gift cards. */
+  _voucherValue(voucher) {
+    return (voucher.people || []).reduce((sum, person) =>
+      sum + (person.treatment_ids || []).reduce((inner, id) =>
+        inner + (Number((this._lookup.treatment.get(id) || {}).price) || 0), 0)
+      + (Number(person.gift_card_amount) || 0), 0);
+  }
+
+  _voucherPeopleLines(voucher) {
+    const treatmentName = (id) => (this._lookup.treatment.get(id) || {}).name || id;
+    return (voucher.people || []).map((person, index) => {
+      const parts = [];
+      if ((person.treatment_ids || []).length) parts.push(person.treatment_ids.map(treatmentName).join(", "));
+      if (person.gift_card_amount) parts.push(`gift card ${euro(person.gift_card_amount)}`);
+      if ((person.extras || []).length) parts.push(person.extras.map((id) => this._accessoryLabel(id)).join(", "));
+      return { name: person.name || `Persona ${index + 1}`, text: parts.join(" · ") || "nessun trattamento" };
+    });
+  }
+
+  _voucherStepSummary(draft) {
+    const value = this._voucherValue(draft);
+    const wrap = el("div", { class: "summary" });
+    const line = (label, value) => el("div", { class: "sum-row" }, el("span", { class: "dim" }, label), el("span", {}, value));
+    wrap.appendChild(line("Acquirente", [draft.buyer_name, draft.buyer_phone].filter(Boolean).join(" · ") || "—"));
+    wrap.appendChild(line("Destinatario", [draft.recipient_name, draft.recipient_phone].filter(Boolean).join(" · ") || "—"));
+    this._voucherPeopleLines(draft).forEach((person) => wrap.appendChild(line(person.name, person.text)));
+    wrap.appendChild(line("Valore", value ? euro(value) : "—"));
+    wrap.appendChild(line("Validità", "6 mesi da oggi"));
+    wrap.appendChild(line("Creato da", draft.created_by || "—"));
+    return wrap;
   }
 
   async _createVoucher() {
     const draft = this._voucherDraftState();
-    // Allow gift card without treatments: each person needs either treatments or a gift card amount.
-    if (draft.people.some((person) => !person.treatment_ids.length && !person.gift_card_amount)) {
-      this._message = { kind: "error", text: "Ogni persona deve avere almeno un trattamento o una gift card." };
+    const problem = this._voucherStepProblem(draft, 3);
+    if (problem) {
+      this._message = { kind: "error", text: problem };
       this._render();
       return;
     }
     try {
       const response = await this._call("create_voucher", {
-        buyer_name: draft.buyer_name.trim(),
-        buyer_phone: draft.buyer_phone.trim(),
-        recipient_name: draft.recipient_name.trim(),
-        recipient_phone: draft.recipient_phone.trim(),
+        buyer_name: (draft.buyer_name || "").trim(),
+        buyer_phone: (draft.buyer_phone || "").trim(),
+        recipient_name: (draft.recipient_name || "").trim(),
+        recipient_phone: (draft.recipient_phone || "").trim(),
+        created_by: (draft.created_by || "").trim(),
         people: draft.people.map((person) => ({
-          name: person.name.trim(),
+          name: (person.name || "").trim(),
           treatment_ids: person.treatment_ids,
           extras: person.extras,
           gift_card_amount: person.gift_card_amount,
         })),
       });
       this._voucherDraft = null;
-    this._waReplyTo = null;
-    this._waReplyText = "";
-    this._waBusy = false;
-    this._waReplyTo = null;
-    this._waReplyText = "";
-    this._waBusy = false;
-      const code = response && response.voucher ? response.voucher.code : "";
-      this._message = { kind: "ok", text: `Voucher creato: ${code}` };
+      const voucher = response && response.voucher;
+      this._voucherCreated = voucher ? voucher.id : null;
+      this._message = { kind: "ok", text: `Voucher creato: ${voucher ? voucher.code : ""}` };
       this._render();
     } catch (error) { /* shown */ }
   }
 
+  /** Right after "Crea voucher": the code, big, with Copia and Invia. */
+  _voucherCreatedBox(voucherId) {
+    const voucher = (this._data.vouchers || []).find((v) => v.id === voucherId);
+    if (!voucher) return null;
+    return el("div", { class: "created-box" },
+      el("ha-icon", { icon: "mdi:check-circle" }),
+      el("div", { class: "grow" },
+        el("div", { class: "dim" }, "Voucher creato"),
+        el("div", { class: "created-code" }, voucher.code)),
+      this._voucherCopyButton(voucher, true),
+      this._voucherSendButton(voucher, true),
+      el("button", { class: "icon-btn", title: "Chiudi", on: { click: () => { this._voucherCreated = null; this._render(); } } },
+        el("ha-icon", { icon: "mdi:close" })));
+  }
+
   _voucherListBox(canManage) {
-    const box = el("div", { class: "cfg-box" }, el("h3", {}, "Voucher emessi"));
-    const voucherListSearch = el("input", {
-      class: "input voucher-list-search",
-      type: "search",
-      placeholder: "Cerca per codice, acquirente o destinatario",
-      value: this._voucherQuery || "",
-    });
-    this._searchInputRedraw(voucherListSearch, ".voucher-list-search", (value) => {
-      this._voucherQuery = value;
-    });
-    box.appendChild(voucherListSearch);
-    const list = this._vouchersMatching(this._voucherQuery || "");
+    const filter = this._voucherFilter || "";
+    const list = this._vouchersMatching(this._voucherQuery || "")
+      .filter((voucher) => !filter || this._voucherState(voucher) === filter
+        || (filter === "attivo" && this._voucherState(voucher) === "scadenza"));
+    const box = el("div", { class: "voucher-list" });
     if (!list.length) {
-      box.appendChild(el("div", { class: "hint" }, "Nessun voucher."));
+      box.appendChild(el("div", { class: "empty" },
+        (this._data.vouchers || []).length ? "Nessun voucher con questi filtri." : "Ancora nessun voucher."));
       return box;
     }
     list.forEach((voucher) => box.appendChild(this._voucherRow(voucher, canManage)));
     return box;
   }
 
-  _voucherRow(voucher, canManage) {
-    const treatmentName = (id) => (this._lookup.treatment.get(id) || {}).name || id;
-    const extraLabel = (id) => this._accessoryLabel(id);
-    const isAdmin = this._userLevel() === "admin";
-    const row = el("div", { class: "row item voucher-row" },
-      el("div", { class: "grow" },
-        el("div", {}, voucher.code, " · ", el("span", { class: "chip" }, this._voucherStatusText(voucher))),
-        el("div", { class: "dim small" },
-          `Acquirente ${voucher.buyer_name || "—"} ${voucher.buyer_phone || ""} → Destinatario ${voucher.recipient_name || "—"} ${voucher.recipient_phone || ""}`),
-        ...voucher.people.map((person) => {
-          const parts = [];
-          if (person.treatment_ids.length) parts.push(person.treatment_ids.map(treatmentName).join(", "));
-          if (person.gift_card_amount) parts.push(`Gift card: ${euro(person.gift_card_amount)}`);
-          if (person.extras.length) parts.push(person.extras.map(extraLabel).join(", "));
-          return el("div", { class: "dim small" },
-            `${person.name || "Persona"}: ${parts.join(" · ") || "nessun trattamento"}`);
-        })));
-    // Ordine bottoni: Copia -> Nuovo appuntamento -> Estendi -> Elimina
-    // Tutti i bottoni sono in un contenitore actions per l'ordine corretto
-    const actions = el("div", { class: "op-actions" });
-    
-    // 1. Bottone "Copia codice voucher" — visibile a tutti
-    const copyBtn = el("button", {
-      class: "btn small copy-voucher-code",
-      title: "Copia codice voucher",
-      disabled: this._busy,
+  _voucherCopyButton(voucher, labelled) {
+    return el("button", {
+      class: "btn small",
+      title: "Copia il codice",
       on: { click: () => {
-        navigator.clipboard.writeText(voucher.code);
-        this._message = { kind: "info", text: "Codice " + voucher.code + " copiato negli appunti" };
+        try { navigator.clipboard.writeText(voucher.code); } catch (error) { /* no clipboard */ }
+        this._message = { kind: "info", text: `Codice ${voucher.code} copiato` };
         this._render();
       } },
-    });
-    copyBtn.appendChild(el("ha-icon", { icon: "mdi:content-copy" }));
-    actions.appendChild(copyBtn);
-    
-    // 2. Bottone "Crea appuntamento con codice" — visibile a tutti
-    const appointmentBtn = el("button", {
-      class: "btn small",
-      title: "Crea appuntamento con codice",
-      disabled: this._busy,
-      on: { click: () => this._createAppointmentWithVoucher(voucher) }
-    });
-    appointmentBtn.appendChild(el("ha-icon", { icon: "mdi:calendar-plus" }));
-    actions.appendChild(appointmentBtn);
-    
-    // 3. Bottone "Nuova scadenza" — solo se canManage e non riscattato
-    if (canManage && voucher.status !== "redeemed") {
-      const extendBtn = el("button", {
-        class: "btn small",
-        title: "Nuova scadenza",
+    }, el("ha-icon", { icon: "mdi:content-copy" }), labelled ? el("span", { class: "label" }, "Copia") : null);
+  }
+
+  _voucherSendButton(voucher, labelled) {
+    if (!this._can("create_voucher")) return null;
+    if (!voucher.recipient_phone && !voucher.buyer_phone) return null;
+    return el("button", {
+      class: "btn small wa",
+      title: "Invia il voucher su WhatsApp",
+      on: { click: () => { this._voucherSend = this._voucherSend === voucher.id ? null : voucher.id; this._render(); } },
+    }, el("ha-icon", { icon: "mdi:whatsapp" }), labelled ? el("span", { class: "label" }, "Invia") : null);
+  }
+
+  /** The WhatsApp text that carries a voucher to its holder. */
+  _voucherMessage(voucher, toBuyer) {
+    const name = (toBuyer ? voucher.buyer_name : voucher.recipient_name) || "";
+    const hello = name ? `Ciao ${name.split(/\s+/)[0]},` : "Ciao,";
+    const lines = this._voucherPeopleLines(voucher).map((p) => `• ${p.name}: ${p.text}`);
+    const title = (this._data.settings && this._data.settings.card_title) || "la nostra SPA";
+    return [
+      toBuyer && voucher.recipient_name
+        ? `${hello} ecco il voucher regalo per ${voucher.recipient_name}.`
+        : `${hello} ecco il tuo voucher regalo per ${title}.`,
+      "",
+      `Codice: *${voucher.code}*`,
+      ...lines,
+      `Valido fino al ${this._dateIt(voucher.expires_on)}.`,
+      "",
+      "Per prenotare rispondi a questo messaggio o indica il codice sul nostro sito.",
+    ].join("\n");
+  }
+
+  _voucherSendPanel(voucher) {
+    const targets = [];
+    if (voucher.recipient_phone) targets.push({ id: "recipient", label: `Destinatario · ${voucher.recipient_name || voucher.recipient_phone}`, phone: voucher.recipient_phone });
+    if (voucher.buyer_phone) targets.push({ id: "buyer", label: `Acquirente · ${voucher.buyer_name || voucher.buyer_phone}`, phone: voucher.buyer_phone });
+    const state = this._voucherSendState && this._voucherSendState.id === voucher.id
+      ? this._voucherSendState
+      : (this._voucherSendState = { id: voucher.id, target: targets[0].id, text: null });
+    const target = targets.find((t) => t.id === state.target) || targets[0];
+    if (state.text === null) state.text = this._voucherMessage(voucher, target.id === "buyer");
+    const panel = el("div", { class: "send-panel" });
+    if (targets.length > 1) {
+      panel.appendChild(el("div", { class: "chips" }, targets.map((t) => el("button", {
+        class: `fchip${t.id === target.id ? " on" : ""}`,
+        on: { click: () => { state.target = t.id; state.text = this._voucherMessage(voucher, t.id === "buyer"); this._render(); } },
+      }, t.label))));
+    }
+    panel.appendChild(el("textarea", {
+      class: "input", rows: "7",
+      on: { input: (event) => { state.text = event.target.value; }, keydown: (event) => event.stopPropagation() },
+    }, state.text));
+    panel.appendChild(el("div", { class: "row tight" },
+      el("button", {
+        class: "btn primary small wa",
         disabled: this._busy,
+        on: { click: async () => {
+          try {
+            await this._call("send_external_message", { chat_id: target.phone, text: state.text });
+            this._voucherSend = null;
+            this._voucherSendState = null;
+            this._message = { kind: "ok", text: `Voucher inviato su WhatsApp a ${target.phone}` };
+            this._render();
+          } catch (error) { /* shown */ }
+        } },
+      }, el("ha-icon", { icon: "mdi:send" }), `Invia a ${target.phone}`),
+      el("button", { class: "btn small ghost", on: { click: () => { this._voucherSend = null; this._render(); } } }, "Annulla")));
+    return panel;
+  }
+
+  _voucherRow(voucher, canManage) {
+    const state = this._voucherState(voucher);
+    const days = this._daysTo(voucher.expires_on);
+    const isAdmin = this._userLevel() === "admin";
+    const badge = {
+      attivo: ["ok", "Attivo"],
+      scadenza: ["warn", days === 0 ? "Scade oggi" : `Scade tra ${days} gg`],
+      riscattato: ["info", "Riscattato"],
+      scaduto: ["off", "Scaduto"],
+    }[state];
+    const value = this._voucherValue(voucher);
+    const ticket = el("div", { class: `ticket ${state}` });
+    const stub = el("div", { class: "ticket-stub" },
+      el("ha-icon", { icon: state === "riscattato" ? "mdi:ticket-confirmation" : "mdi:ticket-confirmation-outline" }),
+      el("span", { class: "ticket-value" }, value ? euro(value) : ""));
+    const people = this._voucherPeopleLines(voucher);
+    const main = el("div", { class: "ticket-main" },
+      el("div", { class: "ticket-top" },
+        el("span", { class: "ticket-code" }, voucher.code),
+        el("span", { class: `pill ${badge[0]}` }, badge[1])),
+      el("div", { class: "ticket-who" },
+        el("strong", {}, voucher.recipient_name || voucher.buyer_name || "—"),
+        voucher.recipient_name && voucher.buyer_name && voucher.buyer_name !== voucher.recipient_name
+          ? el("span", { class: "dim" }, ` · regalo di ${voucher.buyer_name}`) : null),
+      el("ul", { class: "ticket-people" }, people.map((p) =>
+        el("li", {}, people.length > 1 ? el("span", { class: "dim" }, `${p.name}: `) : null, p.text))),
+      el("div", { class: "ticket-meta" },
+        el("span", {}, el("ha-icon", { icon: "mdi:calendar-clock" }),
+          state === "riscattato"
+            ? `Riscattato${voucher.redeemed_at ? ` il ${this._dateIt(String(voucher.redeemed_at).slice(0, 10))}` : ""}`
+            : `${state === "scaduto" ? "Scaduto il" : "Valido fino al"} ${this._dateIt(voucher.expires_on)}`),
+        el("span", {}, el("ha-icon", { icon: "mdi:pencil" }),
+          `Creato da ${voucher.created_by_name || "—"}`),
+        voucher.created_at
+          ? el("span", {}, el("ha-icon", { icon: "mdi:clock-outline" }), this._dateIt(String(voucher.created_at).slice(0, 10)))
+          : null));
+    ticket.appendChild(stub);
+    ticket.appendChild(main);
+
+    const actions = el("div", { class: "ticket-actions" });
+    actions.appendChild(this._voucherCopyButton(voucher, true));
+    if (state !== "riscattato" && state !== "scaduto" && this._can("book")) {
+      actions.appendChild(el("button", {
+        class: "btn small", title: "Prenota con questo voucher", disabled: this._busy,
+        on: { click: () => this._createAppointmentWithVoucher(voucher) },
+      }, el("ha-icon", { icon: "mdi:calendar-plus" }), el("span", { class: "label" }, "Prenota")));
+    }
+    if (state !== "riscattato") add(actions, this._voucherSendButton(voucher, true));
+    if (canManage && state !== "riscattato") {
+      actions.appendChild(el("button", {
+        class: "btn small", title: "Nuova scadenza", disabled: this._busy,
         on: { click: () => { this._voucherExtend = this._voucherExtend === voucher.id ? null : voucher.id; this._render(); } },
-      }, el("ha-icon", { icon: "mdi:calendar-clock" }));
-      actions.appendChild(extendBtn);
+      }, el("ha-icon", { icon: "mdi:calendar-clock" }), el("span", { class: "label" }, "Scadenza")));
     }
-    
-    // 4. Bottone "Elimina" — solo se canManage (o admin se riscattato)
-    if (canManage) {
-      if (voucher.status !== "redeemed") {
-        actions.appendChild(el("button", {
-          class: "btn small danger",
-          title: "Elimina",
-          disabled: this._busy,
-          on: { click: async () => {
-            if (!window.confirm(`Eliminare il voucher ${voucher.code}?`)) return;
-            try { await this._call("delete_voucher", { voucher_id: voucher.id }); } catch (error) { /* shown */ }
-          } },
-        }, el("ha-icon", { icon: "mdi:delete" })));
-      } else if (isAdmin) {
-        // Only admin can delete redeemed vouchers.
-        actions.appendChild(el("button", {
-          class: "btn small danger",
-          title: "Elimina (solo admin)",
-          disabled: this._busy,
-          on: { click: async () => {
-            if (!window.confirm(`Eliminare il voucher ${voucher.code}? (È già stato riscattato)`)) return;
-            try { await this._call("delete_voucher", { voucher_id: voucher.id }); } catch (error) { /* shown */ }
-          } },
-        }, el("ha-icon", { icon: "mdi:delete" })));
-      }
+    if (canManage && (state !== "riscattato" || isAdmin)) {
+      actions.appendChild(el("button", {
+        class: "btn small ghost danger",
+        title: state === "riscattato" ? "Elimina (solo amministratore)" : "Elimina",
+        disabled: this._busy,
+        on: { click: async () => {
+          const extra = state === "riscattato" ? " (è già stato riscattato)" : "";
+          if (!window.confirm(`Eliminare il voucher ${voucher.code}?${extra}`)) return;
+          try { await this._call("delete_voucher", { voucher_id: voucher.id }); } catch (error) { /* shown */ }
+        } },
+      }, el("ha-icon", { icon: "mdi:delete" })));
     }
-    
-    row.appendChild(actions);
-    
-    // Input per estendere la scadenza (mostrato quando si clicca "Nuova scadenza")
+    main.appendChild(actions);
+
     if (this._voucherExtend === voucher.id) {
       const input = el("input", { class: "input", type: "date", value: voucher.expires_on || "" });
-      row.appendChild(el("div", { class: "row tight" }, input,
+      main.appendChild(el("div", { class: "row tight" }, input,
         el("button", {
-          class: "btn primary small",
-          disabled: this._busy,
+          class: "btn primary small", disabled: this._busy,
           on: { click: async () => {
             if (!input.value) return;
             try {
@@ -7328,7 +8324,8 @@ class SpaBookingCard extends HTMLElement {
           } },
         }, el("ha-icon", { icon: "mdi:content-save" }), "Salva scadenza")));
     }
-    return row;
+    if (this._voucherSend === voucher.id) main.appendChild(this._voucherSendPanel(voucher));
+    return ticket;
   }
 
   /** Apre la scheda Nuovo appuntamento con il codice voucher già compilato. */
@@ -7700,61 +8697,134 @@ class SpaBookingCard extends HTMLElement {
   }
 
   _renderWhatsapp() {
-    const wrap = el("div", { class: "wa-list" });
     const sensorState = this._hass.states["sensor.spa_booking_messaggi_whatsapp_esterni"];
     const messages = (sensorState && sensorState.attributes && sensorState.attributes.messages) || [];
+    const wrap = el("div", { class: "stack" });
+    wrap.appendChild(this._sectionHead("mdi:whatsapp", "Messaggi WhatsApp",
+      "Messaggi arrivati al numero dell'hotel da chi non è un'operatrice. Rispondi, crea una richiesta o salva il cliente."));
     if (!messages.length) {
-      return el("div", { class: "empty" }, "Nessun messaggio esterno ricevuto.");
+      wrap.appendChild(el("div", { class: "empty" }, "Nessun messaggio esterno ricevuto."));
+      return wrap;
     }
+    // One conversation per number, newest first.
+    const chats = new Map();
     messages.forEach((msg) => {
-      const card = el("div", { class: "wa-card" });
-      // Header: icon, sender, time
-      add(card, el("div", { class: "wa-header" },
-        el("ha-icon", { icon: "mdi:whatsapp" }),
-        el("span", { class: "wa-sender" }, msg.chat_id || "Sconosciuto"),
-        el("span", { class: "wa-time" }, msg.received_at ? msg.received_at.split("T")[1].substring(0, 5) : "")
-      ));
-      // Message text
-      add(card, el("div", { class: "wa-text" }, msg.text || ""));
-      // Actions
-      add(card, el("div", { class: "wa-actions" },
-        el("button", {
-          class: "btn small",
-          on: { click: (e) => { e.preventDefault(); this._replyToWhatsapp(msg.chat_id); } }
-        }, el("ha-icon", { icon: "mdi:reply" }), "Rispondi"),
-        el("button", {
-          class: "btn small",
-          on: { click: (e) => { e.preventDefault(); this._createRequestFromWhatsapp(msg.chat_id); } }
-        }, el("ha-icon", { icon: "mdi:calendar-plus" }), "Crea richiesta"),
-        el("button", {
-          class: "btn small",
-          on: { click: () => this._saveAsClient(msg.chat_id) }
-        }, el("ha-icon", { icon: "mdi:account-group-plus" }), "Salva cliente")
-      ));
-      // Inline reply form for this specific message
-      if (this._waReplyTo === msg.chat_id) {
-        add(card, el("div", { class: "wa-reply" },
-          el("input", {
-            class: "wa-reply-input",
-            type: "text",
-            placeholder: "Scrivi la risposta...",
-            value: this._waReplyText || "",
-            on: { input: (event) => { this._waReplyText = event.target.value; } },
-          }),
-          el("button", {
-            class: "btn small",
-            disabled: this._waBusy,
-            on: { click: () => this._sendWaReply(msg.chat_id) }
-          }, this._waBusy ? "Invio..." : "Invia"),
-          el("button", {
-            class: "btn small ghost",
-            on: { click: () => { this._waReplyTo = null; this._waReplyText = ""; this._render(); } }
-          }, "Annulla")
-        ));
-      }
-      add(wrap, card);
+      const id = msg.chat_id || "Sconosciuto";
+      if (!chats.has(id)) chats.set(id, []);
+      chats.get(id).push(msg);
     });
+    const ordered = [...chats.entries()]
+      .map(([id, list]) => [id, list.slice().sort((a, b) => String(a.received_at || "").localeCompare(String(b.received_at || "")))])
+      .sort((a, b) => String(b[1][b[1].length - 1].received_at || "").localeCompare(String(a[1][a[1].length - 1].received_at || "")));
+    if (!this._waChat || !chats.has(this._waChat)) this._waChat = ordered[0][0];
+
+    const shell = el("div", { class: `wa-shell${this._waChatOpen ? " open" : ""}` });
+    const list = el("div", { class: "wa-chats" });
+    ordered.forEach(([id, items]) => {
+      const last = items[items.length - 1];
+      const client = this._clientByChat(id);
+      list.appendChild(el("button", {
+        class: `wa-chat${id === this._waChat ? " on" : ""}`,
+        on: { click: () => { this._waChat = id; this._waChatOpen = true; this._render(); } },
+      },
+      el("span", { class: "user-avatar tone-2" }, client ? this._initials(this._clientName({ client_id: client.id })) : el("ha-icon", { icon: "mdi:account-outline" })),
+      el("span", { class: "wa-chat-text" },
+        el("span", { class: "wa-chat-name" }, client ? this._clientName({ client_id: client.id }) : this._chatLabel(id)),
+        el("span", { class: "wa-chat-last" }, last.text || "")),
+      el("span", { class: "wa-chat-time" }, this._waTime(last.received_at))));
+    });
+    shell.appendChild(list);
+
+    const items = chats.get(this._waChat) || [];
+    const chatId = this._waChat;
+    const client = this._clientByChat(chatId);
+    const conv = el("div", { class: "wa-conv" });
+    conv.appendChild(el("div", { class: "wa-conv-head" },
+      el("button", { class: "icon-btn wa-back", title: "Torna ai messaggi", on: { click: () => { this._waChatOpen = false; this._render(); } } },
+        el("ha-icon", { icon: "mdi:arrow-left" })),
+      el("div", { class: "grow" },
+        el("div", { class: "wa-chat-name" }, client ? this._clientName({ client_id: client.id }) : this._chatLabel(chatId)),
+        el("div", { class: "dim small" }, client ? this._clientSummary(client) : `${this._chatLabel(chatId)} · non è ancora un cliente`))));
+    const bubbles = el("div", { class: "wa-bubbles" });
+    items.forEach((msg) => bubbles.appendChild(
+      el("div", { class: "bubble in" }, el("span", {}, msg.text || ""), el("span", { class: "bubble-time" }, this._waTime(msg.received_at)))));
+    (this._waSent && this._waSent[chatId] || []).forEach((text) =>
+      bubbles.appendChild(el("div", { class: "bubble out" }, el("span", {}, text))));
+    conv.appendChild(bubbles);
+    conv.appendChild(el("div", { class: "wa-compose" },
+      el("input", {
+        class: "input wa-reply-input",
+        type: "text",
+        placeholder: "Scrivi un messaggio",
+        value: this._waReplyTo === chatId ? this._waReplyText || "" : "",
+        on: {
+          input: (event) => { this._waReplyTo = chatId; this._waReplyText = event.target.value; },
+          keydown: (event) => {
+            event.stopPropagation();
+            if (event.key === "Enter" && !this._waBusy && (this._waReplyText || "").trim()) this._sendWaReply(chatId);
+          },
+          keyup: (event) => event.stopPropagation(),
+          keypress: (event) => event.stopPropagation(),
+        },
+      }),
+      el("button", {
+        class: "btn primary wa-send",
+        title: "Invia",
+        disabled: this._waBusy,
+        on: { click: () => { this._waReplyTo = chatId; this._sendWaReply(chatId); } },
+      }, el("ha-icon", { icon: "mdi:send" }))));
+    conv.appendChild(el("div", { class: "wa-actions" },
+      el("button", {
+        class: "btn small",
+        on: { click: (e) => { e.preventDefault(); this._createRequestFromWhatsapp(chatId); } },
+      }, el("ha-icon", { icon: "mdi:calendar-plus" }), "Crea richiesta"),
+      client ? null : el("button", {
+        class: "btn small",
+        on: { click: () => this._saveAsClient(chatId) },
+      }, el("ha-icon", { icon: "mdi:account-plus" }), "Salva cliente")));
+    shell.appendChild(conv);
+    wrap.appendChild(shell);
     return wrap;
+  }
+
+  _waTime(value) {
+    if (!value) return "";
+    const date = parseDate(value);
+    if (!date) return "";
+    return ymd(date) === todayStr() ? timeOf(date) : `${pad(date.getDate())}/${pad(date.getMonth() + 1)}`;
+  }
+
+  /** "+39 340 555 1212" from "393405551212@c.us". */
+  _chatLabel(chatId) {
+    const digits = String(chatId || "").split("@")[0].replace(/\D/g, "");
+    if (!digits) return String(chatId || "");
+    const { cc, number } = splitPhone(`+${digits}`);
+    return `+${cc} ${number}`;
+  }
+
+  /** The client whose phone is this WhatsApp chat, if any. */
+  _clientByChat(chatId) {
+    const digits = String(chatId || "").split("@")[0].replace(/\D/g, "");
+    if (!digits) return null;
+    return (this._data.clients || []).find((client) => {
+      if (!client.phone) return false;
+      const { cc, number } = splitPhone(client.phone);
+      return `${cc}${number.replace(/\D/g, "")}` === digits;
+    }) || null;
+  }
+
+  /** "4 visite · prossimo gio 12 alle 11:30". */
+  _clientSummary(client) {
+    const now = new Date();
+    const mine = (this._data.appointments || []).filter((a) => a.client_id === client.id && a.status !== "cancelled");
+    const next = mine
+      .map((a) => ({ a, start: parseDate(a.start) }))
+      .filter(({ start }) => start && start > now)
+      .sort((x, y) => x.start - y.start)[0];
+    const visits = mine.filter((a) => { const start = parseDate(a.start); return start && start <= now; }).length;
+    const bits = [`Cliente · ${visits} ${visits === 1 ? "visita" : "visite"}`];
+    if (next) bits.push(`prossimo ${longDay(next.start).split(" ").slice(0, 2).join(" ")} alle ${timeOf(next.start)}`);
+    return bits.join(" · ");
   }
 
   _replyToWhatsapp(chatId, originalText) {
@@ -7774,6 +8844,10 @@ class SpaBookingCard extends HTMLElement {
     if (!text) return;
     this._waBusy = true;
     this._call("send_external_message", { chat_id: chatId, text }).then(() => {
+      // Only the incoming messages are stored: the replies sent from here
+      // show in the conversation until the page is reloaded.
+      if (!this._waSent) this._waSent = {};
+      this._waSent[chatId] = [...(this._waSent[chatId] || []), text];
       this._waReplyTo = null;
       this._waReplyText = "";
       this._waBusy = false;
@@ -7894,78 +8968,91 @@ class SpaBookingCard extends HTMLElement {
       };
     });
 
-    list.forEach((req) => {
+    // Waiting first, then by date; confirmed ones fold at the bottom.
+    const waiting = list.filter((req) => !req.is_confirmed)
+      .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")));
+    const done = list.filter((req) => req.is_confirmed);
+    const fromWeb = waiting.filter((req) => req.source === "web").length;
+    wrap.appendChild(this._sectionHead("mdi:clipboard-check-outline", "Richieste",
+      "Le richieste non occupano ancora l'agenda: «Conferma» crea gli appuntamenti, «Modifica» apre la richiesta nel modulo."));
+    wrap.appendChild(el("div", { class: "stats" },
+      el("div", { class: "stat warn" }, el("span", { class: "stat-label" }, "Da confermare"), el("span", { class: "stat-value" }, String(waiting.length))),
+      el("div", { class: "stat" }, el("span", { class: "stat-label" }, "Dal sito"), el("span", { class: "stat-value" }, String(fromWeb))),
+      el("div", { class: "stat" }, el("span", { class: "stat-label" }, "Confermate"), el("span", { class: "stat-value" }, String(done.length)))));
+
+    const source = (req) => ({
+      web: ["info", "mdi:web", "Sito"],
+      whatsapp: ["ok", "mdi:whatsapp", "WhatsApp"],
+    }[req.source] || ["", "mdi:account-tie-outline", "Reception"]);
+    const card = (req, index) => {
       const client = req.client || {};
-      const name = client.full_name || "—";
-      const phone = client.phone || "—";
-      const dateIt = req.date_it || "—";
+      const name = client.full_name && client.full_name !== "—" ? client.full_name : (client.phone || "Senza nome");
       const people = req.people || 1;
-      const label = (e) => `${e.treatment_name || "—"}${e.start ? ` · ${e.start}` : ""}`;
       const tagged = (req.entries || []).some((e) => e.person !== undefined && e.person !== null);
-      let trList;
-      if (tagged && people > 1) {
-        // One line per person: "Persona 1: Massaggio · 10:00 — Persona 2: …"
-        const byPerson = new Map();
-        (req.entries || []).forEach((e) => {
-          const key = Number(e.person) || 0;
-          if (!byPerson.has(key)) byPerson.set(key, []);
-          byPerson.get(key).push(label(e));
-        });
-        trList = [...byPerson.keys()].sort((a, b) => a - b)
-          .map((key) => `Persona ${key + 1}: ${byPerson.get(key).join(", ")}`)
-          .join(" — ");
-      } else {
-        trList = (req.entries || []).map(label).join(", ") || "—";
-        if (people > 1 && (req.entries || []).length) trList += " (per ogni persona)";
-      }
-      const code = req.code || "—";
-      const status = req.is_confirmed ? "Confermata" : "In attesa";
-      const row = el("div", { class: "row tight request-card" },
-        el("div", { class: "stack tight" },
-          el("div", { class: "spa-title" }, name),
-          el("div", { class: "dim small" }, `Tel: ${phone}`),
-          el("div", { class: "dim small" }, `${dateIt} · Persone: ${people}`),
-          el("div", { class: "dim small" }, trList),
-          req.voucher_code
-            ? el("div", { class: "dim small" }, `Voucher: ${req.voucher_code}`)
-            : null,
-          el("div", { class: "dim small" }, `Codice: ${code} · ${status}`)
-        ),
-        el("div", { class: "row tight" },
+      const byPerson = new Map();
+      (req.entries || []).forEach((e) => {
+        const key = tagged ? (Number(e.person) || 0) : 0;
+        if (!byPerson.has(key)) byPerson.set(key, []);
+        byPerson.get(key).push(e);
+      });
+      const [tone, icon, label] = source(req);
+      const lines = [...byPerson.keys()].sort((a, b) => a - b).map((key) =>
+        el("div", { class: "req-line" },
+          people > 1 ? el("span", { class: "req-person" }, tagged ? `Persona ${key + 1}` : `${people} persone`) : null,
+          el("span", { class: "chips" }, byPerson.get(key).map((e) =>
+            el("span", { class: "req-entry" },
+              el("strong", {}, e.start || "--:--"), " ", e.treatment_name || "—")))));
+      return el("div", { class: `req-card${req.is_confirmed ? " done" : ""}` },
+        el("div", { class: "req-head" },
+          el("span", { class: `user-avatar tone-${index % 6}` }, this._initials(name)),
+          el("div", { class: "grow" },
+            el("div", { class: "req-name" }, name, " ",
+              el("span", { class: `pill ${tone}` }, el("ha-icon", { icon }), label),
+              req.source === "web" && req.seen === false ? el("span", { class: "pill warn" }, "Nuova") : null),
+            el("div", { class: "dim small" },
+              [client.phone && client.phone !== "—" ? client.phone : "", req.voucher_code ? `voucher ${req.voucher_code}` : "", `codice ${req.code || "—"}`]
+                .filter(Boolean).join(" · "))),
+          el("div", { class: "req-date" },
+            el("span", { class: "req-day" }, req.date ? longDay(new Date(`${req.date}T00:00:00`)).split(" ").slice(0, 3).join(" ") : "Data da definire"),
+            el("span", { class: "dim small" }, `${people} ${people === 1 ? "persona" : "persone"}`))),
+        lines,
+        req.notes ? el("div", { class: "req-notes" }, el("ha-icon", { icon: "mdi:note-text-outline" }), req.notes) : null,
+        el("div", { class: "req-actions" },
           !req.is_confirmed
             ? el("button", {
-                class: "btn primary small",
-                disabled: this._busy,
+                class: "btn primary small", disabled: this._busy,
                 on: { click: async () => {
                   try { await this._call("confirm_request", { request_id: req.id }); } catch (error) { /* shown */ }
                 } },
-              }, "Conferma")
-            : null,
+              }, el("ha-icon", { icon: "mdi:check" }), "Conferma")
+            : el("span", { class: "pill ok" }, el("ha-icon", { icon: "mdi:check" }), "Confermata"),
           el("button", {
-            class: "btn ghost small",
-            disabled: this._busy,
+            class: "btn small", disabled: this._busy,
+            on: { click: () => this._editRequest(req) },
+          }, el("ha-icon", { icon: "mdi:pencil" }), "Modifica"),
+          el("button", {
+            class: "btn small", disabled: this._busy,
+            title: "Rimanda all'ospite il messaggio della richiesta",
             on: { click: async () => {
               try { await this._call("send_request_message", { request_id: req.id }); } catch (error) { /* shown */ }
             } },
-          }, "Invia messaggio"),
+          }, el("ha-icon", { icon: "mdi:whatsapp" }), "Invia messaggio"),
+          el("div", { class: "spacer" }),
           el("button", {
-            class: "btn ghost small",
-            disabled: this._busy,
-            on: { click: () => this._editRequest(req) },
-          }, "Modifica"),
-          el("button", {
-            class: "icon-btn danger",
-            title: "Elimina",
-            disabled: this._busy,
+            class: "icon-btn danger", title: "Elimina", disabled: this._busy,
             on: { click: async () => {
               if (!window.confirm("Eliminare questa richiesta?")) return;
               try { await this._call("delete_request", { request_id: req.id }); } catch (error) { /* shown */ }
             } },
-          }, el("ha-icon", { icon: "mdi:delete" }))
-        )
-      );
-      wrap.appendChild(row);
-    });
+          }, el("ha-icon", { icon: "mdi:delete" }))));
+    };
+    if (!waiting.length) wrap.appendChild(el("div", { class: "empty" }, "Nessuna richiesta da confermare."));
+    waiting.forEach((req, index) => wrap.appendChild(card(req, index)));
+    if (done.length) {
+      wrap.appendChild(el("details", { class: "req-done" },
+        el("summary", {}, `Confermate (${done.length})`),
+        done.map((req, index) => card(req, index))));
+    }
     return wrap;
   }
 
@@ -8087,12 +9174,15 @@ _renderClients() {
       return wrap;
     }
 
-    const list = el("div", { class: "stack tight" });
-    clients.forEach((client) => {
+    const list = el("div", { class: "stack tight client-list" });
+    clients.forEach((client, index) => {
       const appointments = this._clientAppointments(client.id);
       const last = appointments.find((appointment) => appointment.status !== "cancelled");
       const whatsapp = waLink(client.phone);
       const row = el("div", { class: "client-row" });
+      const fullName = [client.first_name, client.last_name].filter(Boolean).join(" ");
+      row.appendChild(el("span", { class: `user-avatar tone-${index % 6}` },
+        fullName ? this._initials(fullName) : el("ha-icon", { icon: "mdi:account-outline" })));
 
       const main = el(
         "button",
@@ -8183,13 +9273,13 @@ _renderClients() {
 
   /** Create form: save_client without a client_id builds a brand new record. */
   _renderNewClient() {
-    const wrap = el("div", { class: "stack tight" });
+    const wrap = el("div", { class: "stack tight cfg-box form-card" });
     const draft = this._clientDraft || { first_name: "", last_name: "", phone: "", email: "", notes: "", promo_opt_in: true };
 
     wrap.appendChild(
-      el("div", { class: "row" },
-        el("h3", {}, "Nuova scheda cliente"),
-        el("div", { class: "spacer" }),
+      el("div", { class: "row form-card-head" },
+        this._sectionHead("mdi:account-plus", "Nuova scheda cliente",
+          "Nome e telefono bastano: il telefono con prefisso è quello dei messaggi WhatsApp."),
         el("button", {
           class: "btn small",
           on: {
@@ -8225,14 +9315,7 @@ _renderClients() {
     wrap.appendChild(
       el("div", { class: "row" },
         el("label", { class: "field" }, el("span", {}, "Telefono"),
-          el("input", { class: "input", type: "tel", value: draft.phone, autocomplete: "off",
-            placeholder: "es. 333 1234567 · estero: +41 79 1234567",
-            on: {
-              input: (event) => { draft.phone = event.target.value; },
-              keydown: (event) => { event.stopPropagation(); },
-              keyup: (event) => { event.stopPropagation(); },
-              keypress: (event) => { event.stopPropagation(); },
-            } })),
+          phoneInput(draft.phone, (value) => { draft.phone = value; })),
         el("label", { class: "field" }, el("span", {}, "Email"),
           el("input", { class: "input", type: "email", value: draft.email, autocomplete: "off",
             on: {
@@ -8364,12 +9447,36 @@ _renderClients() {
     // the right. The desk reads the card and the history side by side instead
     // of scrolling past every visit to reach the next thing. On a narrow screen
     // the columns stack, the history below.
-    const columns = el("div", { class: "two-col" });
-    const left = el("div", { class: "stack tight" });
-    const right = el("div", { class: "stack tight" });
+    const columns = el("div", { class: "two-col client-detail" });
+    const left = el("div", { class: "stack tight cfg-box" });
+    const right = el("div", { class: "stack tight cfg-box" });
 
-    left.appendChild(el("h3", {},
-      [client.first_name, client.last_name].filter(Boolean).join(" ") || "Senza nome"));
+    // The profile: who she is and what she brings, at a glance.
+    const fullName = [client.first_name, client.last_name].filter(Boolean).join(" ") || "Senza nome";
+    const visits = this._clientAppointments(client.id).filter((a) => a.status !== "cancelled");
+    const now = new Date();
+    const past = visits.filter((a) => parseDate(a.start) <= now);
+    const next = visits.map((a) => ({ a, start: parseDate(a.start) }))
+      .filter(({ start }) => start && start > now).sort((x, y) => x.start - y.start)[0];
+    const spent = visits.reduce((sum, a) => sum + (a.payments || [])
+      .reduce((inner, item) => inner + (Number(item.amount) || 0), 0), 0);
+    left.appendChild(el("div", { class: "profile-head" },
+      el("span", { class: "user-avatar big tone-1" }, this._initials(fullName)),
+      el("div", { class: "grow" },
+        el("div", { class: "profile-name" }, fullName),
+        el("div", { class: "dim small" }, [client.phone, client.email].filter(Boolean).join(" · ") || "Nessun contatto"),
+        el("div", { class: "chips", style: "margin-top:6px" },
+          past.length >= 3 ? el("span", { class: "pill warn" }, "Cliente abituale") : null,
+          el("span", { class: `pill ${client.promo_opt_in === false ? "" : "ok"}` },
+            el("ha-icon", { icon: client.promo_opt_in === false ? "mdi:bell-off-outline" : "mdi:bell-outline" }),
+            client.promo_opt_in === false ? "Promo disattivate" : "Riceve le promo")))));
+    left.appendChild(el("div", { class: "stats" },
+      el("div", { class: "stat" }, el("span", { class: "stat-label" }, "Visite"), el("span", { class: "stat-value" }, String(past.length))),
+      el("div", { class: "stat" }, el("span", { class: "stat-label" }, "Prossimo"),
+        el("span", { class: "stat-value small-value" }, next ? `${pad(next.start.getDate())}/${pad(next.start.getMonth() + 1)} ${timeOf(next.start)}` : "—")),
+      this._can("totals")
+        ? el("div", { class: "stat" }, el("span", { class: "stat-label" }, "Incassato"), el("span", { class: "stat-value small-value" }, euro(spent)))
+        : null));
 
     if (this._clientEditing) {
       const draft = this._clientEditing;
@@ -8385,8 +9492,7 @@ _renderClients() {
       left.appendChild(
         el("div", { class: "field-grid" },
           el("label", { class: "field" }, el("span", {}, "Telefono"),
-            el("input", { class: "input", type: "tel", value: draft.phone,
-              on: { input: (event) => { draft.phone = event.target.value; } } })),
+            phoneInput(draft.phone, (value) => { draft.phone = value; })),
           el("label", { class: "field" }, el("span", {}, "Email"),
             el("input", { class: "input", type: "email", value: draft.email,
               on: { input: (event) => { draft.email = event.target.value; } } })))
@@ -8413,13 +9519,10 @@ _renderClients() {
           }, "Salva"))
       );
     } else {
-      const details = [];
-      if (client.phone) details.push(client.phone);
-      if (client.email) details.push(client.email);
-      if (client.notes) details.push(client.notes);
-      left.appendChild(el("div", { class: "dim small" }, details.join(" · ") || "—"));
-      left.appendChild(el("div", { class: "dim small" },
-        client.promo_opt_in === false ? "Promo: disattivate" : "Promo: iscritto"));
+      if (client.notes) {
+        left.appendChild(el("div", { class: "req-notes" },
+          el("ha-icon", { icon: "mdi:note-text-outline" }), client.notes));
+      }
     }
 
     // Loyalty vouchers this client earned: shown always, with expiry, and
@@ -8741,10 +9844,9 @@ _renderClients() {
     box.appendChild(
       el("label", { class: "field" },
         el("span", {}, "WhatsApp avvisi dal sito"),
-        el("input", { class: "input", type: "tel", placeholder: "391234567890",
-          value: draft.notify_whatsapp != null
+        phoneInput(draft.notify_whatsapp != null
             ? draft.notify_whatsapp : (settings.web_notify_whatsapp || ""),
-          on: { input: (event) => { draft.notify_whatsapp = event.target.value; } } }))
+          (value) => { draft.notify_whatsapp = value; }))
     );
     box.appendChild(el("div", { class: "hint" },
       "Numero della reception che riceve un messaggio quando un ospite manda " +
@@ -8772,59 +9874,98 @@ _renderClients() {
           } },
         }, "Salva orari"))
     );
-    box.appendChild(
+    // The code for WordPress: two lines that load the form from Home
+    // Assistant (2.2.0b3), or the whole form as before for a site that
+    // cannot load a script from another address.
+    const copySnippet = async (full) => {
+      let text = "";
+      try {
+        const result = await this._service("web_snippet", { base_url: location.origin });
+        text = String((result && (full ? result.snippet_full : result.snippet)) || "");
+      } catch (error) {
+        this._message = { kind: "error", text: "Copia non riuscita." };
+        this._render();
+        return;
+      }
+      if (!text) {
+        this._message = { kind: "error",
+          text: "Modulo del sito non trovato nell'integrazione (frontend/spa-booking-form.txt)." };
+        this._render();
+        return;
+      }
+      try {
+        if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+          await navigator.clipboard.writeText(text);
+          this._message = { kind: "ok", text: full ? "Codice completo copiato negli appunti." : "Codice per il sito copiato negli appunti." };
+          this._render();
+          return;
+        }
+      } catch (e) { /* try the old way */ }
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.left = "-9999px";
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+        this._message = { kind: "ok", text: "Codice per il sito copiato negli appunti." };
+      } catch (e2) {
+        this._message = { kind: "error", text: "Copia non riuscita: seleziona il testo e copialo a mano." };
+      }
+      this._render();
+    };
+    const publicUrl = draft.public_url != null ? draft.public_url : (settings.web_public_url || "");
+    const showPrices = draft.show_prices != null ? draft.show_prices : !!settings.web_show_prices;
+    const accent = draft.accent != null ? draft.accent : (settings.web_accent || "");
+    box.appendChild(el("div", { class: "web-form-box" },
+      el("div", { class: "who-title" }, el("ha-icon", { icon: "mdi:form-select" }), "Modulo sul sito"),
+      el("div", { class: "hint" },
+        "Su WordPress bastano due righe in un blocco «HTML personalizzato»: il modulo arriva da Home Assistant, " +
+        "quindi ogni aggiornamento di Spa Booking compare sul sito senza toccare WordPress. " +
+        "Il modulo è a passi e in italiano, inglese e tedesco (scelti dal browser dell'ospite o dai pulsanti IT, EN, DE)."),
+      el("label", { class: "field" },
+        el("span", {}, "Indirizzo pubblico di Home Assistant"),
+        el("input", {
+          class: "input", type: "url", value: publicUrl, placeholder: "https://hailmarchese.it",
+          on: { input: (event) => { draft.public_url = event.target.value; }, keydown: (event) => event.stopPropagation() },
+        })),
+      el("div", { class: "field-grid" },
+        el("label", { class: "check" },
+          el("input", { type: "checkbox", checked: showPrices, on: { change: (event) => { draft.show_prices = event.target.checked; } } }),
+          el("span", {}, "Mostra prezzi e totale indicativo")),
+        el("label", { class: "field inline" },
+          el("span", {}, "Colore"),
+          el("input", {
+            class: "input narrow", type: "color", value: accent || "#0a84a8",
+            on: { input: (event) => { draft.accent = event.target.value; } },
+          }))),
       el("div", { class: "row tight" },
         el("button", {
-          class: "btn small",
-          disabled: this._busy,
+          class: "btn primary small", disabled: this._busy,
           on: { click: async () => {
             try {
-              const result = await this._service("web_snippet", {});
-              const text = String((result && result.snippet) || "");
-              if (!text) {
-                this._message = { kind: "error",
-                  text: "Modulo del sito non trovato nell'integrazione (frontend/spa-booking-form.txt)." };
-                this._render();
-                return;
-              }
-              try {
-                if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
-                  await navigator.clipboard.writeText(text);
-                  this._message = { kind: "ok", text: "Codice per il sito copiato negli appunti." };
-                  this._render();
-                  return;
-                }
-              } catch (e) {}
-              try {
-                const ta = document.createElement("textarea");
-                ta.value = text;
-                ta.style.position = "fixed";
-                ta.style.left = "-9999px";
-                document.body.appendChild(ta);
-                ta.focus();
-                ta.select();
-                document.execCommand("copy");
-                document.body.removeChild(ta);
-                this._message = { kind: "ok", text: "Codice per il sito copiato negli appunti." };
-                this._render();
-                return;
-              } catch (e2) {
-                try {
-                  if (typeof this._copyToClipboard === "function") {
-                    await this._copyToClipboard(text, "Codice per il sito");
-                    return;
-                  }
-                } catch (e3) {}
-              }
-              this._message = { kind: "error", text: "Copia non riuscita: seleziona il testo e copialo a mano." };
+              await this._call("update_settings", {
+                web_public_url: (draft.public_url != null ? draft.public_url : publicUrl).trim(),
+                web_show_prices: draft.show_prices != null ? draft.show_prices : showPrices,
+                web_accent: draft.accent != null ? draft.accent : accent,
+              });
+              this._message = { kind: "ok", text: "Aspetto del modulo salvato." };
               this._render();
-            } catch (error) {
-              this._message = { kind: "error", text: "Copia non riuscita." };
-              this._render();
-            }
+            } catch (error) { /* shown by _call */ }
           } },
-        }, el("ha-icon", { icon: "mdi:content-copy" }), "Copia codice per il sito"))
-    );
+        }, el("ha-icon", { icon: "mdi:content-save" }), "Salva"),
+        el("button", {
+          class: "btn small", disabled: this._busy,
+          on: { click: () => copySnippet(false) },
+        }, el("ha-icon", { icon: "mdi:content-copy" }), "Copia codice per il sito"),
+        el("button", {
+          class: "btn small ghost", disabled: this._busy,
+          title: "Il modulo intero come nelle versioni precedenti, per un sito che non può caricare script da un altro indirizzo",
+          on: { click: () => copySnippet(true) },
+        }, "Codice completo (vecchio)"))));
 
     return box;
   }
@@ -9045,9 +10186,7 @@ _renderClients() {
   _camHeader() {
     const head = el("div", { class: "spa-head" });
     head.appendChild(
-      el("div", { class: "spa-head-title" },
-        el("ha-icon", { icon: "mdi:cctv" }),
-        el("span", {}, this._camEditMode ? "Modifica Telecamere" : "Telecamere"))
+      this._headTitle("mdi:cctv", this._camEditMode ? "Modifica Telecamere" : "Telecamere", "Telecamere")
     );
     if (this._camEditMode) {
       head.appendChild(
@@ -9826,9 +10965,7 @@ _renderClients() {
   _spaSpaHeader() {
     const head = el("div", { class: "spa-head" });
     head.appendChild(
-      el("div", { class: "spa-head-title" },
-        el("ha-icon", { icon: "mdi:spa" }),
-        el("span", {}, this._spaEditMode ? "Modifica Spa" : "Spa"))
+      this._headTitle("mdi:spa", this._spaEditMode ? "Modifica Spa" : "Spa", "Spa")
     );
     if (this._spaEditMode) {
       const grouped = ((this._data && this._data.settings) || {}).spa_grouped !== false;
@@ -10780,28 +11917,22 @@ _renderClients() {
   _renderAccessi() {
     if (this._users === null && !this._usersLoading) this._loadUsers();
 
-    const wrap = el("div", { class: "stack config" });
-    const levels = {
-      none: "Nessun accesso",
-      read: "Solo lettura",
-      operator: "Operatore",
-      manager: "Gestore",
-      admin: "Amministratore",
-    };
+    const wrap = el("div", { class: "stack config accessi" });
     const permissions =
       (this._data.settings && this._data.settings.permissions) || {};
+    const operators = (this._data.operators || []).filter((op) => op.active !== false);
+    const roles = ["therapist", "operator", "manager", "admin"];
 
-    wrap.appendChild(
-      el("div", { class: "hint" },
-        "Scegli per ogni utente di Home Assistant cosa può vedere e fare in questa dashboard. ",
-        "Gli amministratori e il proprietario di Home Assistant restano sempre Amministratori della card, ",
-        "per non lasciare mai nessuno chiuso fuori.")
-    );
-    wrap.appendChild(
-      el("div", { class: "hint" },
-        "Solo lettura: vede agenda e offerte. Operatore: gestisce la giornata (prenota, check-in/out, conferme). ",
-        "Gestore: anche clienti e messaggi. Amministratore: anche la configurazione.")
-    );
+    wrap.appendChild(this._sectionHead("mdi:shield-account-outline", "Utenti e ruoli",
+      "Ognuno entra con il proprio utente e la propria password. Il ruolo decide cosa vede e cosa può fare.",
+      el("button", {
+        class: "btn primary",
+        disabled: this._busy,
+        on: { click: () => { this._newUser = this._newUser ? null : { name: "", username: "", password: "", level: "operator", operator_id: "", pin: "" }; this._render(); } },
+      }, el("ha-icon", { icon: "mdi:account-plus" }), "Nuovo utente")));
+
+    wrap.appendChild(this._rolesTable());
+    if (this._newUser) wrap.appendChild(this._newUserForm(operators));
 
     if (this._usersLoading) {
       wrap.appendChild(el("div", { class: "empty" }, "Caricamento utenti…"));
@@ -10811,78 +11942,267 @@ _renderClients() {
       wrap.appendChild(el("div", { class: "empty" }, this._usersError));
       return wrap;
     }
-    if (!this._users || !this._users.length) {
-      wrap.appendChild(
-        el("div", { class: "empty" }, "Nessun utente Home Assistant attivo trovato.")
-      );
+    const users = this._users || [];
+    if (!users.length) {
+      wrap.appendChild(el("div", { class: "empty" }, "Nessun utente Home Assistant trovato."));
       return wrap;
     }
 
-    const box = el("div", { class: "cfg-box" }, el("h3", {}, "Utenti Home Assistant"));
-    this._users.forEach((user) => {
+    const box = el("div", { class: "cfg-box user-list" });
+    users.forEach((user, index) => {
       const locked = Boolean(user.is_admin || user.is_owner);
-      const level = locked
-        ? "admin"
-        : permissions[user.id] || "none";
+      const level = locked ? "admin" : permissions[user.id] || "none";
       const name = user.name || user.id;
-      const initials = name
-        .split(/\s+/)
-        .filter(Boolean)
-        .slice(0, 2)
-        .map((part) => part[0].toUpperCase())
-        .join("");
-
+      const open = this._userOpen === user.id;
       const badges = el("span", { class: "accessi-badges" });
-      if (user.is_owner) badges.appendChild(el("span", { class: "badge" }, "Proprietario"));
-      if (user.is_admin) badges.appendChild(el("span", { class: "badge" }, "Admin HA"));
+      if (user.is_owner) badges.appendChild(el("span", { class: "pill" }, "Proprietario"));
+      if (user.is_admin) badges.appendChild(el("span", { class: "pill" }, "Admin HA"));
+      if (user.shared) badges.appendChild(el("span", { class: "pill info" }, "Tablet condiviso"));
+      if (user.has_pin) badges.appendChild(el("span", { class: "pill ok" }, "PIN"));
+      if (user.is_active === false) badges.appendChild(el("span", { class: "pill warn" }, "Disattivato"));
+      const linked = operators.find((op) => op.id === user.operator_id);
+      const sub = [
+        user.username ? `@${user.username}` : "",
+        linked ? `è ${linked.name} in agenda` : "",
+      ].filter(Boolean).join(" · ");
 
       const select = el("select", {
-        class: "input",
-        disabled: this._busy || locked,
+        class: "input role-select",
+        disabled: this._busy || locked || user.shared,
+        "aria-label": `Ruolo di ${name}`,
         on: {
           change: async (event) => {
-            const chosen = event.target.value;
             try {
-              await this._call("set_user_permissions", {
-                user_id: user.id,
-                level: chosen,
-              });
-            } catch (error) {
-              /* shown by _call */
-            }
+              await this._call("set_user_permissions", { user_id: user.id, level: event.target.value });
+            } catch (error) { /* shown by _call */ }
           },
         },
       });
-      Object.entries(levels).forEach(([value, label]) =>
-        select.appendChild(
-          el("option", { value, selected: value === level }, label)
-        )
-      );
+      const choices = user.shared ? ["none"] : ["none", "read", ...roles];
+      choices.forEach((value) =>
+        select.appendChild(el("option", { value, selected: value === level }, this._roleLabel(value))));
 
-      box.appendChild(
-        el("div", { class: "accessi-row" },
-          el("span", { class: "accessi-avatar" }, initials || "?"),
-          el("div", { class: "accessi-who" },
-            el("span", { class: "accessi-name" }, name),
-            badges),
-          select)
-      );
+      const row = el("div", { class: `user-row${user.is_active === false ? " off" : ""}` },
+        el("span", { class: `user-avatar tone-${index % 6}` },
+          user.shared ? el("ha-icon", { icon: "mdi:account-group" }) : this._initials(name)),
+        el("div", { class: "user-who" },
+          el("div", { class: "user-name" }, name, " ", badges),
+          sub ? el("div", { class: "dim" }, sub) : null),
+        select,
+        el("button", {
+          class: "btn small ghost",
+          title: open ? "Chiudi" : "Operatrice, PIN e password",
+          "aria-expanded": open ? "true" : "false",
+          on: { click: () => { this._userOpen = open ? null : user.id; this._userDraft = {}; this._render(); } },
+        }, el("ha-icon", { icon: open ? "mdi:close" : "mdi:pencil" })));
+      box.appendChild(row);
+      if (open) box.appendChild(this._userDetail(user, operators, locked));
     });
-
-    if (this._users.some((user) => user.is_admin || user.is_owner)) {
-      box.appendChild(
-        el("div", { class: "hint" },
-          "Le righe con «Proprietario» o «Admin HA» non sono modificabili: sono gli amministratori di Home Assistant.")
-      );
-    }
     wrap.appendChild(box);
+
+    const idle = (this._data.settings && this._data.settings.pin_idle_minutes) || 10;
+    wrap.appendChild(
+      el("div", { class: "cfg-box" },
+        el("h3", {}, "Tablet della reception"),
+        el("div", { class: "hint" },
+          "Il tablet resta collegato con un utente condiviso (apri l'utente e attiva «Tablet condiviso»). ",
+          "Chi lo usa tocca il proprio nome e inserisce il suo PIN di 4 cifre: ogni prenotazione e ogni voucher ",
+          "portano il suo nome. Dopo qualche minuto senza tocchi il tablet torna alla scelta della persona."),
+        el("label", { class: "field inline" },
+          el("span", {}, "Esci da solo dopo (minuti)"),
+          el("input", {
+            class: "input narrow", type: "number", min: "1", max: "240", value: String(idle),
+            on: { change: (event) => this._call("update_settings", { pin_idle_minutes: Number(event.target.value) || 10 }).catch(() => {}) },
+          })))
+    );
     return wrap;
+  }
+
+  /** Who may do what: the table the roles follow, server side too. */
+  _rolesTable() {
+    const rows = [
+      ["Agenda e calendario", "✓", "✓", "✓", "✓"],
+      ["Prenotare e modificare", "solo i suoi", "✓", "✓", "✓"],
+      ["Incassi", "—", "✓", "✓", "✓"],
+      ["Creare voucher", "—", "✓", "✓", "✓"],
+      ["Estendere o eliminare voucher", "—", "—", "✓", "✓"],
+      ["Clienti e messaggi WhatsApp", "—", "lettura", "✓", "✓"],
+      ["Scheda Spa", "✓", "✓", "✓", "✓"],
+      ["Report e totali", "—", "—", "✓", "✓"],
+      ["Configurazione e utenti", "—", "—", "—", "✓"],
+    ];
+    const head = ["", "Massaggiatrice", "Reception", "Manager", "Amministratore"];
+    return el("details", { class: "cfg-box roles-table" },
+      el("summary", {}, el("ha-icon", { icon: "mdi:shield-account-outline" }), "Cosa può fare ogni ruolo"),
+      el("div", { class: "table-scroll" },
+        el("table", {},
+          el("thead", {}, el("tr", {}, head.map((cell) => el("th", {}, cell)))),
+          el("tbody", {}, rows.map((row) =>
+            el("tr", {}, row.map((cell, i) => i === 0 ? el("th", { scope: "row" }, cell) : el("td", { class: cell === "—" ? "no" : "" }, cell))))))));
+  }
+
+  /** The fold under a user: linked operator, PIN, tablet, password, disable. */
+  _userDetail(user, operators, locked) {
+    const draft = this._userDraft || (this._userDraft = {});
+    const box = el("div", { class: "user-detail" });
+    const save = (data) => this._call("set_user_profile", { user_id: user.id, ...data })
+      .then(() => this._loadUsers()).catch(() => {});
+
+    if (!user.shared) {
+      const opSelect = el("select", {
+        class: "input",
+        disabled: this._busy,
+        on: { change: (event) => save({ operator_id: event.target.value }) },
+      }, el("option", { value: "", selected: !user.operator_id }, "Nessuna"),
+      operators.map((op) => el("option", { value: op.id, selected: op.id === user.operator_id }, op.name)));
+      box.appendChild(el("label", { class: "field" },
+        el("span", {}, "È in agenda come"), opSelect,
+        el("span", { class: "dim" }, "Una massaggiatrice prenota e modifica solo gli appuntamenti di questa operatrice.")));
+
+      const pin = el("input", {
+        class: "input narrow", type: "password", inputmode: "numeric", maxlength: "4",
+        autocomplete: "new-password", placeholder: user.has_pin ? "••••" : "4 cifre",
+        value: draft.pin || "",
+        on: {
+          input: (event) => { draft.pin = event.target.value.replace(/\D/g, "").slice(0, 4); event.target.value = draft.pin; },
+          keydown: (event) => event.stopPropagation(),
+        },
+      });
+      box.appendChild(el("div", { class: "field" },
+        el("span", {}, "PIN per il tablet della reception"),
+        el("div", { class: "row tight" }, pin,
+          el("button", {
+            class: "btn small", disabled: this._busy,
+            on: { click: () => {
+              if (!/^\d{4}$/.test(draft.pin || "")) { this._message = { kind: "error", text: "Il PIN deve essere di 4 cifre." }; this._render(); return; }
+              save({ pin: draft.pin }).then(() => { draft.pin = ""; });
+            } },
+          }, user.has_pin ? "Cambia PIN" : "Imposta PIN"),
+          user.has_pin ? el("button", {
+            class: "btn small ghost", disabled: this._busy,
+            on: { click: () => save({ clear_pin: true }) },
+          }, "Togli PIN") : null)));
+    }
+
+    if (!locked) {
+      box.appendChild(el("label", { class: "check" },
+        el("input", {
+          type: "checkbox", checked: Boolean(user.shared), disabled: this._busy,
+          on: { change: (event) => save({ shared: event.target.checked }) },
+        }),
+        el("span", {}, "Tablet condiviso della reception",
+          el("span", { class: "dim" }, " — nessuno agisce come questo utente: si entra con il PIN personale"))));
+    }
+
+    if (user.username) {
+      const password = el("input", {
+        class: "input", type: "password", autocomplete: "new-password", placeholder: "Almeno 6 caratteri",
+        value: draft.password || "",
+        on: { input: (event) => { draft.password = event.target.value; }, keydown: (event) => event.stopPropagation() },
+      });
+      box.appendChild(el("div", { class: "field" },
+        el("span", {}, "Nuova password"),
+        el("div", { class: "row tight" }, password,
+          el("button", {
+            class: "btn small", disabled: this._busy,
+            on: { click: () => this._call("set_user_password", { user_id: user.id, password: draft.password || "" })
+              .then(() => { draft.password = ""; this._render(); }).catch(() => {}) },
+          }, "Cambia password"))));
+    }
+    if (!user.is_owner) {
+      const active = user.is_active !== false;
+      box.appendChild(el("div", { class: "row tight" },
+        el("button", {
+          class: `btn small ${active ? "danger" : ""}`, disabled: this._busy,
+          on: { click: () => {
+            if (active && !confirm(`Disattivare ${user.name}? Non potrà più entrare finché non la riattivi.`)) return;
+            this._call("set_user_active", { user_id: user.id, active: !active }).then(() => this._loadUsers()).catch(() => {});
+          } },
+        }, el("ha-icon", { icon: active ? "mdi:account-off-outline" : "mdi:account-check" }),
+        active ? "Disattiva utente" : "Riattiva utente")));
+    }
+    return box;
+  }
+
+  /** "Nuovo utente": name, username, password, role, operator and PIN. */
+  _newUserForm(operators) {
+    const draft = this._newUser;
+    const input = (key, label, props = {}) => el("label", { class: "field" },
+      el("span", {}, label),
+      el("input", {
+        class: "input", value: draft[key] || "", autocomplete: "off", ...props,
+        on: { input: (event) => { draft[key] = event.target.value; }, keydown: (event) => event.stopPropagation() },
+      }));
+    const role = el("select", { class: "input", on: { change: (event) => { draft.level = event.target.value; this._render(); } } },
+      ["therapist", "operator", "manager", "admin"].map((value) =>
+        el("option", { value, selected: draft.level === value }, this._roleLabel(value))));
+    const op = el("select", { class: "input", on: { change: (event) => { draft.operator_id = event.target.value; } } },
+      el("option", { value: "" }, "Nessuna"),
+      operators.map((item) => el("option", { value: item.id, selected: draft.operator_id === item.id }, item.name)));
+    const box = el("div", { class: "cfg-box new-user" },
+      el("h3", {}, "Nuovo utente"),
+      el("div", { class: "field-grid" },
+        input("name", "Nome e cognome", { placeholder: "es. Giulia Bianchi" }),
+        input("username", "Nome utente", { placeholder: "es. giulia", autocapitalize: "none" }),
+        input("password", "Password", { type: "password", autocomplete: "new-password", placeholder: "Almeno 6 caratteri" }),
+        el("label", { class: "field" }, el("span", {}, "Ruolo"), role),
+        el("label", { class: "field" }, el("span", {}, "È in agenda come"), op),
+        input("pin", "PIN tablet (facoltativo)", { type: "password", inputmode: "numeric", maxlength: "4", placeholder: "4 cifre" })),
+      draft.level === "therapist" && !draft.operator_id
+        ? el("div", { class: "hint warn" }, "Una massaggiatrice va collegata alla sua operatrice, altrimenti non può prenotare.")
+        : null,
+      el("div", { class: "row tight" },
+        el("button", {
+          class: "btn primary", disabled: this._busy,
+          on: { click: async () => {
+            try {
+              await this._call("create_user", {
+                name: (draft.name || "").trim(),
+                username: (draft.username || "").trim(),
+                password: draft.password || "",
+                level: draft.level,
+                operator_id: draft.operator_id || "",
+                pin: (draft.pin || "").trim(),
+              });
+              this._newUser = null;
+              this._users = null;
+              this._render();
+            } catch (error) { /* shown by _call */ }
+          } },
+        }, el("ha-icon", { icon: "mdi:check" }), "Crea utente"),
+        el("button", { class: "btn ghost", on: { click: () => { this._newUser = null; this._render(); } } }, "Annulla")),
+      el("div", { class: "hint" },
+        "L'utente entra in Home Assistant con nome utente e password e vede solo questa dashboard con i permessi del suo ruolo."));
+    return box;
+  }
+
+  /**
+   * The title of a page with an edit pencil (Trattamenti, Notifiche, …): the
+   * same look as _sectionHead, with the line that says what the page is for.
+   */
+  _headTitle(icon, title, key) {
+    const text = PAGE_DESCRIPTIONS[key] || "";
+    return el("div", { class: "spa-head-title section-like" },
+      el("span", { class: "section-icon" }, el("ha-icon", { icon })),
+      el("div", { class: "section-text" },
+        el("div", { class: "section-title" }, title),
+        text ? el("div", { class: "section-sub" }, text) : null));
+  }
+
+  /** A section title with its icon, one line of explanation and an action. */
+  _sectionHead(icon, title, text, action) {
+    return el("div", { class: "section-head" },
+      el("span", { class: "section-icon" }, el("ha-icon", { icon })),
+      el("div", { class: "section-text" },
+        el("div", { class: "section-title" }, title),
+        text ? el("div", { class: "section-sub" }, text) : null),
+      action || null);
   }
 
   // ------------------------------------------------------------ CONFIGURAZIONE
 
   _renderConfig() {
-    const wrap = el("div", { class: "stack config" });
+    const wrap = el("div", { class: "stack config cfg-shell" });
 
     // The configuration, the Accessi tab included, is for card administrators:
     // the level the Accessi tab itself hands out. A Home Assistant admin who is
@@ -10923,15 +12243,18 @@ _renderClients() {
         tabButton(CFG_TABS.find((tab) => tab.id === "impostazioni")))
     );
 
-    if (this._cfgTab === "categorie") add(wrap, this._renderCategories());
-    if (this._cfgTab === "trattamenti") add(wrap, this._renderTreatments());
-    if (this._cfgTab === "accessori") add(wrap, this._renderAccessori());
-    if (this._cfgTab === "operatori") add(wrap, this._renderOperators());
-    if (this._cfgTab === "blocchi") add(wrap, this._renderBlocks());
-    if (this._cfgTab === "notifiche") add(wrap, this._renderNotify());
-    if (this._cfgTab === "promo") add(wrap, this._renderPromo());
-    if (this._cfgTab === "accessi") add(wrap, this._renderAccessi());
-    if (this._cfgTab === "impostazioni") add(wrap, this._renderSettings());
+    // The page sits in its own column, beside the menu on a wide screen.
+    const page = el("div", { class: "cfg-page" });
+    if (this._cfgTab === "categorie") add(page, this._renderCategories());
+    if (this._cfgTab === "trattamenti") add(page, this._renderTreatments());
+    if (this._cfgTab === "accessori") add(page, this._renderAccessori());
+    if (this._cfgTab === "operatori") add(page, this._renderOperators());
+    if (this._cfgTab === "blocchi") add(page, this._renderBlocks());
+    if (this._cfgTab === "notifiche") add(page, this._renderNotify());
+    if (this._cfgTab === "promo") add(page, this._renderPromo());
+    if (this._cfgTab === "accessi") add(page, this._renderAccessi());
+    if (this._cfgTab === "impostazioni") add(page, this._renderSettings());
+    wrap.appendChild(page);
 
     return wrap;
   }
@@ -11178,9 +12501,11 @@ _renderClients() {
 
     // Two columns: the form on the left, the blocked days and slots on the
     // right, so the list is read while a new closure is entered.
+    wrap.appendChild(this._sectionHead("mdi:lock-outline", "Fasce bloccate",
+      "Chiusure della spa, di una categoria o di un'operatrice, per giorni interi o con orario. Una chiusura blocca sempre, anche la reception."));
     const columns = el("div", { class: "two-col" });
-    const left = el("div", { class: "stack tight" });
-    const right = el("div", { class: "stack tight" });
+    const left = el("div", { class: "stack tight cfg-box" });
+    const right = el("div", { class: "stack tight cfg-box" });
 
     left.appendChild(el("h3", {}, "Nuova chiusura"));
     add(left, this._closureForm());
@@ -11294,11 +12619,8 @@ _renderClients() {
     add(whatsappBox, this._testRows("whatsapp", draft.report_whatsapp_chat));
     whatsappBox.appendChild(
       el("label", { class: "field" }, el("span", {}, "Prova su un numero"),
-        el("input", {
-          class: "input", type: "tel", placeholder: "es. 333 1234567 · estero: +41 79 1234567",
-          value: draft.report_whatsapp_test || "",
-          on: { input: (event) => { draft.report_whatsapp_test = event.target.value; } },
-        }))
+        phoneInput(draft.report_whatsapp_test || "",
+          (value) => { draft.report_whatsapp_test = value; }))
     );
     whatsappBox.appendChild(
       el("div", { class: "row tight" },
@@ -11320,6 +12642,10 @@ _renderClients() {
         }, el("ha-icon", { icon: "mdi:whatsapp" }), "Prova WhatsApp"))
     );
     left.appendChild(whatsappBox);
+
+    // Which connection carries WhatsApp: the one built into Spa Booking
+    // (beta), or the WAHA add-on.
+    left.appendChild(this._whatsappEngineBox(box, settings));
 
     // The WAHA gateway: where the add-on is, its key, the session, and the two
     // buttons that prove it. Everything here is local to this installation:
@@ -11387,7 +12713,7 @@ _renderClients() {
           },
         }, el("ha-icon", { icon: "mdi:content-save" }), "Salva gateway"))
     );
-    left.appendChild(wahaBox);
+    if ((settings.whatsapp_engine || "waha") !== "integrated") left.appendChild(wahaBox);
 
     // Right column: how the report goes out, the offer timings, deposit request
     // and guest headline.
@@ -11505,9 +12831,7 @@ _renderClients() {
     depositBox.appendChild(
       el("label", { class: "field" },
         el("span", {}, "Numero di prova"),
-        el("input", { class: "input", type: "tel", placeholder: "es. 333 1234567 · estero: +41 79 1234567",
-          value: draft.deposit_test_phone || "",
-          on: { input: (event) => { draft.deposit_test_phone = event.target.value; } } }))
+        phoneInput(draft.deposit_test_phone || "", (value) => { draft.deposit_test_phone = value; }))
     );
     depositBox.appendChild(
       el("div", { class: "row tight" },
@@ -11565,9 +12889,7 @@ _renderClients() {
     summaryBox.appendChild(
       el("label", { class: "field" },
         el("span", {}, "Numero di prova"),
-        el("input", { class: "input", type: "tel", placeholder: "es. 333 1234567 · estero: +41 79 1234567",
-          value: draft.summary_test_phone || "",
-          on: { input: (event) => { draft.summary_test_phone = event.target.value; } } }))
+        phoneInput(draft.summary_test_phone || "", (value) => { draft.summary_test_phone = value; }))
     );
     summaryBox.appendChild(
       el("div", { class: "row tight" },
@@ -11706,9 +13028,7 @@ _renderClients() {
     reviewBox.appendChild(
       el("label", { class: "field" },
         el("span", {}, "Numero di prova"),
-        el("input", { class: "input", type: "tel", placeholder: "es. 333 1234567 · estero: +41 79 1234567",
-          value: draft.review_request_test_phone || "",
-          on: { input: (event) => { draft.review_request_test_phone = event.target.value; } } }))
+        phoneInput(draft.review_request_test_phone || "", (value) => { draft.review_request_test_phone = value; }))
     );
     reviewBox.appendChild(
       el("div", { class: "row tight" },
@@ -11801,9 +13121,7 @@ _renderClients() {
     const head = el("div", { class: "spa-head" });
     if (this._promoEditMode) head.appendChild(this._colChooser("promo"));
     head.appendChild(
-      el("div", { class: "spa-head-title" },
-        el("ha-icon", { icon: "mdi:bullhorn-outline" }),
-        el("span", {}, this._promoEditMode ? "Modifica promo" : "Promo"))
+      this._headTitle("mdi:bullhorn-outline", this._promoEditMode ? "Modifica promo" : "Promo", "Promo")
     );
     if (this._promoEditMode) {
       head.appendChild(
@@ -12424,6 +13742,10 @@ _renderClients() {
 
     if (this._editing && this._editing.kind === "category") {
       const draft = this._editing.draft;
+      // The editor is one card with its title, like every other form.
+      wrap.className = "stack tight cfg-box form-card";
+      wrap.appendChild(this._sectionHead("mdi:tag-outline",
+        this._editing.id ? `Modifica categoria · ${draft.name || ""}` : "Nuova categoria", ""));
       wrap.appendChild(
         el("label", { class: "field" }, el("span", {}, "Nome"),
           el("input", { class: "input", type: "text", value: draft.name,
@@ -12531,21 +13853,21 @@ _renderClients() {
         );
         wrap.appendChild(el("div", { class: "hint" }, "L'esclusione vale in entrambe le direzioni: nessuna sovrapposizione di orario tra le due categorie."));
       }
-      add(wrap, this._saveRow("add_category", "update_category", "category_id", "category"));
+      add(wrap, this._saveRow("add_category", "update_category", "category_id", "categoria"));
       return wrap;
     }
 
-    wrap.appendChild(
+    wrap.appendChild(this._sectionHead("mdi:tag-outline", "Categorie",
+      "Raggruppano i trattamenti: colore in agenda, giorni e fasce prenotabili, pausa dell'operatrice, categorie da non sovrapporre.",
       el("button", {
-        class: "btn primary small",
+        class: "btn primary",
         on: {
           click: () => {
             this._editing = { kind: "category", id: null, draft: { name: "", requires_operator: false, color: "", pause_min: 10, days: [], morning_days: [], afternoon_days: [], morning_start: "", morning_end: "", afternoon_start: "", afternoon_end: "", exclusive_with: [] } };
             this._render();
           },
         },
-      }, el("ha-icon", { icon: "mdi:plus" }), "Nuova categoria")
-    );
+      }, el("ha-icon", { icon: "mdi:plus" }), "Nuova categoria")));
 
     if (!categories.length) {
       wrap.appendChild(el("div", { class: "hint" }, "Nessuna categoria definita."));
@@ -12554,19 +13876,18 @@ _renderClients() {
 
     categories.forEach((category) => {
       const treatments = this._data.treatments.filter((t) => t.category_id === category.id);
+      const rules = this._categorySummary(category);
       wrap.appendChild(
-        el("div", { class: "row item" },
+        el("div", { class: "cat-card", style: category.color ? `--cat:${category.color}` : null },
           el("div", { class: "grow" },
-            el("div", { class: "row" },
-              category.color
-                ? el("span", { class: "swatch", style: `background:${category.color}` })
-                : null,
-              el("span", {}, category.name)),
-            el("div", { class: "dim small" },
-              [
-                `${treatments.length} trattamenti · ${category.requires_operator ? "richiede operatore" : "senza operatore"} · pausa ${category.pause_min ?? 10}′`,
-                this._categorySummary(category),
-              ].filter(Boolean).join(" · "))),
+            el("div", { class: "cat-name" }, category.name),
+            el("div", { class: "chips" },
+              el("span", { class: "pill" }, `${treatments.length} ${treatments.length === 1 ? "trattamento" : "trattamenti"}`),
+              el("span", { class: `pill ${category.requires_operator ? "info" : ""}` },
+                el("ha-icon", { icon: category.requires_operator ? "mdi:account-voice" : "mdi:account-off-outline" }),
+                category.requires_operator ? "con operatrice" : "senza operatrice"),
+              el("span", { class: "pill" }, el("ha-icon", { icon: "mdi:clock-outline" }), `pausa ${category.pause_min ?? 10}′`),
+              rules ? el("span", { class: "pill warn" }, el("ha-icon", { icon: "mdi:calendar-clock" }), rules) : null)),
           el("button", {
             class: "icon-btn",
             title: "Modifica",
@@ -12646,9 +13967,7 @@ _renderClients() {
   _accHeader() {
     const head = el("div", { class: "spa-head" });
     head.appendChild(
-      el("div", { class: "spa-head-title" },
-        el("ha-icon", { icon: "mdi:gift-outline" }),
-        el("span", {}, this._accEditMode ? "Modifica Accessori" : "Accessori"))
+      this._headTitle("mdi:gift-outline", this._accEditMode ? "Modifica Accessori" : "Accessori", "Accessori")
     );
     if (this._accEditMode) {
       head.appendChild(
@@ -12985,6 +14304,10 @@ _renderClients() {
 
     if (this._editing && this._editing.kind === "treatment") {
       const draft = this._editing.draft;
+      // The editor is one card with its title, like every other form.
+      wrap.className = "stack tight cfg-box form-card";
+      wrap.appendChild(this._sectionHead("mdi:spa-outline",
+        this._editing.id ? `Modifica trattamento · ${draft.name || ""}` : "Nuovo trattamento", ""));
       const categorySelect = el("select", {
         class: "input",
         on: { change: (event) => { draft.category_id = event.target.value; } },
@@ -13072,7 +14395,7 @@ _renderClients() {
         operatorChecks.forEach((check) => checksGrid.appendChild(check));
         wrap.appendChild(checksGrid);
       }
-      add(wrap, this._saveRow("add_treatment", "update_treatment", "treatment_id", "treatment"));
+      add(wrap, this._saveRow("add_treatment", "update_treatment", "treatment_id", "trattamento"));
       return wrap;
     }
 
@@ -13141,9 +14464,7 @@ _renderClients() {
   _trtHeader() {
     const head = el("div", { class: "spa-head" });
     head.appendChild(
-      el("div", { class: "spa-head-title" },
-        el("ha-icon", { icon: "mdi:spa-outline" }),
-        el("span", {}, "Trattamenti"))
+      this._headTitle("mdi:spa-outline", "Trattamenti", "Trattamenti")
     );
     if (this._trtEditMode) {
       head.appendChild(
@@ -13586,9 +14907,7 @@ _renderClients() {
   _opHeader() {
     const head = el("div", { class: "spa-head" });
     head.appendChild(
-      el("div", { class: "spa-head-title" },
-        el("ha-icon", { icon: "mdi:account-group-outline" }),
-        el("span", {}, "Operatori"))
+      this._headTitle("mdi:account-group-outline", "Operatori", "Operatori")
     );
     if (this._opEditMode) {
       head.appendChild(
@@ -13731,6 +15050,10 @@ _renderClients() {
 
     if (this._editing && this._editing.kind === "operator") {
       const draft = this._editing.draft;
+      // The editor is one card with its title, like every other form.
+      wrap.className = "stack tight cfg-box form-card";
+      wrap.appendChild(this._sectionHead("mdi:account-group-outline",
+        this._editing.id ? `Modifica operatrice · ${draft.name || ""}` : "Nuova operatrice", ""));
       // The operator card is editable exactly like the booking forms: the
       // pencil turns its boxes into draggable blocks, so the reception can put
       // the fields, the channels and the treatments where she wants them. Only
@@ -13804,8 +15127,7 @@ _renderClients() {
       contattiBox.appendChild(
         el("div", { class: "field" }, el("span", {}, "Telefono"),
           el("div", { class: "row tight" },
-            el("input", { class: "input grow", type: "tel", value: draft.phone,
-              on: { input: (event) => { draft.phone = event.target.value; } } }),
+            phoneInput(draft.phone, (value) => { draft.phone = value; }, { grow: true }),
             el("button", {
               class: "btn small tel",
               title: "Chiama",
@@ -14543,7 +15865,7 @@ _renderClients() {
         el("textarea", { class: "input", rows: "2", value: draft.notes || "",
           on: { input: (event) => { draft.notes = event.target.value; } } })),
       totali: editTotals.box,
-      incassi: current ? this._editIncassiBlock(current, editTotals.total) : null,
+      incassi: current && this._can("payments") ? this._editIncassiBlock(current, editTotals.total) : null,
       cliente: el("label", { class: "field" }, el("span", {}, "Cliente"), clientSelect),
       ospite: this._guestField(draft),
       accessori: this._extrasField(draft),
@@ -14560,7 +15882,7 @@ _renderClients() {
     wrap.appendChild(columns);
 
     const groupSize = current ? this._groupSize(current) : 1;
-    const save = async (pending, wholeGroup, force = false) => {
+    const save = async (pending, wholeGroup, force = false, forceRules = false) => {
       try {
         await this._call("update_appointment", {
           appointment_id: this._editing.id,
@@ -14582,12 +15904,22 @@ _renderClients() {
           ...(pending ? { pending: true } : {}),
           ...(wholeGroup ? { whole_group: true } : {}),
           ...(force ? { force_client_overlap: true } : {}),
+          ...(forceRules ? { force_rules: true } : {}),
         });
         this._editing = null;
         this._render();
       } catch (error) {
         /* shown */
         const text = String((error && error.message) || "");
+        if (!forceRules && this._isCategoryRule(text)) {
+          this._message = null;
+          this._overlapPopup = {
+            kind: "rules", message: text,
+            retry: { run: () => save(pending, wholeGroup, force, true) },
+          };
+          this._render();
+          return;
+        }
         if (
           !force &&
           /sovrappone/i.test(text) &&
@@ -14598,7 +15930,7 @@ _renderClients() {
             retry: {
               kind: "edit",
               id: this._editing.id,
-              run: () => save(pending, wholeGroup, true),
+              run: () => save(pending, wholeGroup, true, forceRules),
             },
           };
           this._render();
@@ -14985,6 +16317,8 @@ _renderClients() {
       .overlap-sheet .overlap-icon ha-icon { --mdc-icon-size: 44px; color: var(--error-color, #e53953); }
       .overlap-sheet .overlap-title { text-align: center; }
       .overlap-sheet .overlap-text { text-align: center; color: var(--error-color, #e53953); font-weight: 600; }
+      .overlap-sheet.rules .overlap-icon ha-icon { color: var(--sb-warn-fg, #9a5b00); }
+      .overlap-sheet.rules .overlap-text { color: var(--primary-text-color); font-size: 15px; }
       .pay-methods { display: flex; flex-direction: column; gap: 6px;
                      border-top: 1px solid var(--divider-color); padding-top: 8px; }
 
@@ -15331,6 +16665,7 @@ _renderClients() {
               background: var(--secondary-background-color); border-radius: 8px; }
       .hint.warn { color: var(--error-color); background: rgba(229, 57, 53, .1); }
       .empty { padding: 18px 12px; text-align: center; color: var(--secondary-text-color);
+               border: 1px dashed var(--divider-color); border-radius: 8px; }
 
       /* WhatsApp external messages tab */
       .wa-list { display: flex; flex-direction: column; gap: 12px; }
@@ -15360,7 +16695,6 @@ _renderClients() {
         color: var(--primary-text-color, #000);
       }
       .wa-reply .btn { font-size: 12px; padding: 4px 10px; }
-               border: 1px dashed var(--divider-color); border-radius: 8px; }
       /* The full-screen message an account without access to the dashboard
          gets. Centred and quiet, with no data behind it. */
       .denied { max-width: 420px; margin: 12vh auto 0; padding: 24px 20px;
@@ -15692,6 +17026,12 @@ _renderClients() {
                      background: transparent; color: var(--primary-text-color); font: inherit;
                      padding: 8px 0; }
       .client-main:hover .client-name { color: var(--primary-color); }
+      .client-list { background: var(--card-background-color); border: 1px solid var(--divider-color);
+                     border-radius: 14px; padding: 4px 14px; gap: 0; }
+      .client-list .client-row { gap: 12px; padding: 8px 0; border-bottom: 0; }
+      .client-list .client-row + .client-row { border-top: 1px solid var(--divider-color); }
+      .client-list .client-row .user-avatar { width: 36px; height: 36px; }
+      .client-list .client-main { padding: 2px 0; }
       .client-name { font-weight: 500; }
       /* A guest who asked not to receive promos: a small crossed bell next to
          the name, so the desk sees at a glance who is left out of a send. */
@@ -15842,6 +17182,15 @@ _renderClients() {
       .spa-tile--button .spa-tile-main { align-items: center; }
       .spa-tile--button .spa-tile-name { white-space: normal; text-align: center; }
       .btn.small.active { border-color: var(--primary-color); color: var(--primary-color); }
+      .wa-state { display: flex; align-items: center; gap: 8px; margin: 8px 0 4px; font-weight: 600; }
+      .wa-state ha-icon { --mdc-icon-size: 20px; color: var(--secondary-text-color); }
+      .wa-state.ok ha-icon { color: var(--success-color, #43a047); }
+      .wa-state.error ha-icon { color: var(--error-color, #e53953); }
+      .wa-qr { display: flex; justify-content: center; margin: 8px 0; }
+      .wa-qr img { width: 240px; max-width: 100%; height: auto; image-rendering: pixelated;
+                   background: #fff; padding: 10px; border-radius: 12px; }
+      .wa-code { font: 600 26px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 3px;
+                 text-align: center; margin: 8px 0; }
       .spa-tile-menu { position: absolute; top: 4px; right: 4px; z-index: 3;
                         width: 30px; height: 30px; padding: 0;
                         background: var(--card-background-color);
@@ -15892,6 +17241,410 @@ _renderClients() {
         .spa-menu-btn { width: 40px; height: 40px; }
         .spa-chip { padding: 9px 14px; font-size: 14px; }
       }
+      /* ================================================================
+         2.2 design layer. Same language as the Spa tab of 2.1.2: soft cards
+         with a 14px radius, tinted pills for what is active, a section head
+         with an icon circle and a one-line explanation, numbers in a stats
+         row. Everything reads Home Assistant's theme variables, so the
+         light and dark appearances follow without extra rules.
+         ================================================================ */
+      :host {
+        --sb-accent: var(--primary-color, #03a9f4);
+        --sb-accent-soft: rgba(var(--rgb-primary-color, 3, 169, 244), .12);
+        --sb-accent-line: rgba(var(--rgb-primary-color, 3, 169, 244), .35);
+        --sb-card: var(--card-background-color, var(--ha-card-background, #fff));
+        --sb-line: var(--divider-color, #e0e2e5);
+        --sb-soft: var(--secondary-background-color, #f1f3f5);
+        --sb-radius: 14px;
+        --sb-shadow: 0 1px 2px rgba(0, 0, 0, .04), 0 2px 8px rgba(0, 0, 0, .04);
+        --sb-ok-bg: rgba(76, 175, 80, .14); --sb-ok-fg: #2e7d32;
+        --sb-warn-bg: rgba(255, 167, 38, .18); --sb-warn-fg: #9a5b00;
+        --sb-info-bg: rgba(33, 150, 243, .14); --sb-info-fg: #1565c0;
+        --sb-off-bg: rgba(128, 128, 128, .14); --sb-off-fg: var(--secondary-text-color);
+        --sb-danger-fg: var(--error-color, #db4437);
+      }
+      :host([data-spa-theme="dark"]) {
+        --sb-ok-fg: #7fd88a; --sb-warn-fg: #f2b45a; --sb-info-fg: #8ec3ff;
+        --sb-shadow: 0 1px 2px rgba(0, 0, 0, .3);
+      }
+
+      /* Header: the person signed in sits at the right, after the clock. */
+      .topbar { padding: 12px 20px 0; }
+      .head { gap: 10px; }
+      .head-icon { color: var(--sb-accent); }
+      .user-chip { display: flex; align-items: center; gap: 8px; padding: 3px 4px 3px 3px;
+                   border: 1px solid var(--sb-line); border-radius: 999px; background: var(--sb-card); }
+      .user-avatar { flex: 0 0 auto; width: 32px; height: 32px; border-radius: 50%;
+                     display: inline-flex; align-items: center; justify-content: center;
+                     font-size: 12px; font-weight: 600; letter-spacing: .02em;
+                     background: var(--sb-accent-soft); color: var(--sb-accent); }
+      .user-avatar ha-icon { --mdc-icon-size: 18px; }
+      .user-avatar.tone-0 { background: #e6f1fb; color: #0c447c; }
+      .user-avatar.tone-1 { background: #fbeaf0; color: #72243e; }
+      .user-avatar.tone-2 { background: #e1f5ee; color: #085041; }
+      .user-avatar.tone-3 { background: #faeeda; color: #633806; }
+      .user-avatar.tone-4 { background: #eeedfe; color: #3c3489; }
+      .user-avatar.tone-5 { background: #f1efe8; color: #444441; }
+      .user-text { display: flex; flex-direction: column; line-height: 1.15; min-width: 0; padding-right: 6px; }
+      .user-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .user-role { font-size: 11px; color: var(--secondary-text-color); }
+      .user-switch { border-radius: 999px; }
+      @media (max-width: 720px) {
+        .user-text { display: none; }
+        .user-chip { padding: 2px; }
+        .user-switch .label { display: none; }
+      }
+
+      /* Main tabs: soft pills, the active one tinted rather than solid. */
+      .topbar > .tabs { gap: 4px; padding-bottom: 10px; }
+      .topbar > .tabs .tab { border-color: transparent; padding: 7px 14px; font-weight: 500; }
+      .topbar > .tabs .tab:hover { background: var(--sb-soft); color: var(--primary-text-color); }
+      .topbar > .tabs .tab.active { background: var(--sb-accent-soft); color: var(--sb-accent);
+                                    border-color: transparent; }
+      /* Sub-tabs: one segmented control. */
+      .stack.nuovo > .tabs, .stack.spa > .tabs { display: inline-flex; align-self: flex-start;
+        background: var(--sb-soft); border-radius: 12px; padding: 4px; gap: 2px; }
+      .stack.nuovo > .tabs .tab, .stack.spa > .tabs .tab { border: 0; border-radius: 9px; }
+      .stack.nuovo > .tabs .tab.active, .stack.spa > .tabs .tab.active {
+        background: var(--sb-card); color: var(--primary-text-color); box-shadow: var(--sb-shadow); }
+
+      /* Cards, fields and buttons. */
+      .cfg-box { background: var(--sb-card); border-color: var(--sb-line); border-radius: var(--sb-radius);
+                 padding: 14px 16px; gap: 10px; box-shadow: var(--sb-shadow); }
+      .cfg-box .cfg-box { box-shadow: none; background: transparent; }
+      .input, .date-input { border-radius: 10px; }
+      .input:focus, .date-input:focus { box-shadow: 0 0 0 3px var(--sb-accent-soft); }
+      .btn { border-radius: 10px; font-weight: 500; }
+      .btn:hover:not(:disabled) { background: var(--sb-soft); }
+      .btn.primary:hover:not(:disabled) { background: var(--sb-accent); filter: brightness(1.06); }
+      .btn.ghost { border-color: transparent; }
+      .btn.small { border-radius: 9px; }
+      .btn.wa.small { padding: 6px 10px; }
+      .btn .label { white-space: nowrap; }
+      .hint { border-radius: 10px; }
+      .msg { border-radius: 12px; }
+      .empty { background: var(--sb-card); border: 1px dashed var(--sb-line); border-radius: var(--sb-radius); }
+
+      /* Phone: the international prefix beside the number. */
+      .phone-field { display: flex; gap: 6px; min-width: 0; }
+      .phone-field.grow { flex: 1 1 auto; }
+      .phone-field .phone-cc { flex: 0 0 112px; width: 112px; padding-right: 4px; }
+      .phone-field .phone-number { flex: 1 1 auto; min-width: 0; }
+
+      /* Section head: icon circle, title, one line, the main action. */
+      .section-head { display: flex; align-items: center; gap: 12px; padding: 2px 0 4px; }
+      .section-icon { flex: 0 0 auto; width: 40px; height: 40px; border-radius: 50%;
+                      display: inline-flex; align-items: center; justify-content: center;
+                      background: var(--sb-accent-soft); color: var(--sb-accent); }
+      .section-icon ha-icon { --mdc-icon-size: 22px; }
+      .section-text { flex: 1 1 auto; min-width: 0; }
+      .section-title { font-size: 18px; font-weight: 600; letter-spacing: -.01em; }
+      .section-sub { font-size: 12px; color: var(--secondary-text-color); }
+
+      /* Stats row. */
+      .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+      .stat { display: flex; flex-direction: column; gap: 2px; text-align: left; font: inherit;
+              color: inherit; padding: 10px 14px; border-radius: 12px; border: 1px solid transparent;
+              background: var(--sb-soft); }
+      button.stat:not(:disabled) { cursor: pointer; }
+      button.stat:disabled { opacity: 1; cursor: default; }
+      .stat.on { border-color: var(--sb-accent-line); background: var(--sb-accent-soft); }
+      .stat-label { font-size: 12px; color: var(--secondary-text-color); }
+      .stat-value { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+      .stat.warn .stat-value { color: var(--sb-warn-fg); }
+      .stat.info .stat-value { color: var(--sb-info-fg); }
+
+      /* Pills and filter chips. */
+      .pill { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 500;
+              padding: 2px 9px; border-radius: 999px; background: var(--sb-off-bg); color: var(--sb-off-fg);
+              white-space: nowrap; vertical-align: middle; }
+      .pill.ok { background: var(--sb-ok-bg); color: var(--sb-ok-fg); }
+      .pill.warn { background: var(--sb-warn-bg); color: var(--sb-warn-fg); }
+      .pill.info { background: var(--sb-info-bg); color: var(--sb-info-fg); }
+      .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+      .fchip { border-radius: 999px; }
+      .fchip.on, .fchip.active { background: var(--sb-accent-soft); color: var(--sb-accent);
+                                 border-color: var(--sb-accent-line); }
+      .filter-bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+      .filter-bar .chips { flex: 1 1 auto; }
+      .filter-bar .input { flex: 0 1 300px; }
+
+      /* Agenda. */
+      .agenda-bar { background: var(--sb-card); border: 1px solid var(--sb-line); border-radius: var(--sb-radius);
+                    padding: 6px 8px; box-shadow: var(--sb-shadow); }
+      .day-title { font-size: 17px; font-weight: 600; text-transform: capitalize; margin-top: 4px; }
+      .group { background: var(--sb-card); border: 1px solid var(--sb-line); border-radius: var(--sb-radius);
+               box-shadow: var(--sb-shadow); overflow: hidden; }
+      .group-head { background: transparent; border-bottom: 1px solid var(--sb-line); }
+      .group .appt { border-radius: 10px; }
+      @media (max-width: 720px) {
+        .group { padding: 6px; }
+        .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+        .stat { padding: 8px 10px; }
+        .stat-value { font-size: 18px; }
+        .section-title { font-size: 16px; }
+        .section-head .btn .label, .section-head .btn { white-space: nowrap; }
+      }
+      .group .appt:hover { background: var(--sb-soft); }
+      .daypart { display: flex; align-items: center; gap: 8px; padding: 8px 12px 2px;
+                 font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+                 color: var(--secondary-text-color); }
+      .daypart::after { content: ""; flex: 1; border-top: 1px solid var(--sb-line); }
+      .exit-panel, .exited-box, .cancelled-box { border-radius: var(--sb-radius); }
+      /* Calendar: how full each day is, as a tint. */
+      .cal-day { border-radius: 10px; }
+      .cal-day.heat-1 { background: rgba(var(--rgb-primary-color, 3, 169, 244), .08); }
+      .cal-day.heat-2 { background: rgba(var(--rgb-primary-color, 3, 169, 244), .16); }
+      .cal-day.heat-3 { background: rgba(var(--rgb-primary-color, 3, 169, 244), .26); }
+      .cal-day.heat-4 { background: rgba(var(--rgb-primary-color, 3, 169, 244), .38); }
+      .cal-day[class*="heat-"] { color: var(--primary-text-color); font-weight: 600; }
+      .cal-day[class*="heat-"] .cal-count { color: var(--sb-accent); font-size: 11px; }
+      .cal-day.heat-4 .cal-count { color: var(--primary-text-color); }
+      .cal-day.today { box-shadow: inset 0 0 0 2px var(--sb-accent); }
+      .month-title { font-size: 17px; font-weight: 600; }
+
+      /* WhatsApp: conversations on the left, the chat on the right. */
+      .wa-shell { display: grid; grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
+                  background: var(--sb-card); border: 1px solid var(--sb-line); border-radius: var(--sb-radius);
+                  box-shadow: var(--sb-shadow); overflow: hidden; min-height: 420px; }
+      .wa-chats { border-right: 1px solid var(--sb-line); overflow-y: auto; max-height: 70vh; }
+      .wa-chat { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; gap: 10px; align-items: center;
+                 width: 100%; padding: 10px 12px; border: 0; border-bottom: 1px solid var(--sb-line);
+                 background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+      .wa-chat:hover { background: var(--sb-soft); }
+      .wa-chat.on { background: var(--sb-accent-soft); }
+      .wa-chat-text { display: flex; flex-direction: column; min-width: 0; }
+      .wa-chat-name { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .wa-chat-last { font-size: 12px; color: var(--secondary-text-color); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .wa-chat-time { font-size: 11px; color: var(--secondary-text-color); align-self: start; }
+      .wa-conv { display: flex; flex-direction: column; min-width: 0; }
+      .wa-conv-head { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--sb-line); }
+      .wa-back { display: none; }
+      .wa-bubbles { flex: 1 1 auto; display: flex; flex-direction: column; gap: 6px; padding: 14px;
+                    overflow-y: auto; max-height: 52vh; background: var(--sb-soft); }
+      .bubble { max-width: 78%; padding: 7px 10px 5px; border-radius: 12px; font-size: 13px;
+                white-space: pre-wrap; overflow-wrap: anywhere; display: flex; flex-direction: column; gap: 2px; }
+      .bubble.in { align-self: flex-start; background: var(--sb-card); border-top-left-radius: 4px; }
+      .bubble.out { align-self: flex-end; background: #d9fdd3; color: #0b3b16; border-top-right-radius: 4px; }
+      :host([data-spa-theme="dark"]) .bubble.out { background: #005c4b; color: #e9fbe5; }
+      .bubble-time { align-self: flex-end; font-size: 10px; color: var(--secondary-text-color); }
+      .wa-compose { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--sb-line); }
+      .wa-compose .input { flex: 1 1 auto; border-radius: 999px; }
+      .wa-send { border-radius: 50%; width: 40px; height: 40px; padding: 0; justify-content: center; }
+      .wa-conv .wa-actions { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 12px 12px; }
+      @media (max-width: 720px) {
+        .wa-shell { grid-template-columns: 1fr; }
+        .wa-shell .wa-conv { display: none; }
+        .wa-shell.open .wa-chats { display: none; }
+        .wa-shell.open .wa-conv { display: flex; }
+        .wa-back { display: inline-flex; }
+        .wa-chats { border-right: 0; max-height: none; }
+      }
+
+      /* Configuration: the menu as a sidebar beside the page. */
+      @media (min-width: 721px) {
+        .stack.cfg-shell { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 16px; align-items: start; }
+        .stack.cfg-shell > .tabs { position: sticky; top: 120px; flex-direction: column; flex-wrap: nowrap;
+                                   gap: 2px; padding: 6px; background: var(--sb-card);
+                                   border: 1px solid var(--sb-line); border-radius: var(--sb-radius); }
+        .stack.cfg-shell > .tabs .spacer { display: block; height: 6px; flex: 0 0 auto;
+                                           border-top: 1px solid var(--sb-line); margin-top: 6px; }
+        .stack.cfg-shell > .tabs .tab { width: 100%; border: 0; border-radius: 9px; padding: 8px 10px;
+                                        justify-content: flex-start; font-size: 13px; }
+        .stack.cfg-shell > .tabs .tab:hover { background: var(--sb-soft); }
+        .stack.cfg-shell > .tabs .tab.active { background: var(--sb-accent-soft); color: var(--sb-accent); }
+      }
+      .cfg-page { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+
+      /* Accessi: users, roles, PIN. */
+      .user-list { gap: 0; padding: 4px 16px; }
+      .user-row { display: grid; grid-template-columns: 34px minmax(0, 1fr) minmax(130px, 170px) auto;
+                  gap: 10px; align-items: center; padding: 10px 0; border-top: 1px solid var(--sb-line); }
+      .user-row:first-child { border-top: 0; }
+      .user-row.off { opacity: .55; }
+      .user-row .user-avatar { width: 34px; height: 34px; }
+      .user-who { min-width: 0; }
+      .user-who .user-name { white-space: normal; }
+      .user-detail { display: flex; flex-direction: column; gap: 10px; padding: 4px 0 14px 44px; }
+      .user-detail .row.tight .input { max-width: 260px; }
+      .input.narrow { max-width: 110px; }
+      .field.inline { flex-direction: row; align-items: center; gap: 10px; }
+      .roles-table summary { display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 500; }
+      .table-scroll { overflow-x: auto; }
+      .roles-table table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+      .roles-table th, .roles-table td { padding: 6px 8px; border-bottom: 1px solid var(--sb-line); text-align: center; }
+      .roles-table th[scope="row"] { text-align: left; font-weight: 400; }
+      .roles-table thead th { font-size: 11px; color: var(--secondary-text-color); font-weight: 600; }
+      .roles-table td.no { color: var(--disabled-text-color, #9aa0a6); }
+      @media (max-width: 720px) {
+        .user-row { grid-template-columns: 34px minmax(0, 1fr) auto; }
+        .user-row .role-select { grid-column: 2 / 4; }
+        .user-detail { padding-left: 0; }
+      }
+
+      /* The shared reception tablet: pick your face, type your PIN. */
+      .pin-screen { max-width: 520px; margin: 6vh auto 0; text-align: center; display: flex;
+                    flex-direction: column; align-items: center; gap: 12px; padding: 24px 20px;
+                    background: var(--sb-card); border: 1px solid var(--sb-line);
+                    border-radius: 20px; box-shadow: var(--sb-shadow); }
+      .pin-screen h2 { margin: 0; font-size: 20px; }
+      .pin-logo { --mdc-icon-size: 36px; color: var(--sb-accent); }
+      .pin-people { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+      .pin-person { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 88px;
+                    padding: 10px 8px; border-radius: 14px; border: 1px solid transparent;
+                    background: transparent; color: inherit; font: inherit; cursor: pointer; }
+      .pin-person:hover { background: var(--sb-soft); }
+      .pin-person.on { background: var(--sb-accent-soft); border-color: var(--sb-accent-line); }
+      .pin-person .user-avatar { width: 48px; height: 48px; font-size: 15px; }
+      .pin-name { font-weight: 600; font-size: 13px; }
+      .pin-role { font-size: 11px; color: var(--secondary-text-color); }
+      .pin-dots { display: flex; gap: 12px; margin: 6px 0; }
+      .pin-dots span { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--sb-accent-line); }
+      .pin-dots span.on { background: var(--sb-accent); border-color: var(--sb-accent); }
+      .pin-pad { display: grid; grid-template-columns: repeat(3, 72px); gap: 10px; }
+      .pin-key { height: 56px; border-radius: 16px; border: 1px solid var(--sb-line); background: var(--sb-soft);
+                 color: inherit; font: inherit; font-size: 22px; font-weight: 500; cursor: pointer;
+                 display: inline-flex; align-items: center; justify-content: center; }
+      .pin-key:active { background: var(--sb-accent-soft); }
+      .pin-error { color: var(--sb-danger-fg); font-size: 13px; }
+
+      /* Voucher: ticket cards. */
+      .voucher-list { display: flex; flex-direction: column; gap: 10px; }
+      .ticket { display: grid; grid-template-columns: 76px minmax(0, 1fr); background: var(--sb-card);
+                border: 1px solid var(--sb-line); border-radius: var(--sb-radius); box-shadow: var(--sb-shadow);
+                overflow: hidden; }
+      .ticket-stub { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+                     padding: 10px 6px; background: var(--sb-ok-bg); color: var(--sb-ok-fg);
+                     border-right: 2px dashed var(--sb-card); position: relative; }
+      .ticket-stub ha-icon { --mdc-icon-size: 26px; }
+      .ticket-value { font-size: 12px; font-weight: 600; text-align: center; }
+      .ticket.scadenza .ticket-stub { background: var(--sb-warn-bg); color: var(--sb-warn-fg); }
+      .ticket.riscattato .ticket-stub { background: var(--sb-info-bg); color: var(--sb-info-fg); }
+      .ticket.scaduto .ticket-stub { background: var(--sb-off-bg); color: var(--sb-off-fg); }
+      .ticket.scaduto .ticket-main { opacity: .75; }
+      .ticket-main { padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+      .ticket-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+      .ticket-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 700;
+                     font-size: 15px; letter-spacing: .04em; }
+      .ticket-people { margin: 0; padding-left: 18px; font-size: 13px; }
+      .ticket-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--secondary-text-color); }
+      .ticket-meta span { display: inline-flex; align-items: center; gap: 4px; }
+      .ticket-meta ha-icon { --mdc-icon-size: 14px; }
+      .ticket-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
+      .send-panel { display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 12px; background: var(--sb-soft); }
+      .created-box { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: var(--sb-radius);
+                     background: var(--sb-ok-bg); color: var(--primary-text-color); flex-wrap: wrap; }
+      .created-box > ha-icon { color: var(--sb-ok-fg); --mdc-icon-size: 28px; }
+      .created-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 20px; font-weight: 700; letter-spacing: .05em; }
+      @media (max-width: 720px) {
+        .ticket { grid-template-columns: 52px minmax(0, 1fr); }
+        .ticket-value { display: none; }
+        .ticket-actions .btn .label { display: none; }
+      }
+      /* "Nuovo voucher" in three steps. */
+      .wizard-head { display: flex; align-items: center; justify-content: space-between; }
+      .wizard-head h3 { font-size: 15px; text-transform: none; letter-spacing: 0; color: var(--primary-text-color); margin: 0; }
+      .steps { list-style: none; display: flex; gap: 6px; margin: 0; padding: 0; flex-wrap: wrap; }
+      .steps li { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--secondary-text-color);
+                  padding: 4px 10px 4px 4px; border-radius: 999px; background: var(--sb-soft); }
+      .steps li.on { background: var(--sb-accent-soft); color: var(--sb-accent); font-weight: 600; }
+      .steps li.done { color: var(--sb-ok-fg); }
+      .step-n { width: 20px; height: 20px; border-radius: 50%; display: inline-flex; align-items: center;
+                justify-content: center; font-size: 11px; background: var(--sb-card); }
+      .wizard-nav { display: flex; justify-content: space-between; gap: 8px; border-top: 1px solid var(--sb-line); padding-top: 10px; }
+      .who-card { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 12px; background: var(--sb-soft); }
+      .who-title { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 13px; }
+      .who-title ha-icon { --mdc-icon-size: 18px; color: var(--sb-accent); }
+      .web-form-box { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 12px; background: var(--sb-soft); }
+      .web-form-box input[type="color"] { padding: 2px; height: 36px; width: 60px; }
+      .created-by .input[readonly] { background: var(--sb-soft); }
+      .person-card { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--sb-line); border-radius: 12px; }
+      .person-head { display: flex; align-items: center; gap: 8px; }
+      .person-head .input { flex: 1 1 auto; }
+      .person-n { flex: 0 0 auto; width: 26px; height: 26px; border-radius: 50%; display: inline-flex; align-items: center;
+                  justify-content: center; font-size: 12px; font-weight: 600; background: var(--sb-accent-soft); color: var(--sb-accent); }
+      .cat-label { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--secondary-text-color); }
+      .pick-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 6px; }
+      .pick { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 10px;
+              border-radius: 10px; border: 1px solid var(--sb-line); background: transparent; color: inherit;
+              font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+      .pick.on { background: var(--sb-accent-soft); border-color: var(--sb-accent-line); color: var(--sb-accent); }
+      .pick-price { font-size: 12px; color: var(--secondary-text-color); white-space: nowrap; }
+      .field.gift > span { display: inline-flex; align-items: center; gap: 4px; }
+      .add-person { align-self: flex-start; }
+      .summary { display: flex; flex-direction: column; border: 1px solid var(--sb-line); border-radius: 12px; overflow: hidden; }
+      .sum-row { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 10px; padding: 8px 12px;
+                 border-top: 1px solid var(--sb-line); font-size: 13px; }
+      .sum-row:first-child { border-top: 0; }
+      /* 2.2.0b4: requests, client card, forms and the configuration pages. */
+      .spa-head-title.section-like { gap: 12px; font-size: inherit; font-weight: inherit; }
+      .spa-head-title.section-like .section-icon ha-icon { color: var(--sb-accent); --mdc-icon-size: 22px; }
+      .spa-head { align-items: flex-start; }
+      .cfg-page > .stack > .btn.primary, .cfg-page > .stack > .btn.primary.small,
+      .cfg-page > .stack.tight > .btn.primary { align-self: flex-start; }
+      .form-card { max-width: 900px; }
+      .form-card .section-head { padding-bottom: 8px; border-bottom: 1px solid var(--sb-line); margin-bottom: 4px; }
+      .form-card-head { align-items: flex-start; }
+      .form-card-head .section-head { flex: 1 1 auto; border-bottom: 0; }
+      .form-card > .row:last-child { border-top: 1px solid var(--sb-line); padding-top: 12px; margin-top: 4px; }
+      /* Checkboxes that are choices (days, exclusions) read as pills. */
+      .days-grid .check, .form-card .checks .check, .checks-grid .check {
+        border: 1px solid var(--sb-line); border-radius: 999px; padding: 5px 12px; background: var(--sb-card); cursor: pointer; }
+      .days-grid .check:has(input:checked), .form-card .checks .check:has(input:checked),
+      .checks-grid .check:has(input:checked) { background: var(--sb-accent-soft); border-color: var(--sb-accent-line); color: var(--sb-accent); }
+      .form-card .checks { flex-direction: row; flex-wrap: wrap; }
+      .form-card .field .row.tight { flex-wrap: nowrap; align-items: center; }
+      .form-card .field .row.tight .input[type="time"] { width: auto; flex: 0 1 160px; }
+      .form-card .field .row.tight .dim { flex: 0 0 auto; }
+      .form-card > .field, .form-card > label.field { max-width: 560px; }
+      .form-card > .check { padding: 2px 0; }
+      /* Categories. */
+      .cat-card { display: flex; align-items: center; gap: 10px; padding: 12px 14px 12px 18px;
+                  background: var(--sb-card); border: 1px solid var(--sb-line); border-radius: var(--sb-radius);
+                  box-shadow: var(--sb-shadow); position: relative; overflow: hidden; }
+      .cat-card::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 6px; background: var(--cat, var(--sb-line)); }
+      .cat-name { font-size: 15px; font-weight: 600; margin-bottom: 6px; }
+      .pill ha-icon { --mdc-icon-size: 13px; }
+      /* Treatments and operators: cards. */
+      .trt-group, .op-card { background: var(--sb-card); border-color: var(--sb-line); border-radius: var(--sb-radius); box-shadow: var(--sb-shadow); }
+      .trt-group .row.item:hover { background: var(--sb-soft); }
+      /* Requests. */
+      .req-card { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; background: var(--sb-card);
+                  border: 1px solid var(--sb-line); border-radius: var(--sb-radius); box-shadow: var(--sb-shadow); }
+      .req-card.done { opacity: .8; }
+      .req-head { display: flex; align-items: center; gap: 12px; }
+      .req-name { font-weight: 600; font-size: 15px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+      .req-date { display: flex; flex-direction: column; align-items: flex-end; text-align: right; }
+      .req-day { font-weight: 600; text-transform: capitalize; }
+      .req-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-left: 44px; }
+      .req-person { font-size: 12px; color: var(--secondary-text-color); min-width: 64px; }
+      .req-entry { font-size: 13px; padding: 4px 10px; border-radius: 999px; background: var(--sb-soft); }
+      .req-notes { display: flex; gap: 6px; align-items: flex-start; font-size: 13px; padding: 8px 10px;
+                   border-radius: 10px; background: var(--sb-warn-bg); color: var(--primary-text-color); }
+      .req-card .req-notes { margin-left: 44px; }
+      .req-notes ha-icon { --mdc-icon-size: 16px; color: var(--sb-warn-fg); flex: 0 0 auto; }
+      .req-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; padding-left: 44px; }
+      .req-done > summary { cursor: pointer; color: var(--secondary-text-color); padding: 6px 0; }
+      .req-done[open] { display: flex; flex-direction: column; gap: 10px; }
+      @media (max-width: 720px) {
+        .req-line, .req-actions, .req-card .req-notes { padding-left: 0; margin-left: 0; }
+        .req-head { flex-wrap: wrap; }
+        .req-date { flex-direction: row; gap: 8px; align-items: baseline; width: 100%; }
+      }
+      /* The client card. */
+      .client-detail { align-items: start; gap: 14px; }
+      .profile-head { display: flex; gap: 14px; align-items: center; }
+      .user-avatar.big { width: 56px; height: 56px; font-size: 18px; }
+      .profile-name { font-size: 20px; font-weight: 600; }
+      .stat-value.small-value { font-size: 16px; }
+      .client-detail .appt.compact { border-radius: 10px; }
+      /* The update banner. */
+      .update-banner { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 14px;
+                       border-radius: var(--sb-radius); background: var(--sb-info-bg); border: 1px solid var(--sb-accent-line); }
+      .update-banner.restart { background: var(--sb-warn-bg); border-color: transparent; }
+      .update-banner > ha-icon { --mdc-icon-size: 26px; color: var(--sb-info-fg); }
+      .update-banner.restart > ha-icon { color: var(--sb-warn-fg); }
+      .update-title { font-weight: 600; }
     `);
   }
 }
