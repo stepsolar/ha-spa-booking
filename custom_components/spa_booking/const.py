@@ -87,9 +87,13 @@ REQUEST_SOURCE_WEB: Final = "web"
 REQUEST_SOURCES: Final = (REQUEST_SOURCE_DESK, REQUEST_SOURCE_WEB)
 
 #: Access level chosen per user in the card's Accessi tab. "none" hides the
-#: dashboard, "read" is view only, "operator" handles the day, "manager" also
-#: touches clients and messages, "admin" is the full configuration.
-PERMISSION_LEVELS: Final = ("none", "read", "operator", "manager", "admin")
+#: dashboard, "read" is view only, "therapist" (Massaggiatrice) sees the day
+#: and books only her own appointments, "operator" (Reception) handles the
+#: day, payments and new vouchers, "manager" also clients, messages, voucher
+#: changes and totals, "admin" is the full configuration and the users.
+PERMISSION_LEVELS: Final = ("none", "read", "therapist", "operator", "manager", "admin")
+
+KEY_PROFILES: Final = "profiles"
 
 KEY_PERMISSIONS: Final = "permissions"
 

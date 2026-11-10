@@ -1,6 +1,6 @@
 <!-- Hotel Il Marchese - richiesta appuntamento SPA dal sito WordPress -->
 <div id="sbw-widget" class="sbw">
-  <style>.sbw{--sbw-accent:var(--wp--preset--color--primary,#2f7de1);max-width:680px;margin:0 auto;color:inherit;font-size:15px;line-height:1.4;text-align:left}.sbw *,.sbw *::before,.sbw *::after{box-sizing:border-box}.sbw-card{border:1px solid rgba(128,128,128,.35);border-radius:14px;padding:14px;background:rgba(128,128,128,.06)}.sbw-title{margin:0 0 4px;font-size:1.15em;line-height:1.2}.sbw-intro{margin:0 0 10px;font-size:.85em;opacity:.8}.sbw-note{margin:10px 0 0;font-size:.78em;opacity:.7}.sbw-hint{font-size:.82em;opacity:.75}.sbw-field{display:block;margin:0 0 8px}.sbw-field>span{display:block;margin-bottom:3px;font-size:.74em;font-weight:600;letter-spacing:.04em;text-transform:uppercase;opacity:.7}.sbw input,.sbw select,.sbw textarea{width:100%;padding:7px 10px;font:inherit;color:inherit;background:transparent;border:1px solid rgba(128,128,128,.5);border-radius:8px;-webkit-appearance:none;appearance:none}.sbw select{background-image:none}.sbw input:focus,.sbw select:focus,.sbw textarea:focus{outline:2px solid var(--sbw-accent);outline-offset:1px;border-color:transparent}.sbw-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}@media(max-width:520px){.sbw-grid{grid-template-columns:1fr}}.sbw-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:4px}.sbw-btn{padding:10px 20px;font:inherit;font-weight:600;color:#fff;cursor:pointer;background:var(--sbw-accent);border:0;border-radius:8px}.sbw-btn[disabled]{opacity:.55;cursor:default}.sbw-status{font-size:.9em}.sbw-status.err{color:#c62828}.sbw-status.ok{color:#2e7d32}.sbw-person{border:1px solid rgba(128,128,128,.25);border-radius:10px;padding:10px;margin:0 0 14px;background:rgba(128,128,128,.04)}.sbw-person h4{margin:0 0 6px;font-size:.95em}.sbw-entry{display:grid;grid-template-columns:1.6fr 1fr;gap:8px;margin:0 0 8px}@media(max-width:520px){.sbw-entry{grid-template-columns:1fr}}.sbw-receipt{text-align:center}.sbw-receipt .sbw-ok{font-size:2.2em;line-height:1;color:#2e7d32}.sbw-receipt p{display:block;margin:10px 0;opacity:.85}.sbw-code{display:inline-block;margin:4px 0 10px;padding:8px 18px;font-size:1.5em;font-weight:700;letter-spacing:.06em;border:1px dashed rgba(128,128,128,.6);border-radius:10px}.sbw-flex{display:flex;gap:8px;align-items:center;margin:0 0 8px}.sbw-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}.sbw-small{padding:6px 12px;font-size:.9em}.sbw-warn{color:#b98f2f;font-size:.82em}</style>
+  <style>.sbw{--sbw-accent:var(--wp--preset--color--primary,#2f7de1);max-width:680px;margin:0 auto;color:inherit;font-size:15px;line-height:1.4;text-align:left}.sbw *,.sbw *::before,.sbw *::after{box-sizing:border-box}.sbw-card{border:1px solid rgba(128,128,128,.35);border-radius:14px;padding:14px;background:rgba(128,128,128,.06)}.sbw-title{margin:0 0 4px;font-size:1.15em;line-height:1.2}.sbw-intro{margin:0 0 10px;font-size:.85em;opacity:.8}.sbw-note{margin:10px 0 0;font-size:.78em;opacity:.7}.sbw-hint{font-size:.82em;opacity:.75}.sbw-field{display:block;margin:0 0 8px}.sbw-field>span{display:block;margin-bottom:3px;font-size:.74em;font-weight:600;letter-spacing:.04em;text-transform:uppercase;opacity:.7}.sbw input,.sbw select,.sbw textarea{width:100%;padding:7px 10px;font:inherit;color:inherit;background:transparent;border:1px solid rgba(128,128,128,.5);border-radius:8px;-webkit-appearance:none;appearance:none}.sbw select{background-image:none}.sbw input:focus,.sbw select:focus,.sbw textarea:focus{outline:2px solid var(--sbw-accent);outline-offset:1px;border-color:transparent}.sbw-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}@media(max-width:520px){.sbw-grid{grid-template-columns:1fr}}.sbw-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:4px}.sbw-btn{padding:10px 20px;font:inherit;font-weight:600;color:#fff;cursor:pointer;background:var(--sbw-accent);border:0;border-radius:8px}.sbw-btn[disabled]{opacity:.55;cursor:default}.sbw-status{font-size:.9em}.sbw-status.err{color:#c62828}.sbw-status.ok{color:#2e7d32}.sbw-person{border:1px solid rgba(128,128,128,.25);border-radius:10px;padding:10px;margin:0 0 14px;background:rgba(128,128,128,.04)}.sbw-person h4{margin:0 0 6px;font-size:.95em}.sbw-entry{display:grid;grid-template-columns:1.6fr 1fr;gap:8px;margin:0 0 8px}@media(max-width:520px){.sbw-entry{grid-template-columns:1fr}}.sbw-receipt{text-align:center}.sbw-receipt .sbw-ok{font-size:2.2em;line-height:1;color:#2e7d32}.sbw-receipt p{display:block;margin:10px 0;opacity:.85}.sbw-code{display:inline-block;margin:4px 0 10px;padding:8px 18px;font-size:1.5em;font-weight:700;letter-spacing:.06em;border:1px dashed rgba(128,128,128,.6);border-radius:10px}.sbw-flex{display:flex;gap:8px;align-items:center;margin:0 0 8px}.sbw-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}.sbw-small{padding:6px 12px;font-size:.9em}.sbw-warn{color:#b98f2f;font-size:.82em}.sbw-phone{display:flex;gap:6px}.sbw-phone select{flex:0 0 96px;width:96px}.sbw-phone input{flex:1;min-width:0}</style>
   <style>#sbw-voucher{text-transform:uppercase}</style>
   <div class="sbw-card">
     <div id="sbw-form">
@@ -37,7 +37,131 @@
           <input id="sbw-last" type="text" autocomplete="family-name" maxlength="60">
         </label>
         <label class="sbw-field" for="sbw-phone"><span>Telefono *</span>
-          <input id="sbw-phone" type="tel" inputmode="tel" autocomplete="tel" maxlength="30" placeholder="es. 333 1234567">
+          <span class="sbw-phone">
+          <select id="sbw-cc" aria-label="Prefisso internazionale" autocomplete="tel-country-code">
+            <option value="39" selected>🇮🇹 +39 Italia</option>
+            <option value="41">🇨🇭 +41 Svizzera</option>
+            <option value="49">🇩🇪 +49 Germania</option>
+            <option value="43">🇦🇹 +43 Austria</option>
+            <option value="33">🇫🇷 +33 Francia</option>
+            <option value="44">🇬🇧 +44 Regno Unito</option>
+            <option value="1">🇺🇸 +1 Stati Uniti / Canada</option>
+            <option value="31">🇳🇱 +31 Paesi Bassi</option>
+            <option value="32">🇧🇪 +32 Belgio</option>
+            <option value="34">🇪🇸 +34 Spagna</option>
+            <option value="378">🇸🇲 +378 San Marino</option>
+            <option value="356">🇲🇹 +356 Malta</option>
+            <option value="" disabled>──────────</option>
+            <option value="93">🇦🇫 +93 Afghanistan</option>
+            <option value="355">🇦🇱 +355 Albania</option>
+            <option value="213">🇩🇿 +213 Algeria</option>
+            <option value="376">🇦🇩 +376 Andorra</option>
+            <option value="244">🇦🇴 +244 Angola</option>
+            <option value="966">🇸🇦 +966 Arabia Saudita</option>
+            <option value="54">🇦🇷 +54 Argentina</option>
+            <option value="374">🇦🇲 +374 Armenia</option>
+            <option value="61">🇦🇺 +61 Australia</option>
+            <option value="994">🇦🇿 +994 Azerbaigian</option>
+            <option value="973">🇧🇭 +973 Bahrein</option>
+            <option value="880">🇧🇩 +880 Bangladesh</option>
+            <option value="375">🇧🇾 +375 Bielorussia</option>
+            <option value="591">🇧🇴 +591 Bolivia</option>
+            <option value="387">🇧🇦 +387 Bosnia ed Erzegovina</option>
+            <option value="55">🇧🇷 +55 Brasile</option>
+            <option value="359">🇧🇬 +359 Bulgaria</option>
+            <option value="855">🇰🇭 +855 Cambogia</option>
+            <option value="237">🇨🇲 +237 Camerun</option>
+            <option value="56">🇨🇱 +56 Cile</option>
+            <option value="86">🇨🇳 +86 Cina</option>
+            <option value="357">🇨🇾 +357 Cipro</option>
+            <option value="57">🇨🇴 +57 Colombia</option>
+            <option value="82">🇰🇷 +82 Corea del Sud</option>
+            <option value="225">🇨🇮 +225 Costa d'Avorio</option>
+            <option value="506">🇨🇷 +506 Costa Rica</option>
+            <option value="385">🇭🇷 +385 Croazia</option>
+            <option value="53">🇨🇺 +53 Cuba</option>
+            <option value="45">🇩🇰 +45 Danimarca</option>
+            <option value="593">🇪🇨 +593 Ecuador</option>
+            <option value="20">🇪🇬 +20 Egitto</option>
+            <option value="971">🇦🇪 +971 Emirati Arabi Uniti</option>
+            <option value="372">🇪🇪 +372 Estonia</option>
+            <option value="251">🇪🇹 +251 Etiopia</option>
+            <option value="63">🇵🇭 +63 Filippine</option>
+            <option value="358">🇫🇮 +358 Finlandia</option>
+            <option value="995">🇬🇪 +995 Georgia</option>
+            <option value="233">🇬🇭 +233 Ghana</option>
+            <option value="81">🇯🇵 +81 Giappone</option>
+            <option value="350">🇬🇮 +350 Gibilterra</option>
+            <option value="962">🇯🇴 +962 Giordania</option>
+            <option value="30">🇬🇷 +30 Grecia</option>
+            <option value="502">🇬🇹 +502 Guatemala</option>
+            <option value="91">🇮🇳 +91 India</option>
+            <option value="62">🇮🇩 +62 Indonesia</option>
+            <option value="98">🇮🇷 +98 Iran</option>
+            <option value="964">🇮🇶 +964 Iraq</option>
+            <option value="353">🇮🇪 +353 Irlanda</option>
+            <option value="354">🇮🇸 +354 Islanda</option>
+            <option value="972">🇮🇱 +972 Israele</option>
+            <option value="7">🇰🇿 +7 Kazakistan / Russia</option>
+            <option value="254">🇰🇪 +254 Kenya</option>
+            <option value="383">🌐 +383 Kosovo</option>
+            <option value="965">🇰🇼 +965 Kuwait</option>
+            <option value="371">🇱🇻 +371 Lettonia</option>
+            <option value="961">🇱🇧 +961 Libano</option>
+            <option value="218">🇱🇾 +218 Libia</option>
+            <option value="423">🇱🇮 +423 Liechtenstein</option>
+            <option value="370">🇱🇹 +370 Lituania</option>
+            <option value="352">🇱🇺 +352 Lussemburgo</option>
+            <option value="389">🇲🇰 +389 Macedonia del Nord</option>
+            <option value="261">🇲🇬 +261 Madagascar</option>
+            <option value="60">🇲🇾 +60 Malesia</option>
+            <option value="960">🇲🇻 +960 Maldive</option>
+            <option value="212">🇲🇦 +212 Marocco</option>
+            <option value="230">🇲🇺 +230 Mauritius</option>
+            <option value="52">🇲🇽 +52 Messico</option>
+            <option value="373">🇲🇩 +373 Moldavia</option>
+            <option value="377">🇲🇨 +377 Monaco</option>
+            <option value="976">🇲🇳 +976 Mongolia</option>
+            <option value="382">🇲🇪 +382 Montenegro</option>
+            <option value="977">🇳🇵 +977 Nepal</option>
+            <option value="234">🇳🇬 +234 Nigeria</option>
+            <option value="47">🇳🇴 +47 Norvegia</option>
+            <option value="64">🇳🇿 +64 Nuova Zelanda</option>
+            <option value="968">🇴🇲 +968 Oman</option>
+            <option value="92">🇵🇰 +92 Pakistan</option>
+            <option value="507">🇵🇦 +507 Panama</option>
+            <option value="595">🇵🇾 +595 Paraguay</option>
+            <option value="51">🇵🇪 +51 Perù</option>
+            <option value="48">🇵🇱 +48 Polonia</option>
+            <option value="351">🇵🇹 +351 Portogallo</option>
+            <option value="974">🇶🇦 +974 Qatar</option>
+            <option value="420">🇨🇿 +420 Repubblica Ceca</option>
+            <option value="1809">🇩🇴 +1809 Repubblica Dominicana</option>
+            <option value="40">🇷🇴 +40 Romania</option>
+            <option value="221">🇸🇳 +221 Senegal</option>
+            <option value="381">🇷🇸 +381 Serbia</option>
+            <option value="248">🇸🇨 +248 Seychelles</option>
+            <option value="65">🇸🇬 +65 Singapore</option>
+            <option value="421">🇸🇰 +421 Slovacchia</option>
+            <option value="386">🇸🇮 +386 Slovenia</option>
+            <option value="94">🇱🇰 +94 Sri Lanka</option>
+            <option value="27">🇿🇦 +27 Sudafrica</option>
+            <option value="46">🇸🇪 +46 Svezia</option>
+            <option value="66">🇹🇭 +66 Thailandia</option>
+            <option value="886">🇹🇼 +886 Taiwan</option>
+            <option value="255">🇹🇿 +255 Tanzania</option>
+            <option value="216">🇹🇳 +216 Tunisia</option>
+            <option value="90">🇹🇷 +90 Turchia</option>
+            <option value="380">🇺🇦 +380 Ucraina</option>
+            <option value="36">🇭🇺 +36 Ungheria</option>
+            <option value="598">🇺🇾 +598 Uruguay</option>
+            <option value="998">🇺🇿 +998 Uzbekistan</option>
+            <option value="379">🇻🇦 +379 Vaticano</option>
+            <option value="58">🇻🇪 +58 Venezuela</option>
+            <option value="84">🇻🇳 +84 Vietnam</option>
+          </select>
+          <input id="sbw-phone" type="tel" inputmode="tel" autocomplete="tel-national" maxlength="30" placeholder="es. 333 1234567">
+          </span>
         </label>
         <label class="sbw-field" for="sbw-email"><span>Email</span>
           <input id="sbw-email" type="email" autocomplete="email" maxlength="120">
@@ -80,6 +204,7 @@
   var first = $("sbw-first");
   var last = $("sbw-last");
   var phone = $("sbw-phone");
+  var phoneCc = $("sbw-cc");
   var email = $("sbw-email");
   var notes = $("sbw-notes");
   var sendBtn = $("sbw-send");
@@ -305,6 +430,7 @@
     var firstVal = first.value.trim();
     var lastVal = last.value.trim();
     var phoneVal = phone.value.trim();
+    if (phoneVal) { if (!/^(\+|00)/.test(phoneVal)) { phoneVal = "+" + (phoneCc ? phoneCc.value || "39" : "39") + " " + phoneVal; } }
     if (!firstVal) { if (!lastVal) { say("Indica il tuo nome.", "err"); return; } }
     if (!phoneVal) { say("Indica un numero di telefono: serve per confermare.", "err"); return; }
     sending = true;

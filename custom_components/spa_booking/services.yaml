@@ -1453,10 +1453,11 @@ get_users:
 set_user_permissions:
   name: Imposta permessi utente
   description: >-
-    Salva il livello di accesso di un utente alla dashboard. I livelli sono
-    none (non vede la dashboard), read (sola lettura), operator (gestisce la
-    giornata), manager (anche clienti e messaggi) e admin (configurazione
-    completa).
+    Salva il ruolo di un utente nella dashboard: none (non vede la
+    dashboard), read (sola lettura), therapist (massaggiatrice: agenda e i
+    suoi appuntamenti), operator (reception: giornata, incassi, nuovi
+    voucher), manager (anche clienti, messaggi, voucher e totali) e admin
+    (configurazione e utenti).
   fields:
     user_id:
       name: ID utente
@@ -1474,9 +1475,11 @@ set_user_permissions:
               value: none
             - label: Solo lettura
               value: read
-            - label: Operatore
+            - label: Massaggiatrice
+              value: therapist
+            - label: Reception
               value: operator
-            - label: Gestore
+            - label: Manager
               value: manager
             - label: Amministratore
               value: admin
@@ -1509,6 +1512,13 @@ create_voucher:
       description: Elenco di persone, ciascuna con treatment_ids e extras.
       selector:
         object:
+    created_by:
+      name: Creato da
+      description: >-
+        Nome di chi ha creato il voucher. Obbligatorio solo per automazioni e
+        script: per un utente collegato si usa il suo nome.
+      selector:
+        text:
 
 extend_voucher:
   name: Estendi voucher
@@ -1871,3 +1881,147 @@ whatsapp_pair_code:
 whatsapp_logout:
   name: Scollega WhatsApp
   description: Scollega il numero da Spa Booking. Solo amministratori.
+
+whoami:
+  name: Chi sono
+  description: >-
+    Restituisce l'utente con cui agisce la card, il suo ruolo e l'operatrice
+    collegata. Sul tablet condiviso elenca chi può entrare con il PIN.
+
+pin_login:
+  name: Entra con il PIN
+  description: >-
+    Sul tablet condiviso della reception: la persona sceglie il suo nome e
+    inserisce il PIN di 4 cifre. Da quel momento il tablet agisce come lei.
+  fields:
+    user_id:
+      name: ID utente
+      required: true
+      selector:
+        text:
+    pin:
+      name: PIN
+      required: true
+      selector:
+        text:
+          type: password
+
+pin_logout:
+  name: Esci dal tablet
+  description: Chiude la sessione PIN del tablet condiviso.
+
+set_user_profile:
+  name: Profilo utente
+  description: >-
+    Collega un utente a un'operatrice dell'agenda, imposta o cancella il suo
+    PIN, oppure lo segna come tablet condiviso della reception. Solo
+    amministratori.
+  fields:
+    user_id:
+      name: ID utente
+      required: true
+      selector:
+        text:
+    operator_id:
+      name: Operatrice collegata
+      selector:
+        text:
+    shared:
+      name: Tablet condiviso
+      selector:
+        boolean:
+    pin:
+      name: PIN (4 cifre)
+      selector:
+        text:
+          type: password
+    clear_pin:
+      name: Cancella il PIN
+      selector:
+        boolean:
+
+create_user:
+  name: Crea utente
+  description: >-
+    Crea un utente di Home Assistant con nome utente e password, con il suo
+    ruolo in Spa Booking e, se serve, l'operatrice collegata e il PIN. Solo
+    amministratori.
+  fields:
+    name:
+      name: Nome
+      required: true
+      selector:
+        text:
+    username:
+      name: Nome utente
+      required: true
+      selector:
+        text:
+    password:
+      name: Password
+      required: true
+      selector:
+        text:
+          type: password
+    level:
+      name: Ruolo
+      required: true
+      selector:
+        select:
+          options:
+            - label: Massaggiatrice
+              value: therapist
+            - label: Reception
+              value: operator
+            - label: Manager
+              value: manager
+            - label: Amministratore
+              value: admin
+    operator_id:
+      name: Operatrice collegata
+      selector:
+        text:
+    pin:
+      name: PIN (4 cifre)
+      selector:
+        text:
+          type: password
+    shared:
+      name: Tablet condiviso
+      selector:
+        boolean:
+    local_only:
+      name: Solo rete locale
+      selector:
+        boolean:
+
+set_user_password:
+  name: Nuova password utente
+  description: Assegna una nuova password a un utente. Solo amministratori.
+  fields:
+    user_id:
+      name: ID utente
+      required: true
+      selector:
+        text:
+    password:
+      name: Nuova password
+      required: true
+      selector:
+        text:
+          type: password
+
+set_user_active:
+  name: Attiva o disattiva utente
+  description: Disattiva chi non lavora più qui, o la riattiva. Solo amministratori.
+  fields:
+    user_id:
+      name: ID utente
+      required: true
+      selector:
+        text:
+    active:
+      name: Attivo
+      required: true
+      selector:
+        boolean:

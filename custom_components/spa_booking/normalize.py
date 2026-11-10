@@ -83,6 +83,7 @@ from .const import (
     KEY_SETTINGS,
     KEY_SLOT_BLOCKS,
     KEY_TREATMENTS,
+    KEY_PROFILES,
     PERMISSION_LEVELS,
     BOOKING_STATUSES,
     OPERATOR_ROLES,
@@ -198,6 +199,10 @@ def _norm_voucher(raw: Any) -> dict[str, Any]:
         "recipient_phone": str(raw.get("recipient_phone") or "").strip(),
         "people": people,
         "created_at": str(raw.get("created_at") or ""),
+        # Who sold it: the Home Assistant user (empty for an automation or a
+        # voucher made before 2.2) and the name shown on the voucher.
+        "created_by": str(raw.get("created_by") or ""),
+        "created_by_name": str(raw.get("created_by_name") or "").strip(),
         "expires_on": _norm_date(raw.get("expires_on")),
         "status": status if status in (VOUCHER_ACTIVE, VOUCHER_REDEEMED) else VOUCHER_ACTIVE,
         "redeemed_at": str(raw.get("redeemed_at") or ""),
@@ -746,6 +751,11 @@ def _norm_settings(raw: dict[str, Any]) -> dict[str, Any]:
             for key, value in dict(raw.get(KEY_PERMISSIONS) or {}).items()
             if value in PERMISSION_LEVELS
         },
+        # Per user: the agenda operator she is, whether the account is the
+        # shared reception tablet, and her PIN (salted hash only).
+        KEY_PROFILES: _profiles(raw.get(KEY_PROFILES)),
+        # Minutes of inactivity before the shared tablet signs out.
+        "pin_idle_minutes": _bounded_int(raw.get("pin_idle_minutes"), 10, 1, 240),
         # Camera entities shown in the Telecamere tab (empty list = none).
         # Each camera carries its own name, icon, visibility and column span.
         "camera_entities": _spa_tiles(
@@ -1793,3 +1803,31 @@ def as_date(value: date | datetime | str) -> date:
         raise ValidationError(
             f"Data non valida: '{value}'. Usa il formato AAAA-MM-GG."
         ) from err
+
+
+def _bounded_int(value: Any, default: int, low: int, high: int) -> int:
+    """An integer clamped to ``low..high``, or ``default`` when unreadable."""
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(low, min(high, number))
+
+
+def _profiles(raw: Any) -> dict[str, dict[str, Any]]:
+    """The user profiles of the Accessi tab, unknown keys dropped."""
+    result: dict[str, dict[str, Any]] = {}
+    if not isinstance(raw, dict):
+        return result
+    for user_id, profile in raw.items():
+        if not user_id or not isinstance(profile, dict):
+            continue
+        salt = str(profile.get("pin_salt") or "")
+        digest = str(profile.get("pin_hash") or "")
+        result[str(user_id)] = {
+            "operator_id": str(profile.get("operator_id") or ""),
+            "shared": bool(profile.get("shared")),
+            "pin_salt": salt if digest else "",
+            "pin_hash": digest if salt else "",
+        }
+    return result

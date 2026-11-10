@@ -338,17 +338,34 @@ false` in `update_settings` le spegne.
 
 ## Accessi
 
-I livelli della scheda **Accessi** (nessuno, lettura, operatore, manager,
-admin) valgono anche lato server. Regola: vale il livello assegnato; un
-amministratore di Home Assistant non assegnato è admin; chiunque altro non ha
-accesso. Le automazioni e gli script agiscono come sistema.
+I ruoli della scheda **Accessi** valgono anche lato server. Regola: vale il
+ruolo assegnato; un amministratore di Home Assistant è sempre admin; chiunque
+altro non ha accesso. Le automazioni e gli script agiscono come sistema.
 
-- **lettura**: caricare i dati e l'agenda (senza chiave WAHA, token del sito e
-  segreto del webhook, visibili solo agli admin);
-- **operatore**: prenotare, modificare, check-in/out, incassi, richieste,
-  messaggi agli ospiti, voucher;
-- **manager**: in più gestione voucher e unione clienti;
-- **admin**: configurazione, import/export, promo, permessi.
+- **read** (Solo lettura): caricare i dati e l'agenda (senza chiave WAHA,
+  token del sito, segreto del webhook e PIN);
+- **therapist** (Massaggiatrice): prenotare, spostare, annullare e fare
+  check-in/out **solo dei propri appuntamenti** (quelli dell'operatrice
+  collegata all'utente), senza incassi;
+- **operator** (Reception): tutta la giornata, incassi, richieste, messaggi,
+  creazione voucher;
+- **manager**: in più modifica ed eliminazione voucher, unione clienti, totali;
+- **admin**: configurazione, utenti, import/export, promo.
+
+Servizi per gli accessi: `whoami` (chi sta agendo), `pin_login` e
+`pin_logout` (tablet condiviso), `set_user_profile` (operatrice collegata,
+PIN, tablet), `create_user`, `set_user_password`, `set_user_active`.
+
+**Tablet condiviso.** Un utente segnato come «Tablet condiviso» non ha
+permessi propri: chi lo usa sceglie il suo nome e digita il PIN di 4 cifre
+(salvato come hash PBKDF2), e ogni chiamata agisce come quella persona finché
+non esce o il tablet resta fermo per `pin_idle_minutes` minuti. Cinque PIN
+sbagliati bloccano il tablet per un minuto. Le sessioni restano in memoria:
+un riavvio di Home Assistant fa uscire tutti.
+
+**Voucher.** `create_voucher` salva `created_by` (utente) e `created_by_name`:
+per una persona collegata è il suo nome; un'automazione deve passare
+`created_by`.
 
 ## Eventi
 

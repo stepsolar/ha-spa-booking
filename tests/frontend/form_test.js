@@ -56,12 +56,13 @@ class Node {
 const root = new Node("div"); root.id = "sbw-widget";
 const ids = { "sbw-date": "input", "sbw-people": "select", "sbw-persons": "div", "sbw-voucher": "input",
   "sbw-voucher-check": "button", "sbw-voucher-info": "span", "sbw-first": "input", "sbw-last": "input",
-  "sbw-phone": "input", "sbw-email": "input", "sbw-notes": "textarea", "sbw-send": "button",
+  "sbw-phone": "input", "sbw-cc": "select", "sbw-email": "input", "sbw-notes": "textarea", "sbw-send": "button",
   "sbw-status": "span", "sbw-website": "input", "sbw-form": "div", "sbw-done": "div" };
 const els = {};
 for (const [id, tag] of Object.entries(ids)) { const n = new Node(tag); n.id = id; root.appendChild(n); els[id] = n; }
 for (let i = 1; i <= 6; i++) { const o = new Node("option"); o.value = String(i); els["sbw-people"].appendChild(o); }
 els["sbw-people"].children[0].selected = true;
+for (const cc of ["39", "41"]) { const o = new Node("option"); o.value = cc; els["sbw-cc"].appendChild(o); }
 
 global.document = {
   getElementById: (id) => (id === "sbw-widget" ? root : root.querySelector("#" + id)),
@@ -113,13 +114,14 @@ const assert = (c, m) => { if (!c) { console.error("FAIL:", m); process.exit(1);
   for (const r of els["sbw-persons"].querySelectorAll(".sbw-entry")) { const s = r.querySelectorAll("select"); if (!s[0].value) { s[0].value = "t2"; s[0].fire("change"); } }
   await tick();
   els["sbw-persons"].querySelectorAll(".sbw-entry").forEach((r) => { r.querySelectorAll("select")[1].value = "11:00"; });
-  els["sbw-first"].value = "Anna"; els["sbw-phone"].value = "333 1234567";
+  els["sbw-first"].value = "Anna"; els["sbw-phone"].value = "79 123 4567"; els["sbw-cc"].value = "41";
   els["sbw-send"].fire("click"); els["sbw-send"].fire("click"); await tick(); await tick();
   const posts = calls.filter((c) => c.opts.method === "POST");
   assert(posts.length === 1, "double click sends once");
   const payload = JSON.parse(posts[0].opts.body);
   assert(payload.entries.length === 3 && payload.voucher_code === "VCH-AAAA2222" && payload.people === 2, "payload complete");
   assert(payload.entries.map((e) => e.person).join(",") === "0,0,1", "each entry says which person it is for");
+  assert(payload.phone === "+41 79 123 4567", "phone sent with the chosen international prefix");
   assert(calls.every((c) => c.opts.headers.Authorization === "Bearer INCOLLA_QUI_IL_TOKEN"), "token header sent");
   assert(els["sbw-done"].textContent.includes("R1234"), "receipt shows request code");
   console.log("ALL FORM TESTS PASSED");

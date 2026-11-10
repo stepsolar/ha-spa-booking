@@ -46,6 +46,8 @@ jobs:
       - run: node tests/frontend/card_spa_test.js custom_components/spa_booking/frontend/spa-booking-card.js
       # The WhatsApp connection box: engine choice, QR code, link code.
       - run: node tests/frontend/card_whatsapp_test.js custom_components/spa_booking/frontend/spa-booking-card.js
+      # 2.2: international prefix, roles, PIN screen, vouchers.
+      - run: node tests/frontend/card_login_test.js custom_components/spa_booking/frontend/spa-booking-card.js
 
   bridge:
     name: WhatsApp bridge (Go)

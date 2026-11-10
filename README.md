@@ -5,8 +5,13 @@ trattamenti con durata propria, operatrici, schede cliente, agenda del giorno
 per operatrice e per categoria, pagamenti, voucher, richieste dal sito web,
 promemoria e report automatici su WhatsApp e Telegram.
 
-Versione corrente: **2.2.0b1** (beta; stabile: 2.1.2) — documentazione completa in
+Versione corrente: **2.2.0b2** (beta; stabile: 2.1.2) — documentazione completa in
 [`custom_components/spa_booking/README.md`](custom_components/spa_booking/README.md).
+
+**[Guida alle schede con le anteprime](docs/GUIDA.md)**: ogni scheda della
+dashboard con la spiegazione di ogni funzione.
+
+![Agenda](docs/anteprime/01-agenda.png)
 
 ## Funzionalità principali
 
@@ -24,8 +29,11 @@ Versione corrente: **2.2.0b1** (beta; stabile: 2.1.2) — documentazione complet
   limite di richieste.
 - **Attività automatiche** (promemoria, recensioni, promo, report mensile)
   eseguite dall'integrazione stessa, con orario di silenzio.
-- **Permessi per utente** (lettura, operatore, manager, admin) applicati anche
-  lato server.
+- **Login personale e ruoli** (Massaggiatrice, Reception, Manager,
+  Amministratore) applicati anche lato server, utenti creati dalla card e
+  **PIN** per il tablet condiviso della reception.
+- **Prefisso internazionale** accanto a ogni campo telefono, anche nel modulo
+  del sito.
 - **Backup e ripristino** in JSON e CSV clienti.
 
 ## Installazione
@@ -91,6 +99,7 @@ node tests/frontend/form_test.js custom_components/spa_booking/frontend/spa-book
 node tests/frontend/card_request_test.js custom_components/spa_booking/frontend/spa-booking-card.js
 node tests/frontend/card_spa_test.js custom_components/spa_booking/frontend/spa-booking-card.js
 node tests/frontend/card_whatsapp_test.js custom_components/spa_booking/frontend/spa-booking-card.js
+node tests/frontend/card_login_test.js custom_components/spa_booking/frontend/spa-booking-card.js
 cd bridge && go test ./...   # programma WhatsApp integrato (Go 1.26+)
 ```
 
@@ -99,6 +108,37 @@ hassfest e validazione HACS a ogni push e pull request. Lavora su un branch e
 apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
+
+- **v2.2.0b2** (beta):
+  - **Login e ruoli.** Ognuno entra con il proprio utente, nei ruoli
+    Massaggiatrice, Reception, Manager e Amministratore. Una massaggiatrice
+    prenota e modifica solo i suoi appuntamenti e non vede incassi né totali.
+    I permessi sono controllati anche dal server.
+  - **Utenti dalla card.** In Configurazione › Accessi si creano gli utenti,
+    si cambia la password e si disattiva chi non lavora più qui.
+  - **Tablet della reception.** Con un utente condiviso, ognuno entra con il
+    suo PIN di 4 cifre. Il tablet esce da solo dopo qualche minuto e si
+    blocca dopo 5 PIN sbagliati.
+  - **Prefisso internazionale.** Accanto a ogni telefono (anche nel modulo
+    WordPress) c'è il prefisso, +39 di serie. I numeri salvati prima si
+    aprono come +39.
+  - **Voucher.**
+    - Nuovo campo obbligatorio «Creato da»: è il nome di chi è collegato e
+      si può anche cercare.
+    - Nuova scheda con il riepilogo, i filtri e i voucher a forma di
+      biglietto.
+    - Creazione guidata in 3 passi.
+    - Pulsante «Invia» su WhatsApp.
+    - La creazione è permessa da Reception in su.
+  - **Nuovo stile di tutte le schede.**
+    - Agenda con il riepilogo del giorno e le fasce Mattina, Pomeriggio e
+      Sera.
+    - Calendario colorato in base a quanto è pieno ogni giorno.
+    - WhatsApp diviso in conversazioni.
+    - Configurazione con il menu a lato.
+    - Clienti con le iniziali.
+  - Corretta una regola di stile non chiusa che annullava lo stile della
+    lista WhatsApp.
 
 - **v2.2.0b1** (beta): WhatsApp integrato in Spa Booking, alternativa
   all'add-on WAHA: collegamento con QR code o codice dalla card, invio di
