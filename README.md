@@ -5,7 +5,7 @@ trattamenti con durata propria, operatrici, schede cliente, agenda del giorno
 per operatrice e per categoria, pagamenti, voucher, richieste dal sito web,
 promemoria e report automatici su WhatsApp e Telegram.
 
-Versione corrente: **2.2.0b4** (beta; stabile: 2.1.2) — documentazione completa in
+Versione corrente: **2.2.0** — documentazione completa in
 [`custom_components/spa_booking/README.md`](custom_components/spa_booking/README.md).
 
 **[Guida alle schede con le anteprime](docs/GUIDA.md)**: ogni scheda della
@@ -132,6 +132,18 @@ hassfest e validazione HACS a ogni push e pull request. Lavora su un branch e
 apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
+
+- **v2.2.0**: versione stabile che raccoglie le beta 2.2.0b1–b4.
+  - WhatsApp integrato in Spa Booking, senza add-on (beta).
+  - Login personale con ruoli Massaggiatrice, Reception, Manager e
+    Amministratore, e PIN per il tablet della reception.
+  - Prefisso internazionale su ogni telefono.
+  - Voucher con «Creato da», biglietti e invio su WhatsApp.
+  - Modulo del sito a passi in tre lingue, caricato da Home Assistant.
+  - Avviso con «Prenota comunque» per le regole delle categorie.
+  - Aggiornamenti installabili dalla card.
+  - Nuovo stile di tutte le schede.
+  - [Guida con le anteprime](docs/GUIDA.md).
 
 - **v2.2.0b4** (beta):
   - **Aggiornamenti dalla card.** Quando HACS ha una nuova versione,
