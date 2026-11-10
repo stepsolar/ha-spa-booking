@@ -2025,3 +2025,23 @@ set_user_active:
       required: true
       selector:
         boolean:
+
+update_status:
+  name: Stato aggiornamenti
+  description: >-
+    Versione in uso, versione installata su disco, aggiornamento disponibile
+    in HACS e se serve riavviare Home Assistant. Solo amministratori.
+
+install_update:
+  name: Installa aggiornamento
+  description: >-
+    Installa da HACS la nuova versione di Spa Booking. Se cambia solo la card
+    basta ricaricare la pagina, altrimenti serve un riavvio. Solo
+    amministratori.
+
+restart_home_assistant:
+  name: Riavvia Home Assistant
+  description: >-
+    Riavvia Home Assistant per caricare la nuova versione di Spa Booking. Solo
+    amministratori.
+

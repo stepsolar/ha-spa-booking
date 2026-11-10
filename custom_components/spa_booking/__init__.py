@@ -30,6 +30,11 @@ SpaBookingConfigEntry = ConfigEntry[SpaBookingCoordinator]
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up the coordinator, platforms and services."""
     coordinator = SpaBookingCoordinator(hass, entry)
+    # The code that runs now: an update that changes it needs a restart, one
+    # that only changes the card or the website form does not (updates.py).
+    from . import updates
+
+    coordinator.code_fingerprint = await hass.async_add_executor_job(updates.code_fingerprint)
     await coordinator.async_load()
 
     entry.runtime_data = coordinator

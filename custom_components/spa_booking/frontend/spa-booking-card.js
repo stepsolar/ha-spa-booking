@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.2.0b3";
+const CARD_VERSION = "2.2.0b4";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -164,6 +164,20 @@ body { margin: 0; font-family: var(--mdc-typography-font-family, Roboto, Arial, 
   .report-page { padding: 0; }
 }
 `;
+
+// One line under the title of each page, saying what it is for.
+const PAGE_DESCRIPTIONS = {
+  Trattamenti: "Durata, prezzo, persone insieme, visibilità sul sito e operatrici abilitate. La matita cambia l'ordine.",
+  Operatori: "Contatti, canali dei messaggi, trattamenti che sanno fare e priorità nelle offerte.",
+  Notifiche: "Messaggi automatici agli ospiti e alle operatrici, report e collegamento WhatsApp.",
+  Impostazioni: "Titolo, aspetto, sito web, ordine dei campi, backup e ripristino.",
+  Promo: "Invio promozionale e voucher fedeltà automatici dopo la visita.",
+  Accessori: "Kit, accappatoio, cuffia… che si aggiungono a una prenotazione.",
+  Telecamere: "Le immagini dal vivo della spa.",
+  Spa: "",
+  Richiesta: "",
+  "Nuovo appuntamento": "",
+};
 
 // The roles of the Accessi tab, as the people at the hotel call them.
 const ROLE_LABELS = {
@@ -994,6 +1008,7 @@ class SpaBookingCard extends HTMLElement {
         notify_whatsapp: this._data.settings.web_notify_whatsapp || "",
       };
       this._reindex();
+      this._checkUpdates();
     } catch (error) {
       this._data = {
         categories: [],
@@ -2389,6 +2404,106 @@ class SpaBookingCard extends HTMLElement {
     return NUOVO_TABS.filter((tab) => allowed.includes(tab.id));
   }
 
+  // ---------------------------------------------------------------- updates
+
+  /** Ask the server about updates, at most every 10 minutes (admins only). */
+  async _checkUpdates(force = false) {
+    if (!this._can("config")) return;
+    const now = Date.now();
+    if (!force && this._updateCheckedAt && now - this._updateCheckedAt < 600000) return;
+    this._updateCheckedAt = now;
+    try {
+      this._updateStatus = await this._service("update_status");
+    } catch (error) {
+      this._updateStatus = null;  // an older integration without the service
+    }
+    this._render();
+  }
+
+  /**
+   * The update banner: a new version to install, the installation running,
+   * or an installed version waiting for a page reload or a restart.
+   */
+  _updateBanner() {
+    const status = this._updateStatus;
+    if (!status || !this._can("config")) return null;
+    // The live state of the HACS entity, so the progress shows at once.
+    const live = status.update && this._hass && this._hass.states[status.update.entity_id];
+    const attrs = (live && live.attributes) || {};
+    const available = live ? live.state === "on" : Boolean(status.update && status.update.available);
+    const inProgress = Boolean(attrs.in_progress) || this._updateInstalling;
+    const latest = attrs.latest_version || (status.update && status.update.latest_version) || "";
+    const url = attrs.release_url || (status.update && status.update.release_url) || "";
+    const dismissKey = `${status.disk_version}|${latest}|${status.restart_needed}`;
+    if (this._updateDismissed === dismissKey) return null;
+    const later = el("button", {
+      class: "btn small ghost",
+      on: { click: () => { this._updateDismissed = dismissKey; this._render(); } },
+    }, "Più tardi");
+
+    if (status.restart_needed || status.reload_only) {
+      // Installed on disk, not running yet.
+      if (inProgress) this._updateInstalling = false;
+      const restart = status.restart_needed;
+      return el("div", { class: "update-banner restart", role: "status" },
+        el("ha-icon", { icon: restart ? "mdi:refresh" : "mdi:check-circle-outline" }),
+        el("div", { class: "grow" },
+          el("div", { class: "update-title" }, `Spa Booking ${status.disk_version} è installato`),
+          el("div", { class: "dim small" }, restart
+            ? `Per usarlo serve riavviare Home Assistant (ora gira la ${status.running_version}). Il riavvio dura circa un minuto: le prenotazioni non si perdono.`
+            : "Cambia solo la card: basta ricaricare la pagina, senza riavviare Home Assistant.")),
+        restart
+          ? el("button", {
+            class: "btn primary small", disabled: this._busy,
+            on: { click: async () => {
+              if (!window.confirm("Riavviare Home Assistant adesso? Per circa un minuto la dashboard non risponde.")) return;
+              try { await this._service("restart_home_assistant"); } catch (error) { /* it is going down */ }
+              this._message = { kind: "ok", text: "Riavvio in corso: tra circa un minuto ricarica la pagina." };
+              this._render();
+            } },
+          }, el("ha-icon", { icon: "mdi:refresh" }), "Riavvia ora")
+          : el("button", {
+            class: "btn primary small",
+            on: { click: () => location.reload() },
+          }, el("ha-icon", { icon: "mdi:refresh" }), "Ricarica la pagina"),
+        later);
+    }
+    if (!available && !inProgress) return null;
+    return el("div", { class: "update-banner", role: "status" },
+      el("ha-icon", { icon: inProgress ? "mdi:download" : "mdi:gift-outline" }),
+      el("div", { class: "grow" },
+        el("div", { class: "update-title" },
+          inProgress ? `Installazione di Spa Booking ${latest} in corso…` : `Nuova versione di Spa Booking: ${latest}`),
+        el("div", { class: "dim small" }, inProgress
+          ? "Puoi continuare a lavorare: al termine ti dico se basta ricaricare la pagina o se serve un riavvio."
+          : `Ora è installata la ${status.running_version}.`)),
+      url ? el("a", { class: "btn small", href: url, target: "_blank", rel: "noopener" },
+        el("ha-icon", { icon: "mdi:note-text-outline" }), "Novità") : null,
+      inProgress ? null : el("button", {
+        class: "btn primary small", disabled: this._busy,
+        on: { click: async () => {
+          try {
+            await this._service("install_update");
+            this._updateInstalling = true;
+            this._render();
+            // Follow the installation, then ask again what it needs.
+            const poll = setInterval(async () => {
+              const entity = this._hass.states[(status.update || {}).entity_id] || {};
+              if (!(entity.attributes || {}).in_progress) {
+                clearInterval(poll);
+                this._updateInstalling = false;
+                await this._checkUpdates(true);
+              }
+            }, 5000);
+          } catch (error) {
+            this._message = { kind: "error", text: this._friendlyError(error, "Installazione non riuscita.") };
+            this._render();
+          }
+        } },
+      }, el("ha-icon", { icon: "mdi:download" }), "Installa"),
+      inProgress ? null : later);
+  }
+
   // ------------------------------------------------------------- signing in
 
   /** Ask the server who the card acts as (and keep the tablet session alive). */
@@ -2714,6 +2829,7 @@ class SpaBookingCard extends HTMLElement {
     root.appendChild(topbar);
 
     const body = el("div", { class: "wrap" });
+    add(body, this._updateBanner());
     if (this._message) add(body, this._messageBox());
     if (this._loading && !this._data.appointments.length) {
       body.appendChild(el("div", { class: "hint" }, "Caricamento…"));
@@ -5280,9 +5396,7 @@ class SpaBookingCard extends HTMLElement {
     const head = el("div", { class: "spa-head" });
     if (this._notifyEditMode) head.appendChild(this._colChooser("notifiche"));
     head.appendChild(
-      el("div", { class: "spa-head-title" },
-        el("ha-icon", { icon: "mdi:bell-outline" }),
-        el("span", {}, this._notifyEditMode ? "Modifica notifiche" : "Notifiche"))
+      this._headTitle("mdi:bell-outline", this._notifyEditMode ? "Modifica notifiche" : "Notifiche", "Notifiche")
     );
     if (this._notifyEditMode) {
       head.appendChild(
@@ -5310,9 +5424,7 @@ class SpaBookingCard extends HTMLElement {
     const head = el("div", { class: "spa-head" });
     if (this._settingsEditMode) head.appendChild(this._colChooser("settings"));
     head.appendChild(
-      el("div", { class: "spa-head-title" },
-        el("ha-icon", { icon: "mdi:cog-outline" }),
-        el("span", {}, this._settingsEditMode ? "Modifica impostazioni" : "Impostazioni"))
+      this._headTitle("mdi:cog-outline", this._settingsEditMode ? "Modifica impostazioni" : "Impostazioni", "Impostazioni")
     );
     if (this._settingsEditMode) {
       head.appendChild(
@@ -5357,9 +5469,7 @@ class SpaBookingCard extends HTMLElement {
     const head = el("div", { class: "spa-head" });
     if (this._formEditMode) head.appendChild(this._colChooser("form"));
     head.appendChild(
-      el("div", { class: "spa-head-title" },
-        el("ha-icon", { icon: "mdi:calendar-plus" }),
-        el("span", {}, this._batchEditing ? "Modifica gruppo" : (this._formEditMode ? "Modifica scheda" : "Nuovo appuntamento")))
+      this._headTitle("mdi:calendar-plus", this._batchEditing ? "Modifica gruppo" : (this._formEditMode ? "Modifica scheda" : "Nuovo appuntamento"), "Nuovo appuntamento")
     );
     if (this._formEditMode) {
       head.appendChild(
@@ -5386,9 +5496,7 @@ class SpaBookingCard extends HTMLElement {
     const head = el("div", { class: "spa-head" });
     if (this._richiestaEditMode) head.appendChild(this._colChooser("richiesta"));
     head.appendChild(
-      el("div", { class: "spa-head-title" },
-        el("ha-icon", { icon: "mdi:form-select" }),
-        el("span", {}, this._richiestaEditMode ? "Modifica ordine" : "Richiesta"))
+      this._headTitle("mdi:form-select", this._richiestaEditMode ? "Modifica ordine" : "Richiesta", "Richiesta")
     );
     if (this._richiestaEditMode) {
       head.appendChild(
@@ -8860,78 +8968,91 @@ class SpaBookingCard extends HTMLElement {
       };
     });
 
-    list.forEach((req) => {
+    // Waiting first, then by date; confirmed ones fold at the bottom.
+    const waiting = list.filter((req) => !req.is_confirmed)
+      .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")));
+    const done = list.filter((req) => req.is_confirmed);
+    const fromWeb = waiting.filter((req) => req.source === "web").length;
+    wrap.appendChild(this._sectionHead("mdi:clipboard-check-outline", "Richieste",
+      "Le richieste non occupano ancora l'agenda: «Conferma» crea gli appuntamenti, «Modifica» apre la richiesta nel modulo."));
+    wrap.appendChild(el("div", { class: "stats" },
+      el("div", { class: "stat warn" }, el("span", { class: "stat-label" }, "Da confermare"), el("span", { class: "stat-value" }, String(waiting.length))),
+      el("div", { class: "stat" }, el("span", { class: "stat-label" }, "Dal sito"), el("span", { class: "stat-value" }, String(fromWeb))),
+      el("div", { class: "stat" }, el("span", { class: "stat-label" }, "Confermate"), el("span", { class: "stat-value" }, String(done.length)))));
+
+    const source = (req) => ({
+      web: ["info", "mdi:web", "Sito"],
+      whatsapp: ["ok", "mdi:whatsapp", "WhatsApp"],
+    }[req.source] || ["", "mdi:account-tie-outline", "Reception"]);
+    const card = (req, index) => {
       const client = req.client || {};
-      const name = client.full_name || "—";
-      const phone = client.phone || "—";
-      const dateIt = req.date_it || "—";
+      const name = client.full_name && client.full_name !== "—" ? client.full_name : (client.phone || "Senza nome");
       const people = req.people || 1;
-      const label = (e) => `${e.treatment_name || "—"}${e.start ? ` · ${e.start}` : ""}`;
       const tagged = (req.entries || []).some((e) => e.person !== undefined && e.person !== null);
-      let trList;
-      if (tagged && people > 1) {
-        // One line per person: "Persona 1: Massaggio · 10:00 — Persona 2: …"
-        const byPerson = new Map();
-        (req.entries || []).forEach((e) => {
-          const key = Number(e.person) || 0;
-          if (!byPerson.has(key)) byPerson.set(key, []);
-          byPerson.get(key).push(label(e));
-        });
-        trList = [...byPerson.keys()].sort((a, b) => a - b)
-          .map((key) => `Persona ${key + 1}: ${byPerson.get(key).join(", ")}`)
-          .join(" — ");
-      } else {
-        trList = (req.entries || []).map(label).join(", ") || "—";
-        if (people > 1 && (req.entries || []).length) trList += " (per ogni persona)";
-      }
-      const code = req.code || "—";
-      const status = req.is_confirmed ? "Confermata" : "In attesa";
-      const row = el("div", { class: "row tight request-card" },
-        el("div", { class: "stack tight" },
-          el("div", { class: "spa-title" }, name),
-          el("div", { class: "dim small" }, `Tel: ${phone}`),
-          el("div", { class: "dim small" }, `${dateIt} · Persone: ${people}`),
-          el("div", { class: "dim small" }, trList),
-          req.voucher_code
-            ? el("div", { class: "dim small" }, `Voucher: ${req.voucher_code}`)
-            : null,
-          el("div", { class: "dim small" }, `Codice: ${code} · ${status}`)
-        ),
-        el("div", { class: "row tight" },
+      const byPerson = new Map();
+      (req.entries || []).forEach((e) => {
+        const key = tagged ? (Number(e.person) || 0) : 0;
+        if (!byPerson.has(key)) byPerson.set(key, []);
+        byPerson.get(key).push(e);
+      });
+      const [tone, icon, label] = source(req);
+      const lines = [...byPerson.keys()].sort((a, b) => a - b).map((key) =>
+        el("div", { class: "req-line" },
+          people > 1 ? el("span", { class: "req-person" }, tagged ? `Persona ${key + 1}` : `${people} persone`) : null,
+          el("span", { class: "chips" }, byPerson.get(key).map((e) =>
+            el("span", { class: "req-entry" },
+              el("strong", {}, e.start || "--:--"), " ", e.treatment_name || "—")))));
+      return el("div", { class: `req-card${req.is_confirmed ? " done" : ""}` },
+        el("div", { class: "req-head" },
+          el("span", { class: `user-avatar tone-${index % 6}` }, this._initials(name)),
+          el("div", { class: "grow" },
+            el("div", { class: "req-name" }, name, " ",
+              el("span", { class: `pill ${tone}` }, el("ha-icon", { icon }), label),
+              req.source === "web" && req.seen === false ? el("span", { class: "pill warn" }, "Nuova") : null),
+            el("div", { class: "dim small" },
+              [client.phone && client.phone !== "—" ? client.phone : "", req.voucher_code ? `voucher ${req.voucher_code}` : "", `codice ${req.code || "—"}`]
+                .filter(Boolean).join(" · "))),
+          el("div", { class: "req-date" },
+            el("span", { class: "req-day" }, req.date ? longDay(new Date(`${req.date}T00:00:00`)).split(" ").slice(0, 3).join(" ") : "Data da definire"),
+            el("span", { class: "dim small" }, `${people} ${people === 1 ? "persona" : "persone"}`))),
+        lines,
+        req.notes ? el("div", { class: "req-notes" }, el("ha-icon", { icon: "mdi:note-text-outline" }), req.notes) : null,
+        el("div", { class: "req-actions" },
           !req.is_confirmed
             ? el("button", {
-                class: "btn primary small",
-                disabled: this._busy,
+                class: "btn primary small", disabled: this._busy,
                 on: { click: async () => {
                   try { await this._call("confirm_request", { request_id: req.id }); } catch (error) { /* shown */ }
                 } },
-              }, "Conferma")
-            : null,
+              }, el("ha-icon", { icon: "mdi:check" }), "Conferma")
+            : el("span", { class: "pill ok" }, el("ha-icon", { icon: "mdi:check" }), "Confermata"),
           el("button", {
-            class: "btn ghost small",
-            disabled: this._busy,
+            class: "btn small", disabled: this._busy,
+            on: { click: () => this._editRequest(req) },
+          }, el("ha-icon", { icon: "mdi:pencil" }), "Modifica"),
+          el("button", {
+            class: "btn small", disabled: this._busy,
+            title: "Rimanda all'ospite il messaggio della richiesta",
             on: { click: async () => {
               try { await this._call("send_request_message", { request_id: req.id }); } catch (error) { /* shown */ }
             } },
-          }, "Invia messaggio"),
+          }, el("ha-icon", { icon: "mdi:whatsapp" }), "Invia messaggio"),
+          el("div", { class: "spacer" }),
           el("button", {
-            class: "btn ghost small",
-            disabled: this._busy,
-            on: { click: () => this._editRequest(req) },
-          }, "Modifica"),
-          el("button", {
-            class: "icon-btn danger",
-            title: "Elimina",
-            disabled: this._busy,
+            class: "icon-btn danger", title: "Elimina", disabled: this._busy,
             on: { click: async () => {
               if (!window.confirm("Eliminare questa richiesta?")) return;
               try { await this._call("delete_request", { request_id: req.id }); } catch (error) { /* shown */ }
             } },
-          }, el("ha-icon", { icon: "mdi:delete" }))
-        )
-      );
-      wrap.appendChild(row);
-    });
+          }, el("ha-icon", { icon: "mdi:delete" }))));
+    };
+    if (!waiting.length) wrap.appendChild(el("div", { class: "empty" }, "Nessuna richiesta da confermare."));
+    waiting.forEach((req, index) => wrap.appendChild(card(req, index)));
+    if (done.length) {
+      wrap.appendChild(el("details", { class: "req-done" },
+        el("summary", {}, `Confermate (${done.length})`),
+        done.map((req, index) => card(req, index))));
+    }
     return wrap;
   }
 
@@ -9152,13 +9273,13 @@ _renderClients() {
 
   /** Create form: save_client without a client_id builds a brand new record. */
   _renderNewClient() {
-    const wrap = el("div", { class: "stack tight" });
+    const wrap = el("div", { class: "stack tight cfg-box form-card" });
     const draft = this._clientDraft || { first_name: "", last_name: "", phone: "", email: "", notes: "", promo_opt_in: true };
 
     wrap.appendChild(
-      el("div", { class: "row" },
-        el("h3", {}, "Nuova scheda cliente"),
-        el("div", { class: "spacer" }),
+      el("div", { class: "row form-card-head" },
+        this._sectionHead("mdi:account-plus", "Nuova scheda cliente",
+          "Nome e telefono bastano: il telefono con prefisso è quello dei messaggi WhatsApp."),
         el("button", {
           class: "btn small",
           on: {
@@ -9326,12 +9447,36 @@ _renderClients() {
     // the right. The desk reads the card and the history side by side instead
     // of scrolling past every visit to reach the next thing. On a narrow screen
     // the columns stack, the history below.
-    const columns = el("div", { class: "two-col" });
-    const left = el("div", { class: "stack tight" });
-    const right = el("div", { class: "stack tight" });
+    const columns = el("div", { class: "two-col client-detail" });
+    const left = el("div", { class: "stack tight cfg-box" });
+    const right = el("div", { class: "stack tight cfg-box" });
 
-    left.appendChild(el("h3", {},
-      [client.first_name, client.last_name].filter(Boolean).join(" ") || "Senza nome"));
+    // The profile: who she is and what she brings, at a glance.
+    const fullName = [client.first_name, client.last_name].filter(Boolean).join(" ") || "Senza nome";
+    const visits = this._clientAppointments(client.id).filter((a) => a.status !== "cancelled");
+    const now = new Date();
+    const past = visits.filter((a) => parseDate(a.start) <= now);
+    const next = visits.map((a) => ({ a, start: parseDate(a.start) }))
+      .filter(({ start }) => start && start > now).sort((x, y) => x.start - y.start)[0];
+    const spent = visits.reduce((sum, a) => sum + (a.payments || [])
+      .reduce((inner, item) => inner + (Number(item.amount) || 0), 0), 0);
+    left.appendChild(el("div", { class: "profile-head" },
+      el("span", { class: "user-avatar big tone-1" }, this._initials(fullName)),
+      el("div", { class: "grow" },
+        el("div", { class: "profile-name" }, fullName),
+        el("div", { class: "dim small" }, [client.phone, client.email].filter(Boolean).join(" · ") || "Nessun contatto"),
+        el("div", { class: "chips", style: "margin-top:6px" },
+          past.length >= 3 ? el("span", { class: "pill warn" }, "Cliente abituale") : null,
+          el("span", { class: `pill ${client.promo_opt_in === false ? "" : "ok"}` },
+            el("ha-icon", { icon: client.promo_opt_in === false ? "mdi:bell-off-outline" : "mdi:bell-outline" }),
+            client.promo_opt_in === false ? "Promo disattivate" : "Riceve le promo")))));
+    left.appendChild(el("div", { class: "stats" },
+      el("div", { class: "stat" }, el("span", { class: "stat-label" }, "Visite"), el("span", { class: "stat-value" }, String(past.length))),
+      el("div", { class: "stat" }, el("span", { class: "stat-label" }, "Prossimo"),
+        el("span", { class: "stat-value small-value" }, next ? `${pad(next.start.getDate())}/${pad(next.start.getMonth() + 1)} ${timeOf(next.start)}` : "—")),
+      this._can("totals")
+        ? el("div", { class: "stat" }, el("span", { class: "stat-label" }, "Incassato"), el("span", { class: "stat-value small-value" }, euro(spent)))
+        : null));
 
     if (this._clientEditing) {
       const draft = this._clientEditing;
@@ -9374,13 +9519,10 @@ _renderClients() {
           }, "Salva"))
       );
     } else {
-      const details = [];
-      if (client.phone) details.push(client.phone);
-      if (client.email) details.push(client.email);
-      if (client.notes) details.push(client.notes);
-      left.appendChild(el("div", { class: "dim small" }, details.join(" · ") || "—"));
-      left.appendChild(el("div", { class: "dim small" },
-        client.promo_opt_in === false ? "Promo: disattivate" : "Promo: iscritto"));
+      if (client.notes) {
+        left.appendChild(el("div", { class: "req-notes" },
+          el("ha-icon", { icon: "mdi:note-text-outline" }), client.notes));
+      }
     }
 
     // Loyalty vouchers this client earned: shown always, with expiry, and
@@ -10044,9 +10186,7 @@ _renderClients() {
   _camHeader() {
     const head = el("div", { class: "spa-head" });
     head.appendChild(
-      el("div", { class: "spa-head-title" },
-        el("ha-icon", { icon: "mdi:cctv" }),
-        el("span", {}, this._camEditMode ? "Modifica Telecamere" : "Telecamere"))
+      this._headTitle("mdi:cctv", this._camEditMode ? "Modifica Telecamere" : "Telecamere", "Telecamere")
     );
     if (this._camEditMode) {
       head.appendChild(
@@ -10825,9 +10965,7 @@ _renderClients() {
   _spaSpaHeader() {
     const head = el("div", { class: "spa-head" });
     head.appendChild(
-      el("div", { class: "spa-head-title" },
-        el("ha-icon", { icon: "mdi:spa" }),
-        el("span", {}, this._spaEditMode ? "Modifica Spa" : "Spa"))
+      this._headTitle("mdi:spa", this._spaEditMode ? "Modifica Spa" : "Spa", "Spa")
     );
     if (this._spaEditMode) {
       const grouped = ((this._data && this._data.settings) || {}).spa_grouped !== false;
@@ -12038,6 +12176,19 @@ _renderClients() {
     return box;
   }
 
+  /**
+   * The title of a page with an edit pencil (Trattamenti, Notifiche, …): the
+   * same look as _sectionHead, with the line that says what the page is for.
+   */
+  _headTitle(icon, title, key) {
+    const text = PAGE_DESCRIPTIONS[key] || "";
+    return el("div", { class: "spa-head-title section-like" },
+      el("span", { class: "section-icon" }, el("ha-icon", { icon })),
+      el("div", { class: "section-text" },
+        el("div", { class: "section-title" }, title),
+        text ? el("div", { class: "section-sub" }, text) : null));
+  }
+
   /** A section title with its icon, one line of explanation and an action. */
   _sectionHead(icon, title, text, action) {
     return el("div", { class: "section-head" },
@@ -12350,9 +12501,11 @@ _renderClients() {
 
     // Two columns: the form on the left, the blocked days and slots on the
     // right, so the list is read while a new closure is entered.
+    wrap.appendChild(this._sectionHead("mdi:lock-outline", "Fasce bloccate",
+      "Chiusure della spa, di una categoria o di un'operatrice, per giorni interi o con orario. Una chiusura blocca sempre, anche la reception."));
     const columns = el("div", { class: "two-col" });
-    const left = el("div", { class: "stack tight" });
-    const right = el("div", { class: "stack tight" });
+    const left = el("div", { class: "stack tight cfg-box" });
+    const right = el("div", { class: "stack tight cfg-box" });
 
     left.appendChild(el("h3", {}, "Nuova chiusura"));
     add(left, this._closureForm());
@@ -12968,9 +13121,7 @@ _renderClients() {
     const head = el("div", { class: "spa-head" });
     if (this._promoEditMode) head.appendChild(this._colChooser("promo"));
     head.appendChild(
-      el("div", { class: "spa-head-title" },
-        el("ha-icon", { icon: "mdi:bullhorn-outline" }),
-        el("span", {}, this._promoEditMode ? "Modifica promo" : "Promo"))
+      this._headTitle("mdi:bullhorn-outline", this._promoEditMode ? "Modifica promo" : "Promo", "Promo")
     );
     if (this._promoEditMode) {
       head.appendChild(
@@ -13591,6 +13742,10 @@ _renderClients() {
 
     if (this._editing && this._editing.kind === "category") {
       const draft = this._editing.draft;
+      // The editor is one card with its title, like every other form.
+      wrap.className = "stack tight cfg-box form-card";
+      wrap.appendChild(this._sectionHead("mdi:tag-outline",
+        this._editing.id ? `Modifica categoria · ${draft.name || ""}` : "Nuova categoria", ""));
       wrap.appendChild(
         el("label", { class: "field" }, el("span", {}, "Nome"),
           el("input", { class: "input", type: "text", value: draft.name,
@@ -13698,21 +13853,21 @@ _renderClients() {
         );
         wrap.appendChild(el("div", { class: "hint" }, "L'esclusione vale in entrambe le direzioni: nessuna sovrapposizione di orario tra le due categorie."));
       }
-      add(wrap, this._saveRow("add_category", "update_category", "category_id", "category"));
+      add(wrap, this._saveRow("add_category", "update_category", "category_id", "categoria"));
       return wrap;
     }
 
-    wrap.appendChild(
+    wrap.appendChild(this._sectionHead("mdi:tag-outline", "Categorie",
+      "Raggruppano i trattamenti: colore in agenda, giorni e fasce prenotabili, pausa dell'operatrice, categorie da non sovrapporre.",
       el("button", {
-        class: "btn primary small",
+        class: "btn primary",
         on: {
           click: () => {
             this._editing = { kind: "category", id: null, draft: { name: "", requires_operator: false, color: "", pause_min: 10, days: [], morning_days: [], afternoon_days: [], morning_start: "", morning_end: "", afternoon_start: "", afternoon_end: "", exclusive_with: [] } };
             this._render();
           },
         },
-      }, el("ha-icon", { icon: "mdi:plus" }), "Nuova categoria")
-    );
+      }, el("ha-icon", { icon: "mdi:plus" }), "Nuova categoria")));
 
     if (!categories.length) {
       wrap.appendChild(el("div", { class: "hint" }, "Nessuna categoria definita."));
@@ -13721,19 +13876,18 @@ _renderClients() {
 
     categories.forEach((category) => {
       const treatments = this._data.treatments.filter((t) => t.category_id === category.id);
+      const rules = this._categorySummary(category);
       wrap.appendChild(
-        el("div", { class: "row item" },
+        el("div", { class: "cat-card", style: category.color ? `--cat:${category.color}` : null },
           el("div", { class: "grow" },
-            el("div", { class: "row" },
-              category.color
-                ? el("span", { class: "swatch", style: `background:${category.color}` })
-                : null,
-              el("span", {}, category.name)),
-            el("div", { class: "dim small" },
-              [
-                `${treatments.length} trattamenti · ${category.requires_operator ? "richiede operatore" : "senza operatore"} · pausa ${category.pause_min ?? 10}′`,
-                this._categorySummary(category),
-              ].filter(Boolean).join(" · "))),
+            el("div", { class: "cat-name" }, category.name),
+            el("div", { class: "chips" },
+              el("span", { class: "pill" }, `${treatments.length} ${treatments.length === 1 ? "trattamento" : "trattamenti"}`),
+              el("span", { class: `pill ${category.requires_operator ? "info" : ""}` },
+                el("ha-icon", { icon: category.requires_operator ? "mdi:account-voice" : "mdi:account-off-outline" }),
+                category.requires_operator ? "con operatrice" : "senza operatrice"),
+              el("span", { class: "pill" }, el("ha-icon", { icon: "mdi:clock-outline" }), `pausa ${category.pause_min ?? 10}′`),
+              rules ? el("span", { class: "pill warn" }, el("ha-icon", { icon: "mdi:calendar-clock" }), rules) : null)),
           el("button", {
             class: "icon-btn",
             title: "Modifica",
@@ -13813,9 +13967,7 @@ _renderClients() {
   _accHeader() {
     const head = el("div", { class: "spa-head" });
     head.appendChild(
-      el("div", { class: "spa-head-title" },
-        el("ha-icon", { icon: "mdi:gift-outline" }),
-        el("span", {}, this._accEditMode ? "Modifica Accessori" : "Accessori"))
+      this._headTitle("mdi:gift-outline", this._accEditMode ? "Modifica Accessori" : "Accessori", "Accessori")
     );
     if (this._accEditMode) {
       head.appendChild(
@@ -14152,6 +14304,10 @@ _renderClients() {
 
     if (this._editing && this._editing.kind === "treatment") {
       const draft = this._editing.draft;
+      // The editor is one card with its title, like every other form.
+      wrap.className = "stack tight cfg-box form-card";
+      wrap.appendChild(this._sectionHead("mdi:spa-outline",
+        this._editing.id ? `Modifica trattamento · ${draft.name || ""}` : "Nuovo trattamento", ""));
       const categorySelect = el("select", {
         class: "input",
         on: { change: (event) => { draft.category_id = event.target.value; } },
@@ -14239,7 +14395,7 @@ _renderClients() {
         operatorChecks.forEach((check) => checksGrid.appendChild(check));
         wrap.appendChild(checksGrid);
       }
-      add(wrap, this._saveRow("add_treatment", "update_treatment", "treatment_id", "treatment"));
+      add(wrap, this._saveRow("add_treatment", "update_treatment", "treatment_id", "trattamento"));
       return wrap;
     }
 
@@ -14308,9 +14464,7 @@ _renderClients() {
   _trtHeader() {
     const head = el("div", { class: "spa-head" });
     head.appendChild(
-      el("div", { class: "spa-head-title" },
-        el("ha-icon", { icon: "mdi:spa-outline" }),
-        el("span", {}, "Trattamenti"))
+      this._headTitle("mdi:spa-outline", "Trattamenti", "Trattamenti")
     );
     if (this._trtEditMode) {
       head.appendChild(
@@ -14753,9 +14907,7 @@ _renderClients() {
   _opHeader() {
     const head = el("div", { class: "spa-head" });
     head.appendChild(
-      el("div", { class: "spa-head-title" },
-        el("ha-icon", { icon: "mdi:account-group-outline" }),
-        el("span", {}, "Operatori"))
+      this._headTitle("mdi:account-group-outline", "Operatori", "Operatori")
     );
     if (this._opEditMode) {
       head.appendChild(
@@ -14898,6 +15050,10 @@ _renderClients() {
 
     if (this._editing && this._editing.kind === "operator") {
       const draft = this._editing.draft;
+      // The editor is one card with its title, like every other form.
+      wrap.className = "stack tight cfg-box form-card";
+      wrap.appendChild(this._sectionHead("mdi:account-group-outline",
+        this._editing.id ? `Modifica operatrice · ${draft.name || ""}` : "Nuova operatrice", ""));
       // The operator card is editable exactly like the booking forms: the
       // pencil turns its boxes into draggable blocks, so the reception can put
       // the fields, the channels and the treatments where she wants them. Only
@@ -17420,6 +17576,75 @@ _renderClients() {
       .sum-row { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 10px; padding: 8px 12px;
                  border-top: 1px solid var(--sb-line); font-size: 13px; }
       .sum-row:first-child { border-top: 0; }
+      /* 2.2.0b4: requests, client card, forms and the configuration pages. */
+      .spa-head-title.section-like { gap: 12px; font-size: inherit; font-weight: inherit; }
+      .spa-head-title.section-like .section-icon ha-icon { color: var(--sb-accent); --mdc-icon-size: 22px; }
+      .spa-head { align-items: flex-start; }
+      .cfg-page > .stack > .btn.primary, .cfg-page > .stack > .btn.primary.small,
+      .cfg-page > .stack.tight > .btn.primary { align-self: flex-start; }
+      .form-card { max-width: 900px; }
+      .form-card .section-head { padding-bottom: 8px; border-bottom: 1px solid var(--sb-line); margin-bottom: 4px; }
+      .form-card-head { align-items: flex-start; }
+      .form-card-head .section-head { flex: 1 1 auto; border-bottom: 0; }
+      .form-card > .row:last-child { border-top: 1px solid var(--sb-line); padding-top: 12px; margin-top: 4px; }
+      /* Checkboxes that are choices (days, exclusions) read as pills. */
+      .days-grid .check, .form-card .checks .check, .checks-grid .check {
+        border: 1px solid var(--sb-line); border-radius: 999px; padding: 5px 12px; background: var(--sb-card); cursor: pointer; }
+      .days-grid .check:has(input:checked), .form-card .checks .check:has(input:checked),
+      .checks-grid .check:has(input:checked) { background: var(--sb-accent-soft); border-color: var(--sb-accent-line); color: var(--sb-accent); }
+      .form-card .checks { flex-direction: row; flex-wrap: wrap; }
+      .form-card .field .row.tight { flex-wrap: nowrap; align-items: center; }
+      .form-card .field .row.tight .input[type="time"] { width: auto; flex: 0 1 160px; }
+      .form-card .field .row.tight .dim { flex: 0 0 auto; }
+      .form-card > .field, .form-card > label.field { max-width: 560px; }
+      .form-card > .check { padding: 2px 0; }
+      /* Categories. */
+      .cat-card { display: flex; align-items: center; gap: 10px; padding: 12px 14px 12px 18px;
+                  background: var(--sb-card); border: 1px solid var(--sb-line); border-radius: var(--sb-radius);
+                  box-shadow: var(--sb-shadow); position: relative; overflow: hidden; }
+      .cat-card::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 6px; background: var(--cat, var(--sb-line)); }
+      .cat-name { font-size: 15px; font-weight: 600; margin-bottom: 6px; }
+      .pill ha-icon { --mdc-icon-size: 13px; }
+      /* Treatments and operators: cards. */
+      .trt-group, .op-card { background: var(--sb-card); border-color: var(--sb-line); border-radius: var(--sb-radius); box-shadow: var(--sb-shadow); }
+      .trt-group .row.item:hover { background: var(--sb-soft); }
+      /* Requests. */
+      .req-card { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; background: var(--sb-card);
+                  border: 1px solid var(--sb-line); border-radius: var(--sb-radius); box-shadow: var(--sb-shadow); }
+      .req-card.done { opacity: .8; }
+      .req-head { display: flex; align-items: center; gap: 12px; }
+      .req-name { font-weight: 600; font-size: 15px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+      .req-date { display: flex; flex-direction: column; align-items: flex-end; text-align: right; }
+      .req-day { font-weight: 600; text-transform: capitalize; }
+      .req-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-left: 44px; }
+      .req-person { font-size: 12px; color: var(--secondary-text-color); min-width: 64px; }
+      .req-entry { font-size: 13px; padding: 4px 10px; border-radius: 999px; background: var(--sb-soft); }
+      .req-notes { display: flex; gap: 6px; align-items: flex-start; font-size: 13px; padding: 8px 10px;
+                   border-radius: 10px; background: var(--sb-warn-bg); color: var(--primary-text-color); }
+      .req-card .req-notes { margin-left: 44px; }
+      .req-notes ha-icon { --mdc-icon-size: 16px; color: var(--sb-warn-fg); flex: 0 0 auto; }
+      .req-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; padding-left: 44px; }
+      .req-done > summary { cursor: pointer; color: var(--secondary-text-color); padding: 6px 0; }
+      .req-done[open] { display: flex; flex-direction: column; gap: 10px; }
+      @media (max-width: 720px) {
+        .req-line, .req-actions, .req-card .req-notes { padding-left: 0; margin-left: 0; }
+        .req-head { flex-wrap: wrap; }
+        .req-date { flex-direction: row; gap: 8px; align-items: baseline; width: 100%; }
+      }
+      /* The client card. */
+      .client-detail { align-items: start; gap: 14px; }
+      .profile-head { display: flex; gap: 14px; align-items: center; }
+      .user-avatar.big { width: 56px; height: 56px; font-size: 18px; }
+      .profile-name { font-size: 20px; font-weight: 600; }
+      .stat-value.small-value { font-size: 16px; }
+      .client-detail .appt.compact { border-radius: 10px; }
+      /* The update banner. */
+      .update-banner { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 14px;
+                       border-radius: var(--sb-radius); background: var(--sb-info-bg); border: 1px solid var(--sb-accent-line); }
+      .update-banner.restart { background: var(--sb-warn-bg); border-color: transparent; }
+      .update-banner > ha-icon { --mdc-icon-size: 26px; color: var(--sb-info-fg); }
+      .update-banner.restart > ha-icon { color: var(--sb-warn-fg); }
+      .update-title { font-weight: 600; }
     `);
   }
 }

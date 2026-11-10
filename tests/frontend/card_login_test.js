@@ -112,3 +112,22 @@ setTimeout(() => {
   masseuse._overlapPopup = card._overlapPopup;
   assert(!masseuse._renderOverlapPopup().textContent.includes("Prenota comunque"), "a masseuse cannot force it");
 }
+
+// --- updates banner ----------------------------------------------------------
+{
+  const admin = makeCard({ user_id: "u_s", name: "Stefano", level: "admin" });
+  admin._hass.states = {};
+  assert(admin._updateBanner() === null, "no status, no banner");
+  admin._updateStatus = { running_version: "2.2.0b4", disk_version: "2.2.0b4", restart_needed: false, reload_only: false,
+    update: { entity_id: "update.spa_booking_update", available: true, latest_version: "v2.2.0", release_url: "https://x" } };
+  let banner = admin._updateBanner();
+  assert(banner.textContent.includes("v2.2.0") && banner.textContent.includes("Installa"), "new version: Installa");
+  admin._updateStatus = { running_version: "2.2.0b4", disk_version: "2.2.0", restart_needed: true, reload_only: false, update: null };
+  banner = admin._updateBanner();
+  assert(banner.textContent.includes("Riavvia ora") && !banner.textContent.includes("Installa"), "code changed: restart");
+  admin._updateStatus = { running_version: "2.2.0b4", disk_version: "2.2.0b5", restart_needed: false, reload_only: true, update: null };
+  assert(admin._updateBanner().textContent.includes("Ricarica la pagina"), "card only: reload");
+  const reception = makeCard({ user_id: "u_l", name: "Laura", level: "operator" });
+  reception._updateStatus = admin._updateStatus;
+  assert(reception._updateBanner() === null, "only the administrator sees updates");
+}

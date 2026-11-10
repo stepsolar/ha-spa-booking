@@ -5,7 +5,7 @@ trattamenti con durata propria, operatrici, schede cliente, agenda del giorno
 per operatrice e per categoria, pagamenti, voucher, richieste dal sito web,
 promemoria e report automatici su WhatsApp e Telegram.
 
-Versione corrente: **2.2.0b3** (beta; stabile: 2.1.2) — documentazione completa in
+Versione corrente: **2.2.0b4** (beta; stabile: 2.1.2) — documentazione completa in
 [`custom_components/spa_booking/README.md`](custom_components/spa_booking/README.md).
 
 **[Guida alle schede con le anteprime](docs/GUIDA.md)**: ogni scheda della
@@ -132,6 +132,27 @@ hassfest e validazione HACS a ogni push e pull request. Lavora su un branch e
 apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
+
+- **v2.2.0b4** (beta):
+  - **Aggiornamenti dalla card.** Quando HACS ha una nuova versione,
+    l'Amministratore la vede in alto e la installa con un tocco. Dopo
+    l'installazione la card dice cosa serve:
+    - se è cambiata solo la card o il modulo del sito, basta ricaricare la
+      pagina;
+    - se è cambiato il programma, c'è il pulsante «Riavvia ora».
+
+    Nuovi servizi: `update_status`, `install_update` e
+    `restart_home_assistant`.
+  - **Nuovo stile di altre schede:**
+    - Lista richieste a riquadri, con i numeri in alto;
+    - scheda del cliente con profilo e numeri;
+    - nuova scheda cliente;
+    - categorie a riquadri colorati;
+    - modifica e creazione di categorie, trattamenti e operatrici in un unico
+      riquadro, con i giorni come pulsanti e le fasce orarie su una riga;
+    - titolo e spiegazione in ogni sotto-scheda di Configurazione.
+  - Il pulsante dice «Salva categoria» e «Salva trattamento», non più
+    «category» e «treatment».
 
 - **v2.2.0b3** (beta):
   - **Modulo del sito.**

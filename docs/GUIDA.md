@@ -1,6 +1,6 @@
 # Spa Booking — guida alle schede (2.2)
 
-Aggiornata alla 2.2.0b3: [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
+Aggiornata alla 2.2.0b4: [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
 
 Questa guida mostra ogni scheda della dashboard **Spa Booking** e spiega a
 cosa serve ogni funzione. Le immagini sono state fatte con dati di prova.
@@ -22,6 +22,7 @@ in Impostazioni › Aspetto).
 - [WhatsApp](#whatsapp)
 - [Configurazione](#configurazione)
 - [Modulo del sito](#modulo-del-sito)
+- [Aggiornamenti](#aggiornamenti)
 - [Telefono e tablet](#telefono-e-tablet)
 
 ---
@@ -174,10 +175,24 @@ il messaggio di conferma ricezione su WhatsApp.
 
 ![Lista richieste](anteprime/05-lista-richieste.png)
 
-Le richieste arrivate da reception, dal sito WordPress o da WhatsApp. Ogni
-richiesta ha i pulsanti *Modifica*, *Conferma* (crea gli appuntamenti) ed
-*Elimina*. La campanella in alto conta le richieste dal sito non ancora
-aperte.
+In alto ci sono i numeri: richieste da confermare, arrivate dal sito,
+confermate. Ogni richiesta è un riquadro con:
+- iniziali e nome dell'ospite;
+- provenienza (Sito o Reception) ed etichetta «Nuova» se non è ancora stata
+  aperta;
+- telefono, voucher e codice;
+- data e numero di persone;
+- per ogni persona, i trattamenti con l'orario;
+- le note in evidenza.
+
+I pulsanti:
+- **Conferma** crea gli appuntamenti;
+- **Modifica** apre la richiesta nel modulo;
+- **Invia messaggio** rimanda all'ospite il messaggio WhatsApp;
+- il cestino la elimina.
+
+Le richieste già confermate restano in fondo, chiuse. La campanella in alto
+conta le richieste dal sito non ancora aperte.
 
 ---
 
@@ -210,6 +225,28 @@ I pulsanti chiamano, scrivono su WhatsApp o aprono una nuova prenotazione.
 Toccando un cliente si apre la sua scheda con lo storico, le note, le promo
 e la modifica dei dati, con il telefono con prefisso. Manager e
 Amministratore possono creare e unire i clienti.
+
+### Scheda del cliente
+
+![Scheda cliente](anteprime/07b-scheda-cliente.png)
+
+A sinistra il profilo:
+- iniziali, nome e contatti;
+- «Cliente abituale» (da 3 visite);
+- se riceve le promo;
+- quante visite ha fatto e il prossimo appuntamento;
+- per Manager e Amministratore, quanto ha speso;
+- note e voucher fedeltà.
+
+A destra lo storico degli appuntamenti: toccandone uno si apre il dettaglio.
+In alto ci sono Indietro, Modifica, Elimina, telefono e WhatsApp.
+
+### Nuova scheda cliente
+
+![Nuovo cliente](anteprime/07c-nuovo-cliente.png)
+
+Nome, cognome, telefono con prefisso, email, note e iscrizione alle promo,
+in un unico riquadro.
 
 ---
 
@@ -283,8 +320,10 @@ sinistra, sul telefono una striscia di icone.
 
 | | |
 |---|---|
-| ![Categorie](anteprime/12-config-categorie.png) | **Categorie**: colore, giorni e fasce, pausa tra un trattamento e l'altro, se serve un'operatrice. |
-| ![Trattamenti](anteprime/13-config-trattamenti.png) | **Trattamenti**: durata, prezzo, persone insieme, visibilità sul sito, operatrici abilitate. |
+| ![Categorie](anteprime/12-config-categorie.png) | **Categorie**: ogni categoria è un riquadro con il suo colore a lato e le etichette (numero di trattamenti, con o senza operatrice, pausa, regole di giorni e fasce). |
+| ![Modifica categoria](anteprime/12b-config-categoria-modifica.png) | **Nuova / modifica categoria**: nome, operatrice sì o no, colore, pausa, giorni di mattina e di pomeriggio come pulsanti, fasce orarie da–a sulla stessa riga, categorie da non sovrapporre. |
+| ![Trattamenti](anteprime/13-config-trattamenti.png) | **Trattamenti**: divisi per categoria, con durata, prezzo e operatrici. La matita cambia l'ordine. |
+| ![Modifica trattamento](anteprime/13b-config-trattamento-modifica.png) | **Nuovo / modifica trattamento**: nome, categoria, durata, prezzo, persone insieme, attivo, visibile sul sito, operatrici abilitate. |
 | ![Accessori](anteprime/14-config-accessori.png) | **Accessori**: kit, accappatoio, cuffia… con il loro simbolo. |
 | ![Operatori](anteprime/15-config-operatori.png) | **Operatori**: telefono con prefisso, WhatsApp/Telegram, ruolo, trattamenti, priorità per le offerte. |
 | ![Fasce bloccate](anteprime/16-config-fasce-bloccate.png) | **Fasce bloccate**: chiusure della spa, di una categoria o di un'operatrice, a giornata o con orario. |
@@ -357,6 +396,36 @@ trattamenti restano quelli scritti in Configurazione.
 Sul telefono le schede dei trattamenti si mettono su due colonne:
 
 ![Telefono](anteprime/30-sito-f6-telefono.png)
+
+---
+
+## Aggiornamenti
+
+![Nuova versione](anteprime/29-aggiornamento.png)
+
+Se Spa Booking è installato da HACS, l'Amministratore vede in alto il
+riquadro **Nuova versione di Spa Booking**:
+- *Novità* apre le note della versione;
+- *Installa* la scarica e la installa;
+- *Più tardi* nasconde l'avviso.
+
+Mentre si installa si può continuare a lavorare.
+
+![Riavvio](anteprime/29b-aggiornamento-riavvio.png)
+
+Finita l'installazione, la card controlla cosa è cambiato:
+- **solo la card o il modulo del sito**: basta *Ricarica la pagina*, senza
+  riavviare Home Assistant;
+- **il programma dell'integrazione**: serve riavviare Home Assistant. *Riavvia
+  ora* lo fa subito (circa un minuto, le prenotazioni non si perdono),
+  *Più tardi* rimanda.
+
+Home Assistant carica il programma delle integrazioni una sola volta
+all'avvio e non può sostituirlo mentre funziona: per questo un aggiornamento
+del programma richiede sempre un riavvio.
+
+Le beta compaiono solo se in HACS, nella pagina di Spa Booking, è attivo
+«Mostra le versioni beta».
 
 ---
 

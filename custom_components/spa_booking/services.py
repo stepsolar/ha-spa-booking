@@ -73,7 +73,7 @@ from .const import (
 )
 from .coordinator import FORCE_RULES, INTEGRATION_VERSION, SpaBookingCoordinator
 from .normalize import as_date
-from . import access, messaging
+from . import access, messaging, updates
 from .exceptions import SpaBookingError, ValidationError
 from .waha import WahaError
 
@@ -144,6 +144,9 @@ SERVICE_VOUCHER_EXPIRY_REMINDER = "voucher_expiry_reminder"
 SERVICE_GET_USERS = "get_users"
 SERVICE_SET_USER_PERMISSIONS = "set_user_permissions"
 SERVICE_WHOAMI = "whoami"
+SERVICE_UPDATE_STATUS = "update_status"
+SERVICE_INSTALL_UPDATE = "install_update"
+SERVICE_RESTART_HOME_ASSISTANT = "restart_home_assistant"
 SERVICE_PIN_LOGIN = "pin_login"
 SERVICE_PIN_LOGOUT = "pin_logout"
 SERVICE_SET_USER_PROFILE = "set_user_profile"
@@ -232,6 +235,9 @@ ALL_SERVICES = (
     SERVICE_GET_USERS,
     SERVICE_SET_USER_PERMISSIONS,
     SERVICE_WHOAMI,
+    SERVICE_UPDATE_STATUS,
+    SERVICE_INSTALL_UPDATE,
+    SERVICE_RESTART_HOME_ASSISTANT,
     SERVICE_PIN_LOGIN,
     SERVICE_PIN_LOGOUT,
     SERVICE_SET_USER_PROFILE,
@@ -2312,6 +2318,51 @@ SET_USER_ACTIVE_SCHEMA = vol.Schema(
 )
 
 
+# ----------------------------------------------------------------- updates
+
+
+async def _async_update_status(call: ServiceCall) -> ServiceResponse:
+    """Installed, running and available versions, and whether to restart."""
+    coordinator = _coordinator(call)
+    hass = call.hass
+    on_disk = await hass.async_add_executor_job(updates.disk_version)
+    fingerprint = await hass.async_add_executor_job(updates.code_fingerprint)
+    running_print = getattr(coordinator, "code_fingerprint", "") or fingerprint
+    restart = fingerprint != running_print
+    entity = updates.find_update_entity(hass.states.async_all("update"))
+    return {
+        "running_version": INTEGRATION_VERSION,
+        "disk_version": on_disk,
+        "restart_needed": restart,
+        # Only the card or the form changed: a page reload is enough.
+        "reload_only": (not restart) and bool(on_disk) and on_disk != INTEGRATION_VERSION,
+        "update": entity,
+    }
+
+
+async def _async_install_update(call: ServiceCall) -> ServiceResponse:
+    """Install the new version through the HACS update entity."""
+    entity = updates.find_update_entity(call.hass.states.async_all("update"))
+    if entity is None:
+        raise ValidationError(
+            "Aggiornamento non trovato: Spa Booking va installato da HACS per aggiornarsi dalla card"
+        )
+    if not entity["available"]:
+        raise ValidationError("Spa Booking è già all'ultima versione")
+    # Not blocking: the download takes a while and the card follows the
+    # progress on the entity itself.
+    await call.hass.services.async_call(
+        "update", "install", {"entity_id": entity["entity_id"]}, blocking=False
+    )
+    return {"entity_id": entity["entity_id"], "version": entity["latest_version"]}
+
+
+async def _async_restart_home_assistant(call: ServiceCall) -> ServiceResponse:
+    """Restart Home Assistant to load the new version of the integration."""
+    await call.hass.services.async_call("homeassistant", "restart", {}, blocking=False)
+    return {"ok": True}
+
+
 _HANDLERS: dict[str, tuple[Any, Any, SupportsResponse]] = {
     SERVICE_CREATE_APPOINTMENT: (
         _async_create_appointment,
@@ -2671,6 +2722,11 @@ _HANDLERS: dict[str, tuple[Any, Any, SupportsResponse]] = {
         SupportsResponse.ONLY,
     ),
     SERVICE_WHOAMI: (_async_whoami, None, SupportsResponse.ONLY),
+    SERVICE_UPDATE_STATUS: (_async_update_status, None, SupportsResponse.ONLY),
+    SERVICE_INSTALL_UPDATE: (_async_install_update, None, SupportsResponse.ONLY),
+    SERVICE_RESTART_HOME_ASSISTANT: (
+        _async_restart_home_assistant, None, SupportsResponse.OPTIONAL,
+    ),
     SERVICE_PIN_LOGIN: (_async_pin_login, PIN_LOGIN_SCHEMA, SupportsResponse.ONLY),
     SERVICE_PIN_LOGOUT: (_async_pin_logout, None, SupportsResponse.OPTIONAL),
     SERVICE_SET_USER_PROFILE: (
