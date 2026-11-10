@@ -5,7 +5,7 @@ trattamenti con durata propria, operatrici, schede cliente, agenda del giorno
 per operatrice e per categoria, pagamenti, voucher, richieste dal sito web,
 promemoria e report automatici su WhatsApp e Telegram.
 
-Versione corrente: **2.2.0b2** (beta; stabile: 2.1.2) — documentazione completa in
+Versione corrente: **2.2.0b3** (beta; stabile: 2.1.2) — documentazione completa in
 [`custom_components/spa_booking/README.md`](custom_components/spa_booking/README.md).
 
 **[Guida alle schede con le anteprime](docs/GUIDA.md)**: ogni scheda della
@@ -73,9 +73,33 @@ funziona su processori Intel/AMD a 64 bit (mini PC, NUC, macchine virtuali).
 
 ## Modulo per il sito web
 
-Nella card: Configurazione → Sito web → attiva il sito, poi **Copia** e
-incolla il codice in un blocco "HTML personalizzato" di WordPress. Il token è
-già inserito.
+Nella card: Configurazione › Impostazioni › Sito web. Attiva il sito, poi
+premi **Copia codice per il sito** e incolla il codice in un blocco «HTML
+personalizzato» di WordPress. Il codice ha già il token ed è di due righe:
+
+```html
+<div id="spa-booking"></div>
+<script src="https://IL-TUO-HOME-ASSISTANT/api/spa_booking/public/form.js" data-token="..." async></script>
+```
+
+Il modulo arriva da Home Assistant: quando aggiorni Spa Booking il sito
+mostra subito la nuova versione e WordPress non si tocca più. Il modulo è a
+4 passi:
+1. data, persone e voucher;
+2. trattamenti e orari per persona;
+3. dati dell'ospite;
+4. riepilogo.
+
+È in italiano, inglese e tedesco: la lingua si sceglie da sola dal browser
+dell'ospite, oppure con i pulsanti IT, EN e DE. Facoltativi sul tag
+`<script>`:
+- `data-lang` fissa la lingua;
+- `data-accent` imposta il colore;
+- `data-target` indica il riquadro dove mettere il modulo.
+
+Prezzi, colore e indirizzo pubblico si impostano nella stessa sezione. Il
+«Codice completo (vecchio)» resta disponibile per i siti che non possono
+caricare uno script da un altro indirizzo.
 
 ## Aggiornare dalla 2.0.x
 
@@ -108,6 +132,20 @@ hassfest e validazione HACS a ogni push e pull request. Lavora su un branch e
 apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
+
+- **v2.2.0b3** (beta):
+  - **Modulo del sito.**
+    - Su WordPress bastano due righe: il modulo arriva da Home Assistant e si
+      aggiorna da solo.
+    - È diviso in 4 passi, con i trattamenti a schede e gli orari come
+      pulsanti.
+    - È in italiano, inglese e tedesco.
+    - Si possono mostrare prezzi e totale indicativo, e scegliere il colore.
+  - **Regole delle categorie.** Quando una prenotazione è fuori dai giorni o
+    dalle fasce di una categoria, oppure si sovrappone a una categoria
+    esclusa, la card mostra un avviso con «Prenota comunque» oppure «Annulla
+    e modifica». Vale anche in modifica. Forzare è permesso alla reception in
+    su; chiusure e operatrice già occupata restano bloccanti.
 
 - **v2.2.0b2** (beta):
   - **Login e ruoli.** Ognuno entra con il proprio utente, nei ruoli

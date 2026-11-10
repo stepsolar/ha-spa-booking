@@ -26,3 +26,11 @@ class OverlapError(SpaBookingError):
         """Initialize the error and keep the conflicting appointments."""
         super().__init__(message)
         self.conflicts: list[dict[str, Any]] = conflicts or []
+
+
+class CategoryRuleError(ValidationError):
+    """A category's days, time windows or exclusions refuse the slot.
+
+    The desk can book anyway with ``force_rules``: the rule is the hotel's
+    habit, not a physical limit like an operator already busy.
+    """

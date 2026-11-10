@@ -71,7 +71,7 @@ from .const import (
     KEY_PROFILES,
     PERMISSION_LEVELS,
 )
-from .coordinator import INTEGRATION_VERSION, SpaBookingCoordinator
+from .coordinator import FORCE_RULES, INTEGRATION_VERSION, SpaBookingCoordinator
 from .normalize import as_date
 from . import access, messaging
 from .exceptions import SpaBookingError, ValidationError
@@ -327,6 +327,9 @@ CREATE_APPOINTMENT_SCHEMA = vol.Schema(
         #: same-person client refusal, never an operator double-booking.
         vol.Optional("batch_id"): vol.Any(cv.string, None),
         vol.Optional("force_client_overlap", default=False): cv.boolean,
+        #: The desk saw the category warning (days, time windows,
+        #: exclusions) and books anyway. Reception and above only.
+        vol.Optional("force_rules", default=False): cv.boolean,
     },
     extra=vol.PREVENT_EXTRA,
 )
@@ -404,6 +407,9 @@ UPDATE_APPOINTMENT_SCHEMA = vol.Schema(
         #: The desk saw the overlap warning and confirms anyway: skips only
         #: the same-person client refusal, never an operator double-booking.
         vol.Optional("force_client_overlap", default=False): cv.boolean,
+        #: The desk saw the category warning (days, time windows,
+        #: exclusions) and books anyway. Reception and above only.
+        vol.Optional("force_rules", default=False): cv.boolean,
         #: Apply the same edit to every appointment of the group (same client,
         #: treatment and slot) instead of only this one.
         vol.Optional("whole_group", default=False): cv.boolean,
@@ -828,6 +834,9 @@ UPDATE_SETTINGS_SCHEMA = vol.Schema(
         # Numero WhatsApp della reception per l'avviso di una nuova richiesta
         # dal sito (vuoto = nessun avviso).
         vol.Optional("web_notify_whatsapp"): vol.Any(cv.string, None),
+        vol.Optional("web_show_prices"): cv.boolean,
+        vol.Optional("web_accent"): vol.Any(cv.string, None),
+        vol.Optional("web_public_url"): vol.Any(cv.string, None),
         # WAHA gateway: with an URL set, WhatsApp goes straight to the add-on
         # instead of through the rest_command fallback.
         vol.Optional("whatsapp_engine"): vol.In(["waha", "integrated"]),
@@ -868,7 +877,13 @@ EXPORT_ALL_SCHEMA = vol.Schema({})
 
 IMPORT_DATA_SCHEMA = vol.Schema({vol.Required(ATTR_PAYLOAD): dict})
 IMPORT_ALL_SCHEMA = vol.Schema({vol.Required(ATTR_PAYLOAD): dict})
-UPDATE_BOOKING_BATCH_SCHEMA = vol.Schema({vol.Required("appointment_id"): cv.string, vol.Required(ATTR_ROWS): vol.All(cv.ensure_list, [dict])})
+UPDATE_BOOKING_BATCH_SCHEMA = vol.Schema(
+    {
+        vol.Required("appointment_id"): cv.string,
+        vol.Required(ATTR_ROWS): vol.All(cv.ensure_list, [dict]),
+        vol.Optional("force_rules", default=False): cv.boolean,
+    }
+)
 
 EXPORT_CLIENTS_CSV_SCHEMA = vol.Schema({})
 
@@ -926,7 +941,10 @@ BOOKING_ROW_SCHEMA = vol.Schema(
 )
 
 CREATE_BOOKINGS_SCHEMA = vol.Schema(
-    {vol.Required(ATTR_ROWS): vol.All(cv.ensure_list, [BOOKING_ROW_SCHEMA])},
+    {
+        vol.Required(ATTR_ROWS): vol.All(cv.ensure_list, [BOOKING_ROW_SCHEMA]),
+        vol.Optional("force_rules", default=False): cv.boolean,
+    },
     extra=vol.PREVENT_EXTRA,
 )
 
@@ -1019,7 +1037,7 @@ MARK_REQUESTS_SEEN_SCHEMA = vol.Schema({})
 REGENERATE_PUBLIC_TOKEN_SCHEMA = vol.Schema({})
 
 #: No fields: the snippet is read from the published file.
-WEB_SNIPPET_SCHEMA = vol.Schema({})
+WEB_SNIPPET_SCHEMA = vol.Schema({vol.Optional("base_url", default=""): cv.string})
 
 SEND_EXTERNAL_MESSAGE_SCHEMA = vol.Schema(
     {
@@ -1770,7 +1788,7 @@ async def _async_regenerate_public_token(call: ServiceCall) -> ServiceResponse:
 
 async def _async_web_snippet(call: ServiceCall) -> ServiceResponse:
     """Return the code to paste into the site's page, token included."""
-    return await _coordinator(call).async_web_snippet()
+    return await _coordinator(call).async_web_snippet(call.data.get("base_url", ""))
 
 
 async def _async_send_external_message(call: ServiceCall) -> ServiceResponse:
@@ -2785,10 +2803,15 @@ def _guarded(service: str, handler: Any) -> Any:
             )
         if acting.level == "therapist" and service in THERAPIST_OWN_SERVICES:
             _check_own_appointment(service, call, coordinator, acting)
+        force = bool((call.data or {}).get("force_rules"))
+        if force and _LEVEL_RANK.get(acting.level, 0) < _LEVEL_RANK["operator"]:
+            raise ValidationError("Solo la reception può prenotare fuori dalle regole della categoria")
         token = _ACTING.set(acting)
+        force_token = FORCE_RULES.set(force)
         try:
             return await handler(call)
         finally:
+            FORCE_RULES.reset(force_token)
             _ACTING.reset(token)
 
     _handler.__name__ = getattr(handler, "__name__", service)

@@ -1,5 +1,7 @@
 # Spa Booking — guida alle schede (2.2)
 
+Aggiornata alla 2.2.0b3: [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
+
 Questa guida mostra ogni scheda della dashboard **Spa Booking** e spiega a
 cosa serve ogni funzione. Le immagini sono state fatte con dati di prova.
 Dalla 2.2 tutte le schede hanno lo stesso stile:
@@ -19,6 +21,7 @@ in Impostazioni › Aspetto).
 - [Voucher](#voucher)
 - [WhatsApp](#whatsapp)
 - [Configurazione](#configurazione)
+- [Modulo del sito](#modulo-del-sito)
 - [Telefono e tablet](#telefono-e-tablet)
 
 ---
@@ -136,6 +139,27 @@ chi li registra.
 Il **telefono ha il prefisso internazionale accanto** (+39 già scelto, i
 Paesi più frequenti in cima). Se si scrive un numero che inizia con +41 o
 0049, il prefisso si sistema da solo.
+
+### Avviso: regole della categoria
+
+![Avviso regola](anteprime/28-avviso-regola.png)
+
+Se una prenotazione è fuori dalle regole di una categoria, compare un avviso
+invece di un errore. Le regole sono:
+- i giorni (per esempio: «La categoria 'Privata' accetta prenotazioni di
+  mattina solo Lun, Mar, Mer, Gio, Ven»);
+- le fasce di mattina e pomeriggio;
+- le categorie che non possono sovrapporsi.
+
+**Prenota comunque** inserisce l'appuntamento lo stesso.
+**Annulla e modifica** torna al modulo così com'era, per scegliere un altro
+giorno o orario.
+
+L'avviso compare anche quando si modifica un appuntamento o un gruppo.
+Forzare è permesso alla Reception, al Manager e all'Amministratore: una
+massaggiatrice vede l'avviso senza il pulsante. Restano sempre bloccanti:
+- le chiusure (Fasce bloccate);
+- un'operatrice già occupata.
 
 ### Nuova richiesta
 
@@ -302,6 +326,37 @@ indicano:
 
 L'utente creato non è amministratore di Home Assistant e vede solo questa
 dashboard.
+
+---
+
+## Modulo del sito
+
+Il modulo che gli ospiti compilano sul sito dell'hotel. Su WordPress ci sono
+solo due righe (Configurazione › Impostazioni › Sito web › *Copia codice per
+il sito*): il modulo vero arriva da Home Assistant, quindi ogni aggiornamento
+compare sul sito da solo. Il modulo è isolato dal tema del sito: il tema non
+lo rovina e il modulo non cambia il sito.
+
+| | |
+|---|---|
+| ![Passo 1](anteprime/30-sito-f1-quando.png) | **1. Quando**: data, numero di persone e voucher. Un voucher valido sceglie già i suoi trattamenti e il nome del destinatario. |
+| ![Passo 2](anteprime/30-sito-f2-cosa.png) | **2. Cosa scegliete**: un riquadro per persona con i trattamenti divisi per categoria (durata e, se attivo, prezzo). Per ogni trattamento scelto si vedono solo gli orari ancora liberi. «Come la persona 1» copia le scelte. |
+| ![Passo 3](anteprime/30-sito-f3-dati-de.png) | **3. I tuoi dati**: nome, cognome, telefono con prefisso, email e note. Senza nome e telefono non si va avanti. Qui in tedesco. |
+| ![Passo 4](anteprime/30-sito-f4-riepilogo.png) | **4. Controlla e invia**: riepilogo con data, trattamenti per persona, contatto e, se attivo, il totale indicativo. |
+| ![Inviata](anteprime/30-sito-f5-inviata-en.png) | **Inviata**: il codice della richiesta in grande. La richiesta arriva in Nuovo › Lista richieste con la campanella. Qui in inglese. |
+
+**Lingue.** Italiano, inglese e tedesco. La lingua si sceglie da sola dal
+browser dell'ospite e si cambia con IT, EN e DE in alto. I nomi dei
+trattamenti restano quelli scritti in Configurazione.
+
+**Impostazioni** (Sito web):
+- indirizzo pubblico di Home Assistant;
+- «Mostra prezzi e totale indicativo»;
+- colore principale.
+
+Sul telefono le schede dei trattamenti si mettono su due colonne:
+
+![Telefono](anteprime/30-sito-f6-telefono.png)
 
 ---
 

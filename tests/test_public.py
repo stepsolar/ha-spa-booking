@@ -145,3 +145,27 @@ def test_confirmed_request_cannot_be_rewritten(web) -> None:
             )
         )
     assert first["code"]
+
+
+def test_two_line_code_loads_the_form_from_home_assistant(web) -> None:
+    coordinator, _ = web
+    result = run(coordinator.async_web_snippet("http://192.168.1.10:8123"))
+    short = result["snippet"]
+    # No public address set: the one already written in the full form wins
+    # over the local address the desk happens to use.
+    assert short.count("\n") == 1
+    assert 'src="https://hailmarchese.it/api/spa_booking/public/form.js"' in short
+    assert 'data-token="t"' in short
+    assert "INCOLLA_QUI_IL_TOKEN" not in result["snippet_full"]
+    coordinator._data[KEY_SETTINGS]["web_public_url"] = "https://spa.example.org"
+    short = run(coordinator.async_web_snippet())["snippet"]
+    assert 'src="https://spa.example.org/api/spa_booking/public/form.js"' in short
+
+
+def test_form_file_is_served_with_an_etag() -> None:
+    from custom_components.spa_booking.public import FORM_JS_FILE, SpaBookingPublicFormView
+
+    body, etag = SpaBookingPublicFormView._read()
+    assert FORM_JS_FILE.name == "spa-booking-form.js"
+    assert "spa_booking/public/form.js" in body and etag.startswith('"')
+    assert SpaBookingPublicFormView._read()[1] == etag

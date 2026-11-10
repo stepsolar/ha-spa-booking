@@ -38,6 +38,8 @@ jobs:
           node-version: "22"
       # The card is a module: a syntax error would break every dashboard.
       - run: node --check --input-type=module < custom_components/spa_booking/frontend/spa-booking-card.js
+      # The stepped form the website loads from Home Assistant (2.2.0b3).
+      - run: node --check custom_components/spa_booking/frontend/spa-booking-form.js
       # The WordPress form, run end to end against a simulated page.
       - run: node tests/frontend/form_test.js custom_components/spa_booking/frontend/spa-booking-form.txt
       # The Richiesta form of the card: one box per person, payload, editing.

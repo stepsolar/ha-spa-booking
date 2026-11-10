@@ -60,6 +60,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if not hass.data.get(f"{DOMAIN}_public_views"):
         from .public import (
             SpaBookingPublicAvailabilityView,
+            SpaBookingPublicFormView,
             SpaBookingPublicRequestView,
             SpaBookingPublicTreatmentsView,
         )
@@ -67,6 +68,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.http.register_view(SpaBookingPublicTreatmentsView)
         hass.http.register_view(SpaBookingPublicAvailabilityView)
         hass.http.register_view(SpaBookingPublicRequestView)
+        hass.http.register_view(SpaBookingPublicFormView)
         hass.data[f"{DOMAIN}_public_views"] = True
 
     add_extra_js_url(hass, coordinator.card_js_url())

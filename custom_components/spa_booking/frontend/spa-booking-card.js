@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.2.0b2";
+const CARD_VERSION = "2.2.0b3";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -4888,7 +4888,7 @@ class SpaBookingCard extends HTMLElement {
   }
 
 
-  async _saveBatchEdit() {
+  async _saveBatchEdit(forceRules = false) {
     try {
       this._batchBusy = true;
       this._render();
@@ -4907,6 +4907,7 @@ class SpaBookingCard extends HTMLElement {
       await this._call("update_booking_batch", {
         appointment_id: this._batchAnchorId,
         rows: flattened,
+        ...(forceRules ? { force_rules: true } : {}),
       });
       this._batchEditing = false;
       this._batchAnchorId = null;
@@ -4915,7 +4916,12 @@ class SpaBookingCard extends HTMLElement {
       this._tab = "agenda";
       this._message = { kind: "ok", text: "Gruppo aggiornato." };
     } catch (error) {
-      /* message shown by _call */
+      const text = String((error && error.message) || "");
+      if (!forceRules && this._isCategoryRule(text)) {
+        this._message = null;
+        this._overlapPopup = { kind: "rules", message: text, retry: { run: () => this._saveBatchEdit(true) } };
+      }
+      /* any other message shown by _call */
     } finally {
       this._batchBusy = false;
       this._render();
@@ -7003,7 +7009,7 @@ class SpaBookingCard extends HTMLElement {
 
   /** All-or-nothing booking: create_bookings creates every row or none. The
    *  single-appointment case is just one row, so there is a single path. */
-  async _createBookings(force = false) {
+  async _createBookings(force = false, forceRules = false) {
     const rows = this._bookingRows();
     if (!rows.length) return;
     if (force) {
@@ -7015,7 +7021,10 @@ class SpaBookingCard extends HTMLElement {
     }
 
     try {
-      const response = await this._call("create_bookings", { rows });
+      const response = await this._call("create_bookings", {
+        rows,
+        ...(forceRules ? { force_rules: true } : {}),
+      });
       const appointments = (response && response.appointments) || [];
       const first = appointments[0];
       // Staged takings belong to the whole booking: they are written onto
@@ -7070,8 +7079,21 @@ class SpaBookingCard extends HTMLElement {
       // go back and fix the form, which stays untouched. An operator clash
       // keeps the plain error, it can never be forced.
       const text = String((error && error.message) || "");
+      if (!forceRules && this._isCategoryRule(text)) {
+        this._message = null;
+        this._overlapPopup = {
+          kind: "rules", message: text,
+          retry: { run: () => this._createBookings(force, true) },
+        };
+        this._render();
+        return;
+      }
       if (!force && /sovrappone/i.test(text) && /cliente/i.test(text)) {
-        this._overlapPopup = { message: text };
+        this._message = null;
+        this._overlapPopup = {
+          message: text,
+          retry: { run: () => this._createBookings(true, forceRules) },
+        };
         this._render();
         return;
       }
@@ -7130,6 +7152,14 @@ class SpaBookingCard extends HTMLElement {
     }
   }
 
+  /**
+   * Whether a refusal is a category rule (days, morning/afternoon windows,
+   * categories that must not overlap): the desk can book anyway.
+   */
+  _isCategoryRule(text) {
+    return /^La categoria '.*' (accetta|non può sovrapporsi)/.test(String(text || ""));
+  }
+
   /** The overlap question, over a backdrop like the other popups. */
   _renderOverlapPopup() {
     const draft = this._overlapPopup || {};
@@ -7148,18 +7178,25 @@ class SpaBookingCard extends HTMLElement {
         this._createBookings(true);
       }
     };
-    const sheet = el("div", { class: "detail-sheet overlap-sheet" },
+    const rules = draft.kind === "rules";
+    // Forcing a category rule is the reception's call, as on the server.
+    const mayForce = !rules || this._can("payments");
+    const sheet = el("div", { class: `detail-sheet overlap-sheet${rules ? " rules" : ""}` },
       el("div", { class: "overlap-icon" },
-        el("ha-icon", { icon: "mdi:alert-octagon-outline" })),
-      el("h3", { class: "overlap-title" }, "Sovrapposizione cliente"),
+        el("ha-icon", { icon: rules ? "mdi:calendar-clock" : "mdi:alert-octagon-outline" })),
+      el("h3", { class: "overlap-title" }, rules ? "Fuori dalle regole della categoria" : "Sovrapposizione cliente"),
       el("div", { class: "detail-text overlap-text" }, draft.message || ""),
       el("div", { class: "hint" },
-        "Continuando, l'appuntamento viene inserito anche se si sovrappone. Annullando, torni al form invariato per le modifiche."));
+        rules
+          ? (mayForce
+            ? "«Prenota comunque» inserisce l'appuntamento anche fuori da questa regola. «Annulla e modifica» torna al modulo invariato per scegliere un altro giorno o orario."
+            : "Solo la reception può prenotare fuori da questa regola. «Annulla e modifica» torna al modulo invariato.")
+          : "Continuando, l'appuntamento viene inserito anche se si sovrappone. Annullando, torni al form invariato per le modifiche."));
     sheet.appendChild(el("div", { class: "row" },
-      el("button", {
+      mayForce ? el("button", {
         class: "btn primary", disabled: this._busy,
         on: { click: () => retryNow() },
-      }, "Continua comunque"),
+      }, rules ? "Prenota comunque" : "Continua comunque") : null,
       el("div", { class: "spacer" }),
       el("button", { class: "btn", on: { click: () => { this._overlapPopup = null; this._render(); } } }, "Annulla e modifica")));
     return el("div", {
@@ -9695,59 +9732,98 @@ _renderClients() {
           } },
         }, "Salva orari"))
     );
-    box.appendChild(
+    // The code for WordPress: two lines that load the form from Home
+    // Assistant (2.2.0b3), or the whole form as before for a site that
+    // cannot load a script from another address.
+    const copySnippet = async (full) => {
+      let text = "";
+      try {
+        const result = await this._service("web_snippet", { base_url: location.origin });
+        text = String((result && (full ? result.snippet_full : result.snippet)) || "");
+      } catch (error) {
+        this._message = { kind: "error", text: "Copia non riuscita." };
+        this._render();
+        return;
+      }
+      if (!text) {
+        this._message = { kind: "error",
+          text: "Modulo del sito non trovato nell'integrazione (frontend/spa-booking-form.txt)." };
+        this._render();
+        return;
+      }
+      try {
+        if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+          await navigator.clipboard.writeText(text);
+          this._message = { kind: "ok", text: full ? "Codice completo copiato negli appunti." : "Codice per il sito copiato negli appunti." };
+          this._render();
+          return;
+        }
+      } catch (e) { /* try the old way */ }
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.left = "-9999px";
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+        this._message = { kind: "ok", text: "Codice per il sito copiato negli appunti." };
+      } catch (e2) {
+        this._message = { kind: "error", text: "Copia non riuscita: seleziona il testo e copialo a mano." };
+      }
+      this._render();
+    };
+    const publicUrl = draft.public_url != null ? draft.public_url : (settings.web_public_url || "");
+    const showPrices = draft.show_prices != null ? draft.show_prices : !!settings.web_show_prices;
+    const accent = draft.accent != null ? draft.accent : (settings.web_accent || "");
+    box.appendChild(el("div", { class: "web-form-box" },
+      el("div", { class: "who-title" }, el("ha-icon", { icon: "mdi:form-select" }), "Modulo sul sito"),
+      el("div", { class: "hint" },
+        "Su WordPress bastano due righe in un blocco «HTML personalizzato»: il modulo arriva da Home Assistant, " +
+        "quindi ogni aggiornamento di Spa Booking compare sul sito senza toccare WordPress. " +
+        "Il modulo è a passi e in italiano, inglese e tedesco (scelti dal browser dell'ospite o dai pulsanti IT, EN, DE)."),
+      el("label", { class: "field" },
+        el("span", {}, "Indirizzo pubblico di Home Assistant"),
+        el("input", {
+          class: "input", type: "url", value: publicUrl, placeholder: "https://hailmarchese.it",
+          on: { input: (event) => { draft.public_url = event.target.value; }, keydown: (event) => event.stopPropagation() },
+        })),
+      el("div", { class: "field-grid" },
+        el("label", { class: "check" },
+          el("input", { type: "checkbox", checked: showPrices, on: { change: (event) => { draft.show_prices = event.target.checked; } } }),
+          el("span", {}, "Mostra prezzi e totale indicativo")),
+        el("label", { class: "field inline" },
+          el("span", {}, "Colore"),
+          el("input", {
+            class: "input narrow", type: "color", value: accent || "#0a84a8",
+            on: { input: (event) => { draft.accent = event.target.value; } },
+          }))),
       el("div", { class: "row tight" },
         el("button", {
-          class: "btn small",
-          disabled: this._busy,
+          class: "btn primary small", disabled: this._busy,
           on: { click: async () => {
             try {
-              const result = await this._service("web_snippet", {});
-              const text = String((result && result.snippet) || "");
-              if (!text) {
-                this._message = { kind: "error",
-                  text: "Modulo del sito non trovato nell'integrazione (frontend/spa-booking-form.txt)." };
-                this._render();
-                return;
-              }
-              try {
-                if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
-                  await navigator.clipboard.writeText(text);
-                  this._message = { kind: "ok", text: "Codice per il sito copiato negli appunti." };
-                  this._render();
-                  return;
-                }
-              } catch (e) {}
-              try {
-                const ta = document.createElement("textarea");
-                ta.value = text;
-                ta.style.position = "fixed";
-                ta.style.left = "-9999px";
-                document.body.appendChild(ta);
-                ta.focus();
-                ta.select();
-                document.execCommand("copy");
-                document.body.removeChild(ta);
-                this._message = { kind: "ok", text: "Codice per il sito copiato negli appunti." };
-                this._render();
-                return;
-              } catch (e2) {
-                try {
-                  if (typeof this._copyToClipboard === "function") {
-                    await this._copyToClipboard(text, "Codice per il sito");
-                    return;
-                  }
-                } catch (e3) {}
-              }
-              this._message = { kind: "error", text: "Copia non riuscita: seleziona il testo e copialo a mano." };
+              await this._call("update_settings", {
+                web_public_url: (draft.public_url != null ? draft.public_url : publicUrl).trim(),
+                web_show_prices: draft.show_prices != null ? draft.show_prices : showPrices,
+                web_accent: draft.accent != null ? draft.accent : accent,
+              });
+              this._message = { kind: "ok", text: "Aspetto del modulo salvato." };
               this._render();
-            } catch (error) {
-              this._message = { kind: "error", text: "Copia non riuscita." };
-              this._render();
-            }
+            } catch (error) { /* shown by _call */ }
           } },
-        }, el("ha-icon", { icon: "mdi:content-copy" }), "Copia codice per il sito"))
-    );
+        }, el("ha-icon", { icon: "mdi:content-save" }), "Salva"),
+        el("button", {
+          class: "btn small", disabled: this._busy,
+          on: { click: () => copySnippet(false) },
+        }, el("ha-icon", { icon: "mdi:content-copy" }), "Copia codice per il sito"),
+        el("button", {
+          class: "btn small ghost", disabled: this._busy,
+          title: "Il modulo intero come nelle versioni precedenti, per un sito che non può caricare script da un altro indirizzo",
+          on: { click: () => copySnippet(true) },
+        }, "Codice completo (vecchio)"))));
 
     return box;
   }
@@ -15650,7 +15726,7 @@ _renderClients() {
     wrap.appendChild(columns);
 
     const groupSize = current ? this._groupSize(current) : 1;
-    const save = async (pending, wholeGroup, force = false) => {
+    const save = async (pending, wholeGroup, force = false, forceRules = false) => {
       try {
         await this._call("update_appointment", {
           appointment_id: this._editing.id,
@@ -15672,12 +15748,22 @@ _renderClients() {
           ...(pending ? { pending: true } : {}),
           ...(wholeGroup ? { whole_group: true } : {}),
           ...(force ? { force_client_overlap: true } : {}),
+          ...(forceRules ? { force_rules: true } : {}),
         });
         this._editing = null;
         this._render();
       } catch (error) {
         /* shown */
         const text = String((error && error.message) || "");
+        if (!forceRules && this._isCategoryRule(text)) {
+          this._message = null;
+          this._overlapPopup = {
+            kind: "rules", message: text,
+            retry: { run: () => save(pending, wholeGroup, force, true) },
+          };
+          this._render();
+          return;
+        }
         if (
           !force &&
           /sovrappone/i.test(text) &&
@@ -15688,7 +15774,7 @@ _renderClients() {
             retry: {
               kind: "edit",
               id: this._editing.id,
-              run: () => save(pending, wholeGroup, true),
+              run: () => save(pending, wholeGroup, true, forceRules),
             },
           };
           this._render();
@@ -16075,6 +16161,8 @@ _renderClients() {
       .overlap-sheet .overlap-icon ha-icon { --mdc-icon-size: 44px; color: var(--error-color, #e53953); }
       .overlap-sheet .overlap-title { text-align: center; }
       .overlap-sheet .overlap-text { text-align: center; color: var(--error-color, #e53953); font-weight: 600; }
+      .overlap-sheet.rules .overlap-icon ha-icon { color: var(--sb-warn-fg, #9a5b00); }
+      .overlap-sheet.rules .overlap-text { color: var(--primary-text-color); font-size: 15px; }
       .pay-methods { display: flex; flex-direction: column; gap: 6px;
                      border-top: 1px solid var(--divider-color); padding-top: 8px; }
 
@@ -17311,6 +17399,8 @@ _renderClients() {
       .who-card { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 12px; background: var(--sb-soft); }
       .who-title { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 13px; }
       .who-title ha-icon { --mdc-icon-size: 18px; color: var(--sb-accent); }
+      .web-form-box { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 12px; background: var(--sb-soft); }
+      .web-form-box input[type="color"] { padding: 2px; height: 36px; width: 60px; }
       .created-by .input[readonly] { background: var(--sb-soft); }
       .person-card { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--sb-line); border-radius: 12px; }
       .person-head { display: flex; align-items: center; gap: 8px; }

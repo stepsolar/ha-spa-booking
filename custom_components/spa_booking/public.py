@@ -29,10 +29,12 @@ that says yes.
 from __future__ import annotations
 
 from collections import deque
+import hashlib
 import json
 import logging
 import time
 from datetime import date
+from pathlib import Path
 from typing import Any
 
 from aiohttp import web
@@ -50,6 +52,8 @@ _LOGGER = logging.getLogger(__name__)
 TREATMENTS_URL = f"{WEB_API_BASE}/treatments"
 AVAILABILITY_URL = f"{WEB_API_BASE}/availability"
 REQUESTS_URL = f"{WEB_API_BASE}/requests"
+FORM_JS_URL = f"{WEB_API_BASE}/form.js"
+FORM_JS_FILE = Path(__file__).parent / "frontend" / "spa-booking-form.js"
 
 #: Longest strings the site may send. They are not business rules — they are
 #: what keeps a public endpoint from filling the client cards with megabytes.
@@ -208,6 +212,8 @@ class SpaBookingPublicTreatmentsView(_PublicView):
         if isinstance(coordinator, web.Response):
             return coordinator
         try:
+            settings = coordinator._web_settings
+            show_prices = bool(settings.get("web_show_prices"))
             items = []
             for treatment in coordinator.treatments:
                 if not treatment.get("active", True):
@@ -215,21 +221,29 @@ class SpaBookingPublicTreatmentsView(_PublicView):
                 if not treatment.get("web_visible", True):
                     continue
                 payload = coordinator.treatment_payload(treatment)
-                items.append(
-                    {
-                        "id": payload["id"],
-                        "name": payload["name"],
-                        # The category is what the site groups its list by;
-                        # the ids behind it stay inside.
-                        "category_name": payload.get("category_name") or "",
-                        "duration_min": payload["duration_min"],
-                    }
-                )
+                item = {
+                    "id": payload["id"],
+                    "name": payload["name"],
+                    # The category is what the site groups its list by;
+                    # the ids behind it stay inside.
+                    "category_name": payload.get("category_name") or "",
+                    "duration_min": payload["duration_min"],
+                }
+                # The price only when the reception chose to show it.
+                if show_prices and payload.get("price") is not None:
+                    item["price"] = payload["price"]
+                items.append(item)
             items.sort(key=lambda item: (item["category_name"], item["name"]))
+            # What the form needs to draw itself (2.2.0b3).
+            site = {
+                "show_prices": show_prices,
+                "accent": settings.get("web_accent") or "",
+                "max_days_ahead": settings.get("web_max_days_ahead") or 60,
+            }
 
             code = str(request.query.get("code") or "").strip().upper()
             if not code:
-                return self.json({"treatments": items})
+                return self.json({"treatments": items, "site": site})
 
             voucher = next(
                 (v for v in coordinator.vouchers if str(v.get("code") or "").upper() == code),
@@ -269,6 +283,7 @@ class SpaBookingPublicTreatmentsView(_PublicView):
             return self.json(
                 {
                     "treatments": items,
+                    "site": site,
                     "voucher": {
                         "code": code,
                         # The name only pre-fills the form; the phone number
@@ -417,3 +432,57 @@ class SpaBookingPublicRequestView(_PublicView):
             )
         except Exception as err:  # noqa: BLE001 — one place for every failure
             return self._failure(err)
+
+
+class SpaBookingPublicFormView(_PublicView):
+    """The form of the website, loaded by the two-line code on the site.
+
+    No token is needed to read it: the file holds no secret, the token is in
+    the page of the site and every call the form makes is gated as before.
+    A site switched off in the card still answers 404. The browser asks
+    again every time (no-cache) but gets a 304 while the file is unchanged,
+    so a new version of Spa Booking reaches the site at once.
+    """
+
+    url = FORM_JS_URL
+    name = "api:spa_booking:public_form"
+
+    _cache: tuple[float, str, str] | None = None
+
+    async def get(self, request: web.Request) -> web.Response:
+        """Serve frontend/spa-booking-form.js."""
+        hass = request.app[KEY_HASS]
+        coordinator = hass.data.get(DOMAIN)
+        if not isinstance(coordinator, SpaBookingCoordinator) or not coordinator.web_enabled:
+            return web.Response(status=404, text="Not found")
+        if not RATE_LIMITER.allow("read", str(request.remote or "")):
+            return web.Response(status=429, text="Too many requests")
+        body, etag = await hass.async_add_executor_job(self._read)
+        if not body:
+            return web.Response(status=404, text="Not found")
+        headers = {
+            "Cache-Control": "no-cache",
+            "ETag": etag,
+        }
+        if request.headers.get("If-None-Match") == etag:
+            return web.Response(status=304, headers=headers)
+        return web.Response(
+            body=body.encode("utf-8"),
+            content_type="application/javascript",
+            charset="utf-8",
+            headers=headers,
+        )
+
+    @classmethod
+    def _read(cls) -> tuple[str, str]:
+        """The file and its ETag, read again only when it changes on disk."""
+        path = FORM_JS_FILE
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            return "", ""
+        if cls._cache is None or cls._cache[0] != mtime:
+            text = path.read_text(encoding="utf-8")
+            digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+            cls._cache = (mtime, text, f'"{digest}"')
+        return cls._cache[1], cls._cache[2]

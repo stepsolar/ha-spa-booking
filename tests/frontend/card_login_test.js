@@ -97,3 +97,18 @@ setTimeout(() => {
   assert(msg.startsWith("Ciao Giulia,") && msg.includes("*VCH-ABC*") && msg.includes("2027-05-10"), "WhatsApp text of the voucher");
   console.log("ALL CARD LOGIN TESTS PASSED");
 }, 50);
+
+// --- category rules: the warning that can be forced ------------------------
+{
+  const card = makeCard({ user_id: "u_l", name: "Laura", level: "operator" });
+  assert(card._isCategoryRule("La categoria 'Privata' accetta prenotazioni di mattina solo Lun, Mar, Mer, Gio, Ven"), "day rule recognised");
+  assert(card._isCategoryRule("La categoria 'Massaggi' accetta appuntamenti solo nelle fasce 09:00-13:00"), "time window recognised");
+  assert(card._isCategoryRule("La categoria 'Spa' non può sovrapporsi a 'Massaggi': ..."), "exclusion recognised");
+  assert(!card._isCategoryRule("L'appuntamento si sovrappone a quello di cliente Anna"), "an overlap is not a category rule");
+  card._overlapPopup = { kind: "rules", message: "La categoria 'Privata' accetta prenotazioni di mattina solo Lun" };
+  const pop = card._renderOverlapPopup();
+  assert(pop.textContent.includes("Prenota comunque") && pop.textContent.includes("Annulla e modifica"), "reception may book anyway");
+  const masseuse = makeCard({ user_id: "u_g", name: "Giulia", level: "therapist", operator_id: "op_g" });
+  masseuse._overlapPopup = card._overlapPopup;
+  assert(!masseuse._renderOverlapPopup().textContent.includes("Prenota comunque"), "a masseuse cannot force it");
+}

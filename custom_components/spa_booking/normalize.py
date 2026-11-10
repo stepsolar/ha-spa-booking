@@ -988,6 +988,12 @@ def _norm_settings(raw: dict[str, Any]) -> dict[str, Any]:
         "web_notify_whatsapp": str(
             raw.get("web_notify_whatsapp") or DEFAULT_WEB_NOTIFY_WHATSAPP
         ).strip(),
+        # The form on the site (2.2.0b3): show the prices and the estimated
+        # total, the main colour, and the public address of Home Assistant the
+        # two-line code loads the form from ("" = the one of the old snippet).
+        "web_show_prices": bool(raw.get("web_show_prices", False)),
+        "web_accent": _norm_color(raw.get("web_accent")),
+        "web_public_url": str(raw.get("web_public_url") or "").strip().rstrip("/"),
         # Internal timers (scheduler.py): reminders, offer expiry, review
         # requests, loyalty vouchers, voucher expiry, daily promo and monthly
         # report run inside the integration. Switch off only to drive them
@@ -1831,3 +1837,9 @@ def _profiles(raw: Any) -> dict[str, dict[str, Any]]:
             "pin_hash": digest if salt else "",
         }
     return result
+
+
+def _norm_color(value: Any) -> str:
+    """A CSS hex colour (#rgb or #rrggbb), or "" for the default."""
+    text = str(value or "").strip()
+    return text if re.fullmatch(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})", text) else ""

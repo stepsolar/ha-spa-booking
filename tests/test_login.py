@@ -183,3 +183,24 @@ def test_hidden_admin_cannot_be_the_tablet(setup) -> None:  # noqa: F811
     }.get(uid))
     with pytest.raises(ValidationError):
         run(services._async_set_user_profile(call))
+
+
+def test_only_reception_may_force_category_rules(setup) -> None:  # noqa: F811
+    hass, coordinator = setup
+    from custom_components.spa_booking.coordinator import FORCE_RULES
+
+    giulia = _giulia_id(coordinator)
+    run(coordinator.async_set_user_profile("u_giulia", operator_id=giulia))
+    seen = []
+
+    async def inner(call):
+        seen.append(FORCE_RULES.get())
+        return {"ok": True}
+
+    create = services._guarded(services.SERVICE_CREATE_APPOINTMENT, inner)
+    with pytest.raises(ValidationError, match="reception"):
+        run(create(_call(hass, "u_giulia", {"operator_id": giulia, "force_rules": True})))
+    run(create(_call(hass, "u_operator", {"force_rules": True})))
+    run(create(_call(hass, "u_operator", {})))
+    assert seen == [True, False]
+    assert FORCE_RULES.get() is False

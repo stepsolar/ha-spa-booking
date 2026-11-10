@@ -8,12 +8,15 @@ booked, and neither can a client.
 
 from __future__ import annotations
 
+from contextvars import ContextVar
+
 import asyncio
 import copy
 import json
 from datetime import date, datetime, time, timedelta
 import hmac
 import logging
+import re
 import secrets
 from pathlib import Path
 from typing import Any, Final
@@ -83,6 +86,7 @@ from .const import (
     DEFAULT_WEB_STEP_MIN,
     REVIEW_REQUEST_WINDOW_HOURS,
     WEB_MAX_SLOTS,
+    WEB_API_BASE,
     WEB_SNIPPET_TOKEN_PLACEHOLDER,
     KEY_CATEGORIES,
     KEY_CLIENTS,
@@ -114,6 +118,7 @@ from .const import (
     REQUEST_SOURCE_WEB,
 )
 from .exceptions import (
+    CategoryRuleError,
     NotFoundError,
     OverlapError,
     SpaBookingError,
@@ -187,6 +192,11 @@ def _integration_version() -> str:
 
 #: The running backend version, shown in the card's "Versione del programma".
 INTEGRATION_VERSION: Final = _integration_version()
+
+#: Set by the services for a call where the desk saw the category warning
+#: and books anyway: the days, time windows and exclusions of the categories
+#: are skipped for that call only. Closures and operator clashes still apply.
+FORCE_RULES: ContextVar[bool] = ContextVar("spa_booking_force_rules", default=False)
 
 
 def _read_text(path: str) -> str:
@@ -917,7 +927,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         when either is set, the whole appointment (start and end) must fit
         inside one of them. Everything is evaluated in local time.
         """
-        if not category:
+        if not category or FORCE_RULES.get():
             return
         local_start = dt_util.as_local(start)
         local_end = dt_util.as_local(end)
@@ -940,7 +950,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 labels = ", ".join(
                     WEEKDAY_LABELS[d] for d in allowed if 0 <= d < len(WEEKDAY_LABELS)
                 )
-                raise ValidationError(
+                raise CategoryRuleError(
                     f"La categoria '{category['name']}' accetta prenotazioni "
                     f"{slot} solo {labels}"
                 )
@@ -953,7 +963,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             labels = " e ".join(
                 _fmt_window(*window) or "—" for window in windows
             )
-            raise ValidationError(
+            raise CategoryRuleError(
                 f"La categoria '{category['name']}' accetta appuntamenti "
                 f"solo nelle fasce {labels}: "
                 f"l'orario scelto ({local_start:%H:%M}-{local_end:%H:%M}) "
@@ -966,7 +976,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             labels = ", ".join(
                 WEEKDAY_LABELS[d] for d in allowed if 0 <= d < len(WEEKDAY_LABELS)
             )
-            raise ValidationError(
+            raise CategoryRuleError(
                 f"La categoria '{category['name']}' accetta prenotazioni "
                 f"solo {labels}"
             )
@@ -1051,6 +1061,8 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         itself too, no matter which side authored the rule. The window is
         exact — pauses only bind the masseuse, never other categories.
         """
+        if FORCE_RULES.get():
+            return
         category = self._category(treatment.get("category_id"))
         if not category:
             return
@@ -1081,7 +1093,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     and other_start < end_dt
                     and other_end > start_dt
                 ):
-                    raise ValidationError(
+                    raise CategoryRuleError(
                         f"La categoria '{category['name']}' non può sovrapporsi "
                         f"a '{other['name']}': "
                         f"{self._summary(self.appointment_payload(appointment))}"
@@ -3179,23 +3191,40 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     lines.append("        " + line)
         return {"yaml": "\n".join(lines)}
 
-    async def async_web_snippet(self) -> dict[str, Any]:
+    async def async_web_snippet(self, base_url: str = "") -> dict[str, Any]:
         """Return the code to paste into the site, with the token already in it.
 
-        The base text is ``frontend/spa-booking-form.txt`` of the integration — one
-        source, the same one the desk can download — and the placeholder
-        ``INCOLLA_QUI_IL_TOKEN`` is swapped for the current token on the fly.
-        The token is never written to disk: it lives only in this answer and
-        in the clipboard of whoever pressed Copia.
+        ``snippet`` is the two-line code of 2.2.0b3: a box and a script that
+        loads the form from Home Assistant (``/api/spa_booking/public/form.js``),
+        so a new version of the form reaches the site without touching
+        WordPress. The address is the public one of the settings, else the one
+        the desk is using (``base_url``), else the one written in the full
+        form.
+
+        ``snippet_full`` is the whole form of the versions before, from
+        ``frontend/spa-booking-form.txt``, for a site that cannot load a
+        script from another address. The token is never written to disk: it
+        lives only in this answer and in the clipboard of whoever pressed
+        Copia.
         """
         from .card_view import FORM_FILE
 
         path = str(FORM_FILE)
-        snippet = await self.hass.async_add_executor_job(_read_text, path)
-        found = WEB_SNIPPET_TOKEN_PLACEHOLDER in snippet
-        token = self._web_token() if snippet else ""
+        full = await self.hass.async_add_executor_job(_read_text, path)
+        found = WEB_SNIPPET_TOKEN_PLACEHOLDER in full
+        token = self._web_token()
+        base = str(self._web_settings.get("web_public_url") or "").strip().rstrip("/")
+        if not base:
+            match = re.search(r'var API_BASE = "(https?://[^"]+?)/api/spa_booking/public"', full or "")
+            base = match.group(1) if match else str(base_url or "").strip().rstrip("/")
+        short = (
+            '<div id="spa-booking"></div>\n'
+            f'<script src="{base}{WEB_API_BASE}/form.js" data-token="{token}" async></script>'
+        )
         return {
-            "snippet": snippet.replace(WEB_SNIPPET_TOKEN_PLACEHOLDER, token),
+            "snippet": short,
+            "snippet_full": full.replace(WEB_SNIPPET_TOKEN_PLACEHOLDER, token),
+            "base_url": base,
             "token_placeholder": WEB_SNIPPET_TOKEN_PLACEHOLDER,
             "found": found,
             "path": path,
