@@ -54,7 +54,10 @@ from .const import (
     DEFAULT_REPORT_TIME,
     DEFAULT_TELEGRAM_ENTRY_ID,
     DEFAULT_REVIEW_MESSAGE,
+    DEFAULT_PROPOSE_ALT_INTRO,
+    DEFAULT_PROPOSE_ALT_LINE,
     DEFAULT_PROPOSE_MESSAGE,
+    LEGACY_PROPOSE_MESSAGE,
     DEFAULT_REQUEST_MESSAGE,
     DEFAULT_SUMMARY_MESSAGE,
     DEFAULT_APPOINTMENT_REMINDER_MESSAGE,
@@ -857,8 +860,17 @@ def _norm_settings(raw: dict[str, Any]) -> dict[str, Any]:
         # reception to confirm it. Editable from the notifications tab; an empty
         # setting falls back to the built-in text, so a cleared field never
         # leaves the guest without an answer.
-        "request_propose_message": str(
-            raw.get("request_propose_message") or DEFAULT_PROPOSE_MESSAGE
+        "request_propose_message": (
+            DEFAULT_PROPOSE_MESSAGE
+            if str(raw.get("request_propose_message") or "").strip()
+            in ("", LEGACY_PROPOSE_MESSAGE.strip())
+            else str(raw.get("request_propose_message"))
+        ),
+        "request_propose_alt_intro": str(
+            raw.get("request_propose_alt_intro") or DEFAULT_PROPOSE_ALT_INTRO
+        ),
+        "request_propose_alt_line": str(
+            raw.get("request_propose_alt_line") or DEFAULT_PROPOSE_ALT_LINE
         ),
         "request_message": str(
             raw.get("request_message") or DEFAULT_REQUEST_MESSAGE
@@ -1506,6 +1518,18 @@ def _norm_request(raw: dict[str, Any]) -> dict[str, Any]:
         "proposed_time": str(raw.get("proposed_time") or "")[:5],
         "proposed_at": str(raw.get("proposed_at") or ""),
         "proposed_by": str(raw.get("proposed_by") or ""),
+        # The treatments offered instead, with their price (2.2.2).
+        "proposed_alternatives": [
+            {
+                "treatment_id": str(item.get("treatment_id") or ""),
+                "treatment_name": str(item.get("treatment_name") or ""),
+                "price": _price_or_none(item.get("price")),
+                "date": _norm_date(item.get("date")),
+                "time": str(item.get("time") or "")[:5],
+            }
+            for item in (raw.get("proposed_alternatives") or [])
+            if isinstance(item, dict)
+        ],
         "confirmed_at": str(raw.get("confirmed_at") or ""),
         "appointment_ids": [str(a) for a in (raw.get("appointment_ids") or [])],
     }
@@ -1853,3 +1877,11 @@ def _norm_color(value: Any) -> str:
     """A CSS hex colour (#rgb or #rrggbb), or "" for the default."""
     text = str(value or "").strip()
     return text if re.fullmatch(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})", text) else ""
+
+
+def _price_or_none(value: Any) -> float | None:
+    """A price in euro rounded to the cent, or None when it is not a number."""
+    try:
+        return round(float(value), 2)
+    except (TypeError, ValueError):
+        return None

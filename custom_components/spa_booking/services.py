@@ -800,6 +800,8 @@ UPDATE_SETTINGS_SCHEMA = vol.Schema(
         # Acknowledgement to a guest whose appointment request was taken.
         vol.Optional("request_message"): vol.Any(cv.string, None),
         vol.Optional("request_propose_message"): vol.Any(cv.string, None),
+        vol.Optional("request_propose_alt_intro"): vol.Any(cv.string, None),
+        vol.Optional("request_propose_alt_line"): vol.Any(cv.string, None),
         # Promo broadcast: the message, the daily send time and the delay
         # between one send and the next.
         vol.Optional("promo_message"): vol.Any(cv.string, None),
@@ -1402,6 +1404,7 @@ async def _async_propose_request_date(call: ServiceCall) -> ServiceResponse:
         data["date"].isoformat() if hasattr(data["date"], "isoformat") else str(data["date"]),
         str(data.get("time") or "")[:5],
         data.get("text") or None,
+        alternatives=[dict(item) for item in data.get("alternatives") or []],
         dry_run=data.get("dry_run", False),
         by_name=(acting.name if acting is not None and acting.user_id else ""),
     )
@@ -1415,6 +1418,24 @@ PROPOSE_REQUEST_DATE_SCHEMA = vol.Schema(
             vol.All(cv.string, vol.Match(r"^(\d{2}:\d{2})?$")), None
         ),
         vol.Optional("text"): vol.Any(cv.string, None),
+        vol.Optional("alternatives", default=list): vol.All(
+            cv.ensure_list,
+            vol.Length(max=6),
+            [
+                vol.Schema(
+                    {
+                        vol.Required("treatment_id"): cv.string,
+                        vol.Optional("price"): vol.Any(vol.Coerce(float), None, ""),
+                        vol.Optional("time", default=""): vol.Any(
+                            vol.All(cv.string, vol.Match(r"^(\d{2}:\d{2})?$")), None
+                        ),
+                        vol.Optional("day", default="asked"): vol.Any(
+                            "asked", "proposed", vol.All(cv.string, vol.Match(r"^\d{4}-\d{2}-\d{2}$"))
+                        ),
+                    }
+                )
+            ],
+        ),
         vol.Optional("dry_run", default=False): cv.boolean,
     }
 )

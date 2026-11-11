@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.2.1";
+const CARD_VERSION = "2.2.2";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -6690,11 +6690,12 @@ class SpaBookingCard extends HTMLElement {
     return [...this._data.categories].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
   }
 
-  _treatmentSelect(state, offered) {
+  _treatmentSelect(state, offered, onPick = null) {
     const select = el("select", {
       class: "input",
       on: {
         change: (event) => {
+          if (onPick) { onPick(event.target.value); return; }
           state.treatment_id = event.target.value;
           if (state.client_results) state.client_results = null;
           this._render();
@@ -7334,9 +7335,71 @@ class SpaBookingCard extends HTMLElement {
       text: "",
       edited: false,
       loading: true,
+      alternatives: [],
     };
     this._render();
     this._refreshProposeText();
+  }
+
+  /** The alternatives of the popup as the service wants them. */
+  _proposeAlternatives(popup) {
+    return (popup.alternatives || [])
+      .filter((alt) => alt.treatment_id)
+      .map((alt) => {
+        const price = String(alt.price ?? "").replace(",", ".").replace(/[^\d.]/g, "");
+        return {
+          treatment_id: alt.treatment_id,
+          price: price === "" ? null : Number(price),
+          time: alt.time || "",
+          day: alt.day || "asked",
+        };
+      });
+  }
+
+  /** One alternative treatment: what, price, which day, time. */
+  _renderProposeAlternative(popup, alt, index) {
+    const req = popup.req;
+    const short = (value) => longDay(new Date(`${value}T00:00:00`)).split(" ").slice(0, 2).join(" ");
+    const refresh = () => this._refreshProposeText();
+    const select = this._treatmentSelect(alt, this._activeTreatments(), (value) => {
+      alt.treatment_id = value;
+      const treatment = this._lookup.treatment.get(value);
+      alt.price = treatment && treatment.price !== null && treatment.price !== undefined && treatment.price !== ""
+        ? String(treatment.price).replace(".", ",") : "";
+      this._render();
+      refresh();
+    });
+    return el("div", { class: "alt-row" },
+      el("div", { class: "alt-head" },
+        el("span", { class: "alt-num" }, String(index + 1)),
+        el("div", { class: "alt-select" }, select),
+        el("button", {
+          class: "icon-btn", title: "Togli questa alternativa", "aria-label": "Togli questa alternativa",
+          on: { click: () => { popup.alternatives.splice(index, 1); this._render(); refresh(); } },
+        }, el("ha-icon", { icon: "mdi:close" }))),
+      el("div", { class: "alt-grid" },
+        el("label", { class: "field" },
+          el("span", {}, "Prezzo €"),
+          el("input", {
+            class: "input", inputmode: "decimal", value: alt.price ?? "", placeholder: "da listino",
+            on: { change: (event) => { alt.price = event.target.value; refresh(); } },
+          })),
+        el("label", { class: "field" },
+          el("span", {}, "Giorno"),
+          el("select", {
+            class: "input",
+            on: { change: (event) => { alt.day = event.target.value; refresh(); } },
+          },
+            el("option", { value: "asked", selected: alt.day !== "proposed" },
+              req.date ? `Il giorno chiesto (${short(req.date)})` : "Il giorno chiesto"),
+            el("option", { value: "proposed", selected: alt.day === "proposed" },
+              popup.date ? `La data proposta (${short(popup.date)})` : "La data proposta"))),
+        el("label", { class: "field" },
+          el("span", {}, "Orario"),
+          el("input", {
+            class: "input", type: "time", value: alt.time || "",
+            on: { change: (event) => { alt.time = event.target.value; refresh(); } },
+          }))));
   }
 
   /** Ask the server for the message with the chosen date (nothing is sent). */
@@ -7346,7 +7409,8 @@ class SpaBookingCard extends HTMLElement {
     popup.loading = true;
     try {
       const result = await this._service("propose_request_date", {
-        request_id: popup.req.id, date: popup.date, time: popup.time || "", dry_run: true,
+        request_id: popup.req.id, date: popup.date, time: popup.time || "",
+        alternatives: this._proposeAlternatives(popup), dry_run: true,
       });
       if (this._proposePopup === popup && !popup.edited) popup.text = (result && result.text) || "";
       popup.error = "";
@@ -7382,12 +7446,27 @@ class SpaBookingCard extends HTMLElement {
             class: "input", type: "time", value: popup.time || "",
             on: { change: (event) => { popup.time = event.target.value; this._refreshProposeText(); } },
           }))),
+      el("div", { class: "alt-box" },
+        el("div", { class: "alt-title" },
+          el("ha-icon", { icon: "mdi:swap-horizontal" }),
+          el("span", {}, "Trattamenti alternativi"),
+          el("span", { class: "alt-hint" }, "facoltativi, compaiono nel messaggio con il prezzo")),
+        ...(popup.alternatives || []).map((alt, index) => this._renderProposeAlternative(popup, alt, index)),
+        el("button", {
+          class: "btn small ghost", style: "align-self:flex-start",
+          disabled: (popup.alternatives || []).length >= 6,
+          on: { click: () => {
+            popup.alternatives.push({ key: this._uid(), treatment_id: "", price: "", time: "", day: "asked" });
+            this._render();
+          } },
+        }, el("ha-icon", { icon: "mdi:plus" }), "Aggiungi trattamento alternativo")),
       el("label", { class: "field" },
         el("span", {}, popup.edited
           ? "Messaggio (modificato da te: data e orario non si aggiornano più da soli)"
           : "Messaggio (puoi cambiarlo prima di inviarlo)"),
         el("textarea", {
-          class: "input", rows: "9", disabled: popup.loading && !popup.text,
+          class: "input", disabled: popup.loading && !popup.text,
+          rows: String(Math.min(18, 9 + ((popup.alternatives || []).filter((alt) => alt.treatment_id).length ? 2 + popup.alternatives.length : 0))),
           on: {
             input: (event) => { popup.text = event.target.value; popup.edited = true; },
             keydown: (event) => event.stopPropagation(),
@@ -7407,6 +7486,7 @@ class SpaBookingCard extends HTMLElement {
             try {
               await this._call("propose_request_date", {
                 request_id: req.id, date: popup.date, time: popup.time || "", text: popup.text,
+                alternatives: this._proposeAlternatives(popup),
               });
               this._proposePopup = null;
               this._message = { kind: "ok", text: `Proposta inviata su WhatsApp a ${name}.` };
@@ -9117,7 +9197,11 @@ class SpaBookingCard extends HTMLElement {
               req.source === "web" && req.seen === false ? el("span", { class: "pill warn" }, "Nuova") : null,
               req.proposed_date ? el("span", { class: "pill info", title: req.proposed_by ? `Proposta da ${req.proposed_by}` : "" },
                 el("ha-icon", { icon: "mdi:calendar-clock" }),
-                `Proposta: ${longDay(new Date(`${req.proposed_date}T00:00:00`)).split(" ").slice(0, 3).join(" ")}${req.proposed_time ? ` ${req.proposed_time}` : ""}`) : null),
+                `Proposta: ${longDay(new Date(`${req.proposed_date}T00:00:00`)).split(" ").slice(0, 3).join(" ")}${req.proposed_time ? ` ${req.proposed_time}` : ""}`) : null,
+              ...(req.proposed_date ? (req.proposed_alternatives || []) : []).map((alt) =>
+                el("span", { class: "pill info", title: alt.date ? `Per ${longDay(new Date(`${alt.date}T00:00:00`))}${alt.time ? ` alle ${alt.time}` : ""}` : "" },
+                  el("ha-icon", { icon: "mdi:swap-horizontal" }),
+                  `Alternativa: ${alt.treatment_name}${alt.price !== null && alt.price !== undefined ? ` ${euro(alt.price).replace(",00 €", " €")}` : ""}`))),
             el("div", { class: "dim small" },
               [client.phone && client.phone !== "—" ? client.phone : "", req.voucher_code ? `voucher ${req.voucher_code}` : "", `codice ${req.code || "—"}`]
                 .filter(Boolean).join(" · "))),
@@ -13063,11 +13147,23 @@ _renderClients() {
           on: { input: (event) => { draft.request_propose_message = event.target.value; } },
         }, draft.request_propose_message || ""))
     );
+    proposeBox.appendChild(el("div", { class: "stack", style: "gap:8px" },
+      el("label", { class: "field" },
+        el("span", {}, "Introduzione alle alternative"),
+        el("input", { class: "input", value: draft.request_propose_alt_intro || "",
+          on: { input: (event) => { draft.request_propose_alt_intro = event.target.value; } } })),
+      el("label", { class: "field" },
+        el("span", {}, "Riga di ogni trattamento alternativo"),
+        el("input", { class: "input", value: draft.request_propose_alt_line || "",
+          on: { input: (event) => { draft.request_propose_alt_line = event.target.value; } } }))));
     proposeBox.appendChild(el("div", { class: "hint" },
       "Inviato su WhatsApp dal pulsante «Proponi data» della Lista richieste, quando la data chiesta è piena. " +
       "Prima di inviarlo la reception lo vede e lo può cambiare. Segnaposti: {nome} nome, {cognome} cognome, " +
       "{codice} codice richiesta, {data_richiesta} data chiesta, {trattamenti} trattamenti chiesti, " +
-      "{data_proposta} prima data disponibile, {orario_proposto} « alle 10:30» (vuoto se l'orario non è indicato)."));
+      "{data_proposta} prima data disponibile, {orario_proposto} « alle 10:30» (vuoto se l'orario non è indicato), " +
+      "{alternativa} i trattamenti alternativi scelti nel popup (l'introduzione e una riga per trattamento; " +
+      "sparisce se non ne scegli). Nella riga: {trattamento_alternativo}, {prezzo_alternativo} «€ 160», " +
+      "{data_alternativa} giorno, {orario_alternativo} « alle 10:00» o vuoto."));
     proposeBox.appendChild(el("button", {
       class: "btn small",
       on: { click: () => {
@@ -13080,7 +13176,13 @@ _renderClients() {
         const sample = String(draft.request_propose_message || "")
           .replace(/\{nome\}/g, "Elena").replace(/\{cognome\}/g, "Conti").replace(/\{codice\}/g, "R-4821")
           .replace(/\{data_richiesta\}/g, "sabato 14 novembre").replace(/\{trattamenti\}/g, "Massaggio relax e Ingresso Spa")
-          .replace(/\{data_proposta\}/g, "domenica 15 novembre").replace(/\{orario_proposto\}/g, " alle 10:30");
+          .replace(/\{data_proposta\}/g, "domenica 15 novembre").replace(/\{orario_proposto\}/g, " alle 10:30")
+          .replace(/\n*\{alternativa\}\n*/g, `\n\n${[
+            String(draft.request_propose_alt_intro || "").trim(),
+            String(draft.request_propose_alt_line || "")
+              .replace(/\{trattamento_alternativo\}/g, "Spa privata").replace(/\{prezzo_alternativo\}/g, "€ 160")
+              .replace(/\{data_alternativa\}/g, "sabato 14 novembre").replace(/\{orario_alternativo\}/g, ""),
+          ].filter(Boolean).join("\n")}\n\n`);
         const id = raw.includes("@") ? raw : this._whatsappIdOf({ phone: raw, whatsapp_chat_id: "" });
         this._testChannel("whatsapp", id, sample);
       } },
@@ -13239,6 +13341,8 @@ _renderClients() {
                   summary_test_phone: draft.summary_test_phone || "",
                   request_message: draft.request_message || "",
                   request_propose_message: draft.request_propose_message || "",
+                  request_propose_alt_intro: draft.request_propose_alt_intro || "",
+                  request_propose_alt_line: draft.request_propose_alt_line || "",
                   appointment_reminder_message: draft.appointment_reminder_message || "",
                   appointment_reminder_auto: draft.appointment_reminder_auto !== false,
                   appointment_reminder_hours: draft.appointment_reminder_hours || 24,
@@ -17806,6 +17910,21 @@ _renderClients() {
       .btn.propose { border-color: var(--sb-accent-line); color: var(--sb-accent); }
       .propose-sheet { display: flex; flex-direction: column; gap: 10px; max-width: 560px; }
       .propose-sheet textarea { font-size: 14px; line-height: 1.45; }
+      .propose-sheet { max-height: calc(100vh - 32px); overflow-y: auto; }
+      .alt-box { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: 12px;
+        border: 1px dashed var(--divider-color, rgba(0,0,0,.18)); background: var(--sb-soft, rgba(0,0,0,.025)); }
+      .alt-title { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 13px; flex-wrap: wrap; }
+      .alt-title ha-icon { --mdc-icon-size: 18px; color: var(--primary-color); }
+      .alt-hint { font-weight: 400; color: var(--secondary-text-color); font-size: 12px; }
+      .alt-row { display: flex; flex-direction: column; gap: 6px; padding: 8px; border-radius: 10px;
+        background: var(--card-background-color, #fff); border: 1px solid var(--divider-color, rgba(0,0,0,.12)); }
+      .alt-head { display: flex; align-items: center; gap: 8px; }
+      .alt-num { flex: none; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center;
+        font-size: 12px; font-weight: 700; color: #fff; background: var(--primary-color); }
+      .alt-select { flex: 1; min-width: 0; }
+      .alt-select select { width: 100%; }
+      .alt-grid { display: grid; grid-template-columns: 1fr 1.6fr 1fr; gap: 8px; }
+      @media (max-width: 520px) { .alt-grid { grid-template-columns: 1fr 1fr; } .alt-grid > :nth-child(2) { grid-column: 1 / -1; grid-row: 1; } }
       .btn.primary.wa-go { background: #25d366; border-color: #25d366; color: #fff; }
       .req-done > summary { cursor: pointer; color: var(--secondary-text-color); padding: 6px 0; }
       .req-done[open] { display: flex; flex-direction: column; gap: 10px; }

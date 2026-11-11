@@ -1,6 +1,6 @@
 # Spa Booking — guida alle schede (2.2)
 
-Aggiornata alla 2.2.1: [Proponi data](#proponi-data) nelle richieste; [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
+Aggiornata alla 2.2.2: [Proponi data](#proponi-data) nelle richieste, con trattamenti alternativi e prezzo; [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
 
 Questa guida mostra ogni scheda della dashboard **Spa Booking** e spiega a
 cosa serve ogni funzione. Le immagini sono state fatte con dati di prova.
@@ -198,11 +198,29 @@ I pulsanti:
 Se la data chiesta è piena, **Proponi data** (accanto a Conferma) apre un
 riquadro dove si scelgono:
 - la **prima data disponibile**;
+- l'orario, se vuoi;
+- uno o più **trattamenti alternativi** (dalla 2.2.2), con **Aggiungi
+  trattamento alternativo**.
+
+Ogni alternativa ha:
+- il trattamento (tutti quelli attivi, anche quelli nascosti dal sito);
+- il **prezzo**, già preso dal listino e modificabile;
+- il **giorno**: di base quello chiesto dall'ospite, oppure la data proposta;
 - l'orario, se vuoi.
+
+Nel messaggio compaiono così, ad esempio:
+
+```
+In alternativa Le proponiamo:
+• Spa privata 2 ore, sabato 14 novembre, al prezzo di € 160
+```
+
+![Proponi data sul telefono](anteprime/05b-proponi-data-mobile.png)
 
 Il messaggio WhatsApp all'ospite è già scritto con i suoi dati e la data
 proposta; lo puoi cambiare prima di premere **Invia su WhatsApp**. La
-richiesta mostra poi l'etichetta «Proposta: …» e resta da confermare: quando
+richiesta mostra poi l'etichetta «Proposta: …» (e «Alternativa: …» per ogni
+trattamento alternativo) e resta da confermare: quando
 l'ospite accetta, «Modifica» la sposta sulla nuova data e «Conferma» la
 prenota.
 
@@ -213,7 +231,21 @@ un'altra data**, con i segnaposti:
 - `{data_richiesta}`;
 - `{trattamenti}`;
 - `{data_proposta}`;
-- `{orario_proposto}`.
+- `{orario_proposto}`;
+- `{alternativa}`: il blocco dei trattamenti alternativi; sparisce, senza
+  lasciare righe vuote, se non ne scegli.
+
+Sotto il testo ci sono l'**introduzione alle alternative** («In alternativa Le
+proponiamo:») e la **riga di ogni trattamento alternativo**, con:
+- `{trattamento_alternativo}`;
+- `{prezzo_alternativo}` («€ 160»);
+- `{data_alternativa}`;
+- `{orario_alternativo}` (« alle 10:00» o vuoto).
+
+Un testo personalizzato senza `{alternativa}` riceve le alternative prima di
+«Ci risponda…», o in fondo.
+
+![Notifiche, proposta di un'altra data](anteprime/17b-notifiche-proposta.png)
 
 Le richieste già confermate restano in fondo, chiuse. La campanella in alto
 conta le richieste dal sito non ancora aperte.
