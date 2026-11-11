@@ -1426,6 +1426,9 @@ def _norm_appointment(raw: dict[str, Any]) -> dict[str, Any]:
         "checked_out_at": str(raw.get("checked_out_at") or ""),
         # The guest reminder is sent once, about a day before the appointment.
         "reminder_sent": bool(raw.get("reminder_sent", False)),
+        "reminder_sent_at": str(raw.get("reminder_sent_at") or ""),
+        # When the booking confirmation (the summary) last went out on WhatsApp.
+        "confirmation_sent_at": str(raw.get("confirmation_sent_at") or ""),
         # The review request is sent once, a few hours after the appointment is
         # over. One flag per appointment: a guest with two treatments the same
         # day is asked once, not twice.

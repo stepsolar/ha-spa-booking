@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.3.0";
+const CARD_VERSION = "2.3.1";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -2240,7 +2240,7 @@ class SpaBookingCard extends HTMLElement {
       clear_slot_block: "Fascia riaperta.",
       set_offer_state: "Stato conferma aggiornato.",
       send_operator_message: "Messaggio inviato all'operatrice.",
-      send_guest_summary: "Riepilogo inviato all'ospite.",
+      send_guest_summary: "Conferma inviata all'ospite.",
       send_deposit_request: "Richiesta acconto inviata all'ospite.",
       cancel_appointment: "Appuntamento annullato.",
       delete_appointment: "Appuntamento eliminato.",
@@ -3938,7 +3938,7 @@ class SpaBookingCard extends HTMLElement {
           && !this._paymentReceived(appointment)
           && (appointment.deposit_amount > 0)
           && !appointment.deposit_request_sent
-          && appointment.client && appointment.client.phone)
+          && client && client.phone)
           ? this._detailLine(
               "Acconto",
               el("button", {
@@ -3959,26 +3959,14 @@ class SpaBookingCard extends HTMLElement {
           : null,
         // Appointment summary: send it by hand at any time, e.g. when the desk
         // confirmed by phone and the guest asks for the details in writing.
-        (!cancelled
-          && this._can("offers")
-          && appointment.client && appointment.client.phone)
-          ? this._detailLine(
-              "Riepilogo",
-              el("button", {
-                class: "btn small",
-                disabled: this._busy,
-                on: {
-                  click: (event) => {
-                    event.stopPropagation();
-                    this._call("send_guest_summary", {
-                      appointment_id: appointment.id,
-                    });
-                  },
-                },
-              },
-              el("ha-icon", { icon: "mdi:whatsapp" }),
-              "Invia riepilogo")
-            )
+        // 2.3.1: the booking confirmation on WhatsApp, sent or resent from
+        // here, with when it last went out; the same for the reminder.
+        (!cancelled && this._can("offers") && client && client.phone)
+          ? this._detailLine("Conferma WhatsApp", this._waSendCell(appointment, "confirmation"))
+          : null,
+        (!cancelled && this._can("offers") && client && client.phone
+          && appointment.status === "confirmed")
+          ? this._detailLine("Promemoria", this._waSendCell(appointment, "reminder"))
           : null,
         group.length > 1
           ? this._detailLine("Persone nella fascia", String(group.length))
@@ -4375,7 +4363,7 @@ class SpaBookingCard extends HTMLElement {
       this._render();
       // A confirmed booking is owed the summary: ask, and let the desk decide
       // rather than sending a WhatsApp nobody asked for.
-      const phone = (appointment.client || {}).phone || "";
+      const phone = (appointment.client || this._lookup.client.get(appointment.client_id) || {}).phone || "";
       if (phone && window.confirm(
         "Inviare all'ospite il riepilogo dell'appuntamento su WhatsApp?")) {
         try {
@@ -7436,6 +7424,40 @@ class SpaBookingCard extends HTMLElement {
     if (this._proposePopup === popup) this._render();
   }
 
+  /**
+   * "Inviata 11/11 17:20 · [Reinvia conferma]": state and button of the
+   * booking confirmation (kind "confirmation") or of the reminder.
+   */
+  _waSendCell(appointment, kind) {
+    const confirmation = kind === "confirmation";
+    const at = confirmation ? appointment.confirmation_sent_at : appointment.reminder_sent_at;
+    const sent = Boolean(at) || (!confirmation && appointment.reminder_sent);
+    const when = at ? `${shortDate(at)} ${timeOf(parseDate(at))}` : "";
+    const label = confirmation
+      ? (sent ? "Reinvia conferma" : "Invia conferma")
+      : (sent ? "Reinvia promemoria" : "Invia promemoria");
+    return el("span", { class: "wa-send-cell" },
+      el("span", { class: sent ? "detail-value ok" : "dim" },
+        sent ? (when ? `inviat${confirmation ? "a" : "o"} ${when}` : "inviato") : `non inviat${confirmation ? "a" : "o"}`),
+      el("button", {
+        class: `btn small ${sent ? "" : "wa"}`,
+        disabled: this._busy,
+        on: { click: async (event) => {
+          event.stopPropagation();
+          try {
+            const response = confirmation
+              ? await this._call("send_guest_summary", { appointment_id: appointment.id })
+              : await this._call("send_reminders", { appointment_id: appointment.id });
+            const ok = confirmation ? response && response.sent : response && response.sent > 0;
+            this._message = ok
+              ? { kind: "ok", text: confirmation ? "Conferma inviata all'ospite su WhatsApp." : "Promemoria inviato all'ospite su WhatsApp." }
+              : { kind: "error", text: "WhatsApp non ha inviato il messaggio: controlla il collegamento." };
+            this._render();
+          } catch (error) { /* shown */ }
+        } },
+      }, el("ha-icon", { icon: "mdi:whatsapp" }), label));
+  }
+
   /** "Laura · 11/11 16:58": who wrote a booking or a request down, and when. */
   _authorText(record) {
     let name = record.created_by_name || "";
@@ -10147,17 +10169,49 @@ _renderClients() {
       "il sito propone un solo orario continuo; se lasci vuota solo una delle " +
       "due fasce, offre quella sola. Le chiusure e le prenotazioni " +
       "dell'agenda vengono comunque rispettate."));
-    box.appendChild(
-      el("label", { class: "field" },
-        el("span", {}, "WhatsApp avvisi dal sito"),
-        phoneInput(draft.notify_whatsapp != null
-            ? draft.notify_whatsapp : (settings.web_notify_whatsapp || ""),
-          (value) => { draft.notify_whatsapp = value; }))
-    );
+    // 2.3.1: several numbers (reception, manager...), one per row.
+    if (!Array.isArray(draft.notify_list)) {
+      draft.notify_list = String(draft.notify_whatsapp != null ? draft.notify_whatsapp : (settings.web_notify_whatsapp || ""))
+        .split(/[\n,;]+/).map((item) => item.trim()).filter(Boolean);
+      if (!draft.notify_list.length) draft.notify_list = [""];
+    }
+    const syncNotify = () => { draft.notify_whatsapp = draft.notify_list.map((item) => item.trim()).filter(Boolean).join("\n"); };
+    syncNotify();
+    box.appendChild(el("div", { class: "field" },
+      el("span", {}, "WhatsApp avvisi dal sito"),
+      el("div", { class: "stack", style: "gap:6px" },
+        ...draft.notify_list.map((number, index) => el("div", { class: "row", style: "gap:6px;flex-wrap:nowrap" },
+          el("div", { style: "flex:1;min-width:0" }, phoneInput(number, (value) => { draft.notify_list[index] = value; syncNotify(); })),
+          draft.notify_list.length > 1
+            ? el("button", {
+                class: "icon-btn", title: "Togli questo numero", "aria-label": "Togli questo numero",
+                on: { click: () => { draft.notify_list.splice(index, 1); syncNotify(); this._render(); } },
+              }, el("ha-icon", { icon: "mdi:close" }))
+            : null)),
+        el("div", { class: "row", style: "gap:6px;flex-wrap:wrap" },
+          el("button", {
+            class: "btn small ghost", disabled: draft.notify_list.length >= 6,
+            on: { click: () => { draft.notify_list.push(""); this._render(); } },
+          }, el("ha-icon", { icon: "mdi:plus" }), "Aggiungi numero"),
+          el("button", {
+            class: "btn small", disabled: this._busy,
+            title: "Salva e invia un messaggio di prova a ogni numero",
+            on: { click: async () => {
+              try {
+                syncNotify();
+                await this._call("update_settings", { web_notify_whatsapp: draft.notify_whatsapp });
+                const response = await this._call("test_web_notice", {});
+                this._message = response && response.sent
+                  ? { kind: "ok", text: `Avviso di prova inviato a ${response.sent} ${response.sent === 1 ? "numero" : "numeri"} su ${response.numbers}.` }
+                  : { kind: "error", text: "Nessun avviso inviato: controlla i numeri e il collegamento WhatsApp." };
+                this._render();
+              } catch (error) { /* shown */ }
+            } },
+          }, el("ha-icon", { icon: "mdi:whatsapp" }), "Prova avviso")))));
     box.appendChild(el("div", { class: "hint" },
-      "Numero della reception che riceve un messaggio quando un ospite manda " +
-      "una richiesta dal sito. Vuoto = nessun avviso: la richiesta arriva " +
-      "comunque in Nuovo › Lista richieste."));
+      "Numeri che ricevono un messaggio quando un ospite manda una richiesta " +
+      "dal sito (reception, manager…). Nessun numero = nessun avviso: la " +
+      "richiesta arriva comunque in Nuovo › Lista richieste."));
     box.appendChild(
       el("div", { class: "row tight" },
         el("button", {
@@ -18069,6 +18123,9 @@ _renderClients() {
       .voucher-pin-sheet .row.end { justify-content: flex-end; }
       .hint.created-by { display: flex; align-items: center; gap: 6px; }
       .req-author { display: flex; align-items: center; gap: 2px; }
+      .wa-send-cell { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-start; }
+      .btn.wa { background: #25d366; border-color: #25d366; color: #fff; }
+      .btn.wa ha-icon { color: #fff; }
       .req-author ha-icon { --mdc-icon-size: 14px; }
       .history-list { display: flex; flex-direction: column; gap: 8px; max-height: 320px; overflow-y: auto; }
       .history-entry { border-left: 3px solid var(--sb-accent-line, rgba(0,0,0,.15)); padding: 2px 0 2px 10px; font-size: 13px; }

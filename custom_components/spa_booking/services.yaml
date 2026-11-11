@@ -2064,6 +2064,12 @@ restart_home_assistant:
     amministratori.
 
 
+test_web_notice:
+  name: Prova avviso richieste dal sito
+  description: >-
+    Invia un messaggio di prova a ogni numero dell'avviso per le richieste
+    dal sito (Configurazione › Sito web).
+
 propose_request_date:
   name: Proponi un'altra data
   description: >-

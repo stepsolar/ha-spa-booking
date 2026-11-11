@@ -5,7 +5,7 @@ trattamenti con durata propria, operatrici, schede cliente, agenda del giorno
 per operatrice e per categoria, pagamenti, voucher, richieste dal sito web,
 promemoria e report automatici su WhatsApp e Telegram.
 
-Versione corrente: **2.3.0** — documentazione completa in
+Versione corrente: **2.3.1** — documentazione completa in
 [`custom_components/spa_booking/README.md`](custom_components/spa_booking/README.md).
 
 **[Guida alle schede con le anteprime](docs/GUIDA.md)**: ogni scheda della
@@ -132,6 +132,21 @@ hassfest e validazione HACS a ogni push e pull request. Lavora su un branch e
 apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
+
+- **v2.3.1** — WhatsApp:
+  - **Conferma e promemoria dall'appuntamento.** Nel dettaglio
+    dell'appuntamento le righe «Conferma WhatsApp» e «Promemoria» mostrano se
+    e quando sono stati inviati, con i pulsanti «Invia conferma» / «Reinvia
+    conferma» e «Invia promemoria» / «Reinvia promemoria». Prima il pulsante
+    del riepilogo non compariva mai (cercava il telefono nel posto sbagliato);
+    lo stesso valeva per la richiesta d'acconto e per la domanda «Inviare il
+    riepilogo?» dopo la conferma.
+  - **Promemoria manuali.** Con i promemoria in modalità manuale, «Invia
+    promemoria ora» in Notifiche non inviava nulla: ora invia quelli in
+    scadenza.
+  - **Avviso richieste dal sito a più numeri** (reception, manager…), con
+    «Aggiungi numero» e «Prova avviso».
+  - Lo storico modifiche registra anche gli invii di conferma e promemoria.
 
 - **v2.3.0** — Firme e storico:
   - **Voucher firmati con il PIN.** «Crea voucher» chiede il PIN di 4 cifre:

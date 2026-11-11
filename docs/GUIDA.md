@@ -1,6 +1,6 @@
 # Spa Booking — guida alle schede (2.2)
 
-Aggiornata alla 2.3.0: [firme e storico](#firme-e-storico); [chiusure con giorni esclusi](#chiusure-con-giorni-esclusi); [Proponi data](#proponi-data) nelle richieste, con trattamenti alternativi e prezzo; [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
+Aggiornata alla 2.3.1: [conferme e promemoria WhatsApp](#conferme-e-promemoria-whatsapp); [firme e storico](#firme-e-storico); [chiusure con giorni esclusi](#chiusure-con-giorni-esclusi); [Proponi data](#proponi-data) nelle richieste, con trattamenti alternativi e prezzo; [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
 
 Questa guida mostra ogni scheda della dashboard **Spa Booking** e spiega a
 cosa serve ogni funzione. Le immagini sono state fatte con dati di prova.
@@ -27,6 +27,24 @@ in Impostazioni › Aspetto).
 
 ---
 
+
+
+## Conferme e promemoria WhatsApp
+
+Dalla 2.3.1, nel dettaglio di un appuntamento (sezione «Quando»):
+
+- **Conferma WhatsApp**: «non inviata» oppure «inviata 09/11 16:41», con il
+  pulsante **Invia conferma** (verde) o **Reinvia conferma**. Il messaggio è
+  il riepilogo della prenotazione.
+- **Promemoria** (solo appuntamenti confermati): «non inviato» o la data
+  dell'invio, con **Invia promemoria** / **Reinvia promemoria**. Il testo è
+  quello di Notifiche › Promemoria appuntamento.
+
+In Configurazione › Impostazioni › Sito web, **WhatsApp avvisi dal sito**
+accetta più numeri: «Aggiungi numero» per aggiungerne, la × per toglierne,
+**Prova avviso** salva e manda un messaggio di prova a ognuno.
+
+![Conferma e promemoria](anteprime/22-conferma-promemoria.png)
 
 ## Firme e storico
 

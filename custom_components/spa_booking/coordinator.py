@@ -229,6 +229,8 @@ HISTORY_FIELDS: Final = (
     ("checked_out", "Uscita"),
     ("notes", "Note"),
     ("cancel_reason", "Motivo annullamento"),
+    ("confirmation_sent_at", "Conferma WhatsApp"),
+    ("reminder_sent_at", "Promemoria WhatsApp"),
 )
 #: Entries kept per appointment, the oldest dropped first.
 HISTORY_MAX: Final = 100
@@ -566,6 +568,12 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 return str(value)
             local = dt_util.as_local(moment)
             return f"{_day_words(local.date().isoformat())} {local.strftime('%H:%M')}"
+        if key in ("confirmation_sent_at", "reminder_sent_at"):
+            moment = dt_util.parse_datetime(str(value))
+            if moment is None:
+                return str(value)
+            local = dt_util.as_local(moment)
+            return f"inviato {local.strftime('%d/%m %H:%M')}"
         if key == "end":
             moment = dt_util.parse_datetime(str(value))
             return dt_util.as_local(moment).strftime("%H:%M") if moment else str(value)
@@ -3023,6 +3031,8 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         appointment["offer_index"] = existing_appt.get("offer_index", 0)
                         appointment["offer_expires_at"] = existing_appt.get("offer_expires_at", "")
                         appointment["reminder_sent"] = existing_appt.get("reminder_sent", False)
+                        appointment["reminder_sent_at"] = existing_appt.get("reminder_sent_at", "")
+                        appointment["confirmation_sent_at"] = existing_appt.get("confirmation_sent_at", "")
                         appointment["review_request_sent"] = existing_appt.get("review_request_sent", False)
                         appointment["deposit_request_sent"] = existing_appt.get("deposit_request_sent", False)
                         kept_ids.add(existing_appt["id"])
@@ -3843,8 +3853,8 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         if request.get("source") != REQUEST_SOURCE_WEB:
             return
-        target = str(self._web_settings.get("web_notify_whatsapp") or "").strip()
-        if not target:
+        targets = notify_numbers(self._web_settings.get("web_notify_whatsapp"))
+        if not targets:
             return
         payload = self.request_payload(request)
         client = payload.get("client") or {}
@@ -3864,12 +3874,33 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             f"{payload.get('code') or '—'} · {name} · {phone}\n"
             f"{when} · {slots}"
         )
-        try:
-            await messaging.async_send_whatsapp(
-                self.hass, target, message, waha=self.waha
-            )
-        except Exception as err:  # noqa: BLE001
-            _LOGGER.warning("Avviso richiesta web a %s fallito: %s", target, err)
+        await self._send_web_notice(targets, message)
+
+    async def _send_web_notice(self, targets: list[str], message: str) -> int:
+        """Send the desk notice to every number; return how many went out."""
+        sent = 0
+        for target in targets:
+            try:
+                result = await messaging.async_send_whatsapp(
+                    self.hass, target, message, waha=self.waha
+                )
+                sent += bool(result.get("sent"))
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.warning("Avviso richiesta web a %s fallito: %s", target, err)
+        return sent
+
+    async def async_test_web_notice(self) -> dict[str, Any]:
+        """«Prova avviso»: the notice of a web request, to every number."""
+        targets = notify_numbers(self._web_settings.get("web_notify_whatsapp"))
+        if not targets:
+            raise ValidationError("Scrivi almeno un numero per l'avviso")
+        sent = await self._send_web_notice(
+            targets,
+            "Prova: avviso di una nuova richiesta dal sito\n"
+            "ABCDE · Mario Rossi · +39 333 1234567\n"
+            "sabato 14 novembre · 10:00 Massaggio Relax",
+        )
+        return {"sent": sent, "numbers": len(targets)}
 
     async def async_send_request_message(self, request_id: str) -> dict[str, Any]:
         """Resend a request's acknowledgement to the guest from the card."""
@@ -4703,6 +4734,15 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         result = await messaging.async_send_whatsapp(
             self.hass, chat_id, message, waha=self.waha
         )
+        if result.get("sent"):
+            # The card shows "Reinvia conferma" and when it went out.
+            async with self._lock:
+                now = dt_util.utcnow().isoformat()
+                for item in ids:
+                    appointment = next((a for a in self.appointments if a["id"] == item), None)
+                    if appointment is not None:
+                        appointment["confirmation_sent_at"] = now
+                await self._async_save()
         return {
             "appointment_id": ids[0],
             "appointment_ids": ids,
@@ -6982,7 +7022,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
     async def async_send_reminders(
-        self, appointment_id: str | None = None
+        self, appointment_id: str | None = None, *, manual: bool = False
     ) -> dict[str, Any]:
         """Send the guest reminder to every confirmed appointment a day away.
 
@@ -6997,8 +7037,9 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if hours <= 0:
             hours = 24
 
-        # In manual mode, only send when an explicit appointment_id is provided.
-        if not auto and not appointment_id:
+        # In manual mode the timer sends nothing: only the desk does, for one
+        # appointment or with «Invia promemoria ora» for the ones due.
+        if not auto and not appointment_id and not manual:
             return {"sent": 0, "failed": 0, "reason": "invio manuale disabilitato"}
 
         now = dt_util.utcnow()
@@ -7027,6 +7068,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     # Marked before sending, as before: a reminder is sent
                     # once, a failed one is not retried an hour later.
                     appointment["reminder_sent"] = True
+                    appointment["reminder_sent_at"] = now.isoformat()
                     message = self.format_appointment_reminder(payload)
                     if not message:
                         message = self.format_reminder(payload)
@@ -7678,3 +7720,12 @@ def skipped_days_words(days: list[int]) -> str:
         return ""
     joined = words[0] if len(words) == 1 else f"{', '.join(words[:-1])} e {words[-1]}"
     return f"esclusi {joined}"
+
+
+def notify_numbers(value: Any) -> list[str]:
+    """The numbers of a notice field: one per line, or split by , and ;."""
+    return [
+        part.strip()
+        for part in re.split(r"[\n,;]+", str(value or ""))
+        if part.strip()
+    ]

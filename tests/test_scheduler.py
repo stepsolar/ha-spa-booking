@@ -211,3 +211,33 @@ def test_fresh_install_has_every_collection() -> None:
     data = default_data(["Maria"])
     assert data[KEY_VOUCHERS] == []
     assert data[KEY_PROMO_VOUCHERS] == []
+
+
+def test_reminder_manual_mode_and_sent_time(coordinator, sent, freeze) -> None:
+    freeze("2026-11-10 10:00")
+    coordinator._data["settings"]["appointment_reminder_auto"] = False
+    _confirmed_booking(coordinator, "2026-11-11 09:00")
+    # The timer sends nothing in manual mode; the desk's button does.
+    assert run(coordinator.async_send_reminders())["sent"] == 0
+    assert run(coordinator.async_send_reminders(manual=True))["sent"] == 1
+    assert coordinator.appointments[0]["reminder_sent_at"].startswith("2026-11-10")
+    # Resent for one appointment on purpose.
+    assert run(coordinator.async_send_reminders(coordinator.appointments[0]["id"]))["sent"] == 1
+
+
+def test_confirmation_remembers_when_it_went_out(coordinator, sent, freeze) -> None:
+    freeze("2026-11-10 10:00")
+    _confirmed_booking(coordinator, "2026-11-11 09:00")
+    appointment = coordinator.appointments[0]
+    assert appointment["confirmation_sent_at"] == ""
+    assert run(coordinator.async_send_guest_summary(appointment["id"]))["sent"]
+    assert appointment["confirmation_sent_at"].startswith("2026-11-10")
+
+
+def test_web_notice_to_several_numbers(coordinator, sent) -> None:
+    from custom_components.spa_booking.coordinator import notify_numbers
+
+    assert notify_numbers("+39 333 1\n+39 347 2; +41 79 3") == ["+39 333 1", "+39 347 2", "+41 79 3"]
+    coordinator._data["settings"]["web_notify_whatsapp"] = "+39 333 1111111\n+39 347 2222222"
+    result = run(coordinator.async_test_web_notice())
+    assert result == {"sent": 2, "numbers": 2} and len(sent) == 2

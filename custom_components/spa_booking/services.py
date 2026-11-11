@@ -158,6 +158,7 @@ SERVICE_DELETE_REQUEST = "delete_request"
 SERVICE_CONFIRM_REQUEST = "confirm_request"
 SERVICE_SEND_REQUEST_MESSAGE = "send_request_message"
 SERVICE_PROPOSE_REQUEST_DATE = "propose_request_date"
+SERVICE_TEST_WEB_NOTICE = "test_web_notice"
 SERVICE_ADD_PAYMENT = "add_payment"
 SERVICE_DELETE_PAYMENT = "delete_payment"
 #: The card's bell (clear it once the desk has read the web requests) and the
@@ -250,6 +251,7 @@ ALL_SERVICES = (
     SERVICE_CONFIRM_REQUEST,
     SERVICE_SEND_REQUEST_MESSAGE,
     SERVICE_PROPOSE_REQUEST_DATE,
+    SERVICE_TEST_WEB_NOTICE,
     SERVICE_ADD_PAYMENT,
     SERVICE_DELETE_PAYMENT,
     SERVICE_MARK_REQUESTS_SEEN,
@@ -1660,10 +1662,15 @@ async def _async_promo_automatic(call: ServiceCall) -> ServiceResponse:
     return await _coordinator(call).async_scheduled_promo()
 
 
+async def _async_test_web_notice(call: ServiceCall) -> ServiceResponse:
+    """Send the web-request notice to every number, as a test."""
+    return await _coordinator(call).async_test_web_notice()
+
+
 async def _async_send_reminders(call: ServiceCall) -> ServiceResponse:
     """Send the guest reminders that are due, or one chosen appointment."""
     return await _coordinator(call).async_send_reminders(
-        call.data.get(ATTR_APPOINTMENT_ID)
+        call.data.get(ATTR_APPOINTMENT_ID), manual=True
     )
 
 
@@ -2755,6 +2762,9 @@ _HANDLERS: dict[str, tuple[Any, Any, SupportsResponse]] = {
     SERVICE_PROPOSE_REQUEST_DATE: (
         _async_propose_request_date, PROPOSE_REQUEST_DATE_SCHEMA, SupportsResponse.ONLY,
     ),
+    SERVICE_TEST_WEB_NOTICE: (
+        _async_test_web_notice, vol.Schema({}), SupportsResponse.ONLY,
+    ),
     SERVICE_MARK_REQUESTS_SEEN: (
         _async_mark_requests_seen,
         MARK_REQUESTS_SEEN_SCHEMA,
@@ -2895,6 +2905,7 @@ SERVICE_LEVELS: dict[str, str] = {
     SERVICE_DELETE_REQUEST: "operator",
     SERVICE_SEND_REQUEST_MESSAGE: "operator",
     SERVICE_PROPOSE_REQUEST_DATE: "operator",
+    SERVICE_TEST_WEB_NOTICE: "manager",
     SERVICE_MARK_REQUESTS_SEEN: "operator",
     SERVICE_SEND_GUEST_SUMMARY: "operator",
     SERVICE_SEND_DEPOSIT_REQUEST: "operator",
