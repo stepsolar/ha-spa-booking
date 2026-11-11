@@ -1,6 +1,6 @@
 # Spa Booking — guida alle schede (2.2)
 
-Aggiornata alla 2.2.0b4: [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
+Aggiornata alla 2.2.1: [Proponi data](#proponi-data) nelle richieste; [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
 
 Questa guida mostra ogni scheda della dashboard **Spa Booking** e spiega a
 cosa serve ogni funzione. Le immagini sono state fatte con dati di prova.
@@ -191,6 +191,30 @@ I pulsanti:
 - **Invia messaggio** rimanda all'ospite il messaggio WhatsApp;
 - il cestino la elimina.
 
+### Proponi data
+
+![Proponi data](anteprime/05b-proponi-data.png)
+
+Se la data chiesta è piena, **Proponi data** (accanto a Conferma) apre un
+riquadro dove si scelgono:
+- la **prima data disponibile**;
+- l'orario, se vuoi.
+
+Il messaggio WhatsApp all'ospite è già scritto con i suoi dati e la data
+proposta; lo puoi cambiare prima di premere **Invia su WhatsApp**. La
+richiesta mostra poi l'etichetta «Proposta: …» e resta da confermare: quando
+l'ospite accetta, «Modifica» la sposta sulla nuova data e «Conferma» la
+prenota.
+
+Il testo di base si cambia in Configurazione › Notifiche › **Proposta di
+un'altra data**, con i segnaposti:
+- `{nome}` e `{cognome}`;
+- `{codice}`;
+- `{data_richiesta}`;
+- `{trattamenti}`;
+- `{data_proposta}`;
+- `{orario_proposto}`.
+
 Le richieste già confermate restano in fondo, chiuse. La campanella in alto
 conta le richieste dal sito non ancora aperte.
 
@@ -351,6 +375,11 @@ sinistra, sul telefono una striscia di icone.
     *Riattiva* lo rimette.
 - **Esci da solo dopo (minuti)**: inattività prima che il tablet torni alla
   scelta della persona.
+
+Sul telefono ogni utente è un riquadro con il ruolo sotto il nome, e la
+tabella dei ruoli diventa un elenco per ruolo:
+
+![Accessi sul telefono](anteprime/19b-telefono-accessi.png)
 
 ![Nuovo utente](anteprime/20-config-nuovo-utente.png)
 

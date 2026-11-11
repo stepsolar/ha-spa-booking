@@ -54,6 +54,7 @@ from .const import (
     DEFAULT_REPORT_TIME,
     DEFAULT_TELEGRAM_ENTRY_ID,
     DEFAULT_REVIEW_MESSAGE,
+    DEFAULT_PROPOSE_MESSAGE,
     DEFAULT_REQUEST_MESSAGE,
     DEFAULT_SUMMARY_MESSAGE,
     DEFAULT_APPOINTMENT_REMINDER_MESSAGE,
@@ -512,7 +513,8 @@ FORM_BLOCK_COLUMNS: dict[str, list[str]] = {
 #: box is a block the reception can drag around, freely crossing columns.
 NOTIFY_BLOCK_COLUMNS: dict[str, list[str]] = {
     "left": ["telegram", "whatsapp", "whatsapp_engine", "waha", "preview"],
-    "right": ["review", "report", "offers", "deposit", "guest_header", "summary"],
+    "right": ["review", "report", "offers", "deposit", "guest_header", "summary",
+              "request_message", "request_propose", "appointment_reminder"],
 }
 
 #: The Settings tab (Configurazione → Impostazioni): its four boxes move
@@ -855,6 +857,9 @@ def _norm_settings(raw: dict[str, Any]) -> dict[str, Any]:
         # reception to confirm it. Editable from the notifications tab; an empty
         # setting falls back to the built-in text, so a cleared field never
         # leaves the guest without an answer.
+        "request_propose_message": str(
+            raw.get("request_propose_message") or DEFAULT_PROPOSE_MESSAGE
+        ),
         "request_message": str(
             raw.get("request_message") or DEFAULT_REQUEST_MESSAGE
         ),
@@ -1496,6 +1501,11 @@ def _norm_request(raw: dict[str, Any]) -> dict[str, Any]:
         # request is saved; the flag lets the desk see it and resend.
         "message_sent": bool(raw.get("message_sent", False)),
         "message_sent_at": str(raw.get("message_sent_at") or ""),
+        # The other date offered to the guest when hers was full (2.2.1).
+        "proposed_date": _norm_date(raw.get("proposed_date")),
+        "proposed_time": str(raw.get("proposed_time") or "")[:5],
+        "proposed_at": str(raw.get("proposed_at") or ""),
+        "proposed_by": str(raw.get("proposed_by") or ""),
         "confirmed_at": str(raw.get("confirmed_at") or ""),
         "appointment_ids": [str(a) for a in (raw.get("appointment_ids") or [])],
     }

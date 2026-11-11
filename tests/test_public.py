@@ -195,3 +195,38 @@ def test_update_fingerprint_separates_card_from_code(tmp_path) -> None:
     found = updates.find_update_entity(states)
     assert found["entity_id"] == "update.spa_booking_update" and found["available"]
     assert updates.find_update_entity(states[:1]) is None
+
+
+def test_propose_another_date(web, monkeypatch) -> None:
+    from custom_components.spa_booking import messaging
+
+    coordinator, _ = web
+    sent = []
+
+    async def fake_send(hass, chat_id, text, waha=None):
+        sent.append((chat_id, text))
+        return {"sent": True}
+
+    monkeypatch.setattr(messaging, "async_send_whatsapp", fake_send)
+    treatment = coordinator.treatments[0]
+    request = run(coordinator.async_create_request(
+        first_name="Elena", last_name="Conti", phone="+39 347 222 3344",
+        date="2026-11-14", people=1,
+        entries=[{"treatment_id": treatment["id"], "time": "10:00"}],
+    ))
+    request = request.get("request", request)
+    sent.clear()  # the acknowledgement of the new request
+    preview = run(coordinator.async_propose_request_date(request["id"], "2026-11-15", "10:30", dry_run=True))
+    text = preview["text"]
+    assert text.startswith("Gentile Elena")
+    assert "sabato 14 novembre" in text and "domenica 15 novembre alle 10:30" in text
+    assert treatment["name"] in text
+    assert not sent  # a preview sends nothing
+    no_time = run(coordinator.async_propose_request_date(request["id"], "2026-11-15", "", dry_run=True))["text"]
+    assert "domenica 15 novembre." in no_time
+    result = run(coordinator.async_propose_request_date(
+        request["id"], "2026-11-15", "10:30", "Testo cambiato", by_name="Laura"))
+    assert sent == [("393472223344@c.us", "Testo cambiato")]
+    assert result["request"]["proposed_date"] == "2026-11-15"
+    assert result["request"]["proposed_time"] == "10:30"
+    assert result["request"]["proposed_by"] == "Laura"

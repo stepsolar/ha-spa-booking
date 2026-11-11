@@ -5,7 +5,7 @@ trattamenti con durata propria, operatrici, schede cliente, agenda del giorno
 per operatrice e per categoria, pagamenti, voucher, richieste dal sito web,
 promemoria e report automatici su WhatsApp e Telegram.
 
-Versione corrente: **2.2.0** — documentazione completa in
+Versione corrente: **2.2.1** — documentazione completa in
 [`custom_components/spa_booking/README.md`](custom_components/spa_booking/README.md).
 
 **[Guida alle schede con le anteprime](docs/GUIDA.md)**: ogni scheda della
@@ -132,6 +132,17 @@ hassfest e validazione HACS a ogni push e pull request. Lavora su un branch e
 apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
+
+- **v2.2.1**:
+  - **«Proponi data» nella Lista richieste.** Quando la data chiesta è piena,
+    si sceglie la prima data disponibile (e, se vuoi, l'orario). Il messaggio
+    WhatsApp è già pronto, si può modificare e poi si invia; la richiesta
+    mostra «Proposta: …».
+  - Il testo si cambia in Notifiche › Proposta di un'altra data. Nuovo
+    servizio `propose_request_date`.
+  - **Utenti e ruoli sul telefono.** Corretto l'impaginazione che metteva
+    tutto in colonne strette. Ogni utente è un riquadro con il ruolo sotto, e
+    «Cosa può fare ogni ruolo» diventa un elenco per ruolo.
 
 - **v2.2.0**: versione stabile che raccoglie le beta 2.2.0b1–b4.
   - WhatsApp integrato in Spa Booking, senza add-on (beta).

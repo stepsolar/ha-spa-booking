@@ -69,6 +69,7 @@ from .const import (
     DEFAULT_CATEGORY_PAUSE_MIN,
     DEFAULT_REPORT_TIME,
     DEFAULT_REVIEW_MESSAGE,
+    DEFAULT_PROPOSE_MESSAGE,
     DEFAULT_REQUEST_MESSAGE,
     DEFAULT_SUMMARY_MESSAGE,
     DEFAULT_APPOINTMENT_REMINDER_MESSAGE,
@@ -2647,6 +2648,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ),
             "entries": entries,
             "date_it": _date_it(str(request.get("date") or "")),
+            "proposed_date_it": _date_it(str(request.get("proposed_date") or "")),
             # The card and the message both ask this one question, so neither
             # has to know the statuses by name.
             "is_confirmed": request.get("status") == REQUEST_CONFIRMED,
@@ -3747,6 +3749,79 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             await self._async_save()
         return {"request_id": request_id, "sent": sent}
+
+    async def async_propose_request_date(
+        self,
+        request_id: str,
+        day: str,
+        clock: str = "",
+        text: str | None = None,
+        *,
+        dry_run: bool = False,
+        by_name: str = "",
+    ) -> dict[str, Any]:
+        """Offer the guest the first free date when the one she asked is full.
+
+        ``dry_run`` only writes the message, for the preview in the card. The
+        desk may change the text before sending (``text``). The request stays
+        open: when the guest says yes, the desk moves it to the new date and
+        confirms it as usual.
+        """
+        if not day:
+            raise ValidationError("Indica la prima data disponibile")
+        if day < dt_util.now().date().isoformat():
+            raise ValidationError("La data proposta è già passata")
+        payload = self.request_payload(self._find(self.requests, request_id, "Richiesta"))
+        if payload.get("is_confirmed"):
+            raise ValidationError("La richiesta è già confermata")
+        message = (text or "").strip() or self.format_propose_message(payload, day, clock)
+        if dry_run:
+            return {"request_id": request_id, "text": message}
+        phone = (payload.get("client") or {}).get("phone") or ""
+        chat_id = messaging.whatsapp_chat_id(phone)
+        if not chat_id:
+            raise ValidationError("Il richiedente non ha un telefono per WhatsApp")
+        result = await messaging.async_send_whatsapp(self.hass, chat_id, message, waha=self.waha)
+        sent = bool(result.get("sent"))
+        if not sent:
+            raise ValidationError(
+                f"Messaggio non inviato: {result.get('error') or 'WhatsApp non risponde'}"
+            )
+        async with self._lock:
+            request = self._find(self.requests, request_id, "Richiesta")
+            request["proposed_date"] = day
+            request["proposed_time"] = (clock or "")[:5]
+            request["proposed_at"] = dt_util.utcnow().isoformat()
+            request["proposed_by"] = by_name
+            await self._async_save()
+            payload = self.request_payload(request)
+        return {"request": payload, "sent": True, "text": message}
+
+    def format_propose_message(self, payload: dict[str, Any], day: str, clock: str = "") -> str:
+        """The text that offers another date, from the notifications tab."""
+        template = str(self._data[KEY_SETTINGS].get("request_propose_message") or "").strip()
+        if not template:
+            template = DEFAULT_PROPOSE_MESSAGE
+        client = payload.get("client") or {}
+        names: list[str] = []
+        for entry in payload.get("entries") or []:
+            name = str(entry.get("treatment_name") or "").strip()
+            if name and name not in names:
+                names.append(name)
+        if len(names) > 1:
+            treatments = ", ".join(names[:-1]) + " e " + names[-1]
+        else:
+            treatments = names[0] if names else "il trattamento richiesto"
+        asked = str(payload.get("date") or "")
+        return (
+            template.replace("{nome}", str(client.get("first_name") or "").strip() or "ospite")
+            .replace("{cognome}", str(client.get("last_name") or "").strip())
+            .replace("{codice}", str(payload.get("code") or "—"))
+            .replace("{data_richiesta}", _day_words(asked) if asked else "nella data richiesta")
+            .replace("{trattamenti}", treatments)
+            .replace("{data_proposta}", _day_words(day))
+            .replace("{orario_proposto}", f" alle {clock[:5]}" if clock else "")
+        )
 
     def format_request_message(self, payload: dict[str, Any]) -> str:
         """Return the acknowledgement sent to a guest who left a request.
@@ -7313,3 +7388,22 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.hass, chat_id, text, waha=self.waha
             )
         raise ValidationError(f"Canale sconosciuto: {channel}")
+
+
+_WEEKDAYS_IT = ("lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato", "domenica")
+_MONTHS_IT = (
+    "gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno",
+    "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre",
+)
+
+
+def _day_words(value: str) -> str:
+    """"domenica 15 novembre" from 2026-11-15 (the year only when not this one)."""
+    try:
+        day = date.fromisoformat(value[:10])
+    except ValueError:
+        return value
+    text = f"{_WEEKDAYS_IT[day.weekday()]} {day.day} {_MONTHS_IT[day.month - 1]}"
+    if day.year != dt_util.now().year:
+        text += f" {day.year}"
+    return text

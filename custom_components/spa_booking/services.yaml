@@ -2045,3 +2045,35 @@ restart_home_assistant:
     Riavvia Home Assistant per caricare la nuova versione di Spa Booking. Solo
     amministratori.
 
+
+propose_request_date:
+  name: Proponi un'altra data
+  description: >-
+    Scrive all'ospite su WhatsApp che la data richiesta è piena e propone la
+    prima data disponibile, con il testo di Notifiche › Proposta di un'altra
+    data. Con dry_run restituisce solo il testo.
+  fields:
+    request_id:
+      name: Richiesta
+      required: true
+      selector:
+        text:
+    date:
+      name: Data proposta
+      required: true
+      selector:
+        date:
+    time:
+      name: Orario proposto
+      selector:
+        time:
+    text:
+      name: Testo
+      description: Il messaggio da inviare, se diverso da quello di Notifiche.
+      selector:
+        text:
+          multiline: true
+    dry_run:
+      name: Solo anteprima
+      selector:
+        boolean:

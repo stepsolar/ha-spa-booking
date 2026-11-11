@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.2.0";
+const CARD_VERSION = "2.2.1";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -841,6 +841,7 @@ class SpaBookingCard extends HTMLElement {
       this._escapeBound = (event) => {
         if (event.key !== "Escape") return;
         if (this._overlapPopup) { this._overlapPopup = null; this._render(); }
+        else if (this._proposePopup) { this._proposePopup = null; this._render(); }
         else if (this._payPopup) this._closePayPopup();
         else if (this._detailId) this._closeDetail();
       };
@@ -2260,6 +2261,7 @@ class SpaBookingCard extends HTMLElement {
       delete_request: "Richiesta eliminata.",
       confirm_request: "Richiesta confermata.",
       send_request_message: "Messaggio richiesta inviato.",
+      propose_request_date: "Proposta inviata.",
       save_settings: "Impostazioni salvate.",
       set_accessories: "Accessori salvati.",
       regenerate_public_token: "Nuovo token del sito generato.",
@@ -2849,6 +2851,7 @@ class SpaBookingCard extends HTMLElement {
     if (this._detailId) add(root, this._renderDetail());
     if (this._payPopup) add(root, this._renderPayPopup());
     if (this._overlapPopup) add(root, this._renderOverlapPopup());
+    if (this._proposePopup) add(root, this._renderProposePopup());
     // The view container only exists once Home Assistant has rendered the
     // dashboard around us, so the header height is reclaimed here and not only
     // on connect.
@@ -5946,7 +5949,7 @@ class SpaBookingCard extends HTMLElement {
       ? settings.notifiche_order : {};
     const defaults = { left: ["telegram", "whatsapp", "whatsapp_engine", "waha", "preview"],
                        right: ["review", "report", "offers", "deposit", "guest_header", "summary",
-                               "request_message", "appointment_reminder"] };
+                               "request_message", "request_propose", "appointment_reminder"] };
     const seen = new Set();
     const layout = { left: [], right: [] };
     ["left", "right"].forEach((column) => {
@@ -7314,6 +7317,109 @@ class SpaBookingCard extends HTMLElement {
       } },
     }, sheet);
   }
+  // -------------------------------------------- proposing another date
+
+  /** Open «Proponi data» for a request whose date is full. */
+  _openProposePopup(req) {
+    const next = new Date(`${req.date || todayStr()}T12:00:00`);
+    next.setDate(next.getDate() + 1);
+    const tomorrow = new Date(`${todayStr()}T12:00:00`);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const start = next < tomorrow ? tomorrow : next;
+    const first = (req.entries || []).find((entry) => entry.start) || {};
+    this._proposePopup = {
+      req,
+      date: req.proposed_date || ymd(start),
+      time: req.proposed_time || first.start || "",
+      text: "",
+      edited: false,
+      loading: true,
+    };
+    this._render();
+    this._refreshProposeText();
+  }
+
+  /** Ask the server for the message with the chosen date (nothing is sent). */
+  async _refreshProposeText() {
+    const popup = this._proposePopup;
+    if (!popup || popup.edited || !popup.date) return;
+    popup.loading = true;
+    try {
+      const result = await this._service("propose_request_date", {
+        request_id: popup.req.id, date: popup.date, time: popup.time || "", dry_run: true,
+      });
+      if (this._proposePopup === popup && !popup.edited) popup.text = (result && result.text) || "";
+      popup.error = "";
+    } catch (error) {
+      popup.error = this._friendlyError(error, "Anteprima non disponibile.");
+    }
+    popup.loading = false;
+    if (this._proposePopup === popup) this._render();
+  }
+
+  _renderProposePopup() {
+    const popup = this._proposePopup;
+    const req = popup.req;
+    const name = ((req.client || {}).first_name || (req.client || {}).full_name || "l'ospite");
+    const close = () => { this._proposePopup = null; this._render(); };
+    const sheet = el("div", { class: "detail-sheet propose-sheet", role: "dialog", "aria-label": "Proponi un'altra data" },
+      el("div", { class: "section-head" },
+        el("span", { class: "section-icon" }, el("ha-icon", { icon: "mdi:calendar-clock" })),
+        el("div", { class: "section-text" },
+          el("div", { class: "section-title" }, `Proponi un'altra data a ${name}`),
+          el("div", { class: "section-sub" },
+            `Ha chiesto ${req.date ? longDay(new Date(`${req.date}T00:00:00`)) : "una data da definire"}: scrivi la prima data disponibile.`))),
+      el("div", { class: "field-grid" },
+        el("label", { class: "field" },
+          el("span", {}, "Prima data disponibile"),
+          el("input", {
+            class: "input", type: "date", value: popup.date, min: todayStr(),
+            on: { change: (event) => { popup.date = event.target.value; this._refreshProposeText(); } },
+          })),
+        el("label", { class: "field" },
+          el("span", {}, "Orario (facoltativo)"),
+          el("input", {
+            class: "input", type: "time", value: popup.time || "",
+            on: { change: (event) => { popup.time = event.target.value; this._refreshProposeText(); } },
+          }))),
+      el("label", { class: "field" },
+        el("span", {}, popup.edited
+          ? "Messaggio (modificato da te: data e orario non si aggiornano più da soli)"
+          : "Messaggio (puoi cambiarlo prima di inviarlo)"),
+        el("textarea", {
+          class: "input", rows: "9", disabled: popup.loading && !popup.text,
+          on: {
+            input: (event) => { popup.text = event.target.value; popup.edited = true; },
+            keydown: (event) => event.stopPropagation(),
+          },
+        }, popup.loading && !popup.text ? "Preparo il messaggio…" : popup.text)),
+      popup.edited ? el("button", {
+        class: "btn small ghost", style: "align-self:flex-start",
+        on: { click: () => { popup.edited = false; this._refreshProposeText(); } },
+      }, el("ha-icon", { icon: "mdi:refresh" }), "Rimetti il testo di Notifiche") : null,
+      popup.error ? el("div", { class: "pin-error", role: "alert" }, popup.error) : null,
+      el("div", { class: "row" },
+        el("button", { class: "btn", on: { click: close } }, "Annulla"),
+        el("div", { class: "spacer" }),
+        el("button", {
+          class: "btn primary wa-go", disabled: this._busy || !popup.date || !popup.text,
+          on: { click: async () => {
+            try {
+              await this._call("propose_request_date", {
+                request_id: req.id, date: popup.date, time: popup.time || "", text: popup.text,
+              });
+              this._proposePopup = null;
+              this._message = { kind: "ok", text: `Proposta inviata su WhatsApp a ${name}.` };
+              this._render();
+            } catch (error) { /* shown by _call */ }
+          } },
+        }, el("ha-icon", { icon: "mdi:whatsapp" }), "Invia su WhatsApp")));
+    return el("div", {
+      class: "detail-backdrop",
+      on: { click: (event) => { if (event.target === event.currentTarget) close(); } },
+    }, sheet);
+  }
+
   _requestRows() {
     const entry = this._form;
     if (!entry.date) return null;
@@ -9008,7 +9114,10 @@ class SpaBookingCard extends HTMLElement {
           el("div", { class: "grow" },
             el("div", { class: "req-name" }, name, " ",
               el("span", { class: `pill ${tone}` }, el("ha-icon", { icon }), label),
-              req.source === "web" && req.seen === false ? el("span", { class: "pill warn" }, "Nuova") : null),
+              req.source === "web" && req.seen === false ? el("span", { class: "pill warn" }, "Nuova") : null,
+              req.proposed_date ? el("span", { class: "pill info", title: req.proposed_by ? `Proposta da ${req.proposed_by}` : "" },
+                el("ha-icon", { icon: "mdi:calendar-clock" }),
+                `Proposta: ${longDay(new Date(`${req.proposed_date}T00:00:00`)).split(" ").slice(0, 3).join(" ")}${req.proposed_time ? ` ${req.proposed_time}` : ""}`) : null),
             el("div", { class: "dim small" },
               [client.phone && client.phone !== "—" ? client.phone : "", req.voucher_code ? `voucher ${req.voucher_code}` : "", `codice ${req.code || "—"}`]
                 .filter(Boolean).join(" · "))),
@@ -9026,6 +9135,11 @@ class SpaBookingCard extends HTMLElement {
                 } },
               }, el("ha-icon", { icon: "mdi:check" }), "Conferma")
             : el("span", { class: "pill ok" }, el("ha-icon", { icon: "mdi:check" }), "Confermata"),
+          !req.is_confirmed ? el("button", {
+            class: "btn small propose", disabled: this._busy,
+            title: "La data è piena: proponi all'ospite la prima data disponibile su WhatsApp",
+            on: { click: () => this._openProposePopup(req) },
+          }, el("ha-icon", { icon: "mdi:calendar-clock" }), "Proponi data") : null,
           el("button", {
             class: "btn small", disabled: this._busy,
             on: { click: () => this._editRequest(req) },
@@ -11917,7 +12031,7 @@ _renderClients() {
   _renderAccessi() {
     if (this._users === null && !this._usersLoading) this._loadUsers();
 
-    const wrap = el("div", { class: "stack config accessi" });
+    const wrap = el("div", { class: "stack accessi" });
     const permissions =
       (this._data.settings && this._data.settings.permissions) || {};
     const operators = (this._data.operators || []).filter((op) => op.active !== false);
@@ -12032,8 +12146,20 @@ _renderClients() {
       ["Configurazione e utenti", "—", "—", "—", "✓"],
     ];
     const head = ["", "Massaggiatrice", "Reception", "Manager", "Amministratore"];
+    // On a phone the five columns do not fit: one short list per role.
+    const perRole = el("div", { class: "roles-list" }, head.slice(1).map((role, index) =>
+      el("div", { class: "role-block" },
+        el("div", { class: "role-name" }, role),
+        el("ul", {}, rows.map((row) => {
+          const cell = row[index + 1];
+          const no = cell === "—";
+          return el("li", { class: no ? "no" : "" },
+            el("span", { class: "role-mark" }, no ? "—" : "✓"),
+            el("span", {}, row[0], cell !== "✓" && !no ? ` (${cell})` : ""));
+        })))));
     return el("details", { class: "cfg-box roles-table" },
       el("summary", {}, el("ha-icon", { icon: "mdi:shield-account-outline" }), "Cosa può fare ogni ruolo"),
+      perRole,
       el("div", { class: "table-scroll" },
         el("table", {},
           el("thead", {}, el("tr", {}, head.map((cell) => el("th", {}, cell)))),
@@ -12928,6 +13054,39 @@ _renderClients() {
       "{trattamenti} elenco trattamenti, {codice} codice richiesta."));
     right.appendChild(reqMsgBox);
 
+    // Proposta di un'altra data: Lista richieste › Proponi data.
+    const proposeBox = box("request_propose", "Proposta di un'altra data");
+    proposeBox.appendChild(
+      el("label", { class: "field" },
+        el("span", {}, "Testo messaggio"),
+        el("textarea", { class: "input", rows: "10",
+          on: { input: (event) => { draft.request_propose_message = event.target.value; } },
+        }, draft.request_propose_message || ""))
+    );
+    proposeBox.appendChild(el("div", { class: "hint" },
+      "Inviato su WhatsApp dal pulsante «Proponi data» della Lista richieste, quando la data chiesta è piena. " +
+      "Prima di inviarlo la reception lo vede e lo può cambiare. Segnaposti: {nome} nome, {cognome} cognome, " +
+      "{codice} codice richiesta, {data_richiesta} data chiesta, {trattamenti} trattamenti chiesti, " +
+      "{data_proposta} prima data disponibile, {orario_proposto} « alle 10:30» (vuoto se l'orario non è indicato)."));
+    proposeBox.appendChild(el("button", {
+      class: "btn small",
+      on: { click: () => {
+        const raw = String(draft.deposit_test_phone || draft.summary_test_phone || "").trim();
+        if (!raw) {
+          this._message = { kind: "error", text: "Scrivi un numero di prova (Acconto o Riepilogo) per provare il messaggio." };
+          this._render();
+          return;
+        }
+        const sample = String(draft.request_propose_message || "")
+          .replace(/\{nome\}/g, "Elena").replace(/\{cognome\}/g, "Conti").replace(/\{codice\}/g, "R-4821")
+          .replace(/\{data_richiesta\}/g, "sabato 14 novembre").replace(/\{trattamenti\}/g, "Massaggio relax e Ingresso Spa")
+          .replace(/\{data_proposta\}/g, "domenica 15 novembre").replace(/\{orario_proposto\}/g, " alle 10:30");
+        const id = raw.includes("@") ? raw : this._whatsappIdOf({ phone: raw, whatsapp_chat_id: "" });
+        this._testChannel("whatsapp", id, sample);
+      } },
+    }, el("ha-icon", { icon: "mdi:whatsapp" }), "Prova su WhatsApp"));
+    right.appendChild(proposeBox);
+
     // Appointment reminder: customizable message sent before the appointment.
     const apptReminderBox = box("appointment_reminder", "Prememoria appuntamento");
     apptReminderBox.appendChild(
@@ -13079,6 +13238,7 @@ _renderClients() {
                   summary_message: draft.summary_message || "",
                   summary_test_phone: draft.summary_test_phone || "",
                   request_message: draft.request_message || "",
+                  request_propose_message: draft.request_propose_message || "",
                   appointment_reminder_message: draft.appointment_reminder_message || "",
                   appointment_reminder_auto: draft.appointment_reminder_auto !== false,
                   appointment_reminder_hours: draft.appointment_reminder_hours || 24,
@@ -17476,10 +17636,29 @@ _renderClients() {
       .roles-table th[scope="row"] { text-align: left; font-weight: 400; }
       .roles-table thead th { font-size: 11px; color: var(--secondary-text-color); font-weight: 600; }
       .roles-table td.no { color: var(--disabled-text-color, #9aa0a6); }
+      .roles-list { display: none; }
+      .role-block { padding: 8px 0; border-top: 1px solid var(--sb-line); }
+      .role-name { font-weight: 600; margin-bottom: 4px; }
+      .role-block ul { list-style: none; margin: 0; padding: 0; font-size: 13px; }
+      .role-block li { display: flex; gap: 8px; padding: 2px 0; }
+      .role-block li.no { color: var(--secondary-text-color); }
+      .role-mark { width: 14px; color: var(--sb-ok-fg); font-weight: 600; }
+      .role-block li.no .role-mark { color: var(--disabled-text-color, #9aa0a6); }
       @media (max-width: 720px) {
-        .user-row { grid-template-columns: 34px minmax(0, 1fr) auto; }
-        .user-row .role-select { grid-column: 2 / 4; }
+        .roles-table .table-scroll { display: none; }
+        .roles-list { display: block; }
+        .accessi .section-head { flex-wrap: wrap; }
+        .accessi .section-head > .btn { margin-left: 52px; }
+        .user-list { padding: 4px 12px; }
+        .user-row { grid-template-columns: 34px minmax(0, 1fr) auto; row-gap: 8px; }
+        .user-row .role-select { grid-column: 1 / 4; grid-row: 2; width: 100%; }
+        .user-row > .btn { grid-column: 3; grid-row: 1; }
         .user-detail { padding-left: 0; }
+        .user-detail .row.tight { flex-wrap: wrap; }
+        .user-detail .row.tight .input { max-width: none; flex: 1 1 100%; }
+        .accessi-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+        .new-user .field-grid { grid-template-columns: 1fr; }
+        .field.inline { flex-wrap: wrap; }
       }
 
       /* The shared reception tablet: pick your face, type your PIN. */
@@ -17624,6 +17803,10 @@ _renderClients() {
       .req-card .req-notes { margin-left: 44px; }
       .req-notes ha-icon { --mdc-icon-size: 16px; color: var(--sb-warn-fg); flex: 0 0 auto; }
       .req-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; padding-left: 44px; }
+      .btn.propose { border-color: var(--sb-accent-line); color: var(--sb-accent); }
+      .propose-sheet { display: flex; flex-direction: column; gap: 10px; max-width: 560px; }
+      .propose-sheet textarea { font-size: 14px; line-height: 1.45; }
+      .btn.primary.wa-go { background: #25d366; border-color: #25d366; color: #fff; }
       .req-done > summary { cursor: pointer; color: var(--secondary-text-color); padding: 6px 0; }
       .req-done[open] { display: flex; flex-direction: column; gap: 10px; }
       @media (max-width: 720px) {

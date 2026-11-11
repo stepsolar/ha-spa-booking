@@ -306,6 +306,23 @@ DEFAULT_REQUEST_MESSAGE: Final = "\n".join(
     ]
 )
 
+#: The message that offers another date when the one asked for is full
+#: (Lista richieste › Proponi data). ``{nome}``, ``{cognome}``, ``{codice}``,
+#: ``{data_richiesta}`` the date she asked for, ``{trattamenti}`` what she
+#: asked for, ``{data_proposta}`` the first free date, ``{orario_proposto}``
+#: " alle 10:30" or nothing when no time was chosen.
+DEFAULT_PROPOSE_MESSAGE: Final = "\n".join(
+    [
+        "Gentile {nome}, grazie per la Sua richiesta {codice} 🧖‍♀️",
+        "",
+        "Purtroppo {data_richiesta} non abbiamo disponibilità per {trattamenti}.",
+        "La prima data disponibile è {data_proposta}{orario_proposto}.",
+        "",
+        "Ci risponda a questo messaggio per confermare, oppure per indicarci un'altra preferenza.",
+        "Lo Staff - Il Marchese Hotel & Spa",
+    ]
+)
+
 #: The default appointment reminder message sent to the guest before her appointment.
 #: ``{nome}`` first name, ``{cognome}`` last name, ``{codice}`` booking reference,
 #: ``{data}`` date (dd/mm/yyyy), ``{ora}`` start time, ``{trattamenti}`` treatment list.
