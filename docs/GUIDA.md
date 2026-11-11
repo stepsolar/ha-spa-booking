@@ -1,6 +1,6 @@
 # Spa Booking — guida alle schede (2.2)
 
-Aggiornata alla 2.3.5: [messaggi e chat](#messaggi-e-chat-235); [preferenza massaggiatrice/massaggiatore](#preferenza-massaggiatrice-o-massaggiatore); [promo e fedeltà del cliente](#promo-e-fedeltà-del-cliente); [conferme e promemoria WhatsApp](#conferme-e-promemoria-whatsapp); [firme e storico](#firme-e-storico); [chiusure con giorni esclusi](#chiusure-con-giorni-esclusi); [Proponi data](#proponi-data) nelle richieste, con trattamenti alternativi e prezzo; [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
+Aggiornata alla 2.3.6: [Notifiche](#notifiche-236); [messaggi e chat](#messaggi-e-chat-235); [preferenza massaggiatrice/massaggiatore](#preferenza-massaggiatrice-o-massaggiatore); [promo e fedeltà del cliente](#promo-e-fedeltà-del-cliente); [conferme e promemoria WhatsApp](#conferme-e-promemoria-whatsapp); [firme e storico](#firme-e-storico); [chiusure con giorni esclusi](#chiusure-con-giorni-esclusi); [Proponi data](#proponi-data) nelle richieste, con trattamenti alternativi e prezzo; [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
 
 Questa guida mostra ogni scheda della dashboard **Spa Booking** e spiega a
 cosa serve ogni funzione. Le immagini sono state fatte con dati di prova.
@@ -31,6 +31,28 @@ in Impostazioni › Aspetto).
 
 
 
+
+
+## Notifiche (2.3.6)
+
+Configurazione › Notifiche ha quattro sotto-schede:
+
+- **Messaggi agli ospiti**: a sinistra i sei messaggi, in ordine di percorso
+  dell'ospite, con l'etichetta Automatico o Manuale e quando partono. Toccane
+  uno per modificarlo: in alto le sue opzioni (invio automatico e ore,
+  intestazione, IBAN…), poi il testo con l'anteprima accanto e i segnaposto
+  da toccare per inserirli dove c'è il cursore. «Ripristina testo base»
+  rimette il testo proposto da Spa Booking. «Prova su WhatsApp» manda
+  l'anteprima al numero di prova (uno solo per tutti i messaggi).
+- **Operatrici**: come funzionano le offerte, il tempo per rispondere e il
+  promemoria.
+- **Report**: destinatari del report mensile, invio immediato e anteprima.
+- **Collegamenti**: WhatsApp integrato o WAHA, e il bot Telegram.
+
+Quando cambi qualcosa compare in basso la barra «Modifiche non salvate» con
+Salva e Annulla. (Il gateway WAHA ha ancora il suo «Salva gateway».)
+
+![Notifiche](anteprime/29-nt-ospiti.png)
 
 ## Messaggi e chat (2.3.5)
 
@@ -347,7 +369,7 @@ proponiamo:») e la **riga di ogni trattamento alternativo**, con:
 Un testo personalizzato senza `{alternativa}` riceve le alternative prima di
 «Ci risponda…», o in fondo.
 
-![Notifiche, proposta di un'altra data](anteprime/17b-notifiche-proposta.png)
+![Notifiche, proposta di un'altra data](anteprime/29-nt-ospiti.png)
 
 Le richieste già confermate restano in fondo, chiuse. La campanella in alto
 conta le richieste dal sito non ancora aperte.
