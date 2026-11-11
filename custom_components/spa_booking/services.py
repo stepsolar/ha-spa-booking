@@ -71,7 +71,7 @@ from .const import (
     KEY_PROFILES,
     PERMISSION_LEVELS,
 )
-from .coordinator import FORCE_RULES, INTEGRATION_VERSION, SpaBookingCoordinator
+from .coordinator import ACTOR, FORCE_RULES, INTEGRATION_VERSION, SpaBookingCoordinator
 from .normalize import as_date
 from . import access, messaging, updates
 from .exceptions import SpaBookingError, ValidationError
@@ -1079,6 +1079,8 @@ CREATE_VOUCHER_SCHEMA = vol.Schema(
         vol.Required("people"): vol.All(cv.ensure_list, [VOUCHER_PERSON_SCHEMA]),
         #: Who made it. Ignored for a signed-in person: her own name is used.
         vol.Optional("created_by", default=""): cv.string,
+        #: The PIN of whoever sells it: the voucher is signed with her name.
+        vol.Optional("pin", default=""): vol.All(cv.string, vol.Match(r"^(\d{4})?$")),
     },
     extra=vol.PREVENT_EXTRA,
 )
@@ -1475,15 +1477,20 @@ async def _async_set_offer_state(call: ServiceCall) -> ServiceResponse:
 async def _async_create_voucher(call: ServiceCall) -> ServiceResponse:
     """Sell a gift voucher, signed by whoever is signed in."""
     data = call.data
+    coordinator = _coordinator(call)
     acting = _ACTING.get()
-    # A personal login (or the PIN on the tablet) signs the voucher with her
-    # name; only an automation has to say who made it.
-    if acting is not None and acting.user_id and acting.name:
-        user_id, name = acting.user_id, acting.name
+    # From 2.3.0 a person signs every voucher with her own PIN, whoever is
+    # signed in on the device: the voucher carries the name of whoever typed
+    # it. Only an automation (no user) may still say who made it in words.
+    human = acting is not None and not acting.system
+    if data.get("pin"):
+        user_id, name = await _pin_signer(call, coordinator, data["pin"])
+    elif human:
+        raise ValidationError("Inserisci il tuo PIN per firmare il voucher")
     else:
         user_id = call.context.user_id if call.context else None
         name = data.get("created_by", "")
-    voucher = await _coordinator(call).async_create_voucher(
+    voucher = await coordinator.async_create_voucher(
         data["buyer_name"],
         data["buyer_phone"],
         data["recipient_name"],
@@ -2041,6 +2048,14 @@ async def _async_export_data(call: ServiceCall) -> ServiceResponse:
     settings = data.get("settings") or {}
     if await caller_level(call, coordinator) != "admin":
         settings = _without_secrets(settings)
+        # The change history of the bookings is for the administrator only.
+        data = {
+            **data,
+            "appointments": [
+                {key: value for key, value in item.items() if key != "history"}
+                for item in data.get("appointments") or []
+            ],
+        }
     # The card never needs the PIN hashes (the full backup keeps them).
     settings = {**settings, KEY_PROFILES: access.public_profiles(settings.get(KEY_PROFILES) or {})}
     data = {**data, "settings": settings}
@@ -2213,6 +2228,45 @@ async def _async_pin_login(call: ServiceCall) -> ServiceResponse:
         raise ValidationError("PIN sbagliato")
     sessions.start(device, user_id, now)
     return await _async_whoami(call)
+
+
+async def _pin_signer(
+    call: ServiceCall, coordinator: SpaBookingCoordinator, pin: str
+) -> tuple[str, str]:
+    """Who owns ``pin``: the person signing a voucher (reception or above).
+
+    Wrong PINs count like on the tablet: five in a row lock the signature
+    for a minute on that device.
+    """
+    sessions = coordinator.pin_sessions
+    key = f"sign:{call.context.user_id if call.context else 'system'}"
+    now = time.monotonic()
+    wait = sessions.locked_for(key, now)
+    if wait:
+        raise ValidationError(f"Troppi PIN sbagliati: riprova tra {wait} secondi")
+    profiles = coordinator.profiles()
+    matches = []
+    for person in await _pin_people(call, coordinator):
+        profile = profiles.get(person["user_id"]) or {}
+        if await call.hass.async_add_executor_job(
+            access.check_pin, pin, profile.get("pin_salt", ""), profile.get("pin_hash", "")
+        ):
+            matches.append(person)
+    if len(matches) > 1:
+        raise ValidationError(
+            "Questo PIN è usato da più persone: cambiatelo in Configurazione › Accessi"
+        )
+    if not matches:
+        wait = sessions.failure(key, now)
+        if wait:
+            raise ValidationError(f"PIN sbagliato. Firma bloccata per {wait} secondi")
+        raise ValidationError("PIN sbagliato")
+    signer = matches[0]
+    if _LEVEL_RANK.get(signer["level"], 0) < _LEVEL_RANK["operator"]:
+        raise ValidationError(f"{signer['name']} non può creare voucher (serve il ruolo Reception)")
+    sessions.start(key, signer["user_id"], now)
+    sessions.end(key)
+    return signer["user_id"], signer["name"]
 
 
 async def _async_pin_logout(call: ServiceCall) -> ServiceResponse:
@@ -2923,9 +2977,13 @@ def _guarded(service: str, handler: Any) -> Any:
             raise ValidationError("Solo la reception può prenotare fuori dalle regole della categoria")
         token = _ACTING.set(acting)
         force_token = FORCE_RULES.set(force)
+        actor_token = ACTOR.set(
+            None if acting.system else (acting.user_id or "", acting.name or "")
+        )
         try:
             return await handler(call)
         finally:
+            ACTOR.reset(actor_token)
             FORCE_RULES.reset(force_token)
             _ACTING.reset(token)
 

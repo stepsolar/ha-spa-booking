@@ -5,7 +5,7 @@ trattamenti con durata propria, operatrici, schede cliente, agenda del giorno
 per operatrice e per categoria, pagamenti, voucher, richieste dal sito web,
 promemoria e report automatici su WhatsApp e Telegram.
 
-Versione corrente: **2.2.4** — documentazione completa in
+Versione corrente: **2.3.0** — documentazione completa in
 [`custom_components/spa_booking/README.md`](custom_components/spa_booking/README.md).
 
 **[Guida alle schede con le anteprime](docs/GUIDA.md)**: ogni scheda della
@@ -132,6 +132,20 @@ hassfest e validazione HACS a ogni push e pull request. Lavora su un branch e
 apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
+
+- **v2.3.0** — Firme e storico:
+  - **Voucher firmati con il PIN.** «Crea voucher» chiede il PIN di 4 cifre:
+    il voucher resta firmato con il nome di chi l'ha inserito, da qualunque
+    dispositivo. Il campo libero «Creato da» non c'è più. Ogni PIN deve essere
+    diverso: due persone non possono usare lo stesso.
+  - **Chi ha inserito.** Ogni prenotazione e ogni richiesta registra chi l'ha
+    inserita (persona collegata, PIN del tablet, oppure «Sito web»). È visibile
+    nel dettaglio dell'appuntamento e sulla scheda della richiesta.
+  - **Storico modifiche, solo per l'amministratore.** Ogni appuntamento tiene
+    l'elenco delle modifiche: quando, chi, cosa è cambiato (orario,
+    operatrice, trattamento, stato, prezzo, incassi, entrata e uscita, note…).
+    Comprende anche le risposte delle operatrici su WhatsApp. Gli altri ruoli
+    non lo ricevono nemmeno dal server.
 
 - **v2.2.4**:
   - **Chiusure con giorni esclusi.** In Fasce bloccate, per una chiusura di

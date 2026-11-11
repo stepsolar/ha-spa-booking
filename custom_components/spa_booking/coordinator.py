@@ -201,6 +201,43 @@ INTEGRATION_VERSION: Final = _integration_version()
 #: are skipped for that call only. Closures and operator clashes still apply.
 FORCE_RULES: ContextVar[bool] = ContextVar("spa_booking_force_rules", default=False)
 
+#: Who is acting in this call, set by the services as ``(user_id, name)``:
+#: the person signed in, or the one who typed her PIN on the tablet. Unset
+#: for timers, the website and WhatsApp answers, which act as the system.
+ACTOR: ContextVar[tuple[str, str] | None] = ContextVar("spa_booking_actor", default=None)
+
+#: The appointment fields whose changes go into its history, with the label
+#: the administrator reads. Offer bookkeeping and sent-flags are left out.
+HISTORY_FIELDS: Final = (
+    ("status", "Stato"),
+    ("start", "Inizio"),
+    ("end", "Fine"),
+    ("treatment_id", "Trattamento"),
+    ("operator_id", "Operatrice"),
+    ("client_id", "Cliente"),
+    ("person", "Persona"),
+    ("guest_type", "Tipo ospite"),
+    ("extras", "Accessori"),
+    ("list_price", "Prezzo di listino"),
+    ("price", "Prezzo"),
+    ("paid", "Pagato"),
+    ("paid_amount", "Importo pagato"),
+    ("deposit", "Acconto"),
+    ("deposit_amount", "Importo acconto"),
+    ("payments", "Incassato"),
+    ("checked_in", "Entrata"),
+    ("checked_out", "Uscita"),
+    ("notes", "Note"),
+    ("cancel_reason", "Motivo annullamento"),
+)
+#: Entries kept per appointment, the oldest dropped first.
+HISTORY_MAX: Final = 100
+
+
+def acting_person() -> tuple[str, str]:
+    """``(user_id, name)`` of whoever is acting; the system when nobody."""
+    return ACTOR.get() or ("", "Sistema")
+
 
 def _read_text(path: str) -> str:
     """Return a UTF-8 text file, or an empty string when it cannot be read.
@@ -233,6 +270,9 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Recent WhatsApp messages from numbers that are neither clients nor
         # operators, so the desk can read and answer external requests.
         self._external_messages: deque[dict[str, Any]] = deque(maxlen=20)
+        # The tracked fields of every appointment at the last save: what the
+        # next save compares against to write the change history.
+        self._history_snap: dict[str, dict[str, Any]] | None = None
         # Content hash of the served card, computed in the executor at load.
         self._card_version = ""
         # The internal timers, attached by async_setup_entry.
@@ -272,6 +312,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             await self._store.async_save(self._data)
         await self.async_refresh_card_version()
+        self._history_snap = {a["id"]: self._history_values(a) for a in self.appointments}
         self.async_set_updated_data(self._data)
 
     async def async_add_external_message(self, chat_id: str, text: str) -> None:
@@ -458,8 +499,103 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         matter which record was edited.
         """
         self._sync_treatment_operator_ids()
+        self._record_history()
         await self._store.async_save(self._data)
         self.async_set_updated_data(self._data)
+
+    @staticmethod
+    def _history_values(appointment: dict[str, Any]) -> dict[str, Any]:
+        values = {key: appointment.get(key) for key, _ in HISTORY_FIELDS}
+        values["payments"] = round(
+            sum(float(item.get("amount") or 0) for item in appointment.get("payments") or []), 2
+        )
+        values["extras"] = sorted(appointment.get("extras") or [])
+        return values
+
+    def _record_history(self) -> None:
+        """Note on each appointment what changed since the last save, and who.
+
+        Done at save time, so every path is covered (desk, tablet, timers,
+        WhatsApp answers) without each method having to remember it. Only
+        the administrator sees the history in the card.
+        """
+        current = {a["id"]: self._history_values(a) for a in self.appointments}
+        previous = getattr(self, "_history_snap", None)
+        self._history_snap = current
+        if previous is None:
+            return
+        by_id, by = acting_person()
+        now = dt_util.utcnow().isoformat()
+        for appointment in self.appointments:
+            new = current[appointment["id"]]
+            old = previous.get(appointment["id"])
+            if old is None:
+                entry = {"action": "Creata", "changes": []}
+            else:
+                changes = [
+                    {
+                        "field": key,
+                        "label": label,
+                        "old": self._history_text(key, old.get(key)),
+                        "new": self._history_text(key, new.get(key)),
+                    }
+                    for key, label in HISTORY_FIELDS
+                    if old.get(key) != new.get(key)
+                ]
+                changes = [c for c in changes if c["old"] != c["new"]]
+                if not changes:
+                    continue
+                action = "Modificata"
+                if old.get("status") != new.get("status"):
+                    action = {
+                        STATUS_CANCELLED: "Annullata",
+                        STATUS_CONFIRMED: "Confermata",
+                    }.get(new.get("status"), action)
+                entry = {"action": action, "changes": changes}
+            history = list(appointment.get("history") or [])
+            history.append({"at": now, "by": by, "by_id": by_id, **entry})
+            appointment["history"] = history[-HISTORY_MAX:]
+
+    def _history_text(self, key: str, value: Any) -> str:
+        """A value of the history as the administrator reads it."""
+        if value in (None, "", []):
+            return "—"
+        if key == "start":
+            moment = dt_util.parse_datetime(str(value))
+            if moment is None:
+                return str(value)
+            local = dt_util.as_local(moment)
+            return f"{_day_words(local.date().isoformat())} {local.strftime('%H:%M')}"
+        if key == "end":
+            moment = dt_util.parse_datetime(str(value))
+            return dt_util.as_local(moment).strftime("%H:%M") if moment else str(value)
+        if key == "treatment_id":
+            return next((t["name"] for t in self.treatments if t["id"] == value), str(value))
+        if key == "operator_id":
+            return (self._operator(value) or {}).get("name") or str(value)
+        if key == "client_id":
+            client = next((c for c in self.clients if c["id"] == value), None)
+            if not client:
+                return str(value)
+            return " ".join(p for p in (client.get("first_name"), client.get("last_name")) if p) or str(value)
+        if key == "status":
+            return {STATUS_CONFIRMED: "confermata", STATUS_CANCELLED: "annullata", STATUS_PENDING: "da confermare"}.get(value, str(value))
+        if key == "guest_type":
+            return {"hotel": "ospite dell'hotel", "external": "esterno"}.get(value, str(value))
+        if key == "extras":
+            names = {item["id"]: item.get("name") or item["id"] for item in self.accessories}
+            return ", ".join(names.get(item, item) for item in value)
+        if key == "person":
+            return "ospite principale" if not value else f"accompagnatore {value}"
+        if isinstance(value, bool):
+            return "sì" if value else "no"
+        if key in ("list_price", "price", "paid_amount", "deposit_amount", "payments"):
+            try:
+                return _euro(float(value))
+            except (TypeError, ValueError):
+                return str(value)
+        text = str(value).strip()
+        return text if len(text) <= 80 else f"{text[:77]}…"
 
     @staticmethod
     def _find(
@@ -1611,7 +1747,9 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "confirmed_by": "",
                 "confirmed_at": "",
                 # Who created this booking (user_id of the receptionist).
-                "created_by": self._current_user_id if hasattr(self, '_current_user_id') else None,
+                "created_by": acting_person()[0]
+                or (self._current_user_id if hasattr(self, "_current_user_id") else None),
+                "created_by_name": acting_person()[1],
                 # Payment never refuses anything, so it is copied through the
                 # normaliser rather than validated here.
                 **_norm_payment(payment),
@@ -2871,6 +3009,8 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         appointment["code"] = existing_appt.get("code") or appointment.get("code")
                         appointment["created_at"] = existing_appt.get("created_at") or appointment.get("created_at")
                         appointment["created_by"] = existing_appt.get("created_by", appointment.get("created_by"))
+                        appointment["created_by_name"] = existing_appt.get("created_by_name", "")
+                        appointment["history"] = list(existing_appt.get("history") or [])
                         appointment["payments"] = _norm_payment_list(existing_appt.get("payments"))
                         appointment["checked_in"] = existing_appt.get("checked_in", False)
                         appointment["checked_in_at"] = existing_appt.get("checked_in_at", "")
@@ -3092,6 +3232,9 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "seen": source != REQUEST_SOURCE_WEB,
                     "created_at": dt_util.utcnow().isoformat(),
                     "created_by": user_id,
+                    "created_by_name": "Sito web"
+                    if source == REQUEST_SOURCE_WEB
+                    else acting_person()[1],
                 }
             )
             self.requests.append(request)
@@ -4965,6 +5108,10 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 }
             operator_id = operator["id"]
 
+        # The history names the masseuse who answered on WhatsApp.
+        if ACTOR.get() is None:
+            name = (self._operator(operator_id) or {}).get("name") or "Operatrice"
+            ACTOR.set(("", f"{name} (WhatsApp)"))
         if appointment_id:
             return await self.async_answer_offer(
                 appointment_id, answer, operator_id, source, text
@@ -5867,6 +6014,8 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise ValidationError("Il payload deve essere un dizionario")
         async with self._lock:
             self._data, _ = self._upgrade(payload)
+            # A restored backup is not a list of changes made now.
+            self._history_snap = None
             await self._async_save()
         return {
             "counts": {
@@ -6104,6 +6253,13 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if clear_pin:
                 profile["pin_salt"] = profile["pin_hash"] = ""
             elif pin:
+                # Each PIN belongs to one person: it is also her signature
+                # on a voucher, so two people may not share it.
+                for other_id, other in profiles.items():
+                    if other_id != user_id and other.get("pin_hash") and await self.hass.async_add_executor_job(
+                        access.check_pin, pin, other.get("pin_salt", ""), other.get("pin_hash", "")
+                    ):
+                        raise SpaBookingError("Questo PIN è già usato da un'altra persona: scegline un altro")
                 profile["pin_salt"], profile["pin_hash"] = await self.hass.async_add_executor_job(
                     access.hash_pin, pin
                 )
@@ -6451,7 +6607,8 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         end_local = dt_util.as_local(end) if end else None
 
         payload: dict[str, Any] = {
-            **appointment,
+            # The history goes to the administrator through export_data only.
+            **{key: value for key, value in appointment.items() if key != "history"},
             "start_local": start_local.isoformat() if start_local else None,
             "end_local": end_local.isoformat() if end_local else None,
             "duration_min": int((end - start).total_seconds() // 60)

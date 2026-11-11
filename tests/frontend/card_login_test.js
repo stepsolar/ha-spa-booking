@@ -82,13 +82,26 @@ setTimeout(() => {
   assert(laura._voucherState({ status: "redeemed", expires_on: plus(-3) }) === "riscattato", "redeemed wins");
   const draft = laura._voucherDraftState();
   assert(laura._voucherStepProblem(draft, 1) !== "", "empty first step refused");
-  laura._voucherStepWho(draft);
-  assert(draft.created_by === "Laura", "Creato da prefilled with who is signed in");
+  const who = laura._voucherStepWho(draft);
+  assert(who.textContent.includes("PIN"), "the who step says the voucher is signed with the PIN");
   draft.buyer_name = "Marco";
   assert(laura._voucherStepProblem(draft, 1) === "", "first step ok");
   assert(laura._voucherStepProblem(draft, 2) !== "", "a person needs a treatment or gift card");
   draft.people[0].gift_card_amount = 50;
   assert(laura._voucherStepProblem(draft, 3) === "", "summary ok");
+  // 2.3.0: Crea voucher opens the PIN pad; four digits send the voucher with the PIN.
+  const sentVoucher = [];
+  laura._voucherDraft = draft;
+  laura._service = async (name, data) => { sentVoucher.push([name, data]); return { voucher: { id: "v1", code: "VCH-1", created_by_name: "Laura" } }; };
+  laura._loadData = async () => {};
+  laura._createVoucher();
+  assert(laura._voucherPin && laura._voucherPin.typed === "", "PIN pad opened");
+  laura._submitVoucher("1234").then(() => {
+    assert(sentVoucher[0][0] === "create_voucher" && sentVoucher[0][1].pin === "1234", "voucher sent with the PIN");
+    assert(!("created_by" in sentVoucher[0][1]), "no free-text signature any more");
+    assert(laura._voucherPin === null && laura._voucherCreated === "v1", "pad closed, voucher shown");
+    console.log("VOUCHER PIN TEST PASSED");
+  }).catch((error) => { console.error(error); process.exit(1); });
   const v = { code: "VCH-ABC", recipient_name: "Giulia Verdi", buyer_name: "Marco", expires_on: "2027-05-10",
     people: [{ name: "", treatment_ids: [], extras: [], gift_card_amount: 50 }] };
   laura._dateIt = (d) => d;

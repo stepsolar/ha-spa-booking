@@ -1,6 +1,6 @@
 # Spa Booking — guida alle schede (2.2)
 
-Aggiornata alla 2.2.4: [chiusure con giorni esclusi](#chiusure-con-giorni-esclusi); [Proponi data](#proponi-data) nelle richieste, con trattamenti alternativi e prezzo; [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
+Aggiornata alla 2.3.0: [firme e storico](#firme-e-storico); [chiusure con giorni esclusi](#chiusure-con-giorni-esclusi); [Proponi data](#proponi-data) nelle richieste, con trattamenti alternativi e prezzo; [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
 
 Questa guida mostra ogni scheda della dashboard **Spa Booking** e spiega a
 cosa serve ogni funzione. Le immagini sono state fatte con dati di prova.
@@ -26,6 +26,31 @@ in Impostazioni › Aspetto).
 - [Telefono e tablet](#telefono-e-tablet)
 
 ---
+
+
+## Firme e storico
+
+Dalla 2.3.0:
+
+- **Voucher firmati con il PIN.** All'ultimo passo, «Crea voucher» apre il
+  tastierino: chi vende il voucher inserisce il proprio PIN e il voucher
+  resta firmato con il suo nome, anche se il dispositivo è collegato con un
+  altro utente. Il PIN si assegna in Configurazione › Accessi; ognuno deve
+  avere il proprio, diverso da quello degli altri. Cinque PIN sbagliati di
+  fila bloccano la firma per un minuto.
+- **Chi ha inserito.** Nel dettaglio dell'appuntamento la riga «Inserito da»
+  mostra chi l'ha inserito e quando; sulla scheda della richiesta «Inserita
+  da …» (o «Sito web»). Le prenotazioni inserite prima della 2.3.0 mostrano
+  «non registrato» quando il nome non era stato salvato.
+- **Storico modifiche** (solo Amministratore). In fondo al dettaglio
+  dell'appuntamento: ogni modifica con data, ora, chi l'ha fatta e cosa è
+  cambiato, dal più recente. Le risposte delle operatrici su WhatsApp
+  compaiono come «Giulia (WhatsApp)», i timer automatici come «Sistema».
+  Lo storico parte dalla 2.3.0: le modifiche precedenti non sono note.
+
+![Storico modifiche](anteprime/20-storico-modifiche.png)
+
+![Firma del voucher con il PIN](anteprime/21-voucher-pin.png)
 
 ## Accesso e ruoli
 
