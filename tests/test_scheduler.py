@@ -91,7 +91,9 @@ def test_daily_promo_once_and_only_near_its_time(coordinator, sent, freeze, monk
         return {"sent": 1, "total": 1}
 
     monkeypatch.setattr(coordinator, "async_send_promo", fake_send)
-    coordinator._data[KEY_SETTINGS]["promo_time"] = "10:00"
+    coordinator._data[KEY_SETTINGS]["promos"] = [
+        {"id": "p1", "name": "Ogni giorno", "mode": "ogni", "time": "10:00", "message": "Ciao"}
+    ]
 
     freeze("2026-11-10 09:59")
     run(coordinator.async_scheduled_promo())
@@ -302,3 +304,66 @@ def test_old_default_texts_are_upgraded() -> None:
     assert settings["summary_message"] == DEFAULT_SUMMARY_MESSAGE
     assert settings["deposit_message"] == DEFAULT_DEPOSIT_MESSAGE
     assert _norm_settings({"summary_message": "Ciao {nome}"})["summary_message"] == "Ciao {nome}"
+
+
+def test_old_single_promo_becomes_the_first_saved_one() -> None:
+    from custom_components.spa_booking.normalize import _norm_settings
+
+    settings = _norm_settings(
+        {"promo_message": "Ciao {nome}", "promo_code": "ESTATE20", "promo_time": "9.30",
+         "promo_date": "2026-12-01", "promo_expiry": "2026-12-31"}
+    )
+    (promo,) = settings["promos"]
+    assert promo["mode"] == "giorno" and promo["date"] == "2026-12-01" and promo["time"] == "09:30"
+    assert promo["code"] == "ESTATE20" and promo["message"] == "Ciao {nome}"
+    assert _norm_settings({})["promos"] == []
+    # Once saved as a list, the list is the truth (even an empty one).
+    assert _norm_settings({"promos": [], "promo_time": "10:00"})["promos"] == []
+
+
+def test_saved_promos_each_on_their_day(coordinator, sent, freeze) -> None:
+    freeze("2026-11-10 08:00")
+    _confirmed_booking(coordinator, "2026-11-11 09:00")
+    coordinator._data["settings"].update({"promo_interval_sec": 0, "promo_max_sends": 0})
+    run(coordinator.async_update_settings(promos=[
+        {"id": "natale", "name": "Natale", "mode": "giorno", "date": "2026-12-01",
+         "time": "10:00", "code": "NATALE26", "expiry": "2027-01-06",
+         "message": "Buon Natale {nome}: {codice_promo} entro {scadenza_promo}"},
+        {"id": "bf", "name": "Black Friday", "mode": "giorno", "date": "2026-11-27",
+         "time": "09:00", "message": "Black Friday {nome}", "sent_count": 99},
+        {"id": "mano", "name": "A mano", "message": "x"},
+    ]))
+    promos = coordinator._data["settings"]["promos"]
+    assert promos[1]["sent_count"] == 0  # the card cannot write the counters
+    freeze("2026-11-27 09:10")
+    result = run(coordinator.async_scheduled_promo())
+    assert set(result["promos"]) == {"bf"} and len(sent) == 1
+    run(coordinator.async_scheduled_promo())
+    assert len(sent) == 1  # once only
+    freeze("2026-12-01 10:05")
+    run(coordinator.async_scheduled_promo())
+    assert len(sent) == 2
+    assert "NATALE26 entro 06/01/2027" in str(sent[-1])
+    bf = coordinator._promo_by_id("bf")
+    assert bf["sent_count"] == 1 and bf["last_sent_on"] == "2026-11-27"
+    # Moving a sent one-off promo to another day lets it go again.
+    run(coordinator.async_update_settings(promos=[dict(p, date="2026-12-05") if p["id"] == "bf" else p for p in promos]))
+    assert coordinator._promo_by_id("bf")["last_sent_on"] == ""
+    assert coordinator._promo_by_id("bf")["sent_count"] == 1
+
+
+def test_send_one_saved_promo_by_hand(coordinator, sent, freeze) -> None:
+    freeze("2026-11-10 08:00")
+    _confirmed_booking(coordinator, "2026-11-11 09:00")
+    coordinator._data["settings"].update({"promo_interval_sec": 0, "promo_max_sends": 0})
+    run(coordinator.async_update_settings(promos=[
+        {"id": "w", "name": "Weekend", "code": "RELAX", "expiry": "2026-11-09", "message": "{codice_promo}"},
+        {"id": "v", "name": "Valida", "code": "RELAX", "message": "Codice {codice_promo}"},
+    ]))
+    import pytest
+    from custom_components.spa_booking.exceptions import ValidationError
+
+    with pytest.raises(ValidationError):
+        run(coordinator.async_send_promo(promo_id="w"))  # expired yesterday
+    assert run(coordinator.async_send_promo(promo_id="v"))["sent"] == 1
+    assert "Codice RELAX" in str(sent[-1])

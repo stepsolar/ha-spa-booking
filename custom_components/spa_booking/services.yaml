@@ -1313,14 +1313,18 @@ send_promo:
       multiline: true
       selector:
         text:
+    promo_id:
+      name: ID della promo salvata (vuoto = promo predefinita)
+      selector:
+        text:
 
 promo_automatico:
   name: Invio automatico promo giornaliero
   description: >-
-    Invia il messaggio promo a tutti i clienti con telefono, una volta al giorno
-    all'orario programmato (entro un'ora). Gira gia' con il pianificatore
-    interno e non invia mai due volte nello stesso giorno. Se promo_time non e'
-    impostato, non invia nulla.
+    Invia le promo salvate che hanno un invio automatico (un giorno preciso o
+    ogni giorno) all'orario programmato (entro un'ora). Gira gia' con il
+    pianificatore interno e non invia mai due volte nello stesso giorno la
+    stessa promo.
   fields: {}
 
 create_bookings:

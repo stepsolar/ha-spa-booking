@@ -1,6 +1,6 @@
 # Spa Booking — guida alle schede (2.2)
 
-Aggiornata alla 2.3.8: [Promo e Impostazioni](#promo-e-impostazioni-238); [Notifiche](#notifiche-236); [messaggi e chat](#messaggi-e-chat-235); [preferenza massaggiatrice/massaggiatore](#preferenza-massaggiatrice-o-massaggiatore); [promo e fedeltà del cliente](#promo-e-fedeltà-del-cliente); [conferme e promemoria WhatsApp](#conferme-e-promemoria-whatsapp); [firme e storico](#firme-e-storico); [chiusure con giorni esclusi](#chiusure-con-giorni-esclusi); [Proponi data](#proponi-data) nelle richieste, con trattamenti alternativi e prezzo; [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
+Aggiornata alla 2.3.9: [promo salvate e modelli](#promo-salvate-e-modelli-239); [Promo e Impostazioni](#promo-e-impostazioni-238); [Notifiche](#notifiche-236); [messaggi e chat](#messaggi-e-chat-235); [preferenza massaggiatrice/massaggiatore](#preferenza-massaggiatrice-o-massaggiatore); [promo e fedeltà del cliente](#promo-e-fedeltà-del-cliente); [conferme e promemoria WhatsApp](#conferme-e-promemoria-whatsapp); [firme e storico](#firme-e-storico); [chiusure con giorni esclusi](#chiusure-con-giorni-esclusi); [Proponi data](#proponi-data) nelle richieste, con trattamenti alternativi e prezzo; [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
 
 Questa guida mostra ogni scheda della dashboard **Spa Booking** e spiega a
 cosa serve ogni funzione. Le immagini sono state fatte con dati di prova.
@@ -32,6 +32,35 @@ in Impostazioni › Aspetto).
 
 
 
+
+## Promo salvate e modelli (2.3.9)
+
+In Configurazione › Promo › **Campagna promo**:
+
+- **Le tue promo** elenca le campagne salvate, con lo stato (Programmata, Ogni
+  giorno, Inviata, Scaduta, Bozza) e quando parte l'invio automatico. «Modifica»
+  la apre, il cestino la elimina (chiede conferma). «Nuova promo» ne crea una
+  vuota.
+- **Crea da un modello**: tocca un tema (Natale, San Valentino, Pasqua, Black
+  Friday, Weekend relax, Compleanno…) e la promo nasce con testo sul benessere
+  in spa, codice con l'anno (es. NATALE26), giorno e ora di invio e scadenza
+  già pronti per la prossima ricorrenza. Modifica quello che vuoi e premi
+  «Salva».
+- Nella promo, il passo **Tema e nome** cambia tema: testo, codice e date si
+  aggiornano (se avevi già cambiato il testo chiede prima conferma).
+- Il passo **Quando** sceglie **A mano** (con «Invia»), **Un giorno preciso**
+  (giorno e ora di inizio, una volta sola) o **Ogni giorno** (dal giorno, all'ora
+  indicata, fino alla scadenza). La frase sotto dice esattamente quando inizia
+  l'invio automatico e avvisa se l'orario è già passato o è dopo la scadenza.
+- Più promo possono essere programmate insieme: ognuna parte all'ora sua, una
+  volta al giorno al massimo.
+
+Il tema «Compleanno» è un'offerta per tutti i clienti (festeggiare o regalare
+un compleanno): Spa Booking non conosce le date di nascita dei clienti.
+
+| | |
+|---|---|
+| ![Le tue promo](anteprime/35-promo-elenco.png) | ![Modifica promo](anteprime/36-promo-modifica.png) |
 
 ## Promo e Impostazioni (2.3.8)
 

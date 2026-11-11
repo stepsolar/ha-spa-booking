@@ -4990,31 +4990,51 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "deposit_request_sent": appointment["deposit_request_sent"],
         }
 
-    def format_promo(self, client: dict[str, Any], code: str = "") -> str:
+    def format_promo(
+        self,
+        client: dict[str, Any],
+        code: str = "",
+        promo: dict[str, Any] | None = None,
+    ) -> str:
         """Return the promotional message personalised for one guest.
 
         ``{nome}`` / ``{cognome}`` / ``{codice}`` are filled from the client
-        card and her latest booking. The template itself is editable from the
-        Promo tab.
+        card and her latest booking; ``{codice_promo}`` / ``{scadenza_promo}``
+        from the promo. Without ``promo`` the old single promo of the settings
+        is used.
         """
-        template = str(
-            self._data.get(KEY_SETTINGS, {}).get("promo_message") or ""
-        ).strip() or DEFAULT_PROMO_MESSAGE
+        settings = self._data.get(KEY_SETTINGS, {})
+        if promo is None:
+            promo = {
+                "message": settings.get("promo_message"),
+                "code": settings.get("promo_code"),
+                "expiry": settings.get("promo_expiry"),
+            }
+        template = str(promo.get("message") or "").strip() or DEFAULT_PROMO_MESSAGE
         first_name = str(client.get("first_name") or "").strip()
         last_name = str(client.get("last_name") or "").strip()
-        settings = self._data.get(KEY_SETTINGS, {})
         return (
             template.replace("{nome}", first_name or "ospite")
             .replace("{cognome}", last_name)
             .replace("{codice}", str(code or ""))
-            .replace("{codice_promo}", str(settings.get("promo_code") or ""))
-            .replace("{scadenza_promo}", _date_it(str(settings.get("promo_expiry") or "")))
+            .replace("{codice_promo}", str(promo.get("code") or ""))
+            .replace("{scadenza_promo}", _date_it(str(promo.get("expiry") or "")))
         )
 
-    def _promo_expiry(self) -> date | None:
+    def _promo_expiry(self, promo: dict[str, Any] | None = None) -> date | None:
         """The last day the promo may go out, or None when it has no expiry."""
-        raw = str(self._data.get(KEY_SETTINGS, {}).get("promo_expiry") or "")
+        source = promo.get("expiry") if promo is not None else (
+            self._data.get(KEY_SETTINGS, {}).get("promo_expiry")
+        )
+        raw = str(source or "")
         return datetime.strptime(raw, "%Y-%m-%d").date() if raw else None
+
+    def _promo_by_id(self, promo_id: str) -> dict[str, Any]:
+        """One saved promo campaign (2.3.9)."""
+        for promo in self._data.get(KEY_SETTINGS, {}).get("promos") or []:
+            if promo.get("id") == promo_id:
+                return promo
+        raise ValidationError("Promo non trovata: forse è stata eliminata")
 
     def _last_client_code(self, client_id: str) -> str:
         """The booking reference of this client's most recent appointment."""
@@ -5055,23 +5075,33 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         client_ids: list[str] | None = None,
         *,
         message: str | None = None,
+        promo_id: str | None = None,
     ) -> dict[str, Any]:
         """Broadcast the promotional message to the chosen clients.
 
         Each send is spaced out by ``promo_interval_sec`` so the WAHA add-on is
-        never flooded. Without ``client_ids`` every client with a phone gets it;
-        without ``message`` the saved template is used.
+        never flooded. Without ``client_ids`` every client with a phone gets it.
+        ``promo_id`` picks a saved campaign (its text, code and expiry);
+        ``message`` replaces the text.
         """
-        template = (
-            message.strip()
-            if message is not None
-            else str(
-                self._data.get(KEY_SETTINGS, {}).get("promo_message") or ""
-            ).strip()
-            or DEFAULT_PROMO_MESSAGE
+        promo: dict[str, Any] | None = (
+            self._promo_by_id(promo_id) if promo_id else None
         )
-        expiry = self._promo_expiry()
-        if expiry and dt_util.now().date() > expiry:
+        if message is not None and message.strip():
+            base = promo or {
+                "code": self._data.get(KEY_SETTINGS, {}).get("promo_code"),
+                "expiry": self._data.get(KEY_SETTINGS, {}).get("promo_expiry"),
+            }
+            text_promo: dict[str, Any] | None = {**base, "message": message.strip()}
+        else:
+            text_promo = promo
+        template = (
+            str((text_promo or {}).get("message") or "").strip()
+            if text_promo is not None
+            else str(self._data.get(KEY_SETTINGS, {}).get("promo_message") or "").strip()
+        ) or DEFAULT_PROMO_MESSAGE
+        expiry = self._promo_expiry(text_promo)
+        if expiry and dt_util.as_local(dt_util.utcnow()).date() > expiry:
             raise ValidationError(
                 f"La promo è scaduta il {expiry:%d/%m/%Y}: non può più essere inviata"
             )
@@ -5088,7 +5118,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         failed = 0
         for client in recipients:
             personal = self.format_promo(
-                client, self._last_client_code(client["id"])
+                client, self._last_client_code(client["id"]), text_promo
             )
             chat_id = messaging.whatsapp_chat_id(client["phone"])
             if not chat_id:
@@ -5126,7 +5156,11 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
             if interval:
                 await asyncio.sleep(interval)
-        if sent:
+        if promo is not None:
+            # Counted on the campaign too, for the list in the Promo tab.
+            promo["sent_count"] = int(promo.get("sent_count") or 0) + sent
+            promo["sent_at"] = dt_util.utcnow().isoformat()
+        if sent or promo is not None:
             async with self._lock:
                 await self._async_save()
         _LOGGER.info(
@@ -5143,46 +5177,53 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         }
 
     async def async_scheduled_promo(self) -> dict[str, Any]:
-        """Daily automatic broadcast fired by the YAML automation.
+        """Automatic sends of the saved promo campaigns.
 
-        Only runs when ``promo_time`` is set and the current local time matches
-        it; skips silently otherwise so the timer tick is a no-op on days the
-        reception wants no promo.
+        Called every few minutes by the scheduler. A campaign is due from its
+        ``time`` for one hour (a tick that lands late still sends, a restart in
+        the afternoon does not fire a morning promo), on its ``date`` when it
+        goes once, or every day from its ``date`` until its expiry. Each one is
+        stamped before sending, so it never goes out twice in a day.
         """
         settings = self._data.get(KEY_SETTINGS, {})
-        promo_time = str(settings.get("promo_time") or "").strip()
-        if not promo_time:
-            return {"sent": 0, "total": 0, "reason": "promo non programmata"}
         now_local = dt_util.as_local(dt_util.utcnow())
-        current_hm = f"{now_local.hour:02d}:{now_local.minute:02d}"
-        # Due from ``promo_time`` for one hour: a tick that lands a minute late
-        # (busy system, restart) still sends, but a restart in the afternoon
-        # does not fire a morning promo hours later.
-        target = self._minutes_of(promo_time)
-        late = now_local.hour * 60 + now_local.minute - target
-        if target < 0 or not 0 <= late < 60:
-            return {
-                "sent": 0,
-                "total": 0,
-                "reason": f"orario attuale {current_hm} != {promo_time}",
-            }
-        expiry = self._promo_expiry()
-        if expiry and now_local.date() > expiry:
-            return {"sent": 0, "total": 0, "reason": "promo scaduta"}
-        single = str(settings.get("promo_date") or "")
-        if single and now_local.date().strftime("%Y-%m-%d") != single:
-            return {"sent": 0, "total": 0, "reason": f"data singola {single} diversa da oggi"}
         today = now_local.date().isoformat()
-        if settings.get("promo_last_sent_on") == today:
-            # The internal timer and an old automation may both fire in the
-            # same minute: the broadcast goes out once a day, never twice.
-            return {"sent": 0, "total": 0, "reason": "promo già inviata oggi"}
-        await self._async_stamp_setting("promo_last_sent_on", today)
-        result = await self.async_send_promo()
-        if single:
-            # A one-off send runs once: the date is cleared so it does not repeat.
-            await self.async_update_settings(promo_date="")
-        return result
+        minutes_now = now_local.hour * 60 + now_local.minute
+        results: dict[str, Any] = {}
+        for promo in list(settings.get("promos") or []):
+            mode = promo.get("mode")
+            if mode not in ("giorno", "ogni") or not promo.get("time"):
+                continue
+            target = self._minutes_of(str(promo["time"]))
+            if target < 0 or not 0 <= minutes_now - target < 60:
+                continue
+            start = str(promo.get("date") or "")
+            if mode == "giorno" and start != today:
+                continue
+            if mode == "ogni" and start and today < start:
+                continue
+            if mode == "giorno" and promo.get("last_sent_on"):
+                continue
+            if promo.get("last_sent_on") == today:
+                continue
+            expiry = self._promo_expiry(promo)
+            if expiry and now_local.date() > expiry:
+                continue
+            async with self._lock:
+                promo["last_sent_on"] = today
+                await self._async_save()
+            try:
+                results[promo["id"]] = await self.async_send_promo(
+                    promo_id=promo["id"]
+                )
+            except ValidationError as err:
+                results[promo["id"]] = {"sent": 0, "reason": str(err)}
+        if not results:
+            return {"sent": 0, "total": 0, "reason": "nessuna promo da inviare ora"}
+        return {
+            "sent": sum(int(r.get("sent") or 0) for r in results.values()),
+            "promos": results,
+        }
 
     def _operator_message_text(
         self, operator: dict[str, Any], kind: str
@@ -6530,6 +6571,32 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Update the notification settings, ignoring unknown keys."""
         async with self._lock:
             settings = dict(self._data[KEY_SETTINGS])
+            if isinstance(changes.get("promos"), list):
+                # What the sends wrote stays: the card only edits the campaign.
+                done = {
+                    p.get("id"): p for p in settings.get("promos") or []
+                }
+                kept = []
+                for item in changes["promos"]:
+                    if not isinstance(item, dict):
+                        continue
+                    item = dict(item)
+                    before = done.get(item.get("id"))
+                    if before is None:
+                        item.update(
+                            last_sent_on="", sent_at="", sent_count=0,
+                            created_at=dt_util.utcnow().isoformat(),
+                        )
+                    else:
+                        for key in ("last_sent_on", "sent_at", "sent_count", "created_at"):
+                            item[key] = before.get(key)
+                        if (item.get("mode"), item.get("date")) != (
+                            before.get("mode"), before.get("date")
+                        ):
+                            # A new day (or way) of sending: it may go again.
+                            item["last_sent_on"] = ""
+                    kept.append(item)
+                changes["promos"] = kept
             for key, value in changes.items():
                 if key in settings and value is not None:
                     settings[key] = value

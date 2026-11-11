@@ -836,6 +836,8 @@ UPDATE_SETTINGS_SCHEMA = vol.Schema(
         vol.Optional("promo_date"): vol.Any(cv.string, None),
         vol.Optional("promo_code"): vol.Any(cv.string, None),
         vol.Optional("promo_expiry"): vol.Any(cv.string, None),
+        # The saved campaigns (2.3.9); each is checked by _norm_promo.
+        vol.Optional("promos"): vol.Any(vol.All(cv.ensure_list, [dict]), None),
         vol.Optional("promo_voucher_message"): vol.Any(cv.string, None),
         vol.Optional("promo_voucher_days"): vol.Any(vol.All(vol.Coerce(int), vol.Range(min=1, max=3650)), None),
         vol.Optional("promo_voucher_discount"): vol.Any(vol.All(vol.Coerce(int), vol.Range(min=1, max=100)), None),
@@ -1161,6 +1163,7 @@ SEND_PROMO_SCHEMA = vol.Schema(
     {
         vol.Optional("client_ids"): vol.All(cv.ensure_list, [cv.string]),
         vol.Optional("message"): vol.Any(cv.string, None),
+        vol.Optional("promo_id"): vol.Any(cv.string, None),
     },
     extra=vol.PREVENT_EXTRA,
 )
@@ -1685,6 +1688,7 @@ async def _async_send_promo(call: ServiceCall) -> ServiceResponse:
     return await _coordinator(call).async_send_promo(
         data.get("client_ids"),
         message=data.get("message"),
+        promo_id=data.get("promo_id") or None,
     )
 
 

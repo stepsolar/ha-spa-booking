@@ -911,6 +911,10 @@ def _norm_settings(raw: dict[str, Any]) -> dict[str, Any]:
         "promo_date": _norm_date(raw.get("promo_date")),
         "promo_code": str(raw.get("promo_code") or "").strip(),
         "promo_expiry": _norm_date(raw.get("promo_expiry")),
+        # The saved campaigns (2.3.9): each with its own text, code, expiry and
+        # automatic start. The single promo of earlier versions becomes the
+        # first one of the list.
+        "promos": _norm_promos(raw),
         # Loyalty voucher: the thank-you message sent after the client used the
         # services, and the voucher rules. The message is a template with
         # {nome}, {cognome}, {codice}, {sconto}, {spesa_minima}, {scadenza}.
@@ -1042,6 +1046,72 @@ def _norm_count(raw: Any, low: int, high: int, default: int) -> int:
         return min(high, max(low, int(raw)))
     except (TypeError, ValueError):
         return default
+
+
+PROMO_MODES = ("adesso", "giorno", "ogni")
+
+
+def _norm_promo(raw: Any) -> dict[str, Any] | None:
+    """One saved promo campaign, or None when it is not a mapping.
+
+    ``mode`` is how it starts: ``adesso`` (sent by hand), ``giorno`` (once, on
+    ``date`` at ``time``) or ``ogni`` (every day at ``time`` from ``date``,
+    until ``expiry``). ``last_sent_on``, ``sent_at`` and ``sent_count`` are
+    written by the sends, never by the card.
+    """
+    if not isinstance(raw, dict):
+        return None
+    mode = str(raw.get("mode") or "adesso")
+    return {
+        "id": str(raw.get("id") or "").strip() or uuid4().hex[:12],
+        "name": str(raw.get("name") or "").strip() or "Promo",
+        "theme": str(raw.get("theme") or "").strip(),
+        "code": str(raw.get("code") or "").strip(),
+        "expiry": _norm_date(raw.get("expiry")),
+        "message": str(raw.get("message") or ""),
+        "mode": mode if mode in PROMO_MODES else "adesso",
+        "date": _norm_date(raw.get("date")),
+        "time": _norm_clock(raw.get("time")),
+        "last_sent_on": _norm_date(raw.get("last_sent_on")),
+        "sent_at": str(raw.get("sent_at") or ""),
+        "sent_count": _norm_count(raw.get("sent_count"), 0, 10**9, 0),
+        "created_at": str(raw.get("created_at") or ""),
+    }
+
+
+def _norm_promos(settings: dict[str, Any]) -> list[dict[str, Any]]:
+    """The saved promo campaigns; the old single promo becomes the first one."""
+    raw = settings.get("promos")
+    if isinstance(raw, list):
+        promos = [p for p in (_norm_promo(item) for item in raw) if p]
+        seen: set[str] = set()
+        unique = []
+        for promo in promos:
+            if promo["id"] in seen:
+                promo["id"] = uuid4().hex[:12]
+            seen.add(promo["id"])
+            unique.append(promo)
+        return unique
+    message = str(settings.get("promo_message") or "").strip()
+    time_ = _norm_clock(settings.get("promo_time"))
+    code = str(settings.get("promo_code") or "").strip()
+    if not (time_ or code or (message and message != DEFAULT_PROMO_MESSAGE.strip())):
+        return []
+    day = _norm_date(settings.get("promo_date"))
+    legacy = _norm_promo(
+        {
+            "id": "promo1",
+            "name": code or "Promo",
+            "code": code,
+            "expiry": settings.get("promo_expiry"),
+            "message": message or DEFAULT_PROMO_MESSAGE,
+            "mode": ("giorno" if day else "ogni") if time_ else "adesso",
+            "date": day,
+            "time": time_,
+            "last_sent_on": settings.get("promo_last_sent_on"),
+        }
+    )
+    return [legacy] if legacy else []
 
 
 def _norm_date(raw: Any) -> str:
