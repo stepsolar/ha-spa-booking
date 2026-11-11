@@ -5,7 +5,7 @@ trattamenti con durata propria, operatrici, schede cliente, agenda del giorno
 per operatrice e per categoria, pagamenti, voucher, richieste dal sito web,
 promemoria e report automatici su WhatsApp e Telegram.
 
-Versione corrente: **2.2.2** — documentazione completa in
+Versione corrente: **2.2.3** — documentazione completa in
 [`custom_components/spa_booking/README.md`](custom_components/spa_booking/README.md).
 
 **[Guida alle schede con le anteprime](docs/GUIDA.md)**: ogni scheda della
@@ -132,6 +132,14 @@ hassfest e validazione HACS a ogni push e pull request. Lavora su un branch e
 apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
+
+- **v2.2.3**:
+  - **Campo Telefono sul telefono.** Nelle schede strette, ad esempio Nuovo
+    appuntamento, Nuovo cliente o Voucher, il numero restava schiacciato in un
+    quadratino tra il prefisso e il campo Email, e si finiva per scriverlo
+    nel campo sbagliato. Ora Telefono occupa tutta la riga, con il prefisso e
+    il numero affiancati. Se lo spazio non basta, il numero va a capo sotto il
+    prefisso, a larghezza piena. Stessa protezione nel modulo del sito.
 
 - **v2.2.2**:
   - **Trattamenti alternativi in «Proponi data».** Oltre alla prima data

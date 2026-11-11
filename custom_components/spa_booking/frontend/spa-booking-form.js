@@ -397,7 +397,7 @@
     ".err{color:#c62828;font-size:14px;margin-top:10px;min-height:1px}",
     ".done{text-align:center;padding:12px 0}.tick{width:56px;height:56px;border-radius:50%;background:#e8f5e9;color:#2e7d32;font-size:30px;display:inline-flex;align-items:center;justify-content:center}",
     ".code{display:inline-block;margin:10px 0 16px;padding:8px 20px;font-size:24px;font-weight:700;letter-spacing:.08em;border:2px dashed #cfd5db;border-radius:12px;font-family:ui-monospace,Menlo,monospace}",
-    ".ph select{flex:0 0 108px}.ph input{flex:1}",
+    ".ph{flex-wrap:wrap}.ph select{flex:0 0 108px}.ph input{flex:1 1 140px;min-width:0}",
     ".honey{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}",
     "@media(max-width:520px){.sb{padding:18px 14px;border-radius:14px}h2{font-size:18px}.nav .btn{padding:11px 14px}}",
   ].join("\n");

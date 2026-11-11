@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.2.2";
+const CARD_VERSION = "2.2.3";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -17590,10 +17590,21 @@ _renderClients() {
       .empty { background: var(--sb-card); border: 1px dashed var(--sb-line); border-radius: var(--sb-radius); }
 
       /* Phone: the international prefix beside the number. */
-      .phone-field { display: flex; gap: 6px; min-width: 0; }
+      /* The number never gets squeezed to a sliver beside the prefix: below
+         ~140px it moves under the prefix, at full width. */
+      .phone-field { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
       .phone-field.grow { flex: 1 1 auto; }
       .phone-field .phone-cc { flex: 0 0 112px; width: 112px; padding-right: 4px; }
-      .phone-field .phone-number { flex: 1 1 auto; min-width: 0; }
+      .phone-field .phone-number { flex: 1 1 140px; min-width: 0; }
+      /* On a phone the Telefono field takes the whole row (Email goes below),
+         so prefix and number stay side by side and nobody types the number
+         in the next field. */
+      @container (max-width: 720px) {
+        .field-grid > .field:has(.phone-field) { grid-column: 1 / -1; }
+      }
+      @media (max-width: 720px) {
+        .field-grid > .field:has(.phone-field) { grid-column: 1 / -1; }
+      }
 
       /* Section head: icon circle, title, one line, the main action. */
       .section-head { display: flex; align-items: center; gap: 12px; padding: 2px 0 4px; }
