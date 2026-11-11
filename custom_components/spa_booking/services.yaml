@@ -1383,6 +1383,15 @@ add_closure:
       example: Ferie
       selector:
         text:
+    skip_weekdays:
+      name: Giorni esclusi
+      description: >-
+        Giorni della settimana lasciati aperti dentro il periodo
+        (0 = lunedi' … 6 = domenica). Es. [5] per chiudere tutto il mese
+        tranne i sabati.
+      example: "[5]"
+      selector:
+        object:
 
 resize_appointment_group:
   name: Cambia numero di persone

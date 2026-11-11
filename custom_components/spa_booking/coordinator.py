@@ -1122,9 +1122,12 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             first, last = last, first
         if (last - first).days >= MAX_CLOSURE_DAYS:
             last = first + timedelta(days=MAX_CLOSURE_DAYS - 1)
+        # Weekdays left open inside the range ("all November but Saturdays").
+        skip = set(closure.get("skip_weekdays") or [])
         return [
-            (first + timedelta(days=offset)).isoformat()
-            for offset in range((last - first).days + 1)
+            day.isoformat()
+            for day in (first + timedelta(days=offset) for offset in range((last - first).days + 1))
+            if day.weekday() not in skip
         ]
 
     def _closure_windows_utc(self, closure: dict[str, Any]) -> list[tuple[datetime, datetime]]:
@@ -1238,6 +1241,9 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         clock = ""
         if closure.get("start") and closure.get("end"):
             clock = f" ({closure['start']}-{closure['end']})"
+        skip = closure.get("skip_weekdays") or []
+        if skip and len(days) > 1:
+            when += f" ({skipped_days_words(skip)})"
         label = f" — {closure['label']}" if closure.get("label") else ""
         return f"{reason}{clock} {when}{label}"
 
@@ -5093,8 +5099,12 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         start: str = "",
         end: str = "",
         label: str = "",
+        skip_weekdays: list[int] | None = None,
     ) -> dict[str, Any]:
-        """Close a range of days for the facility, a category or an operator."""
+        """Close a range of days for the facility, a category or an operator.
+
+        ``skip_weekdays`` (Monday = 0) are left open inside the range.
+        """
         scope = str(scope or "facility").strip().lower()
         if scope not in CLOSURE_SCOPES:
             raise ValidationError("Ambito di chiusura non valido")
@@ -5138,8 +5148,13 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "start": str(start or "").strip()[:5],
                     "end": str(end or "").strip()[:5],
                     "label": label,
+                    "skip_weekdays": (skip_weekdays or []) if last > first else [],
                 }
             )
+            if not self._closure_days(closure):
+                raise ValidationError(
+                    "Con i giorni esclusi la chiusura non coprirebbe nessun giorno"
+                )
             self.closures.append(closure)
             await self._async_save()
         return closure
@@ -7492,3 +7507,17 @@ def _euro(value: float | None) -> str:
     if float(value).is_integer():
         return f"€ {int(value)}"
     return f"€ {value:.2f}".replace(".", ",")
+
+
+_WEEKDAY_PLURALS = (
+    "i lunedì", "i martedì", "i mercoledì", "i giovedì", "i venerdì", "i sabati", "le domeniche",
+)
+
+
+def skipped_days_words(days: list[int]) -> str:
+    """"esclusi i sabati", "esclusi i sabati e le domeniche"."""
+    words = [_WEEKDAY_PLURALS[day] for day in sorted(set(days)) if 0 <= day <= 6]
+    if not words:
+        return ""
+    joined = words[0] if len(words) == 1 else f"{', '.join(words[:-1])} e {words[-1]}"
+    return f"esclusi {joined}"

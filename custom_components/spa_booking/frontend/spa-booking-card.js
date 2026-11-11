@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.2.3";
+const CARD_VERSION = "2.2.4";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -36,6 +36,13 @@ const APPEARANCE_LABELS = {
 };
 
 const GIORNI = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"];
+const WEEKDAY_PLURALS = ["i lunedì", "i martedì", "i mercoledì", "i giovedì", "i venerdì", "i sabati", "le domeniche"];
+/** "esclusi i sabati", "esclusi i sabati e le domeniche" (Monday = 0). */
+function skippedDaysWords(days) {
+  const words = [...new Set(days)].sort().filter((d) => d >= 0 && d <= 6).map((d) => WEEKDAY_PLURALS[d]);
+  if (!words.length) return "";
+  return `esclusi ${words.length === 1 ? words[0] : `${words.slice(0, -1).join(", ")} e ${words[words.length - 1]}`}`;
+}
 const GIORNI_LONGHI = [
   "Lunedì",
   "Martedì",
@@ -12486,6 +12493,7 @@ _renderClients() {
       start: "",
       end: "",
       label: "",
+      skip_weekdays: [],
     });
 
     const scopeSelect = el("select", {
@@ -12555,14 +12563,14 @@ _renderClients() {
       el("label", { class: "field" }, el("span", {}, "Dal giorno"),
         el("input", {
           class: "input", type: "date", value: draft.date_from,
-          on: { change: (event) => { draft.date_from = event.target.value || todayStr(); } },
+          on: { change: (event) => { draft.date_from = event.target.value || todayStr(); this._render(); } },
         }))
     );
     box.appendChild(
       el("label", { class: "field" }, el("span", {}, "Al giorno"),
         el("input", {
           class: "input", type: "date", value: draft.date_to,
-          on: { change: (event) => { draft.date_to = event.target.value; } },
+          on: { change: (event) => { draft.date_to = event.target.value; this._render(); } },
         }))
     );
     box.appendChild(
@@ -12590,6 +12598,30 @@ _renderClients() {
 
     const outer = el("div", { class: "stack tight" });
     outer.appendChild(box);
+    // A range of several days can leave some weekdays open ("all November
+    // but Saturdays"). Hidden for a single day, where it would mean nothing.
+    const longRange = draft.date_to && draft.date_from && draft.date_to !== draft.date_from;
+    if (!longRange) draft.skip_weekdays = [];
+    if (longRange) {
+      const skip = draft.skip_weekdays || (draft.skip_weekdays = []);
+      outer.appendChild(el("div", { class: "field" },
+        el("span", {}, "Escludi i giorni (restano aperti)"),
+        el("div", { class: "row", style: "gap:6px;flex-wrap:wrap" },
+          ...GIORNI.map((name, index) => el("button", {
+            class: `fchip${skip.includes(index) ? " on" : ""}`,
+            type: "button",
+            "aria-pressed": skip.includes(index) ? "true" : "false",
+            on: { click: () => {
+              draft.skip_weekdays = skip.includes(index)
+                ? skip.filter((day) => day !== index) : [...skip, index].sort();
+              this._render();
+            } },
+          }, name)))));
+      if (skip.length) {
+        outer.appendChild(el("div", { class: "hint" },
+          `Chiuso ${this._closureWhen({ ...draft, date_to: draft.date_to })}.`));
+      }
+    }
     outer.appendChild(el("div", { class: "hint" },
       "Lascia vuote le fasce per chiudere la giornata intera, e vuota la data di fine per un solo giorno. " +
       "Struttura e categoria rifiutano la prenotazione; per un'operatrice la fascia resta libera e viene proposta a una collega."));
@@ -12609,6 +12641,7 @@ _renderClients() {
                 start: draft.start,
                 end: draft.end,
                 label: draft.label,
+                skip_weekdays: draft.skip_weekdays || [],
               });
               this._closureDraft = null;
               this._render();
@@ -12640,7 +12673,9 @@ _renderClients() {
       (closure.date_to && closure.date_to !== closure.date_from ? ` → ${closure.date_to}` : "");
     // Half a range means the whole day, exactly as the backend reads it.
     const clock = closure.start && closure.end ? ` · ${closure.start}–${closure.end}` : " · giornata intera";
-    return `${days}${clock}`;
+    const skip = closure.skip_weekdays || [];
+    const multi = closure.date_to && closure.date_to !== closure.date_from;
+    return `${days}${clock}${skip.length && multi ? ` · ${skippedDaysWords(skip)}` : ""}`;
   }
 
   /**
@@ -12657,8 +12692,11 @@ _renderClients() {
       if (!from) return;
       const rawTo = closure.date_to || from;
       const to = rawTo < from ? from : rawTo;
+      const skip = closure.skip_weekdays || [];
       days.forEach((key) => {
         if (key < from || key > to) return;
+        // A weekday left open inside the range (Monday = 0, as the backend).
+        if (skip.length && skip.includes((new Date(`${key}T12:00:00`).getDay() + 6) % 7)) return;
         if (!byDay.has(key)) byDay.set(key, []);
         byDay.get(key).push(closure);
       });

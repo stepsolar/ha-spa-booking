@@ -434,6 +434,9 @@ ADD_CLOSURE_SCHEMA = vol.Schema(
         vol.Optional("start", default=""): cv.string,
         vol.Optional("end", default=""): cv.string,
         vol.Optional("label", default=""): cv.string,
+        vol.Optional("skip_weekdays", default=list): vol.All(
+            cv.ensure_list, [vol.All(vol.Coerce(int), vol.Range(min=0, max=6))]
+        ),
     }
 )
 
@@ -1792,6 +1795,7 @@ async def _async_add_closure(call: ServiceCall) -> ServiceResponse:
         start=data["start"],
         end=data["end"],
         label=data["label"],
+        skip_weekdays=data["skip_weekdays"],
     )
     return {"closure": closure}
 
