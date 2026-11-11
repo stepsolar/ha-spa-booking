@@ -796,6 +796,13 @@ UPDATE_SETTINGS_SCHEMA = vol.Schema(
         vol.Optional("tab_cols"): vol.Any(dict, None),
         vol.Optional("review_request_message"): vol.Any(cv.string, None),
         vol.Optional("review_request_test_phone"): vol.Any(cv.string, None),
+        # Appointment reminder: the text, automatic or not, and how many hours
+        # before (2.3.7: the card always sent them, the schema refused them).
+        vol.Optional("appointment_reminder_message"): vol.Any(cv.string, None),
+        vol.Optional("appointment_reminder_auto"): vol.Any(cv.boolean, None),
+        vol.Optional("appointment_reminder_hours"): vol.Any(
+            vol.All(vol.Coerce(int), vol.Range(min=1, max=168)), None
+        ),
         # Automatic review requests on/off, and the hours after a treatment
         # before the request goes out on its own.
         vol.Optional("review_request_auto"): vol.Any(cv.boolean, None),

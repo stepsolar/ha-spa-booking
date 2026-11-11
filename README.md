@@ -5,7 +5,7 @@ trattamenti con durata propria, operatrici, schede cliente, agenda del giorno
 per operatrice e per categoria, pagamenti, voucher, richieste dal sito web,
 promemoria e report automatici su WhatsApp e Telegram.
 
-Versione corrente: **2.3.6** — documentazione completa in
+Versione corrente: **2.3.7** — documentazione completa in
 [`custom_components/spa_booking/README.md`](custom_components/spa_booking/README.md).
 
 **[Guida alle schede con le anteprime](docs/GUIDA.md)**: ogni scheda della
@@ -132,6 +132,14 @@ hassfest e validazione HACS a ogni push e pull request. Lavora su un branch e
 apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
+
+- **v2.3.7**:
+  - **Correzione salvataggio Notifiche.** «Salva» dava l'errore «not a valid
+    option at 'appointment_reminder_message'». Il servizio `update_settings`
+    non accettava le impostazioni del promemoria appuntamento (testo, invio
+    automatico, ore), quindi neanche prima si potevano salvare. Ora le accetta,
+    e un test controlla che ogni impostazione salvata dalla scheda Notifiche
+    sia accettata.
 
 - **v2.3.6** — Notifiche riorganizzate:
   - Quattro sotto-schede: **Messaggi agli ospiti**, **Operatrici**, **Report**

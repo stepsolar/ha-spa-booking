@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.3.6";
+const CARD_VERSION = "2.3.7";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -13266,7 +13266,7 @@ _renderClients() {
     const draft = this._notifyDraft || (this._notifyDraft = { ...settings });
     if (!draft.notify_test_phone) {
       draft.notify_test_phone = settings.summary_test_phone || settings.deposit_test_phone
-        || settings.review_request_test_phone || settings.report_whatsapp_test || "";
+        || settings.review_request_test_phone || "";
     }
     const tab = this._notifyTab || "ospiti";
     const wrap = el("div", { class: "stack nt" });
@@ -13327,7 +13327,7 @@ _renderClients() {
       if (draft[key] === undefined) return;
       payload[key] = draft[key];
     });
-    ["deposit_test_phone", "summary_test_phone", "review_request_test_phone", "report_whatsapp_test"]
+    ["deposit_test_phone", "summary_test_phone", "review_request_test_phone"]
       .forEach((key) => { payload[key] = draft.notify_test_phone || ""; });
     payload.offer_timeout_hours = Number(payload.offer_timeout_hours) || 24;
     payload.offer_reminder_hours = Number(payload.offer_reminder_hours) || 0;
