@@ -465,6 +465,8 @@ def _norm_operator(raw: dict[str, Any]) -> dict[str, Any]:
         # Offers are tried in ascending priority order (lower = sooner); a
         # disabled operator receives no offers at all.
         "priority": priority,
+        # "F" a woman, "M" a man, "" not said: matched to the guest's wish.
+        "gender": _norm_preference(raw.get("gender")),
         "active": bool(raw.get("active", True)),
     }
 
@@ -1449,6 +1451,7 @@ def _norm_appointment(raw: dict[str, Any]) -> dict[str, Any]:
         # the audit trail does not vanish at the first reload.
         "created_by": str(raw.get("created_by") or "") or None,
         "created_by_name": str(raw.get("created_by_name") or ""),
+        "therapist_preference": _norm_preference(raw.get("therapist_preference")),
         # What changed, when and by whom: only the administrator sees it.
         "history": [dict(item) for item in raw.get("history") or [] if isinstance(item, dict)][-100:],
     }
@@ -1518,6 +1521,8 @@ def _norm_request(raw: dict[str, Any]) -> dict[str, Any]:
         ),
         "seen": bool(raw.get("seen", True)),
         "created_at": str(raw.get("created_at") or dt_util.utcnow().isoformat()),
+        # The guest would like a woman ("F") or a man ("M"); "" = anybody.
+        "therapist_preference": _norm_preference(raw.get("therapist_preference")),
         # Who wrote the request down: a person at the desk, or "Sito web".
         "created_by": str(raw.get("created_by") or ""),
         "created_by_name": str(raw.get("created_by_name") or ""),
@@ -1911,3 +1916,9 @@ def _price_or_none(value: Any) -> float | None:
         return round(float(value), 2)
     except (TypeError, ValueError):
         return None
+
+
+def _norm_preference(value: Any) -> str:
+    """"F", "M" or "" (a gender, or no preference)."""
+    text = str(value or "").strip().upper()[:1]
+    return {"F": "F", "D": "F", "W": "F", "M": "M", "U": "M"}.get(text, "")

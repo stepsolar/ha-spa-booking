@@ -75,6 +75,21 @@ assert(card._phoneFromChat("41791234567@c.us") === "+41791234567", "Swiss chat i
 assert(card._phoneFromChat("123456789@lid") === "", "a LID is not a phone number");
 assert(card._phoneFromChat("1203630@g.us") === "", "a group is not a phone number");
 
+// 2.3.3: «Automatica» sends every able masseuse (it used to send nobody and
+// the server refused the massage); «@F»/«@M» add the guest's preference.
+{
+  const c = makeCard();
+  c._operatorsForTreatment = () => [{ id: "op1", gender: "F" }, { id: "op2", gender: "M" }, { id: "op3", active: false }];
+  c._treatmentRequiresOperator = (t) => t.id === "t1";
+  assert(JSON.stringify(c._operatorChoice({ treatment_id: "t1", operator_id: "" })) === JSON.stringify({ operator_ids: ["op1", "op2"] }), "automatica sends the able list");
+  assert(JSON.stringify(c._operatorChoice({ treatment_id: "t1", operator_id: "@M" })) === JSON.stringify({ operator_ids: ["op1", "op2"], therapist_preference: "M" }), "automatica: only men");
+  assert(JSON.stringify(c._operatorChoice({ treatment_id: "t1", operator_id: "op1" })) === JSON.stringify({ operator_id: "op1" }), "a picked masseuse");
+  assert(JSON.stringify(c._operatorChoice({ treatment_id: "t2", operator_id: "" })) === "{}", "spa entry: nobody");
+  c._form.therapist_preference = "F";
+  c._form.treatments = [{ ...c._blankTreatment(), treatment_id: "t1", time: "10:00" }];
+  assert(c._requestRows().therapist_preference === "F", "request carries the preference");
+}
+
 // 2.2.2: alternative treatments in «Proponi data».
 (async () => {
   card = makeCard();

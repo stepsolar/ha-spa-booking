@@ -57,6 +57,7 @@
       errSend: "Invio non riuscito. Riprova o chiamaci.", errOffline: "Connessione non riuscita. Riprova tra poco.",
       errLoad: "Il modulo non è disponibile in questo momento.",
       min: "min", required: "obbligatorio",
+      pref: "Per il massaggio preferisci…", prefAny: "Indifferente", prefF: "Una massaggiatrice", prefM: "Un massaggiatore",
     },
     en: {
       step: "Step {n} of 4",
@@ -64,6 +65,7 @@
       date: "Date", people: "Guests", person: "Guest {n}",
       voucher: "Do you have a gift voucher?", voucherPh: "VCH-7K2M9Q4P", check: "Check",
       voucherOk: "Voucher valid until {d}: treatments already chosen.", voucherBad: "The voucher is not valid or has expired.",
+      pref: "For the massage you would prefer…", prefAny: "No preference", prefF: "A female therapist", prefM: "A male therapist",
       treatments: "Treatments", time: "Time", noSlots: "No free time on this date.",
       loading: "Loading…", sameAs1: "Same as guest 1", fromVoucher: "from the voucher",
       first: "First name", last: "Last name", phone: "Phone", phoneHint: "We confirm the time on WhatsApp.",
@@ -85,6 +87,7 @@
       date: "Datum", people: "Personen", person: "Person {n}",
       voucher: "Haben Sie einen Gutschein?", voucherPh: "VCH-7K2M9Q4P", check: "Prüfen",
       voucherOk: "Gutschein gültig bis {d}: Behandlungen bereits ausgewählt.", voucherBad: "Der Gutschein ist ungültig oder abgelaufen.",
+      pref: "Für die Massage bevorzugen Sie…", prefAny: "Egal", prefF: "Eine Masseurin", prefM: "Einen Masseur",
       treatments: "Behandlungen", time: "Uhrzeit", noSlots: "An diesem Tag ist keine Uhrzeit frei.",
       loading: "Wird geladen…", sameAs1: "Wie Person 1", fromVoucher: "aus dem Gutschein",
       first: "Vorname", last: "Nachname", phone: "Telefon", phoneHint: "Wir bestätigen die Uhrzeit per WhatsApp.",
@@ -135,6 +138,7 @@
     voucherMsg: "",
     persons: [{ picks: [] }],
     first: "", last: "", cc: "39", phone: "", email: "", notes: "",
+    pref: "",
     error: "",
     sending: false,
     code: "",
@@ -345,6 +349,7 @@
       email: state.email.trim(),
       notes: state.notes.trim(),
       voucher_code: state.voucher ? state.voucher.code : "",
+      therapist_preference: wantsPref() ? state.pref : "",
       language: state.lang,
     } }).then(function (data) {
       state.sending = false;
@@ -542,6 +547,28 @@
       });
       box.appendChild(card);
     });
+    // A woman or a man for the massage: asked only when a chosen massage is
+    // done by both (the site says so with gender_choice).
+    if (wantsPref()) {
+      box.appendChild(h("div", { class: "person" },
+        h("div", { class: "phead" }, h("span", null, t("pref"))),
+        h("div", { class: "chips" }, [["", "prefAny"], ["F", "prefF"], ["M", "prefM"]].map(function (choice) {
+          return h("button", {
+            type: "button", class: "chip" + (state.pref === choice[0] ? " on" : ""),
+            "aria-pressed": state.pref === choice[0] ? "true" : "false",
+            onclick: function () { state.pref = choice[0]; render(); },
+          }, t(choice[1]));
+        }))));
+    }
+  }
+
+  function wantsPref() {
+    return state.persons.some(function (person) {
+      return person.picks.some(function (pick) {
+        var item = treatment(pick.id);
+        return item && item.gender_choice;
+      });
+    });
   }
 
   function stepWho(box) {
@@ -597,6 +624,7 @@
     });
     var phone = /^(\+|00)/.test(state.phone.trim()) ? state.phone.trim() : "+" + state.cc + " " + state.phone.trim();
     rows.push([t("contact"), [state.first, state.last].join(" ").trim() + " · " + phone]);
+    if (wantsPref() && state.pref) rows.push([t("pref").replace("…", ""), t(state.pref === "F" ? "prefF" : "prefM")]);
     if (config.showPrices && total() > 0) rows.push([t("total"), money(total())]);
     box.appendChild(h("div", { class: "sum" }, rows.map(function (row) {
       return h("div", null, h("span", null, row[0]), h("span", null, row[1]));
@@ -613,6 +641,7 @@
     state.voucherCode = "";
     state.voucherMsg = "";
     state.notes = "";
+    state.pref = "";
     state.code = "";
     state.error = "";
     slotCache = {};
