@@ -1442,6 +1442,9 @@ def _norm_appointment(raw: dict[str, Any]) -> dict[str, Any]:
         # Which Home Assistant user took the booking: kept across restarts so
         # the audit trail does not vanish at the first reload.
         "created_by": str(raw.get("created_by") or "") or None,
+        "created_by_name": str(raw.get("created_by_name") or ""),
+        # What changed, when and by whom: only the administrator sees it.
+        "history": [dict(item) for item in raw.get("history") or [] if isinstance(item, dict)][-100:],
     }
 
 
@@ -1509,6 +1512,9 @@ def _norm_request(raw: dict[str, Any]) -> dict[str, Any]:
         ),
         "seen": bool(raw.get("seen", True)),
         "created_at": str(raw.get("created_at") or dt_util.utcnow().isoformat()),
+        # Who wrote the request down: a person at the desk, or "Sito web".
+        "created_by": str(raw.get("created_by") or ""),
+        "created_by_name": str(raw.get("created_by_name") or ""),
         # The acknowledgement to the guest goes out once, right after the
         # request is saved; the flag lets the desk see it and resend.
         "message_sent": bool(raw.get("message_sent", False)),

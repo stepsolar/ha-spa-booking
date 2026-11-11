@@ -315,3 +315,24 @@ def test_closure_skips_weekdays(web) -> None:
         assert "nessun giorno" in str(error)
     else:
         raise AssertionError("an empty closure must be refused")
+
+
+def test_request_remembers_who_wrote_it(web) -> None:
+    from custom_components.spa_booking.const import REQUEST_SOURCE_WEB
+    from custom_components.spa_booking.coordinator import ACTOR
+
+    coordinator, _ = web
+    treatment = coordinator.treatments[0]
+    token = ACTOR.set(("u_operator", "Laura"))
+    try:
+        desk = run(coordinator.async_create_request(
+            first_name="Rita", last_name="Bo", phone="+39 347 000 1111", date="2026-12-14",
+            people=1, entries=[{"treatment_id": treatment["id"], "time": "10:00"}]))
+    finally:
+        ACTOR.reset(token)
+    site = run(coordinator.async_create_request(
+        first_name="Ugo", last_name="Re", phone="+39 347 000 2222", date="2026-12-14",
+        people=1, entries=[{"treatment_id": treatment["id"], "time": "11:00"}], source=REQUEST_SOURCE_WEB))
+    by_id = {r["id"]: r for r in coordinator.requests}
+    assert by_id[desk.get("request", desk)["id"]]["created_by_name"] == "Laura"
+    assert by_id[site.get("request", site)["id"]]["created_by_name"] == "Sito web"

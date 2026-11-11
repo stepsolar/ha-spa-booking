@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.2.4";
+const CARD_VERSION = "2.3.0";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -2859,6 +2859,7 @@ class SpaBookingCard extends HTMLElement {
     if (this._payPopup) add(root, this._renderPayPopup());
     if (this._overlapPopup) add(root, this._renderOverlapPopup());
     if (this._proposePopup) add(root, this._renderProposePopup());
+    if (this._voucherPin) add(root, this._renderVoucherPinPopup());
     // The view container only exists once Home Assistant has rendered the
     // dashboard around us, so the header height is reclaimed here and not only
     // on connect.
@@ -3868,6 +3869,7 @@ class SpaBookingCard extends HTMLElement {
             el("ha-icon", { icon: guest.icon }),
             guest.label)
         ),
+        this._detailLine("Inserito da", this._authorText(appointment)),
         appointment.confirmed_by
           ? this._detailLine("Confermato da", appointment.confirmed_by)
           : null,
@@ -4095,6 +4097,12 @@ class SpaBookingCard extends HTMLElement {
           : null
       )
     );
+
+    // What changed and who did it: the administrator only (the server does
+    // not even send the history to the other roles).
+    if (this._can("config") && (appointment.history || []).length) {
+      add(sheet, section("Storico modifiche", this._historyList(appointment.history)));
+    }
 
     // The same actions as on the row, so the popup is a shortcut and not a
     // second, different way of working.
@@ -7428,6 +7436,39 @@ class SpaBookingCard extends HTMLElement {
     if (this._proposePopup === popup) this._render();
   }
 
+  /** "Laura · 11/11 16:58": who wrote a booking or a request down, and when. */
+  _authorText(record) {
+    let name = record.created_by_name || "";
+    if (!name && record.source === "web") name = "Sito web";
+    if (!name && record.created_by) {
+      const user = (this._users || []).find((item) => item.id === record.created_by || item.user_id === record.created_by);
+      name = user ? user.name : "";
+    }
+    const at = record.created_at ? parseDate(record.created_at) : null;
+    const when = at && !Number.isNaN(at.getTime()) ? `${shortDate(record.created_at)} ${timeOf(at)}` : "";
+    return [name || "non registrato", when].filter(Boolean).join(" · ");
+  }
+
+  /** The change history of a booking, newest first. */
+  _historyList(history) {
+    const list = el("div", { class: "history-list" });
+    [...history].reverse().forEach((entry) => {
+      const at = entry.at ? parseDate(entry.at) : null;
+      const when = at && !Number.isNaN(at.getTime()) ? `${shortDate(entry.at)} ${timeOf(at)}` : "";
+      list.appendChild(el("div", { class: "history-entry" },
+        el("div", { class: "history-head" },
+          el("span", { class: `history-action ${(entry.action || "").toLowerCase()}` }, entry.action || "Modifica"),
+          el("span", { class: "history-by" }, entry.by || "Sistema"),
+          el("span", { class: "dim" }, when)),
+        ...(entry.changes || []).map((change) => el("div", { class: "history-change" },
+          el("span", { class: "dim" }, `${change.label}: `),
+          el("span", { class: "history-old" }, change.old),
+          " → ",
+          el("span", { class: "history-new" }, change.new)))));
+    });
+    return list;
+  }
+
   _renderProposePopup() {
     const popup = this._proposePopup;
     const req = popup.req;
@@ -8117,7 +8158,6 @@ class SpaBookingCard extends HTMLElement {
 
   _voucherStepProblem(draft, step) {
     if (step >= 1) {
-      if (!(draft.created_by || "").trim()) return "Indica chi sta creando il voucher.";
       if (!(draft.buyer_name || "").trim() && !(draft.recipient_name || "").trim()) {
         return "Scrivi almeno il nome dell'acquirente o del destinatario.";
       }
@@ -8131,8 +8171,6 @@ class SpaBookingCard extends HTMLElement {
   }
 
   _voucherStepWho(draft) {
-    if (!draft.created_by) draft.created_by = this._signedInName();
-    const locked = Boolean(this._signedInName());
     const text = (label, key, placeholder) => el("label", { class: "field" },
       el("span", {}, label),
       el("input", {
@@ -8151,17 +8189,11 @@ class SpaBookingCard extends HTMLElement {
         el("div", { class: "who-title" }, el("ha-icon", { icon: "mdi:gift-outline" }), "Destinatario"),
         text("Nome e cognome", "recipient_name"),
         phone("Telefono", "recipient_phone"))));
-    wrap.appendChild(el("label", { class: "field created-by" },
-      el("span", {}, "Creato da *"),
-      el("input", {
-        class: "input", type: "text", required: true, readonly: locked ? "readonly" : null,
-        value: draft.created_by || "",
-        placeholder: "Nome di chi crea il voucher",
-        on: { input: (event) => { draft.created_by = event.target.value; }, keydown: (event) => event.stopPropagation() },
-      }),
-      el("span", { class: "dim" }, locked
-        ? "È il nome di chi è collegato: resta scritto sul voucher."
-        : "Obbligatorio: resta scritto sul voucher.")));
+    // From 2.3.0 the voucher is signed with the PIN of whoever confirms it,
+    // whoever is signed in on this device.
+    wrap.appendChild(el("div", { class: "hint created-by" },
+      el("ha-icon", { icon: "mdi:draw-pen" }),
+      " Alla conferma ti chiederemo il tuo PIN: il voucher resterà firmato con il tuo nome."));
     return wrap;
   }
 
@@ -8292,7 +8324,7 @@ class SpaBookingCard extends HTMLElement {
     this._voucherPeopleLines(draft).forEach((person) => wrap.appendChild(line(person.name, person.text)));
     wrap.appendChild(line("Valore", value ? euro(value) : "—"));
     wrap.appendChild(line("Validità", "6 mesi da oggi"));
-    wrap.appendChild(line("Creato da", draft.created_by || "—"));
+    wrap.appendChild(line("Creato da", "chi inserisce il PIN alla conferma"));
     return wrap;
   }
 
@@ -8304,13 +8336,70 @@ class SpaBookingCard extends HTMLElement {
       this._render();
       return;
     }
+    // First the signature: the PIN pad; the voucher is sent with the PIN.
+    this._voucherPin = { typed: "", error: "", busy: false };
+    this._render();
+  }
+
+  /** "Firma il voucher": 4 digits, then the voucher is created and signed. */
+  _renderVoucherPinPopup() {
+    const pin = this._voucherPin;
+    const close = () => { if (!pin.busy) { this._voucherPin = null; this._render(); } };
+    const press = (key) => {
+      if (pin.busy) return;
+      if (key === "del") pin.typed = pin.typed.slice(0, -1);
+      else if (pin.typed.length < 4) pin.typed += key;
+      pin.error = "";
+      if (pin.typed.length === 4) this._submitVoucher(pin.typed);
+      else this._render();
+    };
+    const pad = el("div", { class: "pin-pad" });
+    ["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "del"].forEach((key) => {
+      if (!key) { pad.appendChild(el("span")); return; }
+      pad.appendChild(el("button", {
+        class: "pin-key", "aria-label": key === "del" ? "Cancella" : key, disabled: pin.busy,
+        on: { click: () => press(key) },
+      }, key === "del" ? el("ha-icon", { icon: "mdi:arrow-left" }) : key));
+    });
+    const sheet = el("div", { class: "detail-sheet voucher-pin-sheet", role: "dialog", "aria-label": "Firma il voucher" },
+      el("div", { class: "section-head" },
+        el("span", { class: "section-icon" }, el("ha-icon", { icon: "mdi:draw-pen" })),
+        el("div", { class: "section-text" },
+          el("div", { class: "section-title" }, "Firma il voucher"),
+          el("div", { class: "section-sub" }, "Inserisci il tuo PIN di 4 cifre: il voucher resterà firmato con il tuo nome."))),
+      el("div", { class: "pin-dots", "aria-label": `${pin.typed.length} cifre su 4` },
+        [0, 1, 2, 3].map((i) => el("span", { class: i < pin.typed.length ? "on" : "" }))),
+      pad,
+      pin.error ? el("div", { class: "pin-error", role: "alert" }, pin.error) : null,
+      el("div", { class: "row end" },
+        el("button", { class: "btn ghost", disabled: pin.busy, on: { click: close } }, "Annulla")));
+    // Typing on a keyboard works too.
+    sheet.tabIndex = -1;
+    sheet.addEventListener("keydown", (event) => {
+      event.stopPropagation();
+      if (/^[0-9]$/.test(event.key)) press(event.key);
+      else if (event.key === "Backspace") press("del");
+      else if (event.key === "Escape") close();
+    });
+    setTimeout(() => { try { sheet.focus(); } catch (error) { /* detached */ } }, 0);
+    return el("div", {
+      class: "detail-backdrop",
+      on: { click: (event) => { if (event.target === event.currentTarget) close(); } },
+    }, sheet);
+  }
+
+  async _submitVoucher(pinCode) {
+    const draft = this._voucherDraftState();
+    const pin = this._voucherPin;
+    pin.busy = true;
+    this._render();
     try {
-      const response = await this._call("create_voucher", {
+      const response = await this._service("create_voucher", {
         buyer_name: (draft.buyer_name || "").trim(),
         buyer_phone: (draft.buyer_phone || "").trim(),
         recipient_name: (draft.recipient_name || "").trim(),
         recipient_phone: (draft.recipient_phone || "").trim(),
-        created_by: (draft.created_by || "").trim(),
+        pin: pinCode,
         people: draft.people.map((person) => ({
           name: (person.name || "").trim(),
           treatment_ids: person.treatment_ids,
@@ -8318,12 +8407,22 @@ class SpaBookingCard extends HTMLElement {
           gift_card_amount: person.gift_card_amount,
         })),
       });
+      this._voucherPin = null;
       this._voucherDraft = null;
       const voucher = response && response.voucher;
       this._voucherCreated = voucher ? voucher.id : null;
-      this._message = { kind: "ok", text: `Voucher creato: ${voucher ? voucher.code : ""}` };
+      await this._loadData();
+      this._message = {
+        kind: "ok",
+        text: `Voucher creato: ${voucher ? voucher.code : ""}${voucher && voucher.created_by_name ? `, firmato da ${voucher.created_by_name}` : ""}`,
+      };
       this._render();
-    } catch (error) { /* shown */ }
+    } catch (error) {
+      pin.busy = false;
+      pin.typed = "";
+      pin.error = this._friendlyError(error, "PIN non accettato.");
+      this._render();
+    }
   }
 
   /** Right after "Crea voucher": the code, big, with Copia and Invia. */
@@ -9211,7 +9310,9 @@ class SpaBookingCard extends HTMLElement {
                   `Alternativa: ${alt.treatment_name}${alt.price !== null && alt.price !== undefined ? ` ${euro(alt.price).replace(",00 €", " €")}` : ""}`))),
             el("div", { class: "dim small" },
               [client.phone && client.phone !== "—" ? client.phone : "", req.voucher_code ? `voucher ${req.voucher_code}` : "", `codice ${req.code || "—"}`]
-                .filter(Boolean).join(" · "))),
+                .filter(Boolean).join(" · ")),
+            el("div", { class: "dim small req-author" },
+              el("ha-icon", { icon: "mdi:account-edit-outline" }), ` Inserita da ${this._authorText(req)}`)),
           el("div", { class: "req-date" },
             el("span", { class: "req-day" }, req.date ? longDay(new Date(`${req.date}T00:00:00`)).split(" ").slice(0, 3).join(" ") : "Data da definire"),
             el("span", { class: "dim small" }, `${people} ${people === 1 ? "persona" : "persone"}`))),
@@ -12213,6 +12314,10 @@ _renderClients() {
           "Il tablet resta collegato con un utente condiviso (apri l'utente e attiva «Tablet condiviso»). ",
           "Chi lo usa tocca il proprio nome e inserisce il suo PIN di 4 cifre: ogni prenotazione e ogni voucher ",
           "portano il suo nome. Dopo qualche minuto senza tocchi il tablet torna alla scelta della persona."),
+        el("div", { class: "hint" },
+          "Il PIN serve anche a firmare i voucher, da qualunque dispositivo: ognuno deve avere il proprio, ",
+          "e due persone non possono usare lo stesso PIN. Chi vende voucher (Reception, Manager, Amministratore) ",
+          "deve avere un PIN."),
         el("label", { class: "field inline" },
           el("span", {}, "Esci da solo dopo (minuti)"),
           el("input", {
@@ -17959,6 +18064,23 @@ _renderClients() {
       .btn.propose { border-color: var(--sb-accent-line); color: var(--sb-accent); }
       .propose-sheet { display: flex; flex-direction: column; gap: 10px; max-width: 560px; }
       .propose-sheet textarea { font-size: 14px; line-height: 1.45; }
+      .voucher-pin-sheet { max-width: 360px; display: flex; flex-direction: column; gap: 14px; align-items: stretch; outline: none; }
+      .voucher-pin-sheet .pin-dots, .voucher-pin-sheet .pin-pad { align-self: center; }
+      .voucher-pin-sheet .row.end { justify-content: flex-end; }
+      .hint.created-by { display: flex; align-items: center; gap: 6px; }
+      .req-author { display: flex; align-items: center; gap: 2px; }
+      .req-author ha-icon { --mdc-icon-size: 14px; }
+      .history-list { display: flex; flex-direction: column; gap: 8px; max-height: 320px; overflow-y: auto; }
+      .history-entry { border-left: 3px solid var(--sb-accent-line, rgba(0,0,0,.15)); padding: 2px 0 2px 10px; font-size: 13px; }
+      .history-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
+      .history-action { font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: .03em; color: var(--sb-accent, var(--primary-color)); }
+      .history-action.annullata { color: var(--sb-danger-fg, #c62828); }
+      .history-action.creata { color: var(--sb-ok-fg, #2e7d32); }
+      .history-by { font-weight: 600; }
+      .history-change { margin-top: 2px; }
+      .history-old { text-decoration: line-through; color: var(--secondary-text-color); }
+      .history-new { font-weight: 600; }
+      .hint.created-by ha-icon { --mdc-icon-size: 18px; color: var(--primary-color); }
       .propose-sheet { max-height: calc(100vh - 32px); overflow-y: auto; }
       .alt-box { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: 12px;
         border: 1px dashed var(--divider-color, rgba(0,0,0,.18)); background: var(--sb-soft, rgba(0,0,0,.025)); }

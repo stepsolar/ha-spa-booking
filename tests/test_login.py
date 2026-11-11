@@ -163,10 +163,23 @@ def test_voucher_signed_by_who_is_signed_in(setup) -> None:  # noqa: F811
         "created_by": "Qualcun altro",
     }
     create = services._guarded(services.SERVICE_CREATE_VOUCHER, services._async_create_voucher)
-    voucher = run(create(_call(hass, "u_operator", data)))["voucher"]
-    # The signed-in person, not what the form says.
+    # From 2.3.0 a person signs with her PIN.
+    with pytest.raises(ValidationError, match="PIN"):
+        run(create(_call(hass, "u_operator", data)))
+    run(coordinator.async_set_user_profile("u_operator", pin="1234"))
+    run(coordinator.async_set_user_profile("u_giulia", pin="5678"))
+    voucher = run(create(_call(hass, "u_operator", {**data, "pin": "1234"})))["voucher"]
+    # The owner of the PIN, not what the form says.
     assert voucher["created_by_name"] == "Laura"
     assert voucher["created_by"] == "u_operator"
+    with pytest.raises(ValidationError, match="PIN sbagliato"):
+        run(create(_call(hass, "u_operator", {**data, "pin": "0000"})))
+    # A masseuse cannot sell vouchers even with her right PIN.
+    with pytest.raises(ValidationError, match="Reception"):
+        run(create(_call(hass, "u_operator", {**data, "pin": "5678"})))
+    # Two people may not share a PIN.
+    with pytest.raises(Exception, match="già usato"):
+        run(coordinator.async_set_user_profile("u_giulia", pin="1234"))
     # An automation has to say who made it.
     voucher = run(create(_call(hass, None, data)))["voucher"]
     assert voucher["created_by_name"] == "Qualcun altro"
@@ -204,3 +217,43 @@ def test_only_reception_may_force_category_rules(setup) -> None:  # noqa: F811
     run(create(_call(hass, "u_operator", {})))
     assert seen == [True, False]
     assert FORCE_RULES.get() is False
+
+
+def test_booking_history_and_author(setup) -> None:  # noqa: F811
+    hass, coordinator = setup
+    from custom_components.spa_booking.coordinator import ACTOR
+
+    treatment = next(t for t in coordinator.treatments if not t.get("operator_ids"))
+    # What async_load does at start-up.
+    coordinator._history_snap = {a["id"]: coordinator._history_values(a) for a in coordinator.appointments}
+    token = ACTOR.set(("u_operator", "Laura"))
+    try:
+        booked = run(coordinator.async_create_appointment(
+            first_name="Anna", last_name="Neri", phone="+39 333 0000001",
+            treatment_id=treatment["id"], start="2026-12-10T10:00:00+01:00",
+        ))
+    finally:
+        ACTOR.reset(token)
+    appt = next(a for a in coordinator.appointments if a["id"] == booked["id"])
+    assert appt["created_by_name"] == "Laura"
+    assert appt["history"][0]["action"] == "Creata" and appt["history"][0]["by"] == "Laura"
+
+    token = ACTOR.set(("u_admin_ha", "Stefano"))
+    try:
+        appt["notes"] = "Allergia agli oli"
+        run(coordinator._async_save())
+    finally:
+        ACTOR.reset(token)
+    last = appt["history"][-1]
+    assert last["by"] == "Stefano" and last["action"] == "Modificata"
+    assert last["changes"] == [{"field": "notes", "label": "Note", "old": "—", "new": "Allergia agli oli"}]
+    # Nothing changed: no entry.
+    run(coordinator._async_save())
+    assert len(appt["history"]) == 2
+
+    # Only the administrator sees it.
+    export = services._guarded(services.SERVICE_EXPORT_DATA, services._async_export_data)
+    seen = run(export(_call(hass, "u_operator")))["data"]["appointments"]
+    assert all("history" not in item for item in seen)
+    seen = run(export(_call(hass, "u_admin_ha")))["data"]["appointments"]
+    assert any(item.get("history") for item in seen)

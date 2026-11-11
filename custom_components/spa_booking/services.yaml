@@ -1528,6 +1528,15 @@ create_voucher:
         script: per un utente collegato si usa il suo nome.
       selector:
         text:
+    pin:
+      name: PIN di chi firma
+      description: >-
+        Il PIN di 4 cifre di chi crea il voucher (Configurazione › Accessi):
+        il voucher resta firmato con il suo nome. Obbligatorio per le persone;
+        un'automazione usa invece «Creato da».
+      example: "1234"
+      selector:
+        text:
 
 extend_voucher:
   name: Estendi voucher
