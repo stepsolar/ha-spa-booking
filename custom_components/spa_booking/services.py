@@ -1026,6 +1026,8 @@ REQUEST_ENTRY_SCHEMA = vol.Schema(
         # Which person of the party (0 = the one booking); website requests
         # carry it, desk requests leave it out (each entry is for everybody).
         vol.Optional("person"): vol.Any(None, vol.All(vol.Coerce(int), vol.Range(min=0))),
+        #: This person would like a woman ("F") or a man ("M") (2.3.4).
+        vol.Optional("therapist_preference"): vol.Any(vol.In(("", "F", "M")), None),
     },
     extra=vol.PREVENT_EXTRA,
 )

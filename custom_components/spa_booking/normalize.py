@@ -1488,6 +1488,8 @@ def _norm_request(raw: dict[str, Any]) -> dict[str, Any]:
         # and every entry is meant for each of the ``people``.
         if item.get("person") is not None:
             clean["person"] = _norm_person(item.get("person"))
+        if _norm_preference(item.get("therapist_preference")):
+            clean["therapist_preference"] = _norm_preference(item.get("therapist_preference"))
         entries.append(clean)
     status = raw.get("status")
     if status not in (REQUEST_PENDING, REQUEST_CONFIRMED):

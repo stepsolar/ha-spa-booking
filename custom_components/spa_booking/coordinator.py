@@ -2883,7 +2883,10 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             "client_id": request["client_id"],
                             "person": person,
                             "extras": entry.get("extras") or [],
-                            "therapist_preference": request.get("therapist_preference") or "",
+                            # The person's own wish wins over the request's.
+                            "therapist_preference": entry.get("therapist_preference")
+                            or request.get("therapist_preference")
+                            or "",
                         }
                         for person in persons
                     ],
@@ -3203,6 +3206,8 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             }
             if entry.get("person") is not None:
                 item["person"] = _norm_person(entry.get("person"))
+            if entry.get("therapist_preference") in ("F", "M"):
+                item["therapist_preference"] = entry["therapist_preference"]
             clean.append(item)
         if not clean:
             raise ValidationError("Aggiungi almeno un trattamento alla richiesta")

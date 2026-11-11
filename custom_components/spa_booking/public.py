@@ -395,6 +395,10 @@ class SpaBookingPublicRequestView(_PublicView):
                 person = entry.get("person")
                 if isinstance(person, int) and 0 <= person < 50:
                     item["person"] = person
+                # Each person says whether she'd like a woman or a man (2.3.4).
+                wish = str(entry.get("therapist_preference") or "")[:1].upper()
+                if wish in ("F", "M"):
+                    item["therapist_preference"] = wish
                 clean_entries.append(item)
             if not clean_entries:
                 raise ValidationError("Trattamento non valido nella richiesta")
