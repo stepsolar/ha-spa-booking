@@ -133,6 +133,22 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v2.3.8** — Promo e Impostazioni riorganizzate (cambia solo la card, le
+  impostazioni salvate restano le stesse):
+  - **Promo** con due sotto-schede, **Campagna promo** e **Voucher fedeltà**,
+    e i numeri in alto (iscritti, promo inviate, voucher inviati, riscattati).
+  - La campagna è in tre passi: **il messaggio** (con anteprima WhatsApp e
+    segnaposto da toccare), **a chi** e **quando** (Adesso, Un giorno preciso,
+    Ogni giorno), con una frase che dice quanto dura l'invio. Pausa e invii
+    massimi sono in «Opzioni avanzate».
+  - Il voucher fedeltà mostra la regola riassunta in una frase e l'editor del
+    messaggio con anteprima.
+  - **Impostazioni** con tre sotto-schede: **Generale** (aspetto, titolo,
+    versione), **Sito web** (in quattro passi: attivo, orari con frase
+    riassuntiva, avvisi alla reception con «Prova avviso», modulo con codice
+    da copiare) e **Dati e backup** (CSV clienti, backup JSON).
+  - Una sola barra «Salva» per pagina, che compare solo se cambi qualcosa.
+
 - **v2.3.7**:
   - **Correzione salvataggio Notifiche.** «Salva» dava l'errore «not a valid
     option at 'appointment_reminder_message'». Il servizio `update_settings`
