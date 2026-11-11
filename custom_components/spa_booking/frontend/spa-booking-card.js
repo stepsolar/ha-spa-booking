@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.3.3";
+const CARD_VERSION = "2.3.4";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -7643,6 +7643,7 @@ class SpaBookingCard extends HTMLElement {
             time: t.time || "10:00",
             extras: state.extras || [],
             // operator_id intentionally omitted for requests — reception assigns later
+            ...(t.therapist_preference ? { therapist_preference: t.therapist_preference } : {}),
           };
           if (multi) item.person = index;
           entries.push(item);
@@ -9363,9 +9364,15 @@ class SpaBookingCard extends HTMLElement {
         byPerson.get(key).push(e);
       });
       const [tone, icon, label] = source(req);
+      const wishOf = (key) => (byPerson.get(key).find((e) => e.therapist_preference) || {}).therapist_preference;
       const lines = [...byPerson.keys()].sort((a, b) => a - b).map((key) =>
         el("div", { class: "req-line" },
           people > 1 ? el("span", { class: "req-person" }, tagged ? `Persona ${key + 1}` : `${people} persone`) : null,
+          wishOf(key)
+            ? el("span", { class: "pill info", title: "Preferenza per il massaggio" },
+                el("ha-icon", { icon: wishOf(key) === "F" ? "mdi:face-woman-outline" : "mdi:face-man-outline" }),
+                wishOf(key) === "F" ? "massaggiatrice" : "massaggiatore")
+            : null,
           el("span", { class: "chips" }, byPerson.get(key).map((e) =>
             el("span", { class: "req-entry" },
               el("strong", {}, e.start || "--:--"), " ", e.treatment_name || "—")))));
@@ -9458,6 +9465,8 @@ class SpaBookingCard extends HTMLElement {
       ...this._blankTreatment(),
       treatment_id: e.treatment_id,
       time: e.time || "10:00",
+      // Kept so «Modifica» does not lose a person's wish from the website.
+      ...(e.therapist_preference ? { therapist_preference: e.therapist_preference } : {}),
     });
     // Entries that name their person (website, or saved from 2.1.1 on) go
     // in her box; older entries were meant for everybody, so each box gets

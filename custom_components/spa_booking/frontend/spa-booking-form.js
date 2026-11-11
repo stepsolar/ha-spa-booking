@@ -138,7 +138,6 @@
     voucherMsg: "",
     persons: [{ picks: [] }],
     first: "", last: "", cc: "39", phone: "", email: "", notes: "",
-    pref: "",
     error: "",
     sending: false,
     code: "",
@@ -331,7 +330,10 @@
     var entries = [];
     state.persons.forEach(function (person, index) {
       person.picks.forEach(function (pick) {
-        entries.push({ treatment_id: pick.id, time: pick.time, person: index });
+        var entry = { treatment_id: pick.id, time: pick.time, person: index };
+        var item = treatment(pick.id);
+        if (item && item.gender_choice && person.pref) entry.therapist_preference = person.pref;
+        entries.push(entry);
       });
     });
     var phone = state.phone.trim();
@@ -349,7 +351,6 @@
       email: state.email.trim(),
       notes: state.notes.trim(),
       voucher_code: state.voucher ? state.voucher.code : "",
-      therapist_preference: wantsPref() ? state.pref : "",
       language: state.lang,
     } }).then(function (data) {
       state.sending = false;
@@ -545,30 +546,31 @@
         })));
         card.appendChild(times);
       });
+      if (wantsPref(person)) card.appendChild(prefChips(person));
       box.appendChild(card);
     });
-    // A woman or a man for the massage: asked only when a chosen massage is
-    // done by both (the site says so with gender_choice).
-    if (wantsPref()) {
-      box.appendChild(h("div", { class: "person" },
-        h("div", { class: "phead" }, h("span", null, t("pref"))),
-        h("div", { class: "chips" }, [["", "prefAny"], ["F", "prefF"], ["M", "prefM"]].map(function (choice) {
-          return h("button", {
-            type: "button", class: "chip" + (state.pref === choice[0] ? " on" : ""),
-            "aria-pressed": state.pref === choice[0] ? "true" : "false",
-            onclick: function () { state.pref = choice[0]; render(); },
-          }, t(choice[1]));
-        }))));
-    }
   }
 
-  function wantsPref() {
-    return state.persons.some(function (person) {
-      return person.picks.some(function (pick) {
-        var item = treatment(pick.id);
-        return item && item.gender_choice;
-      });
+  // A woman or a man for the massage, person by person: asked only when a
+  // massage she chose is done by both (the site says so with gender_choice).
+  function wantsPref(person) {
+    return person.picks.some(function (pick) {
+      var item = treatment(pick.id);
+      return item && item.gender_choice;
     });
+  }
+
+  function prefChips(person) {
+    return h("div", { class: "times pref" },
+      h("div", { class: "tname" }, t("pref")),
+      h("div", { class: "chips" }, [["", "prefAny"], ["F", "prefF"], ["M", "prefM"]].map(function (choice) {
+        var on = (person.pref || "") === choice[0];
+        return h("button", {
+          type: "button", class: "chip" + (on ? " on" : ""),
+          "aria-pressed": on ? "true" : "false",
+          onclick: function () { person.pref = choice[0]; render(); },
+        }, t(choice[1]));
+      })));
   }
 
   function stepWho(box) {
@@ -620,11 +622,11 @@
         var item = treatment(pick.id);
         return (item ? item.name : "") + " · " + pick.time;
       }).join(", ");
+      if (wantsPref(person) && person.pref) text += " · " + t(person.pref === "F" ? "prefF" : "prefM").toLowerCase();
       rows.push([state.people > 1 ? t("person", { n: index + 1 }) : t("treatments"), text]);
     });
     var phone = /^(\+|00)/.test(state.phone.trim()) ? state.phone.trim() : "+" + state.cc + " " + state.phone.trim();
     rows.push([t("contact"), [state.first, state.last].join(" ").trim() + " · " + phone]);
-    if (wantsPref() && state.pref) rows.push([t("pref").replace("…", ""), t(state.pref === "F" ? "prefF" : "prefM")]);
     if (config.showPrices && total() > 0) rows.push([t("total"), money(total())]);
     box.appendChild(h("div", { class: "sum" }, rows.map(function (row) {
       return h("div", null, h("span", null, row[0]), h("span", null, row[1]));
@@ -641,7 +643,6 @@
     state.voucherCode = "";
     state.voucherMsg = "";
     state.notes = "";
-    state.pref = "";
     state.code = "";
     state.error = "";
     slotCache = {};

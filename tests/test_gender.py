@@ -80,3 +80,21 @@ def test_request_carries_the_preference(coordinator, sent, freeze) -> None:
     run(coordinator.async_confirm_request(request["id"]))
     booked = [a for a in coordinator.appointments if a.get("therapist_preference") == "M"]
     assert booked, "the confirmed appointment remembers the wish"
+
+
+def test_each_person_has_her_own_wish(coordinator, sent, freeze) -> None:
+    freeze("2026-11-10 08:00")
+    _team(coordinator)
+    request = run(coordinator.async_create_request(
+        first_name="Coppia", phone="+39 347 2222222", date="2026-11-14", people=2,
+        entries=[
+            {"treatment_id": MASSAGE, "time": "10:00", "person": 0, "therapist_preference": "F"},
+            {"treatment_id": MASSAGE, "time": "10:00", "person": 1, "therapist_preference": "M"},
+        ]))
+    request = request.get("request", request)
+    assert [e.get("therapist_preference") for e in request["entries"]] == ["F", "M"]
+    run(coordinator.async_confirm_request(request["id"]))
+    wishes = sorted(
+        (a["person"], a["therapist_preference"]) for a in coordinator.appointments
+        if a.get("client_id") == request["client_id"])
+    assert wishes == [(0, "F"), (1, "M")]

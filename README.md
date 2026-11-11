@@ -5,7 +5,7 @@ trattamenti con durata propria, operatrici, schede cliente, agenda del giorno
 per operatrice e per categoria, pagamenti, voucher, richieste dal sito web,
 promemoria e report automatici su WhatsApp e Telegram.
 
-Versione corrente: **2.3.3** — documentazione completa in
+Versione corrente: **2.3.4** — documentazione completa in
 [`custom_components/spa_booking/README.md`](custom_components/spa_booking/README.md).
 
 **[Guida alle schede con le anteprime](docs/GUIDA.md)**: ogni scheda della
@@ -132,6 +132,14 @@ hassfest e validazione HACS a ogni push e pull request. Lavora su un branch e
 apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
+
+- **v2.3.4**:
+  - **Preferenza per ogni persona nel modulo del sito.** «Per il massaggio
+    preferisci…» compare nel riquadro di ciascuna persona che ha scelto un
+    massaggio, quindi in una coppia una può chiedere la massaggiatrice e
+    l'altra il massaggiatore. Il riepilogo lo mostra persona per persona. La
+    richiesta lo riporta accanto a «Persona 1/2» e ogni appuntamento confermato
+    lo eredita.
 
 - **v2.3.3** — Massaggi:
   - **Correzione «Automatica».** Nel modulo Nuovo, con la massaggiatrice su
