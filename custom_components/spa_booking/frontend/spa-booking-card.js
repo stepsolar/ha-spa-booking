@@ -7369,6 +7369,7 @@ class SpaBookingCard extends HTMLElement {
       treatments: [],
       people: 1,
       persons: null,
+      new_client: false,
       request_id: "",
       pending: false,
       guest_type: GUEST_DEFAULT,
