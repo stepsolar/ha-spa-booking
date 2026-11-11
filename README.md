@@ -133,6 +133,24 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v2.3.12** — Agenda rinnovata (cambia solo la card):
+  - In alto il giorno per esteso («Sabato 14 novembre, fra 3 giorni») con le
+    frecce, «Oggi» e le viste **Timeline**, **Elenco** e **Mese**.
+  - **Striscia della settimana**: ogni giorno con il numero di appuntamenti e
+    una barretta di quanto è pieno; un tocco lo apre.
+  - I numeri del giorno sono pillole che filtrano: in sala ora, da confermare,
+    da incassare.
+  - **Timeline**: una riga per operatrice (le libere si vedono subito) e una per
+    i trattamenti senza operatrice; i blocchi sono colorati per stato
+    (confermato, in attesa, in sala, concluso), con la pausa tratteggiata e la
+    linea rossa dell'ora attuale. Tocchi un blocco e si apre la scheda con
+    tutte le azioni. A lato: uscite, prossimi arrivi con «Entrata», da
+    confermare.
+  - **Sul telefono** un elenco per fasce (mattina, pomeriggio, sera): una
+    scheda per appuntamento con un solo pulsante (Conferma, Entrata o Uscita) e
+    «⋯» per il resto.
+  - **Elenco** è la vista di prima, per operatrice.
+
 - **v2.3.11** — Nuova richiesta come Nuovo appuntamento (cambia solo la card):
   - Quattro passi: **Quando e quante persone** (con il codice voucher a
     richiesta), **Trattamenti**, **Cliente** (con ospite e preferenza
