@@ -133,6 +133,23 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v2.3.9** — Promo salvate e modelli a tema:
+  - **Le tue promo**: ogni campagna resta in un elenco, con stato
+    (Programmata, Ogni giorno, Inviata, Scaduta, Bozza), data e ora di inizio
+    dell'invio automatico, codice e scadenza. Si apre, si modifica e si elimina.
+  - **Crea da un modello**: 17 temi sul benessere in spa (Natale, Nuovo anno,
+    Inverno, San Valentino, Carnevale, Festa della donna, Festa del papà,
+    Primavera, Pasqua, Festa della mamma, Estate, Rientro d'autunno, Black
+    Friday, Weekend relax, Compleanno, Buono regalo, Ci manchi). Ognuno porta
+    testo, codice con l'anno, giorno di invio e scadenza per la prossima
+    ricorrenza (Pasqua, Carnevale e Black Friday calcolati sul calendario).
+    Cambiando tema nella promo il testo si aggiorna.
+  - Ogni promo ha il suo invio automatico: **un giorno preciso** o **ogni
+    giorno** da un giorno, con l'ora di inizio; più promo possono essere
+    programmate insieme e ognuna parte una volta sola al giorno.
+  - La promo singola delle versioni precedenti diventa la prima dell'elenco.
+  - Servizio `send_promo`: nuovo campo `promo_id`.
+
 - **v2.3.8** — Promo e Impostazioni riorganizzate (cambia solo la card, le
   impostazioni salvate restano le stesse):
   - **Promo** con due sotto-schede, **Campagna promo** e **Voucher fedeltà**,

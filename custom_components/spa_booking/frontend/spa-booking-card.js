@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.3.8";
+const CARD_VERSION = "2.3.9";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -725,6 +725,108 @@ function phoneInput(value, onChange, options = {}) {
 // -----------------------------------------------------------------------------
 // card
 // -----------------------------------------------------------------------------
+
+/* ------------------------------------------------------------------ */
+/* 2.3.9: ready-made promo themes, all on spa wellness. Each gives the  */
+/* text, a code, the suggested automatic start and the expiry, worked   */
+/* out from today (next Christmas, next Easter, next Black Friday…).    */
+/* ------------------------------------------------------------------ */
+
+/** Easter Sunday of a year (Gregorian computus). */
+const easterOf = (year) => {
+  const a = year % 19, b = Math.floor(year / 100), c = year % 100;
+  const d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31);
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(year, month - 1, day);
+};
+
+/** The n-th given weekday (0 = Sunday) of a month. */
+const nthWeekday = (year, month, weekday, n) => {
+  const first = new Date(year, month, 1);
+  return new Date(year, month, 1 + ((weekday - first.getDay() + 7) % 7) + (n - 1) * 7);
+};
+
+const PROMO_SIGN = "Lo Staff - {hotel}\n📞 +39 0925 992446";
+
+/**
+ * The promo themes. `when(year)` gives [start, expiry] for that year's
+ * event; themes without `when` are sent by hand and last `days` days.
+ */
+const PROMO_THEMES = [
+  { id: "natale", emoji: "🎄", name: "Natale", code: "NATALE", time: "10:00",
+    when: (y) => [new Date(y, 11, 1), new Date(y + 1, 0, 6)],
+    text: "Gentile {nome}, il Natale si avvicina 🎄✨\n\nQuest'anno regali (o si regali) il dono più prezioso: un momento di benessere nella nostra spa. Massaggi, rituali viso e percorsi relax, anche come buono regalo da mettere sotto l'albero 🎁\n\nCon il codice {codice_promo} per Lei il 15% di sconto, valido fino al {scadenza_promo}.\n\nPrenoti rispondendo a questo messaggio.\n\nBuone feste!\n" },
+  { id: "capodanno", emoji: "🥂", name: "Nuovo anno", code: "NUOVOANNO", time: "10:00",
+    when: (y) => [new Date(y, 11, 27), new Date(y + 1, 0, 31)],
+    text: "Gentile {nome}, buon anno da tutti noi 🥂✨\n\nCominci il nuovo anno prendendosi cura di sé: sauna, bagno turco e un massaggio drenante per ripartire dopo le feste con tutta l'energia che merita.\n\nCon il codice {codice_promo} il 15% di sconto, fino al {scadenza_promo}.\n\nLa aspettiamo!\n" },
+  { id: "inverno", emoji: "❄️", name: "Inverno", code: "INVERNO", time: "10:00",
+    when: (y) => [new Date(y, 0, 15), new Date(y, 1, 28)],
+    text: "Gentile {nome}, fuori fa freddo, da noi c'è il tepore della spa ❄️♨️\n\nSauna, bagno turco e un massaggio caldo con oli essenziali: il rifugio perfetto per le giornate d'inverno.\n\nCon il codice {codice_promo} il 10% di sconto, fino al {scadenza_promo}.\n\nLa aspettiamo!\n" },
+  { id: "sanvalentino", emoji: "❤️", name: "San Valentino", code: "LOVE", time: "10:00",
+    when: (y) => [new Date(y, 1, 4), new Date(y, 2, 0)],
+    text: "Gentile {nome}, a San Valentino regali un'emozione da vivere in due ❤️\n\nIl nostro percorso di coppia: massaggio rilassante fianco a fianco, area relax tutta per voi e una tisana finale da gustare insieme.\n\nCon il codice {codice_promo} il percorso per due è scontato del 20%, fino al {scadenza_promo}.\n\nPosti limitati: risponda a questo messaggio per prenotare.\n" },
+  { id: "carnevale", emoji: "🎭", name: "Carnevale", code: "CARNEVALE", time: "10:00",
+    when: (y) => { const e = easterOf(y); return [addDays(e, -59), addDays(e, -47)]; },
+    text: "Gentile {nome}, a Carnevale ogni scherzo vale… ma il relax è una cosa seria 🎭😊\n\nDopo coriandoli e feste, si conceda un massaggio decontratturante o un percorso sauna e bagno turco per ritrovare l'equilibrio.\n\nCon il codice {codice_promo} il 10% di sconto, fino al {scadenza_promo}.\n\nLa aspettiamo!\n" },
+  { id: "donna", emoji: "🌸", name: "Festa della donna", code: "DONNA", time: "10:00",
+    when: (y) => [new Date(y, 2, 1), new Date(y, 2, 15)],
+    text: "Gentile {nome}, l'8 marzo è il giorno giusto per dedicarsi a sé 🌸\n\nUn trattamento viso illuminante o un massaggio rilassante, per Lei o per una donna speciale da festeggiare: la nostra spa è pronta ad accogliervi.\n\nCon il codice {codice_promo} il 15% di sconto, fino al {scadenza_promo}.\n\nLa aspettiamo!\n" },
+  { id: "papa", emoji: "👔", name: "Festa del papà", code: "PAPA", time: "10:00",
+    when: (y) => [new Date(y, 2, 10), new Date(y, 2, 31)],
+    text: "Gentile {nome}, per la Festa del papà regali un'ora di relax 💆‍♂️\n\nMassaggio sportivo o decontratturante, sauna e bagno turco: il regalo perfetto per chi pensa sempre agli altri.\n\nCon il codice {codice_promo} il 15% di sconto, anche sui buoni regalo, fino al {scadenza_promo}.\n\nLa aspettiamo!\n" },
+  { id: "primavera", emoji: "🌷", name: "Primavera", code: "PRIMAVERA", time: "10:00",
+    when: (y) => [new Date(y, 2, 21), new Date(y, 3, 30)],
+    text: "Gentile {nome}, è primavera: il momento di risvegliare corpo e mente 🌷\n\nScrub corpo, massaggio linfodrenante e trattamenti viso per arrivare all'estate in piena forma.\n\nCon il codice {codice_promo} il 10% di sconto, fino al {scadenza_promo}.\n\nLa aspettiamo!\n" },
+  { id: "pasqua", emoji: "🐣", name: "Pasqua", code: "PASQUA", time: "10:00",
+    when: (y) => { const e = easterOf(y); return [addDays(e, -17), addDays(e, 8)]; },
+    text: "Gentile {nome}, con la Pasqua arriva la voglia di rinascere 🐣🌷\n\nScrub rigenerante, massaggio e area relax: un regalo da fare a sé stessi, o un'idea originale al posto del solito uovo.\n\nCon il codice {codice_promo} il 15% di sconto, fino al {scadenza_promo}.\n\nBuona Pasqua!\n" },
+  { id: "mamma", emoji: "💐", name: "Festa della mamma", code: "MAMMA", time: "10:00",
+    when: (y) => { const d = nthWeekday(y, 4, 0, 2); return [addDays(d, -10), addDays(d, 14)]; },
+    text: "Gentile {nome}, per la Festa della mamma il regalo più bello è un momento solo per lei 💐\n\nUn buono per un massaggio o un rituale viso, da usare quando vuole. Oppure venite insieme: il benessere in due è ancora più bello.\n\nCon il codice {codice_promo} il 15% di sconto, anche sui buoni regalo, fino al {scadenza_promo}.\n\nLa aspettiamo!\n" },
+  { id: "estate", emoji: "☀️", name: "Estate", code: "ESTATE", time: "10:00",
+    when: (y) => [new Date(y, 5, 10), new Date(y, 8, 15)],
+    text: "Gentile {nome}, l'estate è arrivata ☀️🌊\n\nPrepari la pelle al sole con uno scrub e un trattamento idratante, o si rigeneri dopo il mare con un massaggio rinfrescante.\n\nCon il codice {codice_promo} il 10% di sconto, fino al {scadenza_promo}.\n\nLa aspettiamo!\n" },
+  { id: "rientro", emoji: "🍂", name: "Rientro d'autunno", code: "AUTUNNO", time: "10:00",
+    when: (y) => [new Date(y, 8, 10), new Date(y, 9, 31)],
+    text: "Gentile {nome}, il rientro è più dolce con una pausa di benessere 🍂\n\nUn massaggio rilassante e un percorso sauna per ritrovare energia e lasciare fuori lo stress di settembre.\n\nCon il codice {codice_promo} il 10% di sconto, fino al {scadenza_promo}.\n\nLa aspettiamo!\n" },
+  { id: "blackfriday", emoji: "🖤", name: "Black Friday", code: "BLACKFRIDAY", time: "09:00",
+    when: (y) => { const d = addDays(nthWeekday(y, 10, 4, 4), 1); return [d, addDays(d, 3)]; },
+    text: "Gentile {nome}, è BLACK FRIDAY anche in spa 🖤✨\n\nSolo fino al {scadenza_promo}: 25% di sconto su massaggi, trattamenti e buoni regalo, perfetti da tenere da parte per Natale 🎁\n\nCodice: {codice_promo}\n\nRisponda a questo messaggio per prenotare o per il Suo buono regalo.\n" },
+  { id: "weekend", emoji: "🌿", name: "Weekend relax", code: "WEEKEND", time: "10:00",
+    // Thursday morning, valid until Sunday.
+    when: (y, today) => { const t = addDays(today, (4 - today.getDay() + 7) % 7 || 7); return [t, addDays(t, 3)]; },
+    text: "Gentile {nome}, il weekend è alle porte 🌿\n\nSi regali una pausa: massaggio rilassante, sauna e area relax per lasciarsi alle spalle la settimana.\n\nSolo per questo weekend, con il codice {codice_promo}, il 10% di sconto fino al {scadenza_promo}.\n\nPosti limitati: risponda a questo messaggio per prenotare.\n" },
+  { id: "compleanno", emoji: "🎂", name: "Compleanno", code: "AUGURI", days: 60,
+    text: "Gentile {nome}, un compleanno merita di essere festeggiato con stile 🎂🥂\n\nIl Suo o quello di una persona speciale: regali un buono spa, o venga a festeggiare con noi con un percorso relax per due.\n\nCon il codice {codice_promo} il 15% di sconto, fino al {scadenza_promo}.\n\nTanti auguri!\n" },
+  { id: "regalo", emoji: "🎁", name: "Buono regalo", code: "REGALO", days: 30,
+    text: "Gentile {nome}, cerca un regalo che fa davvero piacere? 🎁\n\nI nostri buoni spa: massaggi, rituali viso e percorsi relax, con la data scelta da chi lo riceve.\n\nCon il codice {codice_promo} il 10% di sconto sui buoni regalo, fino al {scadenza_promo}.\n\nRisponda a questo messaggio e lo prepariamo per Lei.\n" },
+  { id: "ritorno", emoji: "💌", name: "Ci manchi", code: "BENTORNATO", days: 30,
+    text: "Gentile {nome}, è da un po' che non ci vediamo e ci manca! 💌\n\nPer il Suo ritorno abbiamo pensato a un piccolo regalo: il 15% di sconto sul prossimo trattamento con il codice {codice_promo}, valido fino al {scadenza_promo}.\n\nBasta rispondere a questo messaggio per prenotare.\n" },
+];
+
+/**
+ * A theme filled in for the next time it comes round: name, text (with the
+ * hotel name), code with the year, mode, start day and time, expiry.
+ */
+const promoFromTheme = (theme, hotel, today = new Date()) => {
+  const day = startOfDay(today);
+  const text = (theme.text + PROMO_SIGN).split("{hotel}").join(hotel || "Il Marchese Hotel & Spa");
+  if (!theme.when) {
+    return { theme: theme.id, name: theme.name, message: text, mode: "adesso", date: "", time: "",
+      code: `${theme.code}${String(day.getFullYear()).slice(2)}`, expiry: ymd(addDays(day, theme.days || 30)) };
+  }
+  let [start, end] = theme.when(day.getFullYear(), day);
+  // Already over this year: next year's. Started but still running: from today.
+  if (end < day) [start, end] = theme.when(day.getFullYear() + 1, day);
+  if (start < day) start = day;
+  return { theme: theme.id, name: `${theme.name} ${start.getFullYear()}`, message: text, mode: "giorno",
+    date: ymd(start), time: theme.time || "10:00",
+    code: `${theme.code}${String(start.getFullYear()).slice(2)}`, expiry: ymd(end) };
+};
 
 class SpaBookingCard extends HTMLElement {
   constructor() {
@@ -13793,9 +13895,10 @@ _renderClients() {
         promo_voucher_max_spend: settings.promo_voucher_max_spend != null ? settings.promo_voucher_max_spend : 500,
         promo_voucher_after_hours: settings.promo_voucher_after_hours != null ? settings.promo_voucher_after_hours : 24,
         promo_voucher_auto: settings.promo_voucher_auto === true,
+        // The saved campaigns (2.3.9), each edited in place in the draft.
+        promos: JSON.parse(JSON.stringify(settings.promos || [])),
       };
       this._promoBase = JSON.stringify(this._promoDraft);
-      this._promoMode = this._promoDraft.promo_date ? "giorno" : this._promoDraft.promo_time ? "ogni" : "adesso";
     }
     const draft = this._promoDraft;
     const tab = this._promoTab || "campagna";
@@ -13825,7 +13928,12 @@ _renderClients() {
     if (tab === "campagna") wrap.appendChild(this._promoCampaign(draft, changed));
     else wrap.appendChild(this._promoLoyalty(draft, changed));
 
-    wrap.appendChild(this._pageSaveBar("promo", () => this._savePromo(), () => { this._promoDraft = null; this._render(); }));
+    wrap.appendChild(this._pageSaveBar("promo", () => this._savePromo(), () => {
+      // A promo never saved goes away with «Annulla».
+      if (!((settings.promos || []).some((p) => p.id === this._promoEditId))) this._promoEditId = null;
+      this._promoDraft = null;
+      this._render();
+    }));
     return wrap;
   }
 
@@ -13857,6 +13965,7 @@ _renderClients() {
     try {
       await this._call("update_settings", {
         ...draft,
+        promos: draft.promos.map((p) => ({ ...p, name: (p.name || "").trim() || "Promo", code: (p.code || "").trim() })),
         promo_time: (draft.promo_time || "").trim(),
         promo_code: (draft.promo_code || "").trim(),
         promo_interval_sec: Number(draft.promo_interval_sec) || 0,
@@ -13920,38 +14029,184 @@ _renderClients() {
     return node;
   }
 
+  /** The hotel name the themes sign with. */
+  _promoHotel() {
+    const settings = (this._data && this._data.settings) || {};
+    return settings.guest_header || "Il Marchese Hotel & Spa";
+  }
+
+  /** Where a saved promo stands: [label, css kind, line about when]. */
+  _promoStatus(promo) {
+    const today = ymd(new Date());
+    const now = new Date();
+    const at = promo.date && promo.time ? parseLocal(promo.date, promo.time) : null;
+    const when = at ? `${longDay(at)} alle ${promo.time}` : "";
+    const sent = promo.sent_count ? ` · inviata a ${promo.sent_count} ${promo.sent_count === 1 ? "cliente" : "clienti"}` : "";
+    if (promo.expiry && promo.expiry < today) return ["Scaduta", "muted", `Scaduta il ${this._itDate(promo.expiry)}${sent}`];
+    if (promo.mode === "giorno") {
+      if (promo.last_sent_on) return ["Inviata", "ok", `Partita ${when}${sent}`];
+      if (!at) return ["Da completare", "warn", "Manca il giorno o l'ora dell'invio automatico"];
+      if (at.getTime() + 60 * 60000 < now.getTime()) return ["Non partita", "warn", `Era per ${when}: scegli un altro giorno`];
+      return ["Programmata", "info", `Invio automatico: ${when}`];
+    }
+    if (promo.mode === "ogni") {
+      if (!promo.time) return ["Da completare", "warn", "Manca l'ora dell'invio automatico"];
+      const from = promo.date && promo.date > today ? ` dal ${this._itDate(promo.date)}` : "";
+      const to = promo.expiry ? ` fino al ${this._itDate(promo.expiry)}` : "";
+      return ["Ogni giorno", "info", `Invio automatico ogni giorno alle ${promo.time}${from}${to}${sent}`];
+    }
+    return promo.sent_count
+      ? ["Inviata", "ok", `Invio a mano${sent}`]
+      : ["Bozza", "muted", "Invio a mano, con «Invia» quando vuoi"];
+  }
+
+  /** A new promo in the draft, from a theme (or blank), opened for editing. */
+  _promoNew(theme) {
+    const draft = this._promoDraft;
+    const base = theme ? promoFromTheme(theme, this._promoHotel())
+      : { theme: "", name: "Nuova promo", mode: "adesso", date: "", time: "", code: "", expiry: "",
+        message: ((this._data.settings || {}).promo_message || "") };
+    const promo = { id: `p${Date.now().toString(36)}`, sent_count: 0, last_sent_on: "", sent_at: "", ...base };
+    draft.promos.unshift(promo);
+    this._promoEditId = promo.id;
+    this._render();
+  }
+
+  async _promoDelete(promo) {
+    if (!window.confirm(`Eliminare la promo «${promo.name}»? Non partirà più.`)) return;
+    const saved = ((this._data.settings || {}).promos || []).filter((p) => p.id !== promo.id);
+    try {
+      await this._call("update_settings", { promos: saved });
+      this._promoDraft = null;
+      this._promoEditId = null;
+      this._message = { kind: "ok", text: `Promo «${promo.name}» eliminata.` };
+      this._render();
+    } catch (error) { /* shown */ }
+  }
+
   _promoCampaign(draft, changed) {
-    const recipients = this._promoRecipients();
-    const sample = (text) => String(text || "")
-      .split("{nome}").join("Mario").split("{cognome}").join("Rossi").split("{codice}").join("ABC12")
-      .split("{codice_promo}").join(draft.promo_code || "ESTATE20")
-      .split("{scadenza_promo}").join(this._itDate(draft.promo_expiry) || "31/12/2026");
-    const input = (key, type, extra = {}) => el("input", {
-      class: "input", type, value: draft[key] ?? "", ...extra,
-      on: { input: (event) => { draft[key] = type === "number" ? event.target.value : event.target.value; changed(); if (extra.rerender) this._render(); } },
-    });
+    const editing = this._promoEditId && draft.promos.find((p) => p.id === this._promoEditId);
+    if (editing) return this._promoEditor(draft, editing, changed);
+    this._promoEditId = null;
+    this._promoScroll = null;
     const wrap = el("div", { class: "stack" });
 
-    wrap.appendChild(this._pageStep(1, "Il messaggio",
+    const list = el("div", { class: "cfg-box pg-step" },
+      el("div", { class: "pg-step-head" },
+        el("span", { class: "pg-step-title" }, "Le tue promo"),
+        el("button", { class: "btn small primary", on: { click: () => this._promoNew(null) } },
+          el("ha-icon", { icon: "mdi:plus" }), "Nuova promo")));
+    if (!draft.promos.length) {
+      list.appendChild(el("div", { class: "hint" }, "Nessuna promo salvata. Parti da un modello qui sotto o da «Nuova promo»."));
+    }
+    draft.promos.forEach((promo) => {
+      const theme = PROMO_THEMES.find((t) => t.id === promo.theme);
+      const [label, kind, line] = this._promoStatus(promo);
+      list.appendChild(el("div", { class: "pm-row" },
+        el("button", { class: "pm-main", on: { click: () => { this._promoEditId = promo.id; this._render(); } } },
+          el("span", { class: "pm-emoji" }, theme ? theme.emoji : "📣"),
+          el("span", { class: "pm-text" },
+            el("span", { class: "pm-name" }, promo.name || "Promo",
+              el("span", { class: `pm-chip ${kind}` }, label)),
+            el("span", { class: "pm-line" }, line),
+            promo.code ? el("span", { class: "pm-line" }, `Codice ${promo.code}${promo.expiry ? ` · valido fino al ${this._itDate(promo.expiry)}` : ""}`) : null)),
+        el("div", { class: "pm-actions" },
+          el("button", { class: "btn small", on: { click: () => { this._promoEditId = promo.id; this._render(); } } },
+            el("ha-icon", { icon: "mdi:pencil-outline" }), "Modifica"),
+          el("button", { class: "icon-btn danger", title: "Elimina", "aria-label": `Elimina ${promo.name}`,
+            on: { click: () => this._promoDelete(promo) } }, el("ha-icon", { icon: "mdi:trash-can-outline" })))));
+    });
+    wrap.appendChild(list);
+
+    const gallery = this._pageStep(0, "Crea da un modello",
+      el("div", { class: "hint" }, "Tocca un tema: testo, codice, data di invio e scadenza sono già pronti per la prossima ricorrenza. Poi li modifichi come vuoi."));
+    const grid = el("div", { class: "pm-themes" });
+    PROMO_THEMES.forEach((theme) => {
+      const sample = promoFromTheme(theme, this._promoHotel());
+      grid.appendChild(el("button", { class: "pm-theme", on: { click: () => this._promoNew(theme) } },
+        el("span", { class: "pm-emoji" }, theme.emoji),
+        el("span", { class: "pm-text" },
+          el("span", { class: "pm-name" }, theme.name),
+          el("span", { class: "pm-line" }, sample.mode === "giorno" ? `Parte il ${this._itDate(sample.date)}` : "Invio a mano"))));
+    });
+    gallery.appendChild(grid);
+    wrap.appendChild(gallery);
+    return wrap;
+  }
+
+  _promoEditor(draft, promo, changed) {
+    const recipients = this._promoRecipients();
+    const saved = ((this._data.settings || {}).promos || []).some((p) => p.id === promo.id);
+    const sample = (text) => String(text || "")
+      .split("{nome}").join("Mario").split("{cognome}").join("Rossi").split("{codice}").join("ABC12")
+      .split("{codice_promo}").join(promo.code || "PROMO")
+      .split("{scadenza_promo}").join(this._itDate(promo.expiry) || "31/12/2026");
+    const field = (key, type, extra = {}) => el("input", {
+      class: "input", type, value: promo[key] ?? "", ...extra,
+      on: { input: (event) => { promo[key] = event.target.value; changed(); if (extra.rerender) this._render(); } },
+    });
+    const draftField = (key) => el("input", {
+      class: "input", type: "number", min: "0", step: "1", value: draft[key] ?? "",
+      on: { input: (event) => { draft[key] = event.target.value; changed(); } },
+    });
+    const wrap = el("div", { class: "stack" });
+    if (this._promoScroll !== promo.id) {
+      // Just opened: bring its top into view (the list may be long).
+      this._promoScroll = promo.id;
+      requestAnimationFrame(() => { if (wrap.isConnected) wrap.scrollIntoView({ block: "start", behavior: "smooth" }); });
+    }
+
+    wrap.appendChild(el("div", { class: "pm-edit-head" },
+      el("button", { class: "btn small", on: { click: () => { this._promoEditId = null; this._render(); } } },
+        el("ha-icon", { icon: "mdi:arrow-left" }), "Tutte le promo"),
+      el("span", { class: "spacer" }),
+      el("button", { class: "btn small danger", on: { click: () => {
+        if (saved) { this._promoDelete(promo); return; }
+        draft.promos = draft.promos.filter((p) => p.id !== promo.id);
+        this._promoEditId = null; changed(); this._render();
+      } } }, el("ha-icon", { icon: "mdi:trash-can-outline" }), saved ? "Elimina promo" : "Scarta")));
+
+    // 1. Theme and name: picking a theme rewrites text, code and dates.
+    const pick = (id) => {
+      const theme = PROMO_THEMES.find((t) => t.id === id);
+      if (!theme) { promo.theme = ""; changed(); this._render(); return; }
+      const before = PROMO_THEMES.find((t) => t.id === promo.theme);
+      const untouched = !promo.message.trim() || (before && promo.message === promoFromTheme(before, this._promoHotel()).message);
+      if (!untouched && !window.confirm(`Sostituire testo, codice e date con il tema «${theme.name}»?`)) { this._render(); return; }
+      Object.assign(promo, promoFromTheme(theme, this._promoHotel()));
+      changed();
+      this._render();
+    };
+    wrap.appendChild(this._pageStep(1, "Tema e nome",
       el("div", { class: "nt-options" },
-        el("label", { class: "field" }, el("span", {}, "Codice promo"), input("promo_code", "text", { placeholder: "es. ESTATE20" })),
-        el("label", { class: "field" }, el("span", {}, "Valido fino al"), input("promo_expiry", "date"))),
-      this._pageEditor(draft, "promo_message",
+        el("label", { class: "field" }, el("span", {}, "Tema"),
+          el("select", { class: "input", on: { change: (event) => pick(event.target.value) } },
+            el("option", { value: "", selected: !promo.theme }, "📣 Libera (senza tema)"),
+            ...PROMO_THEMES.map((t) => el("option", { value: t.id, selected: promo.theme === t.id }, `${t.emoji} ${t.name}`)))),
+        el("label", { class: "field" }, el("span", {}, "Nome (solo per voi)"), field("name", "text", { placeholder: "es. Natale 2026" })))));
+
+    wrap.appendChild(this._pageStep(2, "Il messaggio",
+      el("div", { class: "nt-options" },
+        el("label", { class: "field" }, el("span", {}, "Codice promo"), field("code", "text", { placeholder: "es. NATALE26" })),
+        el("label", { class: "field" }, el("span", {}, "Valido fino al"), field("expiry", "date", { rerender: true }))),
+      this._pageEditor(promo, "message",
         [["{nome}", "Nome"], ["{cognome}", "Cognome"], ["{codice_promo}", "Codice promo"], ["{scadenza_promo}", "Scadenza promo"], ["{codice}", "Codice dell'ultima prenotazione"]],
         sample, changed)));
 
-    wrap.appendChild(this._pageStep(2, "A chi",
+    wrap.appendChild(this._pageStep(3, "A chi",
       el("div", { class: "pg-sum" }, el("ha-icon", { icon: "mdi:account-group-outline" }),
         el("span", {}, "Tutti i ", el("b", {}, `${recipients} clienti`),
           " con telefono che non hanno chiesto di non ricevere promo (nella scheda cliente: «Riceve promo»)."))));
 
-    // When: now (by hand), one given day, every day.
-    const mode = this._promoMode || "adesso";
+    // 4. When: by hand, once on a day, every day from a day.
+    const mode = promo.mode || "adesso";
     const setMode = (next) => {
-      this._promoMode = next;
-      if (next === "adesso") { draft.promo_time = ""; draft.promo_date = ""; }
-      if (next === "ogni") draft.promo_date = "";
-      if (next !== "adesso" && !draft.promo_time) draft.promo_time = "10:00";
+      promo.mode = next;
+      if (next !== "adesso") {
+        if (!promo.time) promo.time = "10:00";
+        if (!promo.date) promo.date = ymd(addDays(new Date(), 1));
+      }
+      changed();
       this._render();
     };
     const interval = Number(draft.promo_interval_sec) || 0;
@@ -13964,39 +14219,50 @@ _renderClients() {
     }
     const minutes = Math.max(1, Math.round(seconds / 60));
     const pace = `Parte un messaggio ogni ${interval} secondi${maxSends ? `, al massimo ${maxSends} ogni ${windowMin} minuti` : ""}: circa ${minutes} ${minutes === 1 ? "minuto" : "minuti"} per tutti i ${recipients} clienti.`;
-    const whenLine = mode === "giorno"
-      ? (draft.promo_date ? `Partirà il ${this._itDate(draft.promo_date)} alle ${draft.promo_time || "—"}, una volta sola.` : "Scegli il giorno.")
-      : mode === "ogni" ? `Parte ogni giorno alle ${draft.promo_time || "—"} a tutti i clienti iscritti.` : "Parte quando premi «Invia».";
+    const at = promo.date && promo.time ? parseLocal(promo.date, promo.time) : null;
+    let whenLine = "Parte quando premi «Invia».";
+    if (mode === "giorno") {
+      whenLine = at ? `Inizio invio automatico: ${longDay(at)} alle ${promo.time}, una volta sola.` : "Scegli giorno e ora dell'invio automatico.";
+    } else if (mode === "ogni") {
+      whenLine = promo.time
+        ? `Inizio invio automatico: ${at ? `${longDay(at)} alle ${promo.time}` : `oggi alle ${promo.time}`}, poi ogni giorno alla stessa ora${promo.expiry ? ` fino al ${this._itDate(promo.expiry)}` : " (senza scadenza: ogni giorno!)"}.`
+        : "Scegli l'ora dell'invio automatico.";
+    }
+    const late = mode === "giorno" && at && at.getTime() + 60 * 60000 < Date.now() && !promo.last_sent_on;
+    const afterExpiry = mode !== "adesso" && promo.expiry && promo.date && promo.date > promo.expiry;
     const advanced = el("details", { class: "pg-adv" },
-      el("summary", {}, "Opzioni avanzate (pausa tra invii, invii massimi)"),
+      el("summary", {}, "Opzioni avanzate (pausa tra invii, invii massimi, valgono per tutte le promo)"),
       el("div", { class: "nt-options" },
-        el("label", { class: "field" }, el("span", {}, "Pausa tra invii (secondi)"), input("promo_interval_sec", "number", { min: "0", step: "1" })),
-        el("label", { class: "field" }, el("span", {}, "Invii massimi (0 = nessun limite)"), input("promo_max_sends", "number", { min: "0", step: "1" })),
-        el("label", { class: "field" }, el("span", {}, "ogni (minuti)"), input("promo_window_min", "number", { min: "1", step: "1" }))),
+        el("label", { class: "field" }, el("span", {}, "Pausa tra invii (secondi)"), draftField("promo_interval_sec")),
+        el("label", { class: "field" }, el("span", {}, "Invii massimi (0 = nessun limite)"), draftField("promo_max_sends")),
+        el("label", { class: "field" }, el("span", {}, "ogni (minuti)"), draftField("promo_window_min"))),
       el("div", { class: "hint" }, "La pausa evita che WhatsApp consideri gli invii come spam."));
     if (this._promoAdvOpen) advanced.open = true;
     advanced.addEventListener("toggle", () => { this._promoAdvOpen = advanced.open; });
 
     const send = async () => {
-      if (!window.confirm(`Inviare la promo a ${recipients} clienti adesso?`)) return;
+      if (!window.confirm(`Inviare «${promo.name}» a ${recipients} clienti adesso?`)) return;
       if (JSON.stringify(this._promoDraft) !== this._promoBase && !(await this._savePromo())) return;
       try {
         this._busy = true;
         this._render();
-        const result = await this._call("send_promo", { message: (this._data.settings || {}).promo_message || draft.promo_message || "" });
+        const result = await this._call("send_promo", { promo_id: promo.id });
         this._message = { kind: "ok", text: `Promo inviata a ${result.sent} clienti (${result.failed} non riusciti).` };
       } catch (error) { /* shown */ } finally { this._busy = false; this._render(); }
     };
-    wrap.appendChild(this._pageStep(3, "Quando",
+    wrap.appendChild(this._pageStep(4, "Quando",
       el("div", { class: "pg-seg", role: "radiogroup" },
-        [["adesso", "Adesso"], ["giorno", "Un giorno preciso"], ["ogni", "Ogni giorno"]].map(([id, label]) => el("button", {
+        [["adesso", "A mano"], ["giorno", "Un giorno preciso"], ["ogni", "Ogni giorno"]].map(([id, label]) => el("button", {
           type: "button", class: mode === id ? "on" : "", role: "radio", "aria-checked": mode === id ? "true" : "false",
           on: { click: () => setMode(id) },
         }, label))),
       mode !== "adesso" ? el("div", { class: "nt-options" },
-        mode === "giorno" ? el("label", { class: "field" }, el("span", {}, "Giorno"), input("promo_date", "date", { rerender: true })) : null,
-        el("label", { class: "field" }, el("span", {}, "Ora"), input("promo_time", "time", { rerender: true }))) : null,
-      el("div", { class: "pg-sum" }, el("ha-icon", { icon: "mdi:timer-outline" }), el("span", {}, `${whenLine} ${pace}`)),
+        el("label", { class: "field" }, el("span", {}, mode === "giorno" ? "Giorno dell'invio" : "Dal giorno"), field("date", "date", { rerender: true })),
+        el("label", { class: "field" }, el("span", {}, "Ora di inizio invio"), field("time", "time", { rerender: true }))) : null,
+      el("div", { class: `pg-sum${late || afterExpiry ? " warn" : ""}` }, el("ha-icon", { icon: "mdi:calendar-clock" }),
+        el("span", {}, el("b", {}, whenLine), " ", pace,
+          late ? " Attenzione: questo orario è già passato, la promo non partirà." : "",
+          afterExpiry ? " Attenzione: l'invio è dopo la scadenza del codice." : "")),
       advanced,
       el("div", { class: "nt-foot" },
         el("span", { class: "spacer" }),
@@ -14005,12 +14271,12 @@ _renderClients() {
             phoneInput(this._promoTestPhone || "", (value) => { this._promoTestPhone = value; })),
           el("button", {
             class: "btn small wa", disabled: this._busy,
-            on: { click: () => this._pageTest(this._promoTestPhone, sample(draft.promo_message)) },
+            on: { click: () => this._pageTest(this._promoTestPhone, sample(promo.message)) },
           }, el("ha-icon", { icon: "mdi:whatsapp" }), "Prova su WhatsApp")),
-        mode === "adesso" ? el("button", {
+        el("button", {
           class: "btn primary", disabled: this._busy || !recipients || !this._can("offers"),
           on: { click: send },
-        }, el("ha-icon", { icon: "mdi:send" }), `Invia a ${recipients} clienti`) : null)));
+        }, el("ha-icon", { icon: "mdi:send" }), mode === "adesso" ? `Invia a ${recipients} clienti` : "Invia subito"))));
     return wrap;
   }
 
@@ -18444,6 +18710,33 @@ _renderClients() {
       .operators-column:only-child { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 10px; align-items: start; }
       .operators-column:only-child > .column-header { grid-column: 1 / -1; }
       .icon-btn.danger-icon { color: var(--sb-danger-fg, #c62828); }
+      /* 2.3.9: saved promos and themes */
+      .pg-step-head .btn { margin-left: auto; }
+      .pg-sum.warn { background: var(--sb-warn-bg); border-color: transparent; }
+      .pg-sum.warn ha-icon { color: var(--sb-warn-fg); }
+      .pm-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--sb-line); border-radius: 12px; }
+      .pm-main { all: unset; cursor: pointer; flex: 1; min-width: 0; display: flex; align-items: flex-start; gap: 12px; }
+      .pm-main:focus-visible { outline: 2px solid var(--primary-color); border-radius: 8px; }
+      .pm-emoji { flex: none; width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; font-size: 22px; background: var(--sb-soft); }
+      .pm-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+      .pm-name { font-weight: 700; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+      .pm-line { font-size: 12.5px; color: var(--secondary-text-color); }
+      .pm-chip { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--sb-off-bg); color: var(--sb-off-fg); }
+      .pm-chip.ok { background: var(--sb-ok-bg); color: var(--sb-ok-fg); }
+      .pm-chip.info { background: var(--sb-info-bg); color: var(--sb-info-fg); }
+      .pm-chip.warn { background: var(--sb-warn-bg); color: var(--sb-warn-fg); }
+      .pm-actions { display: flex; align-items: center; gap: 6px; flex: none; }
+      .pm-themes { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 190px), 1fr)); gap: 8px; }
+      .pm-theme { all: unset; cursor: pointer; display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 12px; border: 1px solid var(--sb-line); background: var(--sb-card, transparent); }
+      .pm-theme:hover { border-color: var(--primary-color); }
+      .pm-theme:focus-visible { outline: 2px solid var(--primary-color); }
+      .pm-theme .pm-emoji { width: 34px; height: 34px; font-size: 19px; }
+      .pm-edit-head { display: flex; align-items: center; gap: 8px; }
+      @media (max-width: 600px) {
+        .pm-row { flex-wrap: wrap; }
+        .pm-actions { width: 100%; justify-content: flex-end; }
+      }
+
       /* 2.3.8: Promo and Impostazioni */
       .pg-step { display: flex; flex-direction: column; gap: 12px; }
       .pg-step-head { display: flex; align-items: center; gap: 10px; }
