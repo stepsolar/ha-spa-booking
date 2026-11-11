@@ -230,10 +230,13 @@ HISTORY_FIELDS: Final = (
     ("notes", "Note"),
     ("cancel_reason", "Motivo annullamento"),
     ("confirmation_sent_at", "Conferma WhatsApp"),
+    ("deposit_request_sent_at", "Richiesta acconto"),
     ("reminder_sent_at", "Promemoria WhatsApp"),
 )
 #: Entries kept per appointment, the oldest dropped first.
 HISTORY_MAX: Final = 100
+#: Messages kept per WhatsApp conversation, the oldest dropped first.
+CHAT_MAX_MESSAGES: Final = 500
 
 
 def acting_person() -> tuple[str, str]:
@@ -272,6 +275,11 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Recent WhatsApp messages from numbers that are neither clients nor
         # operators, so the desk can read and answer external requests.
         self._external_messages: deque[dict[str, Any]] = deque(maxlen=20)
+        # The WhatsApp conversations of the WhatsApp tab (2.3.5): kept on disk
+        # in their own file, so a restart loses nothing; only a manager
+        # deletes a chat, or all of them.
+        self._chats_store: Store = Store(hass, 1, "spa_booking.chats")
+        self._chats: dict[str, list[dict[str, Any]]] = {}
         # The tracked fields of every appointment at the last save: what the
         # next save compares against to write the change history.
         self._history_snap: dict[str, dict[str, Any]] | None = None
@@ -315,6 +323,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self._store.async_save(self._data)
         await self.async_refresh_card_version()
         self._history_snap = {a["id"]: self._history_values(a) for a in self.appointments}
+        await self._async_load_chats()
         self.async_set_updated_data(self._data)
 
     async def async_add_external_message(self, chat_id: str, text: str) -> None:
@@ -331,11 +340,64 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "received_at": dt_util.now().isoformat(),
         }
         self._external_messages.appendleft(entry)
+        self._chat_add(chat_id, {"dir": "in", "text": text, "at": entry["received_at"]})
         self.async_update_listeners()
         self.hass.bus.async_fire(
             EVENT_EXTERNAL_MESSAGE,
             {"chat_id": chat_id, "text": text},
         )
+
+    async def _async_load_chats(self) -> None:
+        stored = await self._chats_store.async_load()
+        chats = (stored or {}).get("chats") if isinstance(stored, dict) else None
+        self._chats = {
+            str(chat_id): [dict(m) for m in messages if isinstance(m, dict)][-CHAT_MAX_MESSAGES:]
+            for chat_id, messages in (chats or {}).items()
+            if isinstance(messages, list)
+        }
+        # The sensor (and automations) see the latest incoming messages again.
+        incoming = sorted(
+            (
+                {"chat_id": chat_id, "text": m.get("text", ""), "received_at": m.get("at", "")}
+                for chat_id, messages in self._chats.items()
+                for m in messages
+                if m.get("dir") == "in"
+            ),
+            key=lambda m: m["received_at"],
+            reverse=True,
+        )
+        self._external_messages.clear()
+        self._external_messages.extend(incoming[:20])
+
+    def _chat_add(self, chat_id: str, message: dict[str, Any]) -> None:
+        """Note a message of a conversation and save it (debounced)."""
+        messages = self._chats.setdefault(str(chat_id), [])
+        messages.append(message)
+        del messages[:-CHAT_MAX_MESSAGES]
+        self._chats_store.async_delay_save(lambda: {"chats": self._chats}, 2)
+
+    def whatsapp_chats(self) -> list[dict[str, Any]]:
+        """Every conversation, the most recent first, with its messages."""
+        chats = [
+            {"chat_id": chat_id, "messages": messages, "last_at": messages[-1].get("at", "") if messages else ""}
+            for chat_id, messages in self._chats.items()
+        ]
+        return sorted(chats, key=lambda chat: chat["last_at"], reverse=True)
+
+    async def async_delete_chats(self, chat_id: str | None = None) -> int:
+        """Delete one conversation, or all of them when ``chat_id`` is None."""
+        if chat_id is None:
+            removed = len(self._chats)
+            self._chats = {}
+            self._external_messages.clear()
+        else:
+            removed = 1 if self._chats.pop(str(chat_id), None) is not None else 0
+            kept = [m for m in self._external_messages if m.get("chat_id") != chat_id]
+            self._external_messages.clear()
+            self._external_messages.extend(kept)
+        await self._chats_store.async_save({"chats": self._chats})
+        self.async_update_listeners()
+        return removed
 
     @property
     def external_messages(self) -> list[dict[str, Any]]:
@@ -568,7 +630,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 return str(value)
             local = dt_util.as_local(moment)
             return f"{_day_words(local.date().isoformat())} {local.strftime('%H:%M')}"
-        if key in ("confirmation_sent_at", "reminder_sent_at"):
+        if key in ("confirmation_sent_at", "reminder_sent_at", "deposit_request_sent_at"):
             moment = dt_util.parse_datetime(str(value))
             if moment is None:
                 return str(value)
@@ -3085,6 +3147,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         appointment["reminder_sent"] = existing_appt.get("reminder_sent", False)
                         appointment["reminder_sent_at"] = existing_appt.get("reminder_sent_at", "")
                         appointment["confirmation_sent_at"] = existing_appt.get("confirmation_sent_at", "")
+                        appointment["deposit_request_sent_at"] = existing_appt.get("deposit_request_sent_at", "")
                         appointment["review_request_sent"] = existing_appt.get("review_request_sent", False)
                         appointment["deposit_request_sent"] = existing_appt.get("deposit_request_sent", False)
                         kept_ids.add(existing_appt["id"])
@@ -4152,16 +4215,20 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         entries = payload.get("entries") or []
         lines: list[str] = []
         first_time = ""
-        for entry in entries:
+        persons = {entry.get("person") for entry in entries if entry.get("person") is not None}
+        for entry in sorted(entries, key=lambda e: (e.get("person") or 0, str(e.get("time") or ""))):
             name = str(entry.get("treatment_name") or "Trattamento")
             clock = str(entry.get("time") or "")
             if clock and not first_time:
                 first_time = clock
-            lines.append(f"• {name} alle {clock}" if clock else f"• {name}")
+            line = f"• {clock} {name}" if clock else f"• {name}"
+            if len(persons) > 1:
+                line += f" · Persona {(entry.get('person') or 0) + 1}"
+            lines.append(line)
         return (
             template.replace("{nome}", str(client.get("first_name") or "").strip() or "ospite")
             .replace("{cognome}", str(client.get("last_name") or "").strip())
-            .replace("{data}", str(payload.get("date_it") or "") or "—")
+            .replace("{data}", _day_words(str(payload.get("date") or "")) if payload.get("date") else (str(payload.get("date_it") or "") or "—"))
             .replace("{ora}", first_time or "—")
             .replace("{persone}", str(payload.get("people") or 1))
             .replace("{trattamenti}", "\n".join(lines) if lines else "—")
@@ -4440,12 +4507,44 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         record = self._operator(actor)
         if reply and record:
             await self._async_reply(record, reply)
+        if handled and answer == ANSWER_DECLINE and payload.get("offer_state") == OFFER_UNASSIGNED:
+            await self._async_alert_unassigned(payload)
         return {
             "handled": handled,
             "answer": answer,
             "reason": reason,
             "appointment": payload,
         }
+
+    async def _async_alert_unassigned(self, payload: dict[str, Any]) -> None:
+        """Tell the desk that no masseuse took a booking (2.3.5).
+
+        Before, the booking only turned «Da assegnare» in the card. Now the
+        reception numbers (the ones of the website notices) get a WhatsApp
+        and Home Assistant shows a notification.
+        """
+        text = (
+            "⚠️ Nessuna massaggiatrice ha accettato "
+            f"{self._summary(payload)}.\nAssegnalo a mano da Spa Booking."
+        )
+        for target in notify_numbers(self._data[KEY_SETTINGS].get("web_notify_whatsapp")):
+            try:
+                await messaging.async_send_whatsapp(self.hass, target, text, waha=self.waha)
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.warning("Avviso «da assegnare» a %s fallito: %s", target, err)
+        try:
+            await self.hass.services.async_call(
+                "persistent_notification",
+                "create",
+                {
+                    "title": "Spa Booking: massaggio da assegnare",
+                    "message": text,
+                    "notification_id": f"spa_booking_unassigned_{payload.get('id')}",
+                },
+                blocking=False,
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("Notifica persistente non disponibile")
 
     async def async_manual_confirm_offer(
         self, appointment_id: str
@@ -4760,6 +4859,13 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         result = await messaging.async_send_whatsapp(
             self.hass, chat_id, text, waha=self.waha
         )
+        if result.get("sent"):
+            # The reply stays in the conversation, with who wrote it.
+            self._chat_add(chat_id, {
+                "dir": "out", "text": text, "at": dt_util.now().isoformat(),
+                "by": acting_person()[1],
+            })
+            self.async_update_listeners()
         return result
 
     async def async_send_guest_summary(
@@ -4787,7 +4893,9 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         chat_id = messaging.whatsapp_chat_id(phone)
         if not chat_id:
             raise ValidationError("Il cliente non ha un telefono per WhatsApp")
-        message = "\n\n".join(self.format_summary(payload) for payload in payloads)
+        # One message for the whole party (2.3.5): before, the text was
+        # repeated once per person.
+        message = self.format_summary_group(payloads)
         result = await messaging.async_send_whatsapp(
             self.hass, chat_id, message, waha=self.waha
         )
@@ -4808,7 +4916,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         }
 
     async def async_send_deposit_request(
-        self, appointment_id: str
+        self, appointment_id: str, *, resend: bool = False
     ) -> dict[str, Any]:
         """Ask one guest, by WhatsApp, to pay her deposit by bank transfer.
 
@@ -4834,7 +4942,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 raise ValidationError(
                     "Indica prima l'importo dell'acconto nella scheda pagamento"
                 )
-            if appointment.get("deposit_request_sent"):
+            if appointment.get("deposit_request_sent") and not resend:
                 raise ValidationError(
                     "La richiesta d'acconto è già stata inviata"
                 )
@@ -4845,6 +4953,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "Il cliente non ha un telefono per WhatsApp"
                 )
             appointment["deposit_request_sent"] = True
+            appointment["deposit_request_sent_at"] = dt_util.utcnow().isoformat()
             await self._async_save()
 
         message = self.format_deposit_request(payload)
@@ -5311,6 +5420,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         for appointment, nxt in advanced:
             if not nxt:
+                await self._async_alert_unassigned(self.appointment_payload(appointment))
                 continue
             record = self._operator(nxt)
             if record and record.get("notify_on_create"):
@@ -6938,11 +7048,106 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "{versato}": _money_text(totals.get("collected")),
             "{residuo}": _money_text(totals.get("due")),
             "{pagamenti}": self._payment_lines(payload),
+            "{appuntamenti}": "\n".join(self._appointment_lines([payload])),
         }
+        if "{appuntamenti}" in template:
+            values["{data}"] = _day_words(start[:10]) if start else "—"
         text = template
         for key, value in values.items():
             text = text.replace(key, value)
         return text
+
+    def _appointment_lines(
+        self, payloads: list[dict[str, Any]], *, with_day: bool | None = None
+    ) -> list[str]:
+        """"• 10:00–11:30 Massaggio Relax 90 min · Persona 2", one per booking.
+
+        The person is named only for a party; the day only when the bookings
+        are on different days.
+        """
+        ordered = sorted(payloads, key=lambda p: str(p.get("start_local") or ""))
+        persons = {p.get("person") or 0 for p in ordered}
+        days = {str(p.get("start_local") or "")[:10] for p in ordered}
+        if with_day is None:
+            with_day = len(days) > 1
+        lines = []
+        for payload in ordered:
+            start = str(payload.get("start_local") or "")
+            end = str(payload.get("end_local") or "")
+            name = str((payload.get("treatment") or {}).get("name") or "Trattamento")
+            when = start[11:16]
+            if end[11:16]:
+                when = f"{when}–{end[11:16]}"
+            if with_day and start[:10]:
+                when = f"{_day_words(start[:10])} {when}"
+            line = f"• {when} {name}".rstrip()
+            if len(persons) > 1:
+                line += f" · Persona {(payload.get('person') or 0) + 1}"
+            lines.append(line)
+        return lines
+
+    def format_summary_group(self, payloads: list[dict[str, Any]]) -> str:
+        """The confirmation of a whole booking, one message for the party.
+
+        ``{appuntamenti}`` lists every appointment; ``{data}`` is the day (or
+        the days); the money is the sum of the party. The single-appointment
+        placeholders of the old text keep working: ``{trattamento}`` lists all
+        the treatments, ``{ora}`` is the first start and ``{fine}`` the last end.
+        """
+        if len(payloads) == 1 and "{appuntamenti}" not in self._summary_template():
+            return self.format_summary(payloads[0])
+        ordered = sorted(payloads, key=lambda p: str(p.get("start_local") or ""))
+        first, last = ordered[0], ordered[-1]
+        client = first.get("client") or {}
+        settings = self._data[KEY_SETTINGS]
+        totals = {"total": 0.0, "collected": 0.0, "due": 0.0}
+        deposit = 0.0
+        payments: list[str] = []
+        for payload in ordered:
+            part = self._payment_totals(payload)
+            for key in totals:
+                totals[key] += float(part.get(key) or 0)
+            deposit += float(payload.get("deposit_amount") or 0)
+            if payload.get("payments"):
+                payments.append(self._payment_lines(payload))
+        days = sorted({str(p.get("start_local") or "")[:10] for p in ordered if p.get("start_local")})
+        day_text = " e ".join(_day_words(day) for day in days) if days else "—"
+        codes = list(dict.fromkeys(str(p.get("code") or "") for p in ordered if p.get("code")))
+        start = str(first.get("start_local") or "")
+        end = str(last.get("end_local") or "")
+        values = {
+            "{nome}": str(client.get("first_name") or "").strip() or "ospite",
+            "{cognome}": str(client.get("last_name") or "").strip(),
+            "{cliente}": str(client.get("full_name") or "").strip() or "ospite",
+            "{hotel}": str(settings.get("guest_header") or "").strip() or DEFAULT_GUEST_HEADER,
+            "{codice}": ", ".join(codes) or "—",
+            "{appuntamenti}": "\n".join(self._appointment_lines(ordered)),
+            "{trattamento}": " + ".join(
+                str((p.get("treatment") or {}).get("name") or "n/d") for p in ordered
+            ),
+            "{durata}": str(first.get("duration_min") or ""),
+            "{data}": day_text,
+            "{ora}": start[11:16] or "—",
+            "{fine}": end[11:16] or "—",
+            "{totale}": _money_text(totals["total"]),
+            "{acconto}": _money_text(deposit),
+            "{versato}": _money_text(totals["collected"]),
+            "{residuo}": _money_text(totals["due"]),
+            "{pagamenti}": "\n".join(payments) or "Nessun versamento registrato.",
+        }
+        text = self._summary_template()
+        if not totals["total"] and not totals["collected"]:
+            # No price on the booking: the money line would read "0,00 €".
+            text = "\n".join(
+                line for line in text.split("\n")
+                if not any(key in line for key in ("{totale}", "{versato}", "{residuo}"))
+            )
+        for key, value in values.items():
+            text = text.replace(key, value)
+        return text
+
+    def _summary_template(self) -> str:
+        return str(self._data[KEY_SETTINGS].get("summary_message") or "").strip() or DEFAULT_SUMMARY_MESSAGE
 
     def _payment_lines(self, payload: dict[str, Any]) -> str:
         """One line per registered taking, or a plain sentence when there is none."""
@@ -7015,30 +7220,45 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 items.append(str(treatment.get("name")))
         return ", ".join(items) if items else "n/d"
 
-    def format_appointment_reminder(self, payload: dict[str, Any]) -> str:
+    def format_appointment_reminder(
+        self, payload: dict[str, Any] | list[dict[str, Any]]
+    ) -> str:
         """Return the customizable appointment reminder message.
 
         The wording comes from the notifications tab, so the reception changes
         it without touching code; an empty setting falls back to the built-in
-        text.
+        text. Given the appointments of one guest's day (a party, or two
+        treatments) it is one message listing them all (2.3.5).
         """
         template = str(
             self._data[KEY_SETTINGS].get("appointment_reminder_message") or ""
         ).strip()
         if not template:
             template = DEFAULT_APPOINTMENT_REMINDER_MESSAGE
+        payloads = payload if isinstance(payload, list) else [payload]
+        payloads = sorted(payloads, key=lambda p: str(p.get("start_local") or ""))
+        payload = payloads[0]
 
         start = payload.get("start_local") or ""
         client = payload.get("client") or {}
 
-        treatment_names = self._treatment_names_for_payload(payload)
-        start_date = self.format_day(start) if start else "—"
+        # "Trattamenti: {trattamenti}" (the old text) wants them on one line;
+        # {trattamenti} on its own line gets one line per appointment.
+        inline = re.search(r"[^\n\s][^\n]*\{trattamenti\}", template) is not None
+        if inline:
+            treatment_names = ", ".join(
+                self._treatment_names_for_payload(p) for p in payloads
+            )
+        else:
+            treatment_names = "\n".join(self._appointment_lines(payloads, with_day=False))
+        start_date = (_day_words(start[:10]) if not inline else self.format_day(start)) if start else "—"
         start_time = start[11:16] if len(start) >= 16 else "—"
+        codes = list(dict.fromkeys(str(p.get("code") or "") for p in payloads if p.get("code")))
 
         return (
             template.replace("{nome}", str(client.get("first_name") or "").strip() or "ospite")
             .replace("{cognome}", str(client.get("last_name") or "").strip())
-            .replace("{codice}", str(payload.get("code") or "—"))
+            .replace("{codice}", ", ".join(codes) or "—")
             .replace("{data}", start_date)
             .replace("{ora}", start_time)
             .replace("{trattamenti}", treatment_names)
@@ -7113,10 +7333,28 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         now = dt_util.utcnow()
         advance_window: timedelta = timedelta(hours=hours)
         outbox: list[tuple[str, str]] = []
+        # A manual send for one appointment reminds the guest of her whole
+        # day: the party or her other treatments come in the same message.
+        wanted: set[str] | None = None
+        if appointment_id:
+            target = self._find(self.appointments, appointment_id, "Appuntamento")
+            day = (dt_util.as_local(dt_util.parse_datetime(target["start"])).date()
+                   if dt_util.parse_datetime(target["start"]) else None)
+            wanted = {
+                a["id"] for a in self.appointments
+                if a["id"] == appointment_id
+                or (
+                    a.get("client_id") and a.get("client_id") == target.get("client_id")
+                    and a["status"] == STATUS_CONFIRMED
+                    and dt_util.parse_datetime(a["start"])
+                    and dt_util.as_local(dt_util.parse_datetime(a["start"])).date() == day
+                )
+            }
+        groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
         async with self._send_lock:
             async with self._lock:
                 for appointment in self.appointments:
-                    if appointment_id and appointment["id"] != appointment_id:
+                    if wanted is not None and appointment["id"] not in wanted:
                         continue
                     if appointment["status"] != STATUS_CONFIRMED:
                         continue
@@ -7137,9 +7375,12 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     # once, a failed one is not retried an hour later.
                     appointment["reminder_sent"] = True
                     appointment["reminder_sent_at"] = now.isoformat()
-                    message = self.format_appointment_reminder(payload)
+                    local_day = str(payload.get("start_local") or "")[:10]
+                    groups.setdefault((chat_id, local_day), []).append(payload)
+                for (chat_id, _day), payloads in groups.items():
+                    message = self.format_appointment_reminder(payloads)
                     if not message:
-                        message = self.format_reminder(payload)
+                        message = self.format_reminder(payloads[0])
                     outbox.append((chat_id, message))
                 if outbox:
                     await self._async_save()

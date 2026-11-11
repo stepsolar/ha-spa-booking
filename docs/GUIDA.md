@@ -1,6 +1,6 @@
 # Spa Booking — guida alle schede (2.2)
 
-Aggiornata alla 2.3.4: [preferenza massaggiatrice/massaggiatore](#preferenza-massaggiatrice-o-massaggiatore); [promo e fedeltà del cliente](#promo-e-fedeltà-del-cliente); [conferme e promemoria WhatsApp](#conferme-e-promemoria-whatsapp); [firme e storico](#firme-e-storico); [chiusure con giorni esclusi](#chiusure-con-giorni-esclusi); [Proponi data](#proponi-data) nelle richieste, con trattamenti alternativi e prezzo; [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
+Aggiornata alla 2.3.5: [messaggi e chat](#messaggi-e-chat-235); [preferenza massaggiatrice/massaggiatore](#preferenza-massaggiatrice-o-massaggiatore); [promo e fedeltà del cliente](#promo-e-fedeltà-del-cliente); [conferme e promemoria WhatsApp](#conferme-e-promemoria-whatsapp); [firme e storico](#firme-e-storico); [chiusure con giorni esclusi](#chiusure-con-giorni-esclusi); [Proponi data](#proponi-data) nelle richieste, con trattamenti alternativi e prezzo; [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
 
 Questa guida mostra ogni scheda della dashboard **Spa Booking** e spiega a
 cosa serve ogni funzione. Le immagini sono state fatte con dati di prova.
@@ -30,6 +30,25 @@ in Impostazioni › Aspetto).
 
 
 
+
+
+## Messaggi e chat (2.3.5)
+
+- **Chat WhatsApp**: restano salvate anche dopo un riavvio di Home Assistant.
+  Il cestino in alto nella chat aperta la elimina; «Elimina tutte» le
+  cancella tutte (Manager e Amministratore). Le risposte mostrano chi le ha
+  scritte.
+- **Riepilogo (conferma)**: un solo messaggio per tutta la prenotazione, con
+  un appuntamento per riga. Segnaposto nuovo: `{appuntamenti}`.
+- **Promemoria**: uno per ospite e giorno, con tutti i suoi appuntamenti.
+- **Richiesta d'acconto**: parte dal dettaglio dell'appuntamento in attesa
+  («Richiedi acconto», poi «Reinvia richiesta»), oppure dalla domanda che
+  compare subito dopo aver salvato una prenotazione in attesa con l'acconto
+  impostato nei Totali.
+- **Nessuna massaggiatrice accetta**: la reception riceve un WhatsApp sui
+  numeri di «WhatsApp avvisi dal sito» e una notifica in Home Assistant.
+
+![Chat WhatsApp](anteprime/28-r-whatsapp.png)
 
 ## Preferenza massaggiatrice o massaggiatore
 

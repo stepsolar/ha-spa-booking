@@ -225,6 +225,26 @@ DEFAULT_DEPOSIT_IBAN: Final = "IT92Q0326882970052705511040"
 #: {intestatario}, {iban}, {codice}. Editable from the notifications tab.
 DEFAULT_DEPOSIT_MESSAGE: Final = "\n".join(
     [
+        "Gentile {nome}, grazie per aver scelto la nostra Spa 🌿",
+        "",
+        "La Sua prenotazione {codice} è registrata ed è in attesa di conferma.",
+        "Per garantirLe il posto Le chiediamo un acconto di € {importo} "
+        "con bonifico istantaneo:",
+        "",
+        "🏦 Intestatario: {intestatario}",
+        "💳 IBAN: {iban}",
+        "📝 Causale: nome e cognome + {codice}",
+        "",
+        "Appena riceviamo il bonifico Le confermiamo l'appuntamento qui su WhatsApp.",
+        "Per qualsiasi domanda ci risponda pure a questo messaggio.",
+        "",
+        "Lo Staff · Il Marchese Hotel & Spa",
+    ]
+)
+
+#: The text before 2.3.5: a stored copy of it is upgraded to the new one.
+LEGACY_DEPOSIT_MESSAGE: Final = "\n".join(
+    [
         "Gentile {nome}, la Sua prenotazione è stata registrata 📋",
         "È in attesa di conferma: per bloccare il Suo posto Le chiediamo un "
         "acconto di € {importo} tramite bonifico bancario istantaneo.",
@@ -296,6 +316,25 @@ DEFAULT_REVIEW_MESSAGE: Final = "\n".join(
 #: {cognome}, {data}, {ora}, {persone}, {trattamenti}, {codice}.
 DEFAULT_REQUEST_MESSAGE: Final = "\n".join(
     [
+        "Gentile {nome}, grazie per averci scritto! 🌿",
+        "Abbiamo ricevuto la Sua richiesta per la Spa:",
+        "",
+        "🗓️ {data}",
+        "👥 Persone: {persone}",
+        "{trattamenti}",
+        "",
+        "La richiesta è in attesa di conferma: Le scriveremo a breve "
+        "per confermare gli orari.",
+        "Codice richiesta: {codice}",
+        "",
+        "A presto,",
+        "Lo Staff · Il Marchese Hotel & Spa",
+    ]
+)
+
+#: The text before 2.3.5: a stored copy of it is upgraded to the new one.
+LEGACY_REQUEST_MESSAGE: Final = "\n".join(
+    [
         "Gentile {nome}, abbiamo ricevuto la Sua richiesta 🧖‍♀️✨",
         "Data: {data}",
         "Persone: {persone}",
@@ -340,6 +379,24 @@ DEFAULT_PROPOSE_ALT_LINE: Final = (
 #: ``{nome}`` first name, ``{cognome}`` last name, ``{codice}`` booking reference,
 #: ``{data}`` date (dd/mm/yyyy), ``{ora}`` start time, ``{trattamenti}`` treatment list.
 DEFAULT_APPOINTMENT_REMINDER_MESSAGE: Final = "\n".join(
+    [
+        "Gentile {nome}, Le ricordiamo il Suo appuntamento in Spa 🧖‍♀️✨",
+        "",
+        "🗓️ {data} alle {ora}",
+        "{trattamenti}",
+        "",
+        "Le consigliamo di arrivare 10 minuti prima. Se non potesse venire, "
+        "ci avvisi rispondendo a questo messaggio.",
+        "Codice: {codice}",
+        "",
+        "A presto!",
+        "Lo Staff · Il Marchese Hotel & Spa",
+        "📞 +39 0925 992446",
+    ]
+)
+
+#: The text before 2.3.5: a stored copy of it is upgraded to the new one.
+LEGACY_APPOINTMENT_REMINDER_MESSAGE: Final = "\n".join(
     [
         "Gentile {nome}, le ricordiamo il Suo appuntamento 🧖‍♀️✨",
         "",
@@ -425,6 +482,24 @@ PROMO_VOUCHER_CODE_PREFIX: Final = "FID-"
 #: {durata}, {data}, {ora}, {fine}, {totale}, {acconto}, {versato}, {residuo}
 #: and {pagamenti} (one line per registered taking).
 DEFAULT_SUMMARY_MESSAGE: Final = "\n".join(
+    [
+        "Gentile {nome}, la Sua prenotazione è confermata ✅",
+        "",
+        "{hotel}",
+        "🗓️ {data}",
+        "{appuntamenti}",
+        "",
+        "Codice: {codice}",
+        "💶 Totale {totale} · Versato {versato} · Da saldare {residuo}",
+        "",
+        "Le consigliamo di arrivare 10 minuti prima. Per modifiche o domande "
+        "ci risponda pure a questo messaggio.",
+        "A presto! 🧖‍♀️",
+    ]
+)
+
+#: The text before 2.3.5: a stored copy of it is upgraded to the new one.
+LEGACY_SUMMARY_MESSAGE: Final = "\n".join(
     [
         "RIEPILOGO APPUNTAMENTO",
         "",
@@ -538,11 +613,20 @@ GUEST_TYPE_DEFAULT: Final = "external"
 #: list and cannot drift. Chosen per person, so each entry of a booking row
 #: carries its own ``extras``.
 EXTRAS: Final = (
-    ("wellness_kit", "Wellness Kit", "mdi:gift-outline"),
-    ("accappatoio", "Accappatoio", "mdi:tshirt-crew-outline"),
-    ("cuffia", "Cuffia", "mdi:shower-head"),
-    ("ciabattine", "Ciabattine", "mdi:shoe-formal"),
+    ("wellness_kit", "Wellness Kit", "mdi:bag-personal-outline"),
+    ("accappatoio", "Accappatoio", "mdi:hanger"),
+    ("cuffia", "Cuffia", "mdi:swim"),
+    ("ciabattine", "Ciabattine", "mdi:shoe-ballet"),
 )
+
+#: The factory icons before 2.3.5: an accessory still showing one of them
+#: gets the new, more fitting one.
+EXTRAS_OLD_ICONS: Final = {
+    ("wellness_kit", "mdi:gift-outline"),
+    ("accappatoio", "mdi:tshirt-crew-outline"),
+    ("cuffia", "mdi:shower-head"),
+    ("ciabattine", "mdi:shoe-formal"),
+}
 
 #: Valid accessory ids, for ``vol.In``.
 EXTRAS_NAMES: Final = tuple(name for name, _, _ in EXTRAS)

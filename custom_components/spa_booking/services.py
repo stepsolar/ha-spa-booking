@@ -159,6 +159,8 @@ SERVICE_CONFIRM_REQUEST = "confirm_request"
 SERVICE_SEND_REQUEST_MESSAGE = "send_request_message"
 SERVICE_PROPOSE_REQUEST_DATE = "propose_request_date"
 SERVICE_TEST_WEB_NOTICE = "test_web_notice"
+SERVICE_WHATSAPP_CHATS = "whatsapp_chats"
+SERVICE_DELETE_WHATSAPP_CHATS = "delete_whatsapp_chats"
 SERVICE_ADD_PAYMENT = "add_payment"
 SERVICE_DELETE_PAYMENT = "delete_payment"
 #: The card's bell (clear it once the desk has read the web requests) and the
@@ -252,6 +254,8 @@ ALL_SERVICES = (
     SERVICE_SEND_REQUEST_MESSAGE,
     SERVICE_PROPOSE_REQUEST_DATE,
     SERVICE_TEST_WEB_NOTICE,
+    SERVICE_WHATSAPP_CHATS,
+    SERVICE_DELETE_WHATSAPP_CHATS,
     SERVICE_ADD_PAYMENT,
     SERVICE_DELETE_PAYMENT,
     SERVICE_MARK_REQUESTS_SEEN,
@@ -1138,7 +1142,11 @@ SEND_GUEST_SUMMARY_SCHEMA = vol.Schema(
 )
 
 SEND_DEPOSIT_REQUEST_SCHEMA = vol.Schema(
-    {vol.Required(ATTR_APPOINTMENT_ID): cv.string},
+    {
+        vol.Required(ATTR_APPOINTMENT_ID): cv.string,
+        #: Send it again (the guest lost it, or the amount changed).
+        vol.Optional("resend", default=False): cv.boolean,
+    },
     extra=vol.PREVENT_EXTRA,
 )
 
@@ -1660,7 +1668,7 @@ async def _async_send_guest_summary(call: ServiceCall) -> ServiceResponse:
 async def _async_send_deposit_request(call: ServiceCall) -> ServiceResponse:
     """Ask one guest, by WhatsApp, to pay her deposit."""
     return await _coordinator(call).async_send_deposit_request(
-        call.data[ATTR_APPOINTMENT_ID]
+        call.data[ATTR_APPOINTMENT_ID], resend=call.data.get("resend", False)
     )
 
 
@@ -1676,6 +1684,20 @@ async def _async_send_promo(call: ServiceCall) -> ServiceResponse:
 async def _async_promo_automatic(call: ServiceCall) -> ServiceResponse:
     """Daily automatic broadcast of the promotional message."""
     return await _coordinator(call).async_scheduled_promo()
+
+
+async def _async_whatsapp_chats(call: ServiceCall) -> ServiceResponse:
+    """The WhatsApp conversations of the WhatsApp tab."""
+    return {"chats": _coordinator(call).whatsapp_chats()}
+
+
+async def _async_delete_whatsapp_chats(call: ServiceCall) -> ServiceResponse:
+    """Delete one conversation (chat_id) or all of them (all: true)."""
+    chat_id = call.data.get("chat_id")
+    if not chat_id and not call.data.get("all"):
+        raise ValidationError("Indica la chat da eliminare, oppure all: true per tutte")
+    removed = await _coordinator(call).async_delete_chats(None if call.data.get("all") else chat_id)
+    return {"removed": removed}
 
 
 async def _async_test_web_notice(call: ServiceCall) -> ServiceResponse:
@@ -2784,6 +2806,17 @@ _HANDLERS: dict[str, tuple[Any, Any, SupportsResponse]] = {
     SERVICE_TEST_WEB_NOTICE: (
         _async_test_web_notice, vol.Schema({}), SupportsResponse.ONLY,
     ),
+    SERVICE_WHATSAPP_CHATS: (
+        _async_whatsapp_chats, vol.Schema({}), SupportsResponse.ONLY,
+    ),
+    SERVICE_DELETE_WHATSAPP_CHATS: (
+        _async_delete_whatsapp_chats,
+        vol.Schema({
+            vol.Optional("chat_id"): cv.string,
+            vol.Optional("all", default=False): cv.boolean,
+        }),
+        SupportsResponse.ONLY,
+    ),
     SERVICE_MARK_REQUESTS_SEEN: (
         _async_mark_requests_seen,
         MARK_REQUESTS_SEEN_SCHEMA,
@@ -2925,6 +2958,8 @@ SERVICE_LEVELS: dict[str, str] = {
     SERVICE_SEND_REQUEST_MESSAGE: "operator",
     SERVICE_PROPOSE_REQUEST_DATE: "operator",
     SERVICE_TEST_WEB_NOTICE: "manager",
+    SERVICE_WHATSAPP_CHATS: "operator",
+    SERVICE_DELETE_WHATSAPP_CHATS: "manager",
     SERVICE_MARK_REQUESTS_SEEN: "operator",
     SERVICE_SEND_GUEST_SUMMARY: "operator",
     SERVICE_SEND_DEPOSIT_REQUEST: "operator",
