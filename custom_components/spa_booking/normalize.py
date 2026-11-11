@@ -1136,6 +1136,9 @@ def _norm_client(raw: dict[str, Any]) -> dict[str, Any]:
         # true: a card without the flag (every card that predates it) keeps
         # receiving promos until the desk deliberately unsubscribes it.
         "promo_opt_in": bool(raw.get("promo_opt_in", True)),
+        # How many promo messages reached her, and the last one (2.3.2).
+        "promo_sent_count": _norm_count(raw.get("promo_sent_count"), 0, 1_000_000, 0),
+        "promo_last_sent_at": str(raw.get("promo_last_sent_at") or ""),
     }
 
 

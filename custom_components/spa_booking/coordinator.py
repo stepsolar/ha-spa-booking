@@ -4941,6 +4941,9 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
                 if result.get("sent"):
                     sent += 1
+                    # Counted on the client card (2.3.2).
+                    client["promo_sent_count"] = int(client.get("promo_sent_count") or 0) + 1
+                    client["promo_last_sent_at"] = dt_util.utcnow().isoformat()
                 else:
                     failed += 1
                     _LOGGER.warning(
@@ -4957,6 +4960,9 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
             if interval:
                 await asyncio.sleep(interval)
+        if sent:
+            async with self._lock:
+                await self._async_save()
         _LOGGER.info(
             "Promo broadcast: %d inviati, %d falliti su %d clienti",
             sent,

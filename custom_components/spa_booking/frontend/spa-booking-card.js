@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.3.1";
+const CARD_VERSION = "2.3.2";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -9365,6 +9365,14 @@ class SpaBookingCard extends HTMLElement {
               try { await this._call("send_request_message", { request_id: req.id }); } catch (error) { /* shown */ }
             } },
           }, el("ha-icon", { icon: "mdi:whatsapp" }), "Invia messaggio"),
+          // Every request saves the guest's card (by phone, never twice):
+          // this opens it, e.g. to add notes or check her history.
+          client.id && this._can("view_clients") && this._lookup.client.get(client.id)
+            ? el("button", {
+                class: "btn small", title: "Apri la scheda del cliente salvata dalla richiesta",
+                on: { click: () => this._openSearchClient({ id: client.id }) },
+              }, el("ha-icon", { icon: "mdi:account-box-outline" }), "Scheda cliente")
+            : null,
           el("div", { class: "spacer" }),
           el("button", {
             class: "icon-btn danger", title: "Elimina", disabled: this._busy,
@@ -9858,6 +9866,29 @@ _renderClients() {
     const promoVouchers = (this._data.promo_vouchers || [])
       .filter((voucher) => voucher.client_id === client.id)
       .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
+    // 2.3.2: what this guest received and used, at a glance.
+    const loyaltySent = promoVouchers.filter((voucher) => voucher.sent_at).length;
+    const loyaltyUsed = promoVouchers.filter((voucher) => voucher.redeemed_at || voucher.status === "redeemed").length;
+    const requests = (this._data.requests || []).filter((req) => req.client_id === client.id).length;
+    const lastPromo = client.promo_last_sent_at ? shortDate(client.promo_last_sent_at) : "";
+    left.appendChild(el("h3", {}, "Promo e fedeltà"));
+    left.appendChild(el("div", { class: "stats client-counters" },
+      el("div", { class: "stat" },
+        el("span", { class: "stat-label" }, "Promo inviate"),
+        el("span", { class: "stat-value" }, String(client.promo_sent_count || 0)),
+        el("span", { class: "stat-sub" }, lastPromo ? `ultima ${lastPromo}` : (client.promo_opt_in === false ? "non vuole promo" : "nessuna"))),
+      el("div", { class: "stat" },
+        el("span", { class: "stat-label" }, "Codici fedeltà inviati"),
+        el("span", { class: "stat-value" }, String(loyaltySent)),
+        el("span", { class: "stat-sub" }, `${promoVouchers.length} creati`)),
+      el("div", { class: "stat ok" },
+        el("span", { class: "stat-label" }, "Codici riscattati"),
+        el("span", { class: "stat-value" }, String(loyaltyUsed)),
+        el("span", { class: "stat-sub" }, loyaltySent ? `${Math.round((loyaltyUsed / loyaltySent) * 100)}% degli inviati` : "—")),
+      el("div", { class: "stat" },
+        el("span", { class: "stat-label" }, "Richieste"),
+        el("span", { class: "stat-value" }, String(requests)),
+        el("span", { class: "stat-sub" }, "dal sito e dal banco"))));
     if (promoVouchers.length) {
       left.appendChild(el("h3", {}, "Voucher fedeltà"));
       promoVouchers.forEach((voucher) => {
@@ -18123,6 +18154,8 @@ _renderClients() {
       .voucher-pin-sheet .row.end { justify-content: flex-end; }
       .hint.created-by { display: flex; align-items: center; gap: 6px; }
       .req-author { display: flex; align-items: center; gap: 2px; }
+      .stats.client-counters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .stat-sub { font-size: 11px; color: var(--secondary-text-color); }
       .wa-send-cell { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-start; }
       .btn.wa { background: #25d366; border-color: #25d366; color: #fff; }
       .btn.wa ha-icon { color: #fff; }

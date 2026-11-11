@@ -5,7 +5,7 @@ trattamenti con durata propria, operatrici, schede cliente, agenda del giorno
 per operatrice e per categoria, pagamenti, voucher, richieste dal sito web,
 promemoria e report automatici su WhatsApp e Telegram.
 
-Versione corrente: **2.3.1** — documentazione completa in
+Versione corrente: **2.3.2** — documentazione completa in
 [`custom_components/spa_booking/README.md`](custom_components/spa_booking/README.md).
 
 **[Guida alle schede con le anteprime](docs/GUIDA.md)**: ogni scheda della
@@ -132,6 +132,15 @@ hassfest e validazione HACS a ogni push e pull request. Lavora su un branch e
 apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
+
+- **v2.3.2** — Clienti:
+  - **Promo e fedeltà nella scheda cliente**: promo inviate (con l'ultima),
+    codici fedeltà inviati, codici riscattati (con la percentuale) e richieste
+    del cliente. Da questa versione ogni promo inviata viene contata sul
+    cliente.
+  - **Clienti dalle richieste**: ogni richiesta, dal sito o dal banco, salva
+    già la scheda del cliente (per telefono, senza doppioni); ora la scheda si
+    apre dalla richiesta con «Scheda cliente».
 
 - **v2.3.1** — WhatsApp:
   - **Conferma e promemoria dall'appuntamento.** Nel dettaglio

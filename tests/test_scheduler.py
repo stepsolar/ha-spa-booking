@@ -241,3 +241,14 @@ def test_web_notice_to_several_numbers(coordinator, sent) -> None:
     coordinator._data["settings"]["web_notify_whatsapp"] = "+39 333 1111111\n+39 347 2222222"
     result = run(coordinator.async_test_web_notice())
     assert result == {"sent": 2, "numbers": 2} and len(sent) == 2
+
+
+def test_promo_counted_on_the_client(coordinator, sent, freeze) -> None:
+    freeze("2026-11-10 10:00")
+    _confirmed_booking(coordinator, "2026-11-11 09:00")
+    client = coordinator.clients[-1]
+    coordinator._data["settings"].update({"promo_interval_sec": 0, "promo_max_sends": 0, "promo_message": "Ciao {nome}"})
+    assert run(coordinator.async_send_promo([client["id"]]))["sent"] == 1
+    run(coordinator.async_send_promo([client["id"]]))
+    assert client["promo_sent_count"] == 2
+    assert client["promo_last_sent_at"].startswith("2026-11-10")
