@@ -133,6 +133,15 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v2.3.11** — Nuova richiesta come Nuovo appuntamento (cambia solo la card):
+  - Quattro passi: **Quando e quante persone** (con il codice voucher a
+    richiesta), **Trattamenti**, **Cliente** (con ospite e preferenza
+    massaggiatrice o massaggiatore), **Note**.
+  - Riepilogo sempre visibile con «Salva richiesta» (sul telefono, barra in
+    basso).
+  - «Una scheda cliente per ogni persona» ora è spenta di default: si spunta
+    solo quando serve (due persone con lo stesso nome).
+
 - **v2.3.10** — Nuovo appuntamento riorganizzato (cambia solo la card):
   - Cinque passi numerati: **Quando e quante persone** (Oggi, Domani o Altro
     giorno, persone, voucher a richiesta), **Trattamenti**, **Cliente**,

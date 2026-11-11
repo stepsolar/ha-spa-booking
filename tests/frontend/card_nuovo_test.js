@@ -52,3 +52,14 @@ assert(byClass(page, "nv-bar")[0].textContent.includes("Crea"), "phone bar with 
 const maria = all(page).find((n) => n.attrs && n.attrs.class && n.attrs.class.startsWith("nv-chip") && n.textContent === "Maria");
 maria.listeners.click[0]();
 assert(treat.operator_id === "o1", "chip sets the operator");
+
+// «Una scheda cliente per ogni persona» is off unless ticked.
+card._resetForm();
+assert(card._form.new_client === false, "per-person client cards off by default");
+// The request form: same steps, no operator chips, «Salva richiesta».
+card._form.date = day;
+card._treatmentsOf(card._form)[0].treatment_id = "t1";
+const request = card._renderRichiestaForm();
+assert(byClass(request, "pg-num").length === 4, "four steps in the request form");
+assert(byClass(request, "nv-chip").length === 0, "no masseuse for a request");
+assert(byClass(request, "nv-side")[0].textContent.includes("Salva richiesta"), "save in the summary");

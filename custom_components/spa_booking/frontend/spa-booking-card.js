@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.3.10";
+const CARD_VERSION = "2.3.11";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -2133,7 +2133,7 @@ class SpaBookingCard extends HTMLElement {
               // A separate card per person, for two people who share a name:
               // only the first of her treatments forces the card, the rest of
               // the same person must match it.
-              ...(index === 0 && this._form.new_client !== false ? { force_new: true } : {}),
+              ...(index === 0 && this._form.new_client === true ? { force_new: true } : {}),
             },
           ],
         });
@@ -5373,6 +5373,7 @@ class SpaBookingCard extends HTMLElement {
     // on the right (a bar fixed at the bottom on a phone). One person = the
     // flat form fields; more = the persons array, sent all or nothing.
     const multi = Array.isArray(this._form.persons);
+    this._nvKind = "booking";
     const wrap = el("div", { class: "stack nv" });
     wrap.appendChild(this._sectionHead("mdi:calendar-plus",
       this._batchEditing ? "Modifica gruppo" : "Nuovo appuntamento",
@@ -5409,6 +5410,20 @@ class SpaBookingCard extends HTMLElement {
   /** «Crea» and «Annulla», as on the old form (a group being edited saves). */
   _nvActions(compact) {
     const count = this._nvCount();
+    if (this._nvKind === "richiesta") {
+      const editingRequest = !!this._form.request_id;
+      return [
+        el("button", {
+          class: "btn primary nv-go", disabled: this._busy || !count,
+          on: { click: () => this._saveRequest() },
+        }, el("ha-icon", { icon: "mdi:check" }),
+        compact ? "Salva" : (editingRequest ? "Salva modifiche alla richiesta" : "Salva richiesta")),
+        el("button", {
+          class: compact ? "icon-btn" : "btn nv-cancel", disabled: this._busy, title: "Annulla",
+          on: { click: () => { this._resetForm(); this._render(); } },
+        }, compact ? el("ha-icon", { icon: "mdi:close" }) : "Annulla"),
+      ];
+    }
     const editing = !!this._batchEditing;
     const create = el("button", {
       class: "btn primary nv-go", disabled: this._busy || !count,
@@ -5470,7 +5485,7 @@ class SpaBookingCard extends HTMLElement {
         const start = parseLocal(person.date || form.date, treat.time);
         const end = new Date(start.getTime() + ((treatment && treatment.duration_min) || 0) * 60000);
         if (!firstTime) firstTime = timeOf(start);
-        const needsOperator = treatment && this._treatmentRequiresOperator(treatment);
+        const needsOperator = this._nvKind !== "richiesta" && treatment && this._treatmentRequiresOperator(treatment);
         const detail = [needsOperator ? this._nvOperatorLabel(treat.operator_id) : null, extras.length ? extras.join(", ") : null].filter(Boolean).join(" · ");
         body.appendChild(el("div", { class: "nv-sum-item" },
           el("span", { class: "nv-sum-time" }, `${timeOf(start)}–${timeOf(end)}`),
@@ -5485,11 +5500,17 @@ class SpaBookingCard extends HTMLElement {
     if (count) {
       body.appendChild(el("div", { class: "nv-sum-line" }));
       body.appendChild(el("div", { class: "nv-sum-tot big" }, el("span", {}, "Totale"), el("span", {}, euro(total))));
-      if (this._can("payments")) {
+      if (this._nvKind === "richiesta") {
+        const pref = { F: "massaggiatrice", M: "massaggiatore" }[form.therapist_preference || ""];
+        if (pref) body.appendChild(el("div", { class: "nv-sum-tot" }, el("span", {}, "Preferisce"), el("span", {}, pref)));
+        if ((form.voucher_code || "").trim()) body.appendChild(el("div", { class: "nv-sum-tot" }, el("span", {}, "Voucher"), el("span", {}, form.voucher_code.trim().toUpperCase())));
+        body.appendChild(el("div", {}, el("span", { class: "nv-badge wait" },
+          el("ha-icon", { icon: "mdi:clock-outline" }), "Richiesta da confermare")));
+      } else if (this._can("payments")) {
         body.appendChild(el("div", { class: "nv-sum-tot" }, el("span", {}, "Incassato"), el("span", {}, euro(collected))));
         body.appendChild(el("div", { class: "nv-sum-tot" }, el("span", {}, "Da incassare"), el("span", {}, euro(due))));
       }
-      body.appendChild(el("div", {}, el("span", { class: `nv-badge${form.pending ? " wait" : ""}` },
+      if (this._nvKind !== "richiesta") body.appendChild(el("div", {}, el("span", { class: `nv-badge${form.pending ? " wait" : ""}` },
         el("ha-icon", { icon: form.pending ? "mdi:clock-outline" : "mdi:check-circle" }),
         form.pending ? "In attesa di conferma" : "Confermata")));
     }
@@ -5554,6 +5575,21 @@ class SpaBookingCard extends HTMLElement {
         : null));
     box.appendChild(el("div", { class: "pg-sum" }, el("ha-icon", { icon: "mdi:calendar" }),
       el("b", {}, longDay(parseLocal(form.date || today, "10:00")))));
+    if (this._nvKind === "richiesta") {
+      if (this._nvVoucherOpen || (form.voucher_code || "").trim()) {
+        box.appendChild(el("label", { class: "field" },
+          el("span", {}, "Codice voucher"),
+          el("input", {
+            class: "input", placeholder: "VCH-XXXXXXXX", style: "text-transform: uppercase",
+            on: { input: (event) => { form.voucher_code = event.target.value; } },
+          }, form.voucher_code || "")));
+        box.appendChild(el("div", { class: "hint" }, "Viene controllato subito e lo vede anche la reception."));
+      } else {
+        box.appendChild(el("button", { class: "nv-link", on: { click: () => { this._nvVoucherOpen = true; this._render(); } } },
+          el("ha-icon", { icon: "mdi:ticket-confirmation-outline" }), "Ha un voucher regalo? Inserisci il codice"));
+      }
+      return box;
+    }
     const applied = form.payment && form.payment.voucher && form.payment.voucher_code;
     if (applied || this._nvVoucherOpen || (form.voucher_query || "").trim()) {
       box.appendChild(this._voucherField());
@@ -5709,7 +5745,7 @@ class SpaBookingCard extends HTMLElement {
       if (multi && this._form.persons.length > 1) {
         box.appendChild(
           el("label", { class: "check" },
-            el("input", { type: "checkbox", checked: this._form.new_client !== false,
+            el("input", { type: "checkbox", checked: this._form.new_client === true,
               on: { change: (event) => { this._form.new_client = event.target.checked; } } }),
             el("span", {}, "Una scheda cliente per ogni persona"))
         );
@@ -7314,6 +7350,8 @@ class SpaBookingCard extends HTMLElement {
 
   /** Empty the new-booking form without redrawing (used when leaving the tab). */
   _resetForm() {
+    this._nvVoucherOpen = false;
+    this._nvOtherDay = false;
     this._form = {
       ...this._form,
       treatment_id: "",
@@ -7608,7 +7646,8 @@ class SpaBookingCard extends HTMLElement {
         treatments: [],
         people: 1,
         persons: null,
-        new_client: true,
+        // «Una scheda cliente per ogni persona»: off unless ticked (2.3.10).
+        new_client: false,
         stagedPayments: [],
       };
       this._payPopup = null;
@@ -9291,74 +9330,34 @@ class SpaBookingCard extends HTMLElement {
     if (!treatments.length) {
       return el("div", { class: "empty" }, "Non ci sono trattamenti attivi. Creane uno nella scheda Configurazione.");
     }
-    const wrap = el("div", { class: "stack form-compact" });
-    if (this._can("config")) wrap.appendChild(this._richiestaFormHeader());
-    add(wrap, this._peopleRow());
-    if (this._peopleMin() > 1) {
-      wrap.appendChild(el("div", { class: "hint" }, `Questo trattamento richiede almeno ${this._peopleMin()} persone insieme nella stessa fascia.`));
-    }
-
-    // Two-column layout with draggable blocks (like Notifiche tab).
-    const columns = this._colsGrid("richiesta");
-    const left = el("div", { class: "stack tight form-col", "data-col": "left" });
-    const right = el("div", { class: "stack tight form-col", "data-col": "right" });
-    this._blockWire(columns, "richiesta");
-
-    const block = (id, title, ...children) => {
-      const node = el("div", { class: "cfg-box" }, el("h3", {}, title));
-      add(node, children);
-      return this._tagBlock(id, this._richiestaSection(id, node));
-    };
-
-    // Left column: Trattamenti (includes people picker, treatments, accessories)
-    left.appendChild(block("trattamenti", "Trattamenti", this._richiestaBlock()));
-
-    // Right column: Ospite + Cliente + Note
-    right.appendChild(block("ospite", "Ospite", this._guestField(this._form), this._preferenceField(this._form)));
-    right.appendChild(block("cliente", "Cliente", this._clientSection(this._form)));
-    right.appendChild(block("note", "Note",
+    // 2.3.10: the same steps and live summary as Nuovo appuntamento; no
+    // masseuse (the desk assigns her when the request becomes a booking).
+    this._nvKind = "richiesta";
+    const wrap = el("div", { class: "stack nv" });
+    wrap.appendChild(this._sectionHead("mdi:clipboard-text-clock-outline",
+      this._form.request_id ? "Modifica richiesta" : "Nuova richiesta",
+      "Resta da confermare: l'operatrice la sceglie la reception quando la trasforma in appuntamento."));
+    const steps = el("div", { class: "nv-steps", on: { input: () => this._nvSyncSummary() } });
+    steps.appendChild(this._pageStep(1, "Quando e quante persone",
+      this._nvWhen(),
+      this._peopleMin() > 1
+        ? el("div", { class: "hint" }, `Questo trattamento richiede almeno ${this._peopleMin()} persone insieme nella stessa fascia.`)
+        : null));
+    steps.appendChild(this._pageStep(2, "Trattamenti", this._richiestaBlock()));
+    steps.appendChild(this._pageStep(3, "Cliente",
+      this._clientSection(this._form), this._guestField(this._form), this._preferenceField(this._form)));
+    steps.appendChild(this._pageStep(4, "Note",
       el("label", { class: "field" },
-        el("span", {}, "Note"),
+        el("span", {}, "Note per la reception"),
         el("textarea", {
-          class: "input", rows: "3",
+          class: "input", rows: "3", placeholder: "es. arriva dopo le 15, preferisce olio senza profumo",
           on: { input: (event) => { this._form.notes = event.target.value; } },
-        }, this._form.notes || "")
-      )
-    ));
-    right.appendChild(block("voucher", "Voucher",
-      el("label", { class: "field" },
-        el("span", {}, "Codice voucher"),
-        el("input", {
-          class: "input",
-          placeholder: "VCH-XXXXXXXX",
-          style: "text-transform: uppercase",
-          on: { input: (event) => { this._form.voucher_code = event.target.value; } },
-        }, this._form.voucher_code || "")
-      ),
-      el("div", { class: "hint" },
-        "Se l'ospite ha un voucher regalo, il suo codice va qui: viene controllato subito e lo vede anche la reception.")
-    ));
-
-    this._placeBlocks(left, right, "richiesta_order");
-    columns.appendChild(left);
-    columns.appendChild(right);
-    wrap.appendChild(columns);
-
-    wrap.appendChild(
-      el("div", { class: "row" },
-        el("button", {
-          class: "btn primary",
-          disabled: this._busy,
-          on: { click: () => this._saveRequest() },
-        }, this._form.request_id ? "Salva modifiche alla richiesta" : "Salva richiesta"),
-        el("div", { class: "spacer" }),
-        el("button", {
-          class: "btn ghost",
-          disabled: this._busy,
-          on: { click: () => { this._resetForm(); this._render(); } },
-        }, "Annulla")
-      )
-    );
+        }, this._form.notes || ""))));
+    this._nvSide = el("div", { class: "nv-side" });
+    this._nvBar = el("div", { class: "nv-bar" });
+    this._nvSyncSummary();
+    steps.appendChild(this._nvBar);
+    wrap.appendChild(el("div", { class: "nv-layout" }, steps, this._nvSide));
     return wrap;
   }
 
@@ -9386,7 +9385,7 @@ class SpaBookingCard extends HTMLElement {
 
     box.appendChild(
       el("div", { class: "bk-person-head" },
-        el("span", { class: "dim" }, multi ? `Persona ${index + 1}` : "Trattamenti"),
+        el("span", { class: "dim" }, `Persona ${index + 1}`),
         multi && index === 0 ? el("span", { class: "chip" }, "riferimento") : null,
         el("div", { class: "spacer" }),
         multi && index > 0
@@ -9413,13 +9412,13 @@ class SpaBookingCard extends HTMLElement {
 
     box.appendChild(
       el("button", {
-        class: "btn primary small add-treat-btn",
+        class: "nv-add add-treat-btn",
         title: multi
           ? `Aggiungi un altro trattamento alla persona ${index + 1}, con un'altra fascia oraria`
           : "Aggiungi un altro trattamento con un'altra fascia oraria",
         disabled: this._busy,
         on: { click: () => this._addTreatment(state) },
-      }, el("ha-icon", { icon: "mdi:plus-circle-outline" }), "Aggiungi trattamento")
+      }, el("ha-icon", { icon: "mdi:plus" }), "Aggiungi un altro trattamento a questa persona")
     );
 
     // The accessories belong to the person, as in the Nuovo form.
@@ -9935,7 +9934,7 @@ class SpaBookingCard extends HTMLElement {
       voucher_code: req.voucher_code || "",
       guest_type: req.guest_type || GUEST_DEFAULT,
       therapist_preference: req.therapist_preference || "",
-      new_client: !req.client_id,
+      new_client: false,
     };
     this._tab = "nuovo";
     this._nuovoTab = "nuova";
