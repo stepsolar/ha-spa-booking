@@ -1,6 +1,6 @@
 # Spa Booking — guida alle schede (2.2)
 
-Aggiornata alla 2.3.6: [Notifiche](#notifiche-236); [messaggi e chat](#messaggi-e-chat-235); [preferenza massaggiatrice/massaggiatore](#preferenza-massaggiatrice-o-massaggiatore); [promo e fedeltà del cliente](#promo-e-fedeltà-del-cliente); [conferme e promemoria WhatsApp](#conferme-e-promemoria-whatsapp); [firme e storico](#firme-e-storico); [chiusure con giorni esclusi](#chiusure-con-giorni-esclusi); [Proponi data](#proponi-data) nelle richieste, con trattamenti alternativi e prezzo; [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
+Aggiornata alla 2.3.8: [Promo e Impostazioni](#promo-e-impostazioni-238); [Notifiche](#notifiche-236); [messaggi e chat](#messaggi-e-chat-235); [preferenza massaggiatrice/massaggiatore](#preferenza-massaggiatrice-o-massaggiatore); [promo e fedeltà del cliente](#promo-e-fedeltà-del-cliente); [conferme e promemoria WhatsApp](#conferme-e-promemoria-whatsapp); [firme e storico](#firme-e-storico); [chiusure con giorni esclusi](#chiusure-con-giorni-esclusi); [Proponi data](#proponi-data) nelle richieste, con trattamenti alternativi e prezzo; [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
 
 Questa guida mostra ogni scheda della dashboard **Spa Booking** e spiega a
 cosa serve ogni funzione. Le immagini sono state fatte con dati di prova.
@@ -32,6 +32,38 @@ in Impostazioni › Aspetto).
 
 
 
+
+## Promo e Impostazioni (2.3.8)
+
+Configurazione › **Promo** ha due sotto-schede, con i numeri in alto:
+
+- **Campagna promo**, in tre passi: 1) il messaggio (codice promo, scadenza,
+  testo con anteprima WhatsApp e segnaposto da toccare); 2) a chi va (i clienti
+  con telefono che ricevono promo); 3) quando: **Adesso**, **Un giorno
+  preciso** o **Ogni giorno**. Una frase dice quanto dura l'invio; pausa e
+  invii massimi sono in «Opzioni avanzate». «Invia a N clienti» salva prima le
+  modifiche.
+- **Voucher fedeltà**: la regola (ore dopo il check-out, sconto, spesa minima e
+  massima, validità) riassunta in una frase, e il messaggio con anteprima.
+
+Configurazione › **Impostazioni** ha tre sotto-schede:
+
+- **Generale**: aspetto (Segui Home Assistant, Chiaro, Scuro), titolo della
+  card, versione.
+- **Sito web**, in quattro passi: richieste dal sito attive o no; orari che il
+  sito propone (mattina e pomeriggio, ogni quanto, fino a quanti giorni) con
+  la frase di riepilogo; numeri della reception avvisati, con «Prova avviso»;
+  il modulo (indirizzo pubblico, colore, prezzi) e il codice da incollare in
+  WordPress con «Copia». Token e indirizzi API sono in «Dettagli tecnici».
+- **Dati e backup**: esporta e importa i clienti in CSV, scarica o ripristina il
+  backup completo (il ripristino chiede conferma e sostituisce tutti i dati).
+
+In ogni pagina la barra «Salva» compare solo quando cambi qualcosa.
+
+| | |
+|---|---|
+| ![Campagna promo](anteprime/31-promo-campagna.png) | ![Voucher fedeltà](anteprime/32-promo-fedelta.png) |
+| ![Sito web](anteprime/33-impostazioni-sito.png) | ![Dati e backup](anteprime/34-impostazioni-dati.png) |
 
 ## Notifiche (2.3.6)
 

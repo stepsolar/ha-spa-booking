@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.3.7";
+const CARD_VERSION = "2.3.8";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -1095,29 +1095,7 @@ class SpaBookingCard extends HTMLElement {
       // The notification and promo forms keep their unsaved edits across a
       // reload, so the placeholder of the saved values must not overwrite them.
       if (!this._notifyDraft) this._notifyDraft = { ...this._data.settings };
-      if (!this._promoDraft) this._promoDraft = {
-        promo_message: (this._data.settings.promo_message || ""),
-        promo_time: (this._data.settings.promo_time || ""),
-        promo_interval_sec: this._data.settings.promo_interval_sec != null
-          ? this._data.settings.promo_interval_sec : 3,
-        promo_max_sends: this._data.settings.promo_max_sends || 0,
-        promo_window_min: this._data.settings.promo_window_min || 10,
-        promo_date: this._data.settings.promo_date || "",
-        promo_code: this._data.settings.promo_code || "",
-        promo_expiry: this._data.settings.promo_expiry || "",
-        promo_voucher_message: this._data.settings.promo_voucher_message || "",
-        promo_voucher_days: this._data.settings.promo_voucher_days != null
-          ? this._data.settings.promo_voucher_days : 30,
-        promo_voucher_discount: this._data.settings.promo_voucher_discount != null
-          ? this._data.settings.promo_voucher_discount : 10,
-        promo_voucher_min_spend: this._data.settings.promo_voucher_min_spend != null
-          ? this._data.settings.promo_voucher_min_spend : 100,
-        promo_voucher_max_spend: this._data.settings.promo_voucher_max_spend != null
-          ? this._data.settings.promo_voucher_max_spend : 500,
-        promo_voucher_after_hours: this._data.settings.promo_voucher_after_hours != null
-          ? this._data.settings.promo_voucher_after_hours : 24,
-        promo_voucher_auto: this._data.settings.promo_voucher_auto === true,
-      };
+      // (The promo draft is made by the Promo tab itself, with its Save bar.)
       // The website window (its hours, the step between offers and how far
       // ahead it may look), edited with its own Salva so a reload does not
       // overwrite a half-typed change.
@@ -10606,180 +10584,321 @@ _renderClients() {
   }
 
   /** Settings tab: every box on two columns (see _renderSettings). */
+  /**
+   * Impostazioni (2.3.8): three sub-tabs. «Generale» (look, title, version),
+   * «Sito web» in four steps (on/off, hours offered, desk notices, the form
+   * for WordPress) and «Dati e backup». One Save bar for the drafts.
+   */
   _renderSettings() {
-    const wrap = el("div", { class: "stack" + (this._settingsEditMode ? " form-edit" : "") });
-    // Pencil toggle: in edit mode the four boxes drag by their handle.
-    if (this._can("config")) wrap.appendChild(this._settingsHeader());
-
-    const columns = this._colsGrid("settings");
-    const left = el("div", { class: "stack tight form-col", "data-col": "left" });
-    const right = el("div", { class: "stack tight form-col", "data-col": "right" });
-
-    // One wrapper per box, so edit mode can tag and drag them.
-    const block = (id, node) => this._tagBlock(id, this._settingsSection(id, node));
-
-    const exportBox = el("div", { class: "cfg-box" },
-      el("h3", {}, "Backup / Ripristino"),
-      el("div", { class: "hint" },
-        "Esporta o ripristina l'intero backup dell'integrazione in formato JSON."),
-      el("div", { class: "row tight" },
-        el("button", {
-          class: "btn small",
-          disabled: this._busy,
-          on: { click: async () => {
-            try {
-              this._busy = true;
-              this._render();
-              const result = await this._service("export_all", {});
-              const payload = (result && result.data) || result;
-              if (!payload) {
-                this._message = { kind: "error", text: "Esportazione JSON fallita." };
-                return;
-              }
-              const json = JSON.stringify(payload, null, 2);
-              const blob = new Blob([json], { type: "application/json;charset=utf-8;" });
-              const url = window.URL.createObjectURL(blob);
-              const date = new Date().toISOString().slice(0, 10);
-              const link = document.createElement("a");
-              link.href = url;
-              link.download = `spa_booking_backup_${date}.json`;
-              document.body.appendChild(link);
-              link.click();
-              document.body.removeChild(link);
-              window.URL.revokeObjectURL(url);
-              this._message = { kind: "ok", text: "Backup JSON scaricato." };
-            } catch (e) {
-              this._message = { kind: "error", text: "Errore: " + (e.message || e) };
-            } finally {
-              this._busy = false;
-              this._render();
-            }
-          } },
-        }, el("ha-icon", { icon: "mdi:database-export" }), "Esporta JSON"),
-        el("button", {
-          class: "btn small",
-          disabled: this._busy,
-          on: { click: () => {
-            const input = document.createElement("input");
-            input.type = "file";
-            input.accept = ".json,application/json";
-            input.style.display = "none";
-            input.onchange = async (event) => {
-              const file = event.target.files && event.target.files[0];
-              if (!file) return;
-              try {
-                this._busy = true;
-                this._render();
-                const text = await file.text();
-                let parsed;
-                try {
-                  parsed = JSON.parse(text);
-                } catch (err) {
-                  this._message = { kind: "error", text: "File JSON non valido." };
-                  return;
-                }
-                await this._service("import_all", { payload: parsed });
-                this._message = { kind: "ok", text: "Backup JSON ripristinato correttamente." };
-              } catch (e) {
-                this._message = { kind: "error", text: "Errore ripristino: " + (e.message || e) };
-              } finally {
-                this._busy = false;
-                this._render();
-                if (input.parentNode) input.parentNode.removeChild(input);
-              }
-            };
-            document.body.appendChild(input);
-            input.click();
-          } },
-        }, el("ha-icon", { icon: "mdi:database-import" }), "Ripristina JSON"))
-    );
-
-    left.appendChild(block("export_all", exportBox));
-
-    const versionBox = el("div", { class: "cfg-box" }, el("h3", {}, "Versione del programma"));
-    const line = (label, value) =>
-      el("div", { class: "detail-line" },
-        el("span", { class: "detail-label" }, label),
-        el("span", { class: "detail-value" }, value));
-    versionBox.appendChild(line("Card", CARD_VERSION));
-    versionBox.appendChild(line("Integrazione", this._integrationVersion || "—"));
-    versionBox.appendChild(line("Home Assistant",
-      (this._hass && this._hass.config && this._hass.config.version) || "—"));
-    versionBox.appendChild(el("div", { class: "hint" },
-      "La versione della card si aggiorna con il comando di ricarica della card."));
-
-    // Client import / export.
-    const clientsBox = el("div", { class: "cfg-box" }, el("h3", {}, "Clienti"));
-    clientsBox.appendChild(
-      el("div", { class: "row tight" },
-        el("button", {
-          class: "btn small",
-          disabled: this._busy,
-          on: { click: async () => {
-            try {
-              this._busy = true;
-              this._render();
-              const result = await this._call("export_clienti_csv", {});
-              const blob = new Blob([result.csv || ""], { type: "text/csv;charset=utf-8;" });
-              const url = URL.createObjectURL(blob);
-              const link = document.createElement("a");
-              link.href = url;
-              link.download = "clienti_spa_booking.csv";
-              document.body.appendChild(link);
-              link.click();
-              document.body.removeChild(link);
-              URL.revokeObjectURL(url);
-            } catch (error) { /* shown */ }
-            finally { this._busy = false; this._render(); }
-          } },
-        }, el("ha-icon", { icon: "mdi:download" }), "Esporta CSV")));
-    clientsBox.appendChild(el("div", { class: "hint" },
-      "Scarica un file CSV con Nome, Cognome, Telefono, Email, Note di tutti i clienti. " +
-      "Modificalo in un foglio di calcolo e re-importalo qui sotto."));
-    const fileInput = el("input", {
-      type: "file", accept: ".csv,text/csv",
-      style: "display: none",
-      on: { change: async (event) => {
-        const file = event.target.files && event.target.files[0];
-        if (!file) return;
-        try {
-          this._busy = true;
-          this._render();
-          const text = await file.text();
-          const result = await this._call("import_clienti_csv", { csv: text });
-          this._message = {
-            kind: "ok",
-            text: result.created + " clienti importati, " + result.skipped + " gia' presenti.",
-          };
-        } catch (error) { /* shown */ }
-        finally { event.target.value = ""; this._busy = false; this._render(); }
-      } },
-    });
-    clientsBox.appendChild(fileInput);
-    clientsBox.appendChild(
-      el("button", {
-        class: "btn small",
-        disabled: this._busy,
-        on: { click: () => fileInput.click() },
-      }, el("ha-icon", { icon: "mdi:upload" }), "Importa CSV"));
-    clientsBox.appendChild(el("div", { class: "hint" },
-      "Carica un CSV (Nome, Cognome, Telefono, Email, Note). I clienti con telefono " +
-      "gia' esistente vengono ignorati."));
-
-    // Four boxes on two columns: appearance + version on the left, clients +
-    // website on the right, until the user drags them somewhere else (the
-    // saved order of impostazioni_order is applied below). On a phone the
-    // grid falls back to one column (see the 720px media query).
-    left.appendChild(block("aspetto", this._appearanceBox()));
-    left.appendChild(block("versione", versionBox));
-    right.appendChild(block("clienti", clientsBox));
-    right.appendChild(block("sito", this._webBox()));
-    this._placeBlocks(left, right, "impostazioni_order");
-
-    columns.appendChild(left);
-    columns.appendChild(right);
-    wrap.appendChild(columns);
+    const settings = this._data.settings || {};
+    if (!this._setDraft) {
+      this._setDraft = {
+        appearance: APPEARANCE_MODES.includes(String(settings.appearance || "")) ? settings.appearance : "auto",
+        card_title: settings.card_title || "",
+        web_open_time: settings.web_open_time || "09:00",
+        web_break_start: settings.web_break_start || "",
+        web_break_end: settings.web_break_end || "",
+        web_close_time: settings.web_close_time || "20:00",
+        web_step_min: settings.web_step_min != null ? settings.web_step_min : 30,
+        web_max_days_ahead: settings.web_max_days_ahead != null ? settings.web_max_days_ahead : 60,
+        web_notify_whatsapp: settings.web_notify_whatsapp || "",
+        web_public_url: settings.web_public_url || "",
+        web_show_prices: !!settings.web_show_prices,
+        web_accent: settings.web_accent || "#0a84a8",
+      };
+      this._setBase = JSON.stringify(this._setDraft);
+      this._setNumbers = null;
+    }
+    const draft = this._setDraft;
+    const changed = () => this._pageSyncSave("set");
+    const tab = this._setTab || "generale";
+    const wrap = el("div", { class: "stack nt" });
+    wrap.appendChild(this._sectionHead("mdi:cog-outline", "Impostazioni", "Aspetto della card, sito web, dati e backup."));
+    wrap.appendChild(el("div", { class: "nt-tabs", role: "tablist" },
+      [["generale", "mdi:palette-outline", "Generale"], ["sito", "mdi:web", "Sito web"], ["dati", "mdi:database-outline", "Dati e backup"]]
+        .map(([id, icon, label]) => el("button", {
+          class: `nt-tab${tab === id ? " on" : ""}`, role: "tab", "aria-selected": tab === id ? "true" : "false",
+          on: { click: () => { this._setTab = id; this._render(); } },
+        }, el("ha-icon", { icon }), el("span", {}, label)))));
+    if (tab === "generale") wrap.appendChild(this._settingsGeneral(draft, changed));
+    if (tab === "sito") wrap.appendChild(this._settingsWeb(draft, changed));
+    if (tab === "dati") wrap.appendChild(this._settingsData());
+    wrap.appendChild(this._pageSaveBar("set", () => this._saveSettingsPage(), () => { this._setDraft = null; this._render(); }));
     return wrap;
+  }
+
+  async _saveSettingsPage() {
+    const draft = this._setDraft;
+    try {
+      await this._call("update_settings", {
+        ...draft,
+        card_title: (draft.card_title || "").trim(),
+        web_public_url: (draft.web_public_url || "").trim(),
+        web_notify_whatsapp: String(draft.web_notify_whatsapp || "").split(/[\n,;]+/).map((x) => x.trim()).filter(Boolean).join("\n"),
+        web_step_min: Number(draft.web_step_min) || 30,
+        web_max_days_ahead: Number(draft.web_max_days_ahead) || 60,
+      });
+      this._setDraft = null;
+      this._message = { kind: "ok", text: "Impostazioni salvate." };
+      this._render();
+      return true;
+    } catch (error) { return false; }
+  }
+
+  _settingsGeneral(draft, changed) {
+    const line = (label, value) => el("div", { class: "detail-line" },
+      el("span", { class: "detail-label" }, label), el("span", { class: "detail-value" }, value));
+    return el("div", { class: "nt-panels two" },
+      el("div", { class: "cfg-box nt-panel" },
+        el("div", { class: "pg-step-head" }, el("span", { class: "nt-icon" }, el("ha-icon", { icon: "mdi:palette-outline" })),
+          el("span", { class: "pg-step-title" }, "Aspetto")),
+        el("div", { class: "field" }, el("span", {}, "Modalità"),
+          el("div", { class: "pg-seg" }, APPEARANCE_MODES.map((mode) => el("button", {
+            type: "button", class: draft.appearance === mode ? "on" : "",
+            on: { click: () => { draft.appearance = mode; changed(); this._render(); } },
+          }, APPEARANCE_LABELS[mode])))),
+        el("div", { class: "dim small" }, draft.appearance === "auto"
+          ? "Segue il tema di Home Assistant."
+          : `La card resta ${APPEARANCE_LABELS[draft.appearance].toLowerCase()} su tutti i dispositivi.`),
+        el("label", { class: "field" }, el("span", {}, "Titolo della card"),
+          el("input", { class: "input", type: "text", maxlength: "60", value: draft.card_title,
+            placeholder: this._config.title || "Gestione SPA",
+            on: { input: (event) => { draft.card_title = event.target.value; changed(); } } })),
+        el("div", { class: "dim small" }, "In testata, su tutti i dispositivi. Vuoto = il titolo della configurazione della card.")),
+      el("div", { class: "cfg-box nt-panel" },
+        el("div", { class: "pg-step-head" }, el("span", { class: "nt-icon" }, el("ha-icon", { icon: "mdi:information-outline" })),
+          el("span", { class: "pg-step-title" }, "Versione del programma")),
+        line("Card", CARD_VERSION),
+        line("Integrazione", this._integrationVersion || "—"),
+        line("Home Assistant", (this._hass && this._hass.config && this._hass.config.version) || "—")));
+  }
+
+  /** "09:00, 09:30 … 12:30": the starts the site offers in one window. */
+  _webSlots(from, to, step) {
+    const toMin = (v) => { const [h, m] = String(v || "").split(":").map(Number); return Number.isFinite(h) ? h * 60 + (m || 0) : null; };
+    const a = toMin(from); const b = toMin(to);
+    if (a === null || b === null || b <= a || !step) return "";
+    const list = [];
+    for (let t = a; t < b; t += step) list.push(`${pad(Math.floor(t / 60))}:${pad(t % 60)}`);
+    if (!list.length) return "";
+    return list.length <= 3 ? list.join(", ") : `${list[0]}, ${list[1]} … ${list[list.length - 1]}`;
+  }
+
+  _settingsWeb(draft, changed) {
+    const settings = this._data.settings || {};
+    const enabled = !!settings.web_enabled;
+    const wrap = el("div", { class: "stack" });
+    const time = (key) => el("input", { class: "input pg-time", type: "time", value: draft[key] || "",
+      on: { input: (event) => { draft[key] = event.target.value; changed(); hours.textContent = hoursLine(); } } });
+    const step = Number(draft.web_step_min) || 30;
+    const hoursLine = () => {
+      const s = Number(draft.web_step_min) || 30;
+      const morning = draft.web_break_start
+        ? this._webSlots(draft.web_open_time, draft.web_break_start, s)
+        : this._webSlots(draft.web_open_time, draft.web_close_time, s);
+      const afternoon = draft.web_break_start && draft.web_break_end ? this._webSlots(draft.web_break_end, draft.web_close_time, s) : "";
+      const until = new Date(Date.now() + (Number(draft.web_max_days_ahead) || 60) * 86400000);
+      return `Il sito propone ${[morning, afternoon].filter(Boolean).join(" e ") || "nessun orario (controlla le fasce)"}, fino al ${until.getDate()} ${MESI[until.getMonth()].toLowerCase()}. Chiusure e appuntamenti vengono sempre rispettati.`;
+    };
+    const hours = el("span", {}, hoursLine());
+
+    wrap.appendChild(this._pageStep(1, "Richieste dal sito",
+      el("div", { class: "pg-switch-row" },
+        el("div", { class: "pg-sum grow" }, el("ha-icon", { icon: enabled ? "mdi:check-circle-outline" : "mdi:pause-circle-outline" }),
+          el("span", {}, enabled
+            ? "Il sito può leggere trattamenti e orari liberi e inviare richieste: arrivano in Nuovo › Lista richieste."
+            : "Spento: il sito non mostra orari e non può inviare richieste.")),
+        el("button", {
+          class: `op2-switch${enabled ? " on" : ""}`, role: "switch", "aria-checked": enabled ? "true" : "false",
+          disabled: this._busy,
+          on: { click: async () => {
+            try {
+              await this._call("update_settings", { web_enabled: !enabled });
+              this._message = { kind: "ok", text: !enabled ? "Sito web attivato." : "Sito web disattivato." };
+              this._render();
+            } catch (error) { /* shown */ }
+          } },
+        }, el("span", { class: "op2-knob" }), el("span", { class: "op2-switch-label" }, enabled ? "Attivo" : "Spento")))));
+
+    wrap.appendChild(this._pageStep(2, "Orari che il sito propone",
+      el("div", { class: "pg-ranges" },
+        el("div", { class: "field" }, el("span", {}, "Mattina (o tutto il giorno)"),
+          el("div", { class: "pg-range" }, time("web_open_time"), el("ha-icon", { icon: "mdi:arrow-right" }), time("web_break_start"))),
+        el("div", { class: "field" }, el("span", {}, "Pomeriggio"),
+          el("div", { class: "pg-range" }, time("web_break_end"), el("ha-icon", { icon: "mdi:arrow-right" }), time("web_close_time")))),
+      el("div", { class: "nt-options" },
+        el("label", { class: "field" }, el("span", {}, "Un orario ogni"),
+          el("select", { class: "input", on: { change: (event) => { draft.web_step_min = Number(event.target.value); changed(); hours.textContent = hoursLine(); } } },
+            [5, 10, 15, 20, 30, 45, 60, 90, 120].map((v) => el("option", { value: String(v), selected: v === step }, `${v} minuti`)))),
+        el("label", { class: "field" }, el("span", {}, "Fino a quanti giorni avanti"),
+          el("input", { class: "input", type: "number", min: "1", max: "365", value: draft.web_max_days_ahead,
+            on: { input: (event) => { draft.web_max_days_ahead = event.target.value; changed(); hours.textContent = hoursLine(); } } }))),
+      el("div", { class: "dim small" }, "Per un orario continuo lascia vuoti «Mattina: alle» e «Pomeriggio: dalle». Sono gli orari che il sito può offrire, non quelli reali della spa."),
+      el("div", { class: "pg-sum" }, el("ha-icon", { icon: "mdi:clock-outline" }), hours)));
+
+    // Desk notices: several numbers.
+    const list = String(draft.web_notify_whatsapp || "").split(/[\n,;]+/).map((x) => x.trim()).filter(Boolean);
+    if (!this._setNumbers) this._setNumbers = list.length ? list : [""];
+    const numbers = this._setNumbers;
+    const sync = () => { draft.web_notify_whatsapp = numbers.map((x) => x.trim()).filter(Boolean).join("\n"); changed(); };
+    wrap.appendChild(this._pageStep(3, "Avvisi alla reception",
+      el("div", { class: "pg-numbers" },
+        numbers.map((number, index) => el("div", { class: "pg-number" },
+          phoneInput(number, (value) => { numbers[index] = value; sync(); }),
+          numbers.length > 1 ? el("button", { class: "icon-btn", title: "Togli questo numero", "aria-label": "Togli questo numero",
+            on: { click: () => { numbers.splice(index, 1); sync(); this._render(); } } }, el("ha-icon", { icon: "mdi:close" })) : null))),
+      el("div", { class: "row tight" },
+        el("button", { class: "btn small", disabled: numbers.length >= 6, on: { click: () => { numbers.push(""); this._render(); } } },
+          el("ha-icon", { icon: "mdi:plus" }), "Aggiungi numero"),
+        el("button", {
+          class: "btn small wa", disabled: this._busy, title: "Salva e manda un messaggio di prova a ogni numero",
+          on: { click: async () => {
+            if (JSON.stringify(this._setDraft) !== this._setBase && !(await this._saveSettingsPage())) return;
+            try {
+              const response = await this._call("test_web_notice", {});
+              this._message = response && response.sent
+                ? { kind: "ok", text: `Avviso di prova inviato a ${response.sent} ${response.sent === 1 ? "numero" : "numeri"} su ${response.numbers}.` }
+                : { kind: "error", text: "Nessun avviso inviato: controlla i numeri e il collegamento WhatsApp." };
+              this._render();
+            } catch (error) { /* shown */ }
+          } },
+        }, el("ha-icon", { icon: "mdi:whatsapp" }), "Prova avviso")),
+      el("div", { class: "dim small" }, "Ricevono un WhatsApp per ogni richiesta dal sito e quando nessuna massaggiatrice accetta un massaggio.")));
+
+    // The form for WordPress.
+    const base = (draft.web_public_url || location.origin).replace(/\/+$/, "");
+    const snippet = `<div id="spa-booking"></div>\n<script src="${base}/api/spa_booking/public/form.js" defer></script>`;
+    const copyText = async (text, label) => {
+      try {
+        await navigator.clipboard.writeText(text);
+        this._message = { kind: "ok", text: `${label} copiato.` };
+      } catch (error) {
+        this._message = { kind: "error", text: "Copia non riuscita: seleziona il testo e copialo a mano." };
+      }
+      this._render();
+    };
+    const copyFromServer = async (full) => {
+      try {
+        const result = await this._service("web_snippet", { base_url: base });
+        const text = String((result && (full ? result.snippet_full : result.snippet)) || "");
+        if (!text) throw new Error("vuoto");
+        await copyText(text, full ? "Codice completo" : "Codice per il sito");
+      } catch (error) {
+        this._message = { kind: "error", text: "Copia non riuscita." };
+        this._render();
+      }
+    };
+    const token = String(settings.web_token || "");
+    wrap.appendChild(this._pageStep(4, "Modulo sul sito",
+      el("div", { class: "nt-options" },
+        el("label", { class: "field" }, el("span", {}, "Indirizzo pubblico di Home Assistant"),
+          el("input", { class: "input", type: "url", value: draft.web_public_url, placeholder: location.origin,
+            on: { input: (event) => { draft.web_public_url = event.target.value; changed(); }, keydown: (event) => event.stopPropagation() } })),
+        el("label", { class: "field pg-color" }, el("span", {}, "Colore"),
+          el("input", { class: "input", type: "color", value: draft.web_accent || "#0a84a8",
+            on: { input: (event) => { draft.web_accent = event.target.value; changed(); } } })),
+        el("label", { class: "nt-auto" },
+          el("input", { type: "checkbox", checked: draft.web_show_prices,
+            on: { change: (event) => { draft.web_show_prices = event.target.checked; changed(); } } }),
+          el("span", {}, "Mostra prezzi e totale"))),
+      el("div", { class: "nt-label" }, "Codice da incollare in WordPress (blocco «HTML personalizzato»)"),
+      el("pre", { class: "pg-code" }, snippet),
+      el("div", { class: "dim small" }, "Il modulo arriva da Home Assistant: ogni aggiornamento di Spa Booking compare sul sito senza toccare WordPress. È a passi, in italiano, inglese e tedesco."),
+      el("div", { class: "row tight" },
+        el("button", { class: "btn small primary", disabled: this._busy, on: { click: () => copyFromServer(false) } },
+          el("ha-icon", { icon: "mdi:content-copy" }), "Copia codice per WordPress")),
+      el("details", { class: "pg-adv" },
+        el("summary", {}, "Dettagli tecnici"),
+        el("div", { class: "stack tight" },
+          el("label", { class: "field" }, el("span", {}, "Indirizzo delle API"),
+            el("input", { class: "input", type: "text", readonly: true, value: `${base}/api/spa_booking/public` })),
+          token ? el("label", { class: "field" }, el("span", {}, "Token per il sito"),
+            el("input", { class: "input", type: "text", readonly: true, value: token })) : null,
+          el("div", { class: "row tight" },
+            el("button", { class: "btn small", on: { click: () => copyText(`${base}/api/spa_booking/public`, "Indirizzo") } },
+              el("ha-icon", { icon: "mdi:content-copy" }), "Copia indirizzo"),
+            token ? el("button", { class: "btn small", on: { click: () => copyText(token, "Token") } },
+              el("ha-icon", { icon: "mdi:content-copy" }), "Copia token") : null,
+            token ? el("button", {
+              class: "btn small", disabled: this._busy,
+              on: { click: async () => {
+                if (!window.confirm("Rigenerare il token?\n\nUn sito che usa il vecchio codice completo smette di funzionare finché non incolli il nuovo token.")) return;
+                try { await this._call("regenerate_public_token", {}); } catch (error) { /* shown */ }
+              } },
+            }, el("ha-icon", { icon: "mdi:refresh" }), "Rigenera token") : null,
+            el("button", {
+              class: "btn small ghost", title: "Il modulo intero, per un sito che non può caricare script da un altro indirizzo",
+              on: { click: () => copyFromServer(true) },
+            }, "Codice completo (vecchio)"))))));
+    return wrap;
+  }
+
+  _settingsData() {
+    const download = (text, name, type) => {
+      const blob = new Blob([text], { type });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = name;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    };
+    const pick = (accept, onFile) => {
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = accept;
+      input.style.display = "none";
+      input.onchange = async (event) => {
+        const file = event.target.files && event.target.files[0];
+        if (input.parentNode) input.parentNode.removeChild(input);
+        if (file) await onFile(file);
+      };
+      document.body.appendChild(input);
+      input.click();
+    };
+    const busy = async (work) => {
+      this._busy = true;
+      this._render();
+      try { await work(); } catch (error) {
+        this._message = { kind: "error", text: `Errore: ${(error && error.message) || error}` };
+      } finally { this._busy = false; this._render(); }
+    };
+    const panel = (icon, title, text, ...buttons) => el("div", { class: "cfg-box nt-panel" },
+      el("div", { class: "pg-step-head" }, el("span", { class: "nt-icon" }, el("ha-icon", { icon })), el("span", { class: "pg-step-title" }, title)),
+      el("div", { class: "dim small" }, text),
+      el("div", { class: "row tight" }, buttons));
+    return el("div", { class: "nt-panels two" },
+      panel("mdi:account-multiple-outline", "Clienti (CSV)",
+        "Un file con Nome, Cognome, Telefono, Email e Note di tutti i clienti, da aprire in Excel. Importando un CSV i clienti con un telefono già presente vengono saltati.",
+        el("button", { class: "btn small", disabled: this._busy, on: { click: () => busy(async () => {
+          const result = await this._call("export_clienti_csv", {});
+          download(result.csv || "", "clienti_spa_booking.csv", "text/csv;charset=utf-8;");
+        }) } }, el("ha-icon", { icon: "mdi:download" }), "Esporta CSV"),
+        el("button", { class: "btn small", disabled: this._busy, on: { click: () => pick(".csv,text/csv", (file) => busy(async () => {
+          const result = await this._call("import_clienti_csv", { csv: await file.text() });
+          this._message = { kind: "ok", text: `${result.created} clienti importati, ${result.skipped} già presenti.` };
+        })) } }, el("ha-icon", { icon: "mdi:upload" }), "Importa CSV")),
+      panel("mdi:database-outline", "Backup completo (JSON)",
+        "Tutto Spa Booking in un file: trattamenti, operatori, clienti, appuntamenti, voucher e impostazioni. Ripristinare un backup sostituisce tutti i dati attuali.",
+        el("button", { class: "btn small", disabled: this._busy, on: { click: () => busy(async () => {
+          const result = await this._service("export_all", {});
+          const payload = (result && result.data) || result;
+          if (!payload) throw new Error("esportazione vuota");
+          download(JSON.stringify(payload, null, 2), `spa_booking_backup_${new Date().toISOString().slice(0, 10)}.json`, "application/json;charset=utf-8;");
+          this._message = { kind: "ok", text: "Backup scaricato." };
+        }) } }, el("ha-icon", { icon: "mdi:database-export" }), "Scarica backup"),
+        el("button", { class: "btn small danger-ghost", disabled: this._busy, on: { click: () => {
+          if (!window.confirm("Ripristinare un backup?\n\nTutti i dati attuali di Spa Booking verranno sostituiti da quelli del file. Conviene scaricare prima un backup di adesso.")) return;
+          pick(".json,application/json", (file) => busy(async () => {
+            let parsed;
+            try { parsed = JSON.parse(await file.text()); } catch (error) { throw new Error("file JSON non valido"); }
+            await this._service("import_all", { payload: parsed });
+            await this._loadData();
+            this._message = { kind: "ok", text: "Backup ripristinato." };
+          }));
+        } } }, el("ha-icon", { icon: "mdi:database-import" }), "Ripristina backup")));
   }
 
   // ----------------------------------------------------------------- TELECAMERE
@@ -13650,6 +13769,11 @@ _renderClients() {
     ).length;
   }
 
+  /**
+   * Promo (2.3.8): two sub-tabs. «Campagna promo» in three steps (the
+   * message, who gets it, when), «Voucher fedeltà» with its rule in one
+   * sentence; live WhatsApp previews and one Save bar for both.
+   */
   _renderPromo() {
     const settings = (this._data && this._data.settings) || {};
     if (!this._promoDraft) {
@@ -13663,267 +13787,289 @@ _renderClients() {
         promo_code: settings.promo_code || "",
         promo_expiry: settings.promo_expiry || "",
         promo_voucher_message: settings.promo_voucher_message || "",
-        promo_voucher_days: settings.promo_voucher_days != null
-          ? settings.promo_voucher_days : 30,
-        promo_voucher_discount: settings.promo_voucher_discount != null
-          ? settings.promo_voucher_discount : 10,
-        promo_voucher_min_spend: settings.promo_voucher_min_spend != null
-          ? settings.promo_voucher_min_spend : 100,
-        promo_voucher_max_spend: settings.promo_voucher_max_spend != null
-          ? settings.promo_voucher_max_spend : 500,
-        promo_voucher_after_hours: settings.promo_voucher_after_hours != null
-          ? settings.promo_voucher_after_hours : 24,
+        promo_voucher_days: settings.promo_voucher_days != null ? settings.promo_voucher_days : 30,
+        promo_voucher_discount: settings.promo_voucher_discount != null ? settings.promo_voucher_discount : 10,
+        promo_voucher_min_spend: settings.promo_voucher_min_spend != null ? settings.promo_voucher_min_spend : 100,
+        promo_voucher_max_spend: settings.promo_voucher_max_spend != null ? settings.promo_voucher_max_spend : 500,
+        promo_voucher_after_hours: settings.promo_voucher_after_hours != null ? settings.promo_voucher_after_hours : 24,
         promo_voucher_auto: settings.promo_voucher_auto === true,
       };
+      this._promoBase = JSON.stringify(this._promoDraft);
+      this._promoMode = this._promoDraft.promo_date ? "giorno" : this._promoDraft.promo_time ? "ogni" : "adesso";
     }
     const draft = this._promoDraft;
-    const wrap = el("div", { class: "stack" });
-    const canOffer = this._can("offers");
+    const tab = this._promoTab || "campagna";
+    const wrap = el("div", { class: "stack nt" });
+    wrap.appendChild(this._sectionHead("mdi:bullhorn-outline", "Promo",
+      "Offerte ai clienti iscritti e voucher fedeltà dopo la visita."));
+    wrap.appendChild(el("div", { class: "nt-tabs", role: "tablist" },
+      [["campagna", "mdi:bullhorn-outline", "Campagna promo"], ["fedelta", "mdi:ticket-percent-outline", "Voucher fedeltà"]]
+        .map(([id, icon, label]) => el("button", {
+          class: `nt-tab${tab === id ? " on" : ""}`, role: "tab", "aria-selected": tab === id ? "true" : "false",
+          on: { click: () => { this._promoTab = id; this._render(); } },
+        }, el("ha-icon", { icon }), el("span", {}, label)))));
 
-    // Edit mode toggle in the header.
-    if (canOffer) wrap.appendChild(this._promoHeader());
+    const clients = (this._data.clients || []);
+    const vouchers = this._data.promo_vouchers || [];
+    const sentPromos = clients.reduce((sum, c) => sum + (Number(c.promo_sent_count) || 0), 0);
+    const sentLoyalty = vouchers.filter((v) => v.sent_at).length;
+    const used = vouchers.filter((v) => v.redeemed_at || v.status === "redeemed").length;
+    wrap.appendChild(el("div", { class: "stats" },
+      el("div", { class: "stat" }, el("span", { class: "stat-label" }, "Clienti iscritti"), el("span", { class: "stat-value" }, String(this._promoRecipients()))),
+      el("div", { class: "stat" }, el("span", { class: "stat-label" }, "Promo inviate"), el("span", { class: "stat-value" }, String(sentPromos))),
+      el("div", { class: "stat" }, el("span", { class: "stat-label" }, "Voucher fedeltà inviati"), el("span", { class: "stat-value" }, String(sentLoyalty))),
+      el("div", { class: "stat ok" }, el("span", { class: "stat-label" }, "Riscattati"),
+        el("span", { class: "stat-value" }, sentLoyalty ? `${used} · ${Math.round((used / sentLoyalty) * 100)}%` : String(used)))));
 
-    // Two columns of blocks for drag-and-drop in edit mode.
-    const columns = this._colsGrid("promo");
-    const left = el("div", { class: "stack tight form-col", "data-col": "left" });
-    const right = el("div", { class: "stack tight form-col", "data-col": "right" });
-    this._blockWire(columns, "promo");
+    const changed = () => this._pageSyncSave("promo");
+    if (tab === "campagna") wrap.appendChild(this._promoCampaign(draft, changed));
+    else wrap.appendChild(this._promoLoyalty(draft, changed));
 
-    const box = (id, title, ...children) => {
-      const node = el("div", { class: "cfg-box" }, el("h3", {}, title));
-      add(node, children);
-      return this._tagBlock(id, this._promoSection(id, node));
-    };
-
-    // Left: message editor + manual send.
-    const messageBox = box("message", "Messaggio promo");
-    messageBox.appendChild(
-      el("label", { class: "field" },
-        el("span", {}, "Testo del messaggio"),
-        el("textarea", { class: "input", rows: "12",
-          on: { input: (event) => { draft.promo_message = event.target.value; } },
-        }, draft.promo_message || ""))
-    );
-    messageBox.appendChild(
-      el("label", { class: "field" }, el("span", {}, "Codice promo"),
-        el("input", { class: "input", type: "text", value: draft.promo_code || "",
-          placeholder: "es. ESTATE20",
-          on: { input: (event) => { draft.promo_code = event.target.value; } } }))
-    );
-    messageBox.appendChild(
-      el("label", { class: "field" }, el("span", {}, "Scadenza promo"),
-        el("input", { class: "input", type: "date", value: draft.promo_expiry || "",
-          on: { input: (event) => { draft.promo_expiry = event.target.value; } } }))
-    );
-    messageBox.appendChild(el("div", { class: "hint" },
-      "Segnaposti nel testo: {nome}, {cognome}, {codice} (prenotazione), " +
-      "{codice_promo}, {scadenza_promo} (gg/mm/aaaa)."));
-    messageBox.appendChild(el("div", { class: "hint" },
-      "Segnaposti: {nome} nome, {cognome} cognome, {codice} codice ultima " +
-      "prenotazione. Il messaggio viene inviato ai soli clienti iscritti alle promo."));
-    left.appendChild(messageBox);
-
-    const sendBox = box("send", "Invio manuale");
-    sendBox.appendChild(
-      el("div", { class: "hint" },
-        this._promoRecipients() + " clienti iscritti alle promo riceveranno il messaggio.")
-    );
-    sendBox.appendChild(
-      el("div", { class: "row tight" },
-        el("button", {
-          class: "btn small primary",
-          disabled: this._busy || !canOffer || !this._promoRecipients(),
-          on: { click: async () => {
-            try {
-              this._busy = true;
-              this._render();
-              const result = await this._call("send_promo", {
-                message: draft.promo_message || "",
-              });
-              this._message = {
-                kind: "ok",
-                text: "Promo inviato a " + result.sent + " clienti (" + result.failed + " falliti).",
-              };
-            } catch (error) { /* shown */ }
-            finally { this._busy = false; this._render(); }
-          } },
-        }, el("ha-icon", { icon: "mdi:send" }), "Invia promo ora"))
-    );
-    left.appendChild(sendBox);
-
-    // Loyalty voucher: the thank-you message and its rules.
-    const postBox = box("message_post", "Messaggio Promo");
-    postBox.appendChild(el("div", { class: "hint" },
-      "Messaggio di ringraziamento inviato al cliente dopo che ha usato i " +
-      "servizi, con il suo codice voucher personale."));
-    postBox.appendChild(
-      el("label", { class: "field" },
-        el("span", {}, "Testo del messaggio"),
-        el("textarea", { class: "input", rows: "12",
-          on: { input: (event) => { draft.promo_voucher_message = event.target.value; } },
-        }, draft.promo_voucher_message || ""))
-    );
-    postBox.appendChild(el("div", { class: "hint" },
-      "Segnaposti: {nome}, {cognome}, {codice}, {sconto} (percentuale), " +
-      "{spesa_minima}, {scadenza} (gg/mm/aaaa)."));
-    postBox.appendChild(
-      el("div", { class: "row tight" },
-        el("label", { class: "field" }, el("span", {}, "Sconto (%)"),
-          el("input", { class: "input", type: "number", min: "1", max: "100", step: "1",
-            value: String(draft.promo_voucher_discount ?? 10),
-            on: { input: (event) => {
-              const value = parseInt(event.target.value, 10);
-              draft.promo_voucher_discount = Number.isFinite(value) && value >= 1 ? value : 10;
-            } } })),
-        el("label", { class: "field" }, el("span", {}, "Spesa minima (EUR)"),
-          el("input", { class: "input", type: "number", min: "0", step: "1",
-            value: String(draft.promo_voucher_min_spend ?? 100),
-            on: { input: (event) => {
-              const value = parseInt(event.target.value, 10);
-              draft.promo_voucher_min_spend = Number.isFinite(value) && value >= 0 ? value : 0;
-            } } })))
-    );
-    postBox.appendChild(
-      el("div", { class: "row tight" },
-        el("label", { class: "field" }, el("span", {}, "Spesa massima (EUR)"),
-          el("input", { class: "input", type: "number", min: "0", step: "1",
-            value: String(draft.promo_voucher_max_spend ?? 500),
-            on: { input: (event) => {
-              const value = parseInt(event.target.value, 10);
-              draft.promo_voucher_max_spend = Number.isFinite(value) && value >= 0 ? value : 0;
-            } } })),
-        el("label", { class: "field" }, el("span", {}, "Giorni di scadenza"),
-          el("input", { class: "input", type: "number", min: "1", max: "3650", step: "1",
-            value: String(draft.promo_voucher_days ?? 30),
-            on: { input: (event) => {
-              const value = parseInt(event.target.value, 10);
-              draft.promo_voucher_days = Number.isFinite(value) && value >= 1 ? value : 30;
-            } } })))
-    );
-    postBox.appendChild(
-      el("label", { class: "field" },
-        el("span", {}, "Ore dopo il check-out"),
-        el("input", { class: "input", type: "number", min: "0", max: "8760", step: "1",
-          value: String(draft.promo_voucher_after_hours ?? 24),
-          on: { input: (event) => {
-            const value = parseInt(event.target.value, 10);
-            draft.promo_voucher_after_hours = Number.isFinite(value) && value >= 0 ? value : 0;
-          } } }))
-    );
-    postBox.appendChild(
-      el("label", { class: "row tight" },
-        el("input", { type: "checkbox", checked: draft.promo_voucher_auto === true,
-          on: { change: (event) => { draft.promo_voucher_auto = event.target.checked; } } }),
-        el("span", {}, "Invio automatico al check-out"))
-    );
-    postBox.appendChild(el("div", { class: "hint" },
-      "Se attivo, al check-out si genera il codice e il messaggio parte dopo " +
-      "le ore indicate. Il voucher non usato si elimina da solo dopo la scadenza."));
-    postBox.appendChild(
-      el("div", { class: "row tight" },
-        el("button", {
-          class: "btn small primary",
-          disabled: this._busy || !canOffer,
-          on: { click: async () => {
-            try {
-              this._busy = true;
-              this._render();
-              await this._call("update_settings", {
-                promo_voucher_message: draft.promo_voucher_message || "",
-                promo_voucher_days: draft.promo_voucher_days ?? 30,
-                promo_voucher_discount: draft.promo_voucher_discount ?? 10,
-                promo_voucher_min_spend: draft.promo_voucher_min_spend ?? 100,
-                promo_voucher_max_spend: draft.promo_voucher_max_spend ?? 500,
-                promo_voucher_after_hours: draft.promo_voucher_after_hours ?? 24,
-                promo_voucher_auto: draft.promo_voucher_auto === true,
-              });
-              this._message = { kind: "ok", text: "Messaggio Promo salvato." };
-              this._render();
-            } catch (error) { /* shown */ }
-          } },
-        }, el("ha-icon", { icon: "mdi:content-save" }), "Salva"))
-    );
-    left.appendChild(postBox);
-
-    // Right: scheduling + save.
-    const schedBox = box("schedule", "Invio automatico");
-    schedBox.appendChild(
-      el("label", { class: "field" },
-        el("span", {}, "Orario giornaliero (vuoto = disabilitato)"),
-        el("input", { class: "input", type: "time", value: draft.promo_time || "",
-          on: { input: (event) => { draft.promo_time = event.target.value; } } }))
-    );
-    schedBox.appendChild(
-      el("label", { class: "field" },
-        el("span", {}, "Pausa tra invii (secondi)"),
-        el("input", { class: "input", type: "number", min: "0", step: "1",
-          value: String(draft.promo_interval_sec ?? 3),
-          on: { input: (event) => {
-            const value = parseInt(event.target.value, 10);
-            draft.promo_interval_sec = Number.isFinite(value) && value >= 0 ? value : 0;
-          } } }))
-    );
-    schedBox.appendChild(
-      el("label", { class: "field" },
-        el("span", {}, "Data singola (vuota = solo orario giornaliero)"),
-        el("input", { class: "input", type: "date", value: draft.promo_date || "",
-          on: { input: (event) => { draft.promo_date = event.target.value; } } }))
-    );
-    schedBox.appendChild(
-      el("div", { class: "row tight" },
-        el("label", { class: "field" }, el("span", {}, "Invii massimi"),
-          el("input", { class: "input", type: "number", min: "0", step: "1",
-            value: String(draft.promo_max_sends ?? 0),
-            on: { input: (event) => {
-              const value = parseInt(event.target.value, 10);
-              draft.promo_max_sends = Number.isFinite(value) && value >= 0 ? value : 0;
-            } } })),
-        el("label", { class: "field" }, el("span", {}, "ogni (minuti)"),
-          el("input", { class: "input", type: "number", min: "1", step: "1",
-            value: String(draft.promo_window_min ?? 10),
-            on: { input: (event) => {
-              const value = parseInt(event.target.value, 10);
-              draft.promo_window_min = Number.isFinite(value) && value >= 1 ? value : 1;
-            } } })))
-    );
-    schedBox.appendChild(el("div", { class: "hint" },
-      "Invii massimi = 0: nessun limite. La data singola viene svuotata dopo l'invio."));
-    schedBox.appendChild(el("div", { class: "hint" },
-      "Se impostato, l'automazione giornaliera invia il promo a quell'orario " +
-      "(controlla ogni 15 minuti). La pausa evita di sovraccaricare WAHA."));
-    schedBox.appendChild(
-      el("div", { class: "row tight" },
-        el("button", {
-          class: "btn small",
-          disabled: this._busy || !canOffer,
-          on: { click: async () => {
-            try {
-              this._busy = true;
-              this._render();
-              await this._call("update_settings", {
-                promo_message: draft.promo_message || "",
-                promo_time: (draft.promo_time || "").trim(),
-                promo_interval_sec: draft.promo_interval_sec ?? 3,
-                promo_max_sends: draft.promo_max_sends ?? 0,
-                promo_window_min: draft.promo_window_min ?? 10,
-                promo_date: draft.promo_date || "",
-                promo_code: (draft.promo_code || "").trim(),
-                promo_expiry: draft.promo_expiry || "",
-              });
-              this._message = { kind: "ok", text: "Impostazioni promo salvate." };
-              this._render();
-            } catch (error) { /* shown */ }
-          } },
-        }, el("ha-icon", { icon: "mdi:content-save" }), "Salva impostazioni"))
-    );
-    right.appendChild(schedBox);
-
-    this._placeBlocks(left, right, "promo_order");
-    columns.appendChild(left);
-    columns.appendChild(right);
-    wrap.appendChild(columns);
-
+    wrap.appendChild(this._pageSaveBar("promo", () => this._savePromo(), () => { this._promoDraft = null; this._render(); }));
     return wrap;
+  }
+
+  /** A Save bar for a page with a draft; shown only when it changed. */
+  _pageSaveBar(page, save, cancel) {
+    const bar = el("div", { class: "nt-save" },
+      el("span", { class: "nt-save-dot" }),
+      el("strong", {}, "Modifiche non salvate"),
+      el("span", { class: "spacer" }),
+      el("button", { class: "btn", on: { click: cancel } }, "Annulla"),
+      el("button", { class: "btn primary", disabled: this._busy, on: { click: save } },
+        el("ha-icon", { icon: "mdi:content-save" }), "Salva"));
+    this[`_${page}SaveBar`] = bar;
+    this._pageSyncSave(page);
+    return bar;
+  }
+
+  _pageSyncSave(page) {
+    const bar = this[`_${page}SaveBar`];
+    if (!bar) return;
+    const dirty = page === "promo"
+      ? JSON.stringify(this._promoDraft) !== this._promoBase
+      : JSON.stringify(this._setDraft) !== this._setBase;
+    bar.classList.toggle("show", Boolean(dirty));
+  }
+
+  async _savePromo() {
+    const draft = this._promoDraft;
+    try {
+      await this._call("update_settings", {
+        ...draft,
+        promo_time: (draft.promo_time || "").trim(),
+        promo_code: (draft.promo_code || "").trim(),
+        promo_interval_sec: Number(draft.promo_interval_sec) || 0,
+        promo_max_sends: Number(draft.promo_max_sends) || 0,
+        promo_window_min: Number(draft.promo_window_min) || 10,
+        promo_voucher_days: Number(draft.promo_voucher_days) || 30,
+        promo_voucher_discount: Number(draft.promo_voucher_discount) || 10,
+        promo_voucher_min_spend: Number(draft.promo_voucher_min_spend) || 0,
+        promo_voucher_max_spend: Number(draft.promo_voucher_max_spend) || 0,
+        promo_voucher_after_hours: Number(draft.promo_voucher_after_hours) || 0,
+      });
+      this._promoDraft = null;
+      this._message = { kind: "ok", text: "Promo salvate." };
+      this._render();
+      return true;
+    } catch (error) { return false; }
+  }
+
+  /** "dd/mm/yyyy" from "yyyy-mm-dd". */
+  _itDate(value) {
+    const [y, m, d] = String(value || "").split("-");
+    return y && m && d ? `${d}/${m}/${y}` : "";
+  }
+
+  /** An editor with chips and a live preview; `sample` turns text into the preview. */
+  _pageEditor(draft, key, chips, sample, changed) {
+    const bubble = el("div", { class: "nt-bubble" }, sample(draft[key] || ""));
+    const textarea = el("textarea", {
+      class: "input nt-text", rows: "12",
+      on: { input: (event) => { draft[key] = event.target.value; bubble.textContent = sample(draft[key]); changed(); } },
+    }, draft[key] || "");
+    const insert = (token) => {
+      const start = textarea.selectionStart ?? textarea.value.length;
+      const end = textarea.selectionEnd ?? start;
+      textarea.value = textarea.value.slice(0, start) + token + textarea.value.slice(end);
+      textarea.focus();
+      textarea.selectionStart = textarea.selectionEnd = start + token.length;
+      draft[key] = textarea.value;
+      bubble.textContent = sample(draft[key]);
+      changed();
+    };
+    return el("div", { class: "nt-two" },
+      el("div", { class: "nt-col" },
+        el("div", { class: "nt-label" }, "Testo"),
+        textarea,
+        el("div", { class: "nt-label" }, "Tocca per inserire"),
+        el("div", { class: "nt-chips" }, chips.map(([token, help]) => el("button", {
+          type: "button", class: "nt-chip", title: help, on: { click: () => insert(token) },
+        }, token)))),
+      el("div", { class: "nt-col" },
+        el("div", { class: "nt-label" }, "Anteprima con dati di esempio"),
+        el("div", { class: "nt-phone" }, bubble, el("div", { class: "nt-phone-time" }, "10:31 ✓✓"))));
+  }
+
+  _pageStep(number, title, ...children) {
+    const node = el("div", { class: "cfg-box pg-step" },
+      el("div", { class: "pg-step-head" },
+        number ? el("span", { class: "pg-num" }, String(number)) : null,
+        el("span", { class: "pg-step-title" }, title)));
+    add(node, children);
+    return node;
+  }
+
+  _promoCampaign(draft, changed) {
+    const recipients = this._promoRecipients();
+    const sample = (text) => String(text || "")
+      .split("{nome}").join("Mario").split("{cognome}").join("Rossi").split("{codice}").join("ABC12")
+      .split("{codice_promo}").join(draft.promo_code || "ESTATE20")
+      .split("{scadenza_promo}").join(this._itDate(draft.promo_expiry) || "31/12/2026");
+    const input = (key, type, extra = {}) => el("input", {
+      class: "input", type, value: draft[key] ?? "", ...extra,
+      on: { input: (event) => { draft[key] = type === "number" ? event.target.value : event.target.value; changed(); if (extra.rerender) this._render(); } },
+    });
+    const wrap = el("div", { class: "stack" });
+
+    wrap.appendChild(this._pageStep(1, "Il messaggio",
+      el("div", { class: "nt-options" },
+        el("label", { class: "field" }, el("span", {}, "Codice promo"), input("promo_code", "text", { placeholder: "es. ESTATE20" })),
+        el("label", { class: "field" }, el("span", {}, "Valido fino al"), input("promo_expiry", "date"))),
+      this._pageEditor(draft, "promo_message",
+        [["{nome}", "Nome"], ["{cognome}", "Cognome"], ["{codice_promo}", "Codice promo"], ["{scadenza_promo}", "Scadenza promo"], ["{codice}", "Codice dell'ultima prenotazione"]],
+        sample, changed)));
+
+    wrap.appendChild(this._pageStep(2, "A chi",
+      el("div", { class: "pg-sum" }, el("ha-icon", { icon: "mdi:account-group-outline" }),
+        el("span", {}, "Tutti i ", el("b", {}, `${recipients} clienti`),
+          " con telefono che non hanno chiesto di non ricevere promo (nella scheda cliente: «Riceve promo»)."))));
+
+    // When: now (by hand), one given day, every day.
+    const mode = this._promoMode || "adesso";
+    const setMode = (next) => {
+      this._promoMode = next;
+      if (next === "adesso") { draft.promo_time = ""; draft.promo_date = ""; }
+      if (next === "ogni") draft.promo_date = "";
+      if (next !== "adesso" && !draft.promo_time) draft.promo_time = "10:00";
+      this._render();
+    };
+    const interval = Number(draft.promo_interval_sec) || 0;
+    const maxSends = Number(draft.promo_max_sends) || 0;
+    const windowMin = Number(draft.promo_window_min) || 10;
+    let seconds = recipients * interval;
+    if (maxSends > 0 && recipients > maxSends) {
+      const rounds = Math.ceil(recipients / maxSends);
+      seconds = (rounds - 1) * windowMin * 60 + (recipients - (rounds - 1) * maxSends) * interval;
+    }
+    const minutes = Math.max(1, Math.round(seconds / 60));
+    const pace = `Parte un messaggio ogni ${interval} secondi${maxSends ? `, al massimo ${maxSends} ogni ${windowMin} minuti` : ""}: circa ${minutes} ${minutes === 1 ? "minuto" : "minuti"} per tutti i ${recipients} clienti.`;
+    const whenLine = mode === "giorno"
+      ? (draft.promo_date ? `Partirà il ${this._itDate(draft.promo_date)} alle ${draft.promo_time || "—"}, una volta sola.` : "Scegli il giorno.")
+      : mode === "ogni" ? `Parte ogni giorno alle ${draft.promo_time || "—"} a tutti i clienti iscritti.` : "Parte quando premi «Invia».";
+    const advanced = el("details", { class: "pg-adv" },
+      el("summary", {}, "Opzioni avanzate (pausa tra invii, invii massimi)"),
+      el("div", { class: "nt-options" },
+        el("label", { class: "field" }, el("span", {}, "Pausa tra invii (secondi)"), input("promo_interval_sec", "number", { min: "0", step: "1" })),
+        el("label", { class: "field" }, el("span", {}, "Invii massimi (0 = nessun limite)"), input("promo_max_sends", "number", { min: "0", step: "1" })),
+        el("label", { class: "field" }, el("span", {}, "ogni (minuti)"), input("promo_window_min", "number", { min: "1", step: "1" }))),
+      el("div", { class: "hint" }, "La pausa evita che WhatsApp consideri gli invii come spam."));
+    if (this._promoAdvOpen) advanced.open = true;
+    advanced.addEventListener("toggle", () => { this._promoAdvOpen = advanced.open; });
+
+    const send = async () => {
+      if (!window.confirm(`Inviare la promo a ${recipients} clienti adesso?`)) return;
+      if (JSON.stringify(this._promoDraft) !== this._promoBase && !(await this._savePromo())) return;
+      try {
+        this._busy = true;
+        this._render();
+        const result = await this._call("send_promo", { message: (this._data.settings || {}).promo_message || draft.promo_message || "" });
+        this._message = { kind: "ok", text: `Promo inviata a ${result.sent} clienti (${result.failed} non riusciti).` };
+      } catch (error) { /* shown */ } finally { this._busy = false; this._render(); }
+    };
+    wrap.appendChild(this._pageStep(3, "Quando",
+      el("div", { class: "pg-seg", role: "radiogroup" },
+        [["adesso", "Adesso"], ["giorno", "Un giorno preciso"], ["ogni", "Ogni giorno"]].map(([id, label]) => el("button", {
+          type: "button", class: mode === id ? "on" : "", role: "radio", "aria-checked": mode === id ? "true" : "false",
+          on: { click: () => setMode(id) },
+        }, label))),
+      mode !== "adesso" ? el("div", { class: "nt-options" },
+        mode === "giorno" ? el("label", { class: "field" }, el("span", {}, "Giorno"), input("promo_date", "date", { rerender: true })) : null,
+        el("label", { class: "field" }, el("span", {}, "Ora"), input("promo_time", "time", { rerender: true }))) : null,
+      el("div", { class: "pg-sum" }, el("ha-icon", { icon: "mdi:timer-outline" }), el("span", {}, `${whenLine} ${pace}`)),
+      advanced,
+      el("div", { class: "nt-foot" },
+        el("span", { class: "spacer" }),
+        el("div", { class: "nt-test" },
+          el("div", { class: "nt-test-phone" },
+            phoneInput(this._promoTestPhone || "", (value) => { this._promoTestPhone = value; })),
+          el("button", {
+            class: "btn small wa", disabled: this._busy,
+            on: { click: () => this._pageTest(this._promoTestPhone, sample(draft.promo_message)) },
+          }, el("ha-icon", { icon: "mdi:whatsapp" }), "Prova su WhatsApp")),
+        mode === "adesso" ? el("button", {
+          class: "btn primary", disabled: this._busy || !recipients || !this._can("offers"),
+          on: { click: send },
+        }, el("ha-icon", { icon: "mdi:send" }), `Invia a ${recipients} clienti`) : null)));
+    return wrap;
+  }
+
+  _promoLoyalty(draft, changed) {
+    const wrap = el("div", { class: "stack" });
+    const number = (key, label, extra = {}) => el("label", { class: "field" }, el("span", {}, label),
+      el("input", { class: "input", type: "number", step: "1", value: draft[key] ?? "", ...extra,
+        on: { input: (event) => { draft[key] = event.target.value; changed(); summary.textContent = rule(); } } }));
+    const rule = () => {
+      const min = Number(draft.promo_voucher_min_spend) || 0;
+      const max = Number(draft.promo_voucher_max_spend) || 0;
+      const spend = min && max ? `su una spesa da ${euro(min)} a ${euro(max)}` : min ? `su una spesa di almeno ${euro(min)}` : max ? `su una spesa fino a ${euro(max)}` : "su qualsiasi spesa";
+      const when = draft.promo_voucher_auto ? `${Number(draft.promo_voucher_after_hours) || 0} ore dopo il check-out` : "Quando lo invii dalla scheda cliente";
+      return `${when} l'ospite riceve un codice personale: ${Number(draft.promo_voucher_discount) || 0}% di sconto ${spend}, valido ${Number(draft.promo_voucher_days) || 0} giorni. Il codice non usato si elimina da solo alla scadenza.`;
+    };
+    const summary = el("span", {}, rule());
+    wrap.appendChild(this._pageStep(0, "La regola",
+      el("label", { class: "nt-auto" },
+        el("input", { type: "checkbox", checked: draft.promo_voucher_auto === true,
+          on: { change: (event) => { draft.promo_voucher_auto = event.target.checked; changed(); summary.textContent = rule(); } } }),
+        el("span", {}, "Invio automatico dopo la visita")),
+      el("div", { class: "nt-options" },
+        number("promo_voucher_after_hours", "Ore dopo il check-out", { min: "0", max: "8760" }),
+        number("promo_voucher_discount", "Sconto (%)", { min: "1", max: "100" }),
+        number("promo_voucher_min_spend", "Spesa minima (€)", { min: "0" }),
+        number("promo_voucher_max_spend", "Spesa massima (€)", { min: "0" }),
+        number("promo_voucher_days", "Valido (giorni)", { min: "1", max: "3650" })),
+      el("div", { class: "pg-sum" }, el("ha-icon", { icon: "mdi:ticket-percent-outline" }), summary)));
+    const sample = (text) => String(text || "")
+      .split("{nome}").join("Mario").split("{cognome}").join("Rossi").split("{codice}").join("FID-7K2QX")
+      .split("{sconto}").join(String(Number(draft.promo_voucher_discount) || 10))
+      .split("{spesa_minima}").join(euro(Number(draft.promo_voucher_min_spend) || 0))
+      .split("{scadenza}").join("11/12/2026");
+    wrap.appendChild(this._pageStep(0, "Il messaggio",
+      this._pageEditor(draft, "promo_voucher_message",
+        [["{nome}", "Nome"], ["{cognome}", "Cognome"], ["{codice}", "Codice del voucher"], ["{sconto}", "Percentuale"],
+          ["{spesa_minima}", "Spesa minima"], ["{scadenza}", "Scadenza"]],
+        sample, changed),
+      el("div", { class: "nt-foot" },
+        el("span", { class: "spacer" }),
+        el("div", { class: "nt-test" },
+          el("div", { class: "nt-test-phone" },
+            phoneInput(this._promoTestPhone || "", (value) => { this._promoTestPhone = value; })),
+          el("button", {
+            class: "btn small wa", disabled: this._busy,
+            on: { click: () => this._pageTest(this._promoTestPhone, sample(draft.promo_voucher_message)) },
+          }, el("ha-icon", { icon: "mdi:whatsapp" }), "Prova su WhatsApp")))));
+    return wrap;
+  }
+
+  _pageTest(phone, text) {
+    const raw = String(phone || "").trim();
+    if (!raw) {
+      this._message = { kind: "error", text: "Scrivi il numero di prova accanto a «Prova su WhatsApp»." };
+      this._render();
+      return;
+    }
+    const id = raw.includes("@") ? raw : this._whatsappIdOf({ phone: raw, whatsapp_chat_id: "" });
+    this._testChannel("whatsapp", id, text);
   }
 
   // ---------------------------------------------------------- report preview
@@ -18298,6 +18444,34 @@ _renderClients() {
       .operators-column:only-child { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 10px; align-items: start; }
       .operators-column:only-child > .column-header { grid-column: 1 / -1; }
       .icon-btn.danger-icon { color: var(--sb-danger-fg, #c62828); }
+      /* 2.3.8: Promo and Impostazioni */
+      .pg-step { display: flex; flex-direction: column; gap: 12px; }
+      .pg-step-head { display: flex; align-items: center; gap: 10px; }
+      .pg-num { flex: none; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 13px;
+        background: var(--primary-color); color: #fff; }
+      .pg-step-title { font-weight: 700; font-size: 15px; }
+      .pg-sum { display: flex; align-items: flex-start; gap: 8px; padding: 10px 12px; border-radius: 10px; font-size: 13px; line-height: 1.45;
+        background: color-mix(in srgb, var(--primary-color) 8%, transparent); border: 1px solid color-mix(in srgb, var(--primary-color) 22%, transparent); }
+      .pg-sum ha-icon { --mdc-icon-size: 18px; color: var(--primary-color); flex: none; margin-top: 1px; }
+      .pg-sum.grow { flex: 1; }
+      .pg-seg { display: inline-flex; flex-wrap: wrap; gap: 3px; padding: 3px; border-radius: 10px; background: var(--sb-soft, rgba(0,0,0,.05)); width: max-content; max-width: 100%; }
+      .pg-seg button { all: unset; cursor: pointer; padding: 7px 14px; border-radius: 8px; font-weight: 600; font-size: 13px; color: var(--secondary-text-color); }
+      .pg-seg button.on { background: var(--sb-card, #fff); color: var(--primary-color); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+      .pg-seg button:focus-visible { outline: 2px solid var(--primary-color); }
+      .pg-adv > summary { cursor: pointer; font-weight: 600; font-size: 13px; color: var(--primary-color); padding: 4px 0; }
+      .pg-adv[open] > summary { margin-bottom: 8px; }
+      .pg-switch-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+      .pg-ranges { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 12px; }
+      .pg-range { display: flex; align-items: center; gap: 8px; }
+      .pg-range ha-icon { --mdc-icon-size: 18px; color: var(--secondary-text-color); }
+      .pg-time { width: 120px; }
+      .pg-numbers { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 8px; }
+      .pg-number { display: flex; align-items: center; gap: 6px; }
+      .pg-number > :first-child { flex: 1; min-width: 0; }
+      .pg-color .input { width: 70px; height: 40px; padding: 3px; }
+      .pg-code { margin: 0; padding: 10px 12px; border-radius: 10px; background: #0f172a; color: #e2e8f0; font-size: 12px; line-height: 1.5;
+        white-space: pre-wrap; word-break: break-all; user-select: all; }
+      .nt-tab ha-icon { --mdc-icon-size: 18px; }
       /* 2.3.6: Notifiche */
       .nt-tabs { display: flex; gap: 4px; padding: 4px; border-radius: 12px; background: var(--sb-soft, rgba(0,0,0,.05)); width: max-content; max-width: 100%; overflow-x: auto; }
       .nt-tab { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 9px;
