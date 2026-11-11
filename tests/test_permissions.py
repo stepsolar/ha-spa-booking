@@ -118,3 +118,22 @@ def test_every_service_has_a_level() -> None:
     for service in services.ALL_SERVICES:
         level = services.SERVICE_LEVELS.get(service, "admin")
         assert level in services._LEVEL_RANK
+
+
+def test_every_notification_setting_the_card_saves_is_accepted() -> None:
+    """2.3.7: «Salva» in Notifiche sent keys the service schema refused."""
+    import re
+    from pathlib import Path
+
+    card = Path(__file__).parents[1] / "custom_components/spa_booking/frontend/spa-booking-card.js"
+    text = card.read_text(encoding="utf-8")
+    block = re.search(r"const NOTIFY_SAVE_KEYS = \[(.*?)\];", text, re.S).group(1)
+    keys = re.findall(r'"([a-z_]+)"', block) + ["deposit_test_phone", "summary_test_phone", "review_request_test_phone"]
+    accepted = {str(key) for key in services.UPDATE_SETTINGS_SCHEMA.schema}
+    assert not [key for key in keys if key not in accepted]
+    payload = {key: "x" for key in keys}
+    payload.update({
+        "appointment_reminder_auto": True, "appointment_reminder_hours": 12, "review_request_auto": True,
+        "review_request_after_hours": 6, "offer_timeout_hours": 24, "offer_reminder_hours": 2, "report_per_operator": True,
+    })
+    services.UPDATE_SETTINGS_SCHEMA(payload)
