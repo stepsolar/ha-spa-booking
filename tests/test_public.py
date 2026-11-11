@@ -336,3 +336,24 @@ def test_request_remembers_who_wrote_it(web) -> None:
     by_id = {r["id"]: r for r in coordinator.requests}
     assert by_id[desk.get("request", desk)["id"]]["created_by_name"] == "Laura"
     assert by_id[site.get("request", site)["id"]]["created_by_name"] == "Sito web"
+
+
+def test_web_request_saves_the_client(web) -> None:
+    from custom_components.spa_booking.const import REQUEST_SOURCE_WEB
+
+    coordinator, _ = web
+    before = len(coordinator.clients)
+    treatment = coordinator.treatments[0]
+    run(coordinator.async_create_request(
+        first_name="Nuova", last_name="Ospite", phone="+39 320 0720670", email="n@o.it",
+        date="2026-12-20", people=1, entries=[{"treatment_id": treatment["id"], "time": "10:00"}],
+        source=REQUEST_SOURCE_WEB))
+    assert len(coordinator.clients) == before + 1
+    client = coordinator.clients[-1]
+    assert (client["first_name"], client["phone"], client["email"]) == ("Nuova", "+39 320 0720670", "n@o.it")
+    # The same guest again: the card is reused, not duplicated.
+    run(coordinator.async_create_request(
+        first_name="Nuova", last_name="Ospite", phone="+39 320 0720670",
+        date="2026-12-21", people=1, entries=[{"treatment_id": treatment["id"], "time": "10:00"}],
+        source=REQUEST_SOURCE_WEB))
+    assert len(coordinator.clients) == before + 1

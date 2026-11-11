@@ -1,6 +1,6 @@
 # Spa Booking — guida alle schede (2.2)
 
-Aggiornata alla 2.3.1: [conferme e promemoria WhatsApp](#conferme-e-promemoria-whatsapp); [firme e storico](#firme-e-storico); [chiusure con giorni esclusi](#chiusure-con-giorni-esclusi); [Proponi data](#proponi-data) nelle richieste, con trattamenti alternativi e prezzo; [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
+Aggiornata alla 2.3.2: [promo e fedeltà del cliente](#promo-e-fedeltà-del-cliente); [conferme e promemoria WhatsApp](#conferme-e-promemoria-whatsapp); [firme e storico](#firme-e-storico); [chiusure con giorni esclusi](#chiusure-con-giorni-esclusi); [Proponi data](#proponi-data) nelle richieste, con trattamenti alternativi e prezzo; [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
 
 Questa guida mostra ogni scheda della dashboard **Spa Booking** e spiega a
 cosa serve ogni funzione. Le immagini sono state fatte con dati di prova.
@@ -28,6 +28,19 @@ in Impostazioni › Aspetto).
 ---
 
 
+
+
+## Promo e fedeltà del cliente
+
+Dalla 2.3.2 la scheda del cliente mostra «Promo e fedeltà»: quante promo ha
+ricevuto (e l'ultima), quanti codici fedeltà le sono stati inviati, quanti ne
+ha riscattati e quante richieste ha fatto. Le promo si contano dalla 2.3.2 in
+poi; i codici fedeltà anche prima.
+
+Ogni richiesta salva la scheda del cliente (se il telefono è già registrato
+usa quella esistente): dalla richiesta, **Scheda cliente** la apre.
+
+![Promo e fedeltà](anteprime/24-cliente-contatori.png)
 
 ## Conferme e promemoria WhatsApp
 
