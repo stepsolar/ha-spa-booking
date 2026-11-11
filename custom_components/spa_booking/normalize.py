@@ -1648,8 +1648,22 @@ def _norm_closure(raw: dict[str, Any]) -> dict[str, Any]:
         "date_to": str(raw.get("date_to") or "")[:10],
         "start": clock("start"),
         "end": clock("end"),
+        "skip_weekdays": weekdays_list(raw.get("skip_weekdays")),
         "created_at": str(raw.get("created_at") or dt_util.utcnow().isoformat()),
     }
+
+
+def weekdays_list(value: Any) -> list[int]:
+    """Days of the week as sorted unique numbers, Monday = 0 … Sunday = 6."""
+    found: set[int] = set()
+    for item in value or []:
+        try:
+            day = int(item)
+        except (TypeError, ValueError):
+            continue
+        if 0 <= day <= 6:
+            found.add(day)
+    return sorted(found)
 
 
 def _normalise(raw: dict[str, Any]) -> dict[str, Any]:

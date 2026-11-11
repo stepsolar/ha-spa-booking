@@ -5,7 +5,7 @@ trattamenti con durata propria, operatrici, schede cliente, agenda del giorno
 per operatrice e per categoria, pagamenti, voucher, richieste dal sito web,
 promemoria e report automatici su WhatsApp e Telegram.
 
-Versione corrente: **2.2.3** — documentazione completa in
+Versione corrente: **2.2.4** — documentazione completa in
 [`custom_components/spa_booking/README.md`](custom_components/spa_booking/README.md).
 
 **[Guida alle schede con le anteprime](docs/GUIDA.md)**: ogni scheda della
@@ -132,6 +132,16 @@ hassfest e validazione HACS a ogni push e pull request. Lavora su un branch e
 apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
+
+- **v2.2.4**:
+  - **Chiusure con giorni esclusi.** In Fasce bloccate, per una chiusura di
+    più giorni si possono escludere alcuni giorni della settimana, che restano
+    aperti: ad esempio «chiuso tutto novembre esclusi i sabati». Vale per la
+    spa intera, una categoria o un'operatrice, a giornata intera o con orario.
+    Agenda, calendario, prenotazioni e modulo del sito ne tengono conto, e
+    l'elenco mostra «esclusi i sabati».
+  - Servizio `add_closure`: nuovo campo `skip_weekdays` (0 = lunedì … 6 =
+    domenica). Le chiusure esistenti non cambiano.
 
 - **v2.2.3**:
   - **Campo Telefono sul telefono.** Nelle schede strette, ad esempio Nuovo

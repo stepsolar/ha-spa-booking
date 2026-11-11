@@ -1,6 +1,6 @@
 # Spa Booking — guida alle schede (2.2)
 
-Aggiornata alla 2.2.2: [Proponi data](#proponi-data) nelle richieste, con trattamenti alternativi e prezzo; [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
+Aggiornata alla 2.2.4: [chiusure con giorni esclusi](#chiusure-con-giorni-esclusi); [Proponi data](#proponi-data) nelle richieste, con trattamenti alternativi e prezzo; [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
 
 Questa guida mostra ogni scheda della dashboard **Spa Booking** e spiega a
 cosa serve ogni funzione. Le immagini sono state fatte con dati di prova.
@@ -386,6 +386,24 @@ sinistra, sul telefono una striscia di icone.
 | ![Notifiche](anteprime/17-config-notifiche.png) | **Notifiche**: collegamento WhatsApp (integrato o WAHA), report, offerte alle operatrici, acconto, riepilogo, promemoria, recensioni. Ogni messaggio ha la prova su un numero. |
 | ![Promo](anteprime/18-config-promo.png) | **Promo**: invio promozionale e voucher fedeltà automatici. |
 | ![Impostazioni](anteprime/21-config-impostazioni.png) | **Impostazioni**: titolo, aspetto, sito web (con il numero degli avvisi), ordine dei campi, backup e ripristino. |
+
+### Chiusure con giorni esclusi
+
+Dalla 2.2.4, quando la chiusura dura più di un giorno («Dal giorno» e «Al
+giorno» diversi), compare la riga **Escludi i giorni** con i pulsanti Lun…Dom.
+I giorni toccati restano aperti dentro il periodo.
+
+Esempio: dal 1 al 30 novembre, tocca **Sab**: la spa è chiusa tutto il mese
+tranne i sabati. Si combina con l'orario («chiuso la mattina 9–13, esclusi
+sabato e domenica») e con l'ambito (spa intera, categoria, operatrice).
+
+L'elenco mostra «… · giornata intera · esclusi i sabati». Agenda, calendario,
+Nuovo appuntamento e modulo del sito considerano chiusi solo i giorni coperti.
+Le chiusure inserite prima restano valide tutti i giorni, come prima.
+
+![Nuova chiusura con giorni esclusi](anteprime/16b-chiusura-giorni-esclusi.png)
+
+![Calendario: i sabati restano aperti](anteprime/16d-calendario-sabati-aperti.png)
 
 ### Accessi: utenti, ruoli e PIN
 

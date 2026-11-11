@@ -291,3 +291,27 @@ def test_propose_alternative_treatments(web, monkeypatch) -> None:
         request["id"], "2026-11-15", "", alternatives=alts[:1], dry_run=True))["text"]
     assert custom.startswith("Ciao Elena, c'è posto domenica 15 novembre.\n\nIn alternativa")
     assert custom.endswith("Ci risponda pure.")
+
+
+def test_closure_skips_weekdays(web) -> None:
+    from custom_components.spa_booking.coordinator import SpaBookingCoordinator, skipped_days_words
+
+    coordinator, _ = web
+    closure = run(coordinator.async_add_closure(
+        date_from="2026-11-01", date_to="2026-11-30", skip_weekdays=[5], label="Ferie"))
+    assert closure["skip_weekdays"] == [5]
+    days = SpaBookingCoordinator._closure_days(closure)
+    assert "2026-11-07" not in days and "2026-11-14" not in days  # Saturdays stay open
+    assert "2026-11-09" in days and "2026-11-15" in days
+    assert len(days) == 30 - 4
+    assert "esclusi i sabati" in SpaBookingCoordinator._closure_message(closure, "Chiuso")
+    assert skipped_days_words([6, 5]) == "esclusi i sabati e le domeniche"
+    # A single day ignores the excluded weekdays; a range with nothing left is refused.
+    single = run(coordinator.async_add_closure(date_from="2026-12-05", skip_weekdays=[5]))
+    assert single["skip_weekdays"] == [] and SpaBookingCoordinator._closure_days(single) == ["2026-12-05"]
+    try:
+        run(coordinator.async_add_closure(date_from="2026-12-12", date_to="2026-12-13", skip_weekdays=[5, 6]))
+    except Exception as error:  # noqa: BLE001
+        assert "nessun giorno" in str(error)
+    else:
+        raise AssertionError("an empty closure must be refused")
