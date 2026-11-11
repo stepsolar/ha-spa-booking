@@ -131,3 +131,23 @@ setTimeout(() => {
   reception._updateStatus = admin._updateStatus;
   assert(reception._updateBanner() === null, "only the administrator sees updates");
 }
+
+// --- «Proponi data» on a request -----------------------------------------------
+{
+  const card = makeCard({ user_id: "u_l", name: "Laura", level: "operator" });
+  const calls = [];
+  card._service = async (service, data) => { calls.push([service, data]); return { text: "Gentile Elena, la prima data disponibile è domenica 15 novembre alle 10:00." }; };
+  card._friendlyError = (e, d) => d;
+  const req = { id: "req1", code: "R1", date: "2030-03-09", client: { first_name: "Elena" },
+    entries: [{ start: "10:00", treatment_name: "Massaggio" }], is_confirmed: false };
+  card._openProposePopup(req);
+  assert(card._proposePopup.date === "2030-03-10", "proposes the day after the one asked for");
+  assert(card._proposePopup.time === "10:00", "keeps the hour asked for");
+  setTimeout(() => {
+    assert(calls[0][0] === "propose_request_date" && calls[0][1].dry_run === true, "the preview sends nothing");
+    assert(card._proposePopup.text.includes("domenica 15 novembre"), "text from the notifications tab");
+    const sheet = card._renderProposePopup();
+    assert(sheet.textContent.includes("Invia su WhatsApp") && sheet.textContent.includes("Prima data disponibile"), "popup with date and send");
+    console.log("ALL PROPOSE TESTS PASSED");
+  }, 20);
+}

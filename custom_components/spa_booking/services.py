@@ -157,6 +157,7 @@ SERVICE_CREATE_REQUEST = "create_request"
 SERVICE_DELETE_REQUEST = "delete_request"
 SERVICE_CONFIRM_REQUEST = "confirm_request"
 SERVICE_SEND_REQUEST_MESSAGE = "send_request_message"
+SERVICE_PROPOSE_REQUEST_DATE = "propose_request_date"
 SERVICE_ADD_PAYMENT = "add_payment"
 SERVICE_DELETE_PAYMENT = "delete_payment"
 #: The card's bell (clear it once the desk has read the web requests) and the
@@ -248,6 +249,7 @@ ALL_SERVICES = (
     SERVICE_DELETE_REQUEST,
     SERVICE_CONFIRM_REQUEST,
     SERVICE_SEND_REQUEST_MESSAGE,
+    SERVICE_PROPOSE_REQUEST_DATE,
     SERVICE_ADD_PAYMENT,
     SERVICE_DELETE_PAYMENT,
     SERVICE_MARK_REQUESTS_SEEN,
@@ -797,6 +799,7 @@ UPDATE_SETTINGS_SCHEMA = vol.Schema(
         vol.Optional("summary_test_phone"): vol.Any(cv.string, None),
         # Acknowledgement to a guest whose appointment request was taken.
         vol.Optional("request_message"): vol.Any(cv.string, None),
+        vol.Optional("request_propose_message"): vol.Any(cv.string, None),
         # Promo broadcast: the message, the daily send time and the delay
         # between one send and the next.
         vol.Optional("promo_message"): vol.Any(cv.string, None),
@@ -1388,6 +1391,33 @@ async def _async_confirm_request(call: ServiceCall) -> ServiceResponse:
     return await _coordinator(call).async_confirm_request(
         call.data[ATTR_REQUEST_ID]
     )
+
+
+async def _async_propose_request_date(call: ServiceCall) -> ServiceResponse:
+    """Offer the guest another date on WhatsApp (or just write the text)."""
+    data = call.data
+    acting = _ACTING.get()
+    return await _coordinator(call).async_propose_request_date(
+        data["request_id"],
+        data["date"].isoformat() if hasattr(data["date"], "isoformat") else str(data["date"]),
+        str(data.get("time") or "")[:5],
+        data.get("text") or None,
+        dry_run=data.get("dry_run", False),
+        by_name=(acting.name if acting is not None and acting.user_id else ""),
+    )
+
+
+PROPOSE_REQUEST_DATE_SCHEMA = vol.Schema(
+    {
+        vol.Required("request_id"): cv.string,
+        vol.Required("date"): cv.date,
+        vol.Optional("time", default=""): vol.Any(
+            vol.All(cv.string, vol.Match(r"^(\d{2}:\d{2})?$")), None
+        ),
+        vol.Optional("text"): vol.Any(cv.string, None),
+        vol.Optional("dry_run", default=False): cv.boolean,
+    }
+)
 
 
 async def _async_send_request_message(call: ServiceCall) -> ServiceResponse:
@@ -2643,6 +2673,9 @@ _HANDLERS: dict[str, tuple[Any, Any, SupportsResponse]] = {
         REQUEST_ID_SCHEMA,
         SupportsResponse.ONLY,
     ),
+    SERVICE_PROPOSE_REQUEST_DATE: (
+        _async_propose_request_date, PROPOSE_REQUEST_DATE_SCHEMA, SupportsResponse.ONLY,
+    ),
     SERVICE_MARK_REQUESTS_SEEN: (
         _async_mark_requests_seen,
         MARK_REQUESTS_SEEN_SCHEMA,
@@ -2782,6 +2815,7 @@ SERVICE_LEVELS: dict[str, str] = {
     SERVICE_CONFIRM_REQUEST: "operator",
     SERVICE_DELETE_REQUEST: "operator",
     SERVICE_SEND_REQUEST_MESSAGE: "operator",
+    SERVICE_PROPOSE_REQUEST_DATE: "operator",
     SERVICE_MARK_REQUESTS_SEEN: "operator",
     SERVICE_SEND_GUEST_SUMMARY: "operator",
     SERVICE_SEND_DEPOSIT_REQUEST: "operator",
