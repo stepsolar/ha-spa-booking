@@ -69,6 +69,8 @@ from .const import (
     DEFAULT_CATEGORY_PAUSE_MIN,
     DEFAULT_REPORT_TIME,
     DEFAULT_REVIEW_MESSAGE,
+    DEFAULT_PROPOSE_ALT_INTRO,
+    DEFAULT_PROPOSE_ALT_LINE,
     DEFAULT_PROPOSE_MESSAGE,
     DEFAULT_REQUEST_MESSAGE,
     DEFAULT_SUMMARY_MESSAGE,
@@ -3757,6 +3759,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         clock: str = "",
         text: str | None = None,
         *,
+        alternatives: list[dict[str, Any]] | None = None,
         dry_run: bool = False,
         by_name: str = "",
     ) -> dict[str, Any]:
@@ -3774,9 +3777,10 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         payload = self.request_payload(self._find(self.requests, request_id, "Richiesta"))
         if payload.get("is_confirmed"):
             raise ValidationError("La richiesta è già confermata")
-        message = (text or "").strip() or self.format_propose_message(payload, day, clock)
+        offers = self._propose_alternatives(payload, day, alternatives or [])
+        message = (text or "").strip() or self.format_propose_message(payload, day, clock, offers)
         if dry_run:
-            return {"request_id": request_id, "text": message}
+            return {"request_id": request_id, "text": message, "alternatives": offers}
         phone = (payload.get("client") or {}).get("phone") or ""
         chat_id = messaging.whatsapp_chat_id(phone)
         if not chat_id:
@@ -3793,11 +3797,54 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             request["proposed_time"] = (clock or "")[:5]
             request["proposed_at"] = dt_util.utcnow().isoformat()
             request["proposed_by"] = by_name
+            request["proposed_alternatives"] = offers
             await self._async_save()
             payload = self.request_payload(request)
         return {"request": payload, "sent": True, "text": message}
 
-    def format_propose_message(self, payload: dict[str, Any], day: str, clock: str = "") -> str:
+    def _propose_alternatives(
+        self, payload: dict[str, Any], day: str, items: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """The treatments offered instead, checked and with their names.
+
+        ``day`` of an item is "asked" (the date the guest asked for, the
+        default), "proposed" (the date offered) or a date. The price is the one
+        typed in the card, else the list price of the treatment.
+        """
+        offers: list[dict[str, Any]] = []
+        asked = str(payload.get("date") or "")
+        for item in items:
+            treatment = self._find(self.treatments, str(item.get("treatment_id") or ""), "Trattamento")
+            when = str(item.get("day") or item.get("date") or "asked")
+            if when == "asked":
+                when = asked or day
+            elif when == "proposed":
+                when = day
+            price = item.get("price")
+            if price in (None, ""):
+                price = treatment.get("price")
+            try:
+                price = round(float(price), 2) if price not in (None, "") else None
+            except (TypeError, ValueError):
+                raise ValidationError(f"Prezzo non valido per {treatment['name']}") from None
+            offers.append(
+                {
+                    "treatment_id": treatment["id"],
+                    "treatment_name": treatment["name"],
+                    "price": price,
+                    "date": when[:10],
+                    "time": str(item.get("time") or "")[:5],
+                }
+            )
+        return offers
+
+    def format_propose_message(
+        self,
+        payload: dict[str, Any],
+        day: str,
+        clock: str = "",
+        offers: list[dict[str, Any]] | None = None,
+    ) -> str:
         """The text that offers another date, from the notifications tab."""
         template = str(self._data[KEY_SETTINGS].get("request_propose_message") or "").strip()
         if not template:
@@ -3813,7 +3860,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         else:
             treatments = names[0] if names else "il trattamento richiesto"
         asked = str(payload.get("date") or "")
-        return (
+        text = (
             template.replace("{nome}", str(client.get("first_name") or "").strip() or "ospite")
             .replace("{cognome}", str(client.get("last_name") or "").strip())
             .replace("{codice}", str(payload.get("code") or "—"))
@@ -3822,6 +3869,35 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             .replace("{data_proposta}", _day_words(day))
             .replace("{orario_proposto}", f" alle {clock[:5]}" if clock else "")
         )
+        return self._with_alternatives(text, offers or [])
+
+    def _with_alternatives(self, text: str, offers: list[dict[str, Any]]) -> str:
+        """Put the alternatives where {alternativa} is, or before the goodbye."""
+        settings = self._data[KEY_SETTINGS]
+        block = ""
+        if offers:
+            intro = str(settings.get("request_propose_alt_intro") or DEFAULT_PROPOSE_ALT_INTRO).strip()
+            line = str(settings.get("request_propose_alt_line") or DEFAULT_PROPOSE_ALT_LINE)
+            lines = [
+                line.replace("{trattamento_alternativo}", offer["treatment_name"])
+                .replace("{prezzo_alternativo}", _euro(offer["price"]))
+                .replace("{data_alternativa}", _day_words(offer["date"]))
+                .replace("{orario_alternativo}", f" alle {offer['time']}" if offer["time"] else "")
+                for offer in offers
+            ]
+            block = "\n".join([intro, *lines] if intro else lines)
+        if "{alternativa}" in text:
+            if block:
+                return text.replace("{alternativa}", f"\n{block}\n")
+            # No alternative: the placeholder leaves no empty lines behind.
+            return re.sub(r"\n*\{alternativa\}\n*", "\n\n", text).strip()
+        if not block:
+            return text
+        # A text written before 2.2.2: the alternatives go before the goodbye.
+        marker = text.find("\nCi risponda")
+        if marker >= 0:
+            return f"{text[:marker].rstrip()}\n\n{block}\n\n{text[marker:].lstrip()}"
+        return f"{text.rstrip()}\n\n{block}"
 
     def format_request_message(self, payload: dict[str, Any]) -> str:
         """Return the acknowledgement sent to a guest who left a request.
@@ -7407,3 +7483,12 @@ def _day_words(value: str) -> str:
     if day.year != dt_util.now().year:
         text += f" {day.year}"
     return text
+
+
+def _euro(value: float | None) -> str:
+    """"€ 160" or "€ 160,50"; "prezzo da definire" when unknown."""
+    if value is None:
+        return "prezzo da definire"
+    if float(value).is_integer():
+        return f"€ {int(value)}"
+    return f"€ {value:.2f}".replace(".", ",")

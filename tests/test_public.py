@@ -230,3 +230,64 @@ def test_propose_another_date(web, monkeypatch) -> None:
     assert result["request"]["proposed_date"] == "2026-11-15"
     assert result["request"]["proposed_time"] == "10:30"
     assert result["request"]["proposed_by"] == "Laura"
+
+
+def test_propose_alternative_treatments(web, monkeypatch) -> None:
+    from custom_components.spa_booking import messaging
+    from custom_components.spa_booking.const import LEGACY_PROPOSE_MESSAGE
+    from custom_components.spa_booking.normalize import _norm_settings as normalize_settings
+
+    coordinator, _ = web
+    sent = []
+
+    async def fake_send(hass, chat_id, text, waha=None):
+        sent.append((chat_id, text))
+        return {"sent": True}
+
+    monkeypatch.setattr(messaging, "async_send_whatsapp", fake_send)
+    asked, other = coordinator.treatments[0], coordinator.treatments[1]
+    request = run(coordinator.async_create_request(
+        first_name="Elena", last_name="Conti", phone="+39 347 222 3344",
+        date="2026-11-14", people=1,
+        entries=[{"treatment_id": asked["id"], "time": "10:00"}],
+    ))
+    request = request.get("request", request)
+    sent.clear()
+
+    # Without alternatives the placeholder leaves no empty lines behind.
+    plain = run(coordinator.async_propose_request_date(request["id"], "2026-11-15", "", dry_run=True))["text"]
+    assert "{alternativa}" not in plain and "\n\n\n" not in plain
+    assert "In alternativa" not in plain
+
+    alts = [
+        {"treatment_id": other["id"], "price": 160, "day": "asked"},
+        {"treatment_id": asked["id"], "price": 89.5, "day": "proposed", "time": "11:00"},
+    ]
+    text = run(coordinator.async_propose_request_date(
+        request["id"], "2026-11-15", "", alternatives=alts, dry_run=True))["text"]
+    assert "In alternativa Le proponiamo:" in text
+    assert f"• {other['name']}, sabato 14 novembre, al prezzo di € 160" in text
+    assert f"• {asked['name']}, domenica 15 novembre alle 11:00, al prezzo di € 89,50" in text
+    assert text.index("In alternativa") < text.index("Ci risponda")
+    assert "\n\n\n" not in text
+
+    # The list price when none is typed.
+    listed = run(coordinator.async_propose_request_date(
+        request["id"], "2026-11-15", "", alternatives=[{"treatment_id": other["id"]}], dry_run=True))
+    assert listed["alternatives"][0]["price"] == other.get("price")
+
+    result = run(coordinator.async_propose_request_date(
+        request["id"], "2026-11-15", "", alternatives=alts))
+    saved = result["request"]["proposed_alternatives"]
+    assert [a["treatment_name"] for a in saved] == [other["name"], asked["name"]]
+    assert saved[0]["date"] == "2026-11-14" and saved[0]["price"] == 160
+    assert "€ 160" in sent[-1][1]
+
+    # A text saved before 2.2.2 becomes the new default; a custom one keeps
+    # its words and gets the alternatives before the goodbye.
+    assert "{alternativa}" in normalize_settings({"request_propose_message": LEGACY_PROPOSE_MESSAGE})["request_propose_message"]
+    coordinator._data["settings"]["request_propose_message"] = "Ciao {nome}, c'è posto {data_proposta}.\nCi risponda pure."
+    custom = run(coordinator.async_propose_request_date(
+        request["id"], "2026-11-15", "", alternatives=alts[:1], dry_run=True))["text"]
+    assert custom.startswith("Ciao Elena, c'è posto domenica 15 novembre.\n\nIn alternativa")
+    assert custom.endswith("Ci risponda pure.")

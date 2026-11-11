@@ -317,10 +317,23 @@ DEFAULT_PROPOSE_MESSAGE: Final = "\n".join(
         "",
         "Purtroppo {data_richiesta} non abbiamo disponibilità per {trattamenti}.",
         "La prima data disponibile è {data_proposta}{orario_proposto}.",
-        "",
+        "{alternativa}",
         "Ci risponda a questo messaggio per confermare, oppure per indicarci un'altra preferenza.",
         "Lo Staff - Il Marchese Hotel & Spa",
     ]
+)
+
+#: The 2.2.1 text, before the alternatives: a stored copy of it is upgraded.
+LEGACY_PROPOSE_MESSAGE: Final = DEFAULT_PROPOSE_MESSAGE.replace("{alternativa}", "")
+
+#: The alternatives offered with another date (2.2.2): one heading, then one
+#: line per treatment. ``{trattamento_alternativo}``, ``{prezzo_alternativo}``
+#: ("€ 160"), ``{data_alternativa}``, ``{orario_alternativo}`` (" alle 10:00"
+#: or nothing).
+DEFAULT_PROPOSE_ALT_INTRO: Final = "In alternativa Le proponiamo:"
+DEFAULT_PROPOSE_ALT_LINE: Final = (
+    "• {trattamento_alternativo}, {data_alternativa}{orario_alternativo}, "
+    "al prezzo di {prezzo_alternativo}"
 )
 
 #: The default appointment reminder message sent to the guest before her appointment.

@@ -2073,6 +2073,16 @@ propose_request_date:
       selector:
         text:
           multiline: true
+    alternatives:
+      name: Trattamenti alternativi
+      description: >-
+        Elenco di trattamenti proposti in alternativa, ognuno con
+        treatment_id, price (facoltativo, altrimenti il prezzo di listino),
+        time (facoltativo) e day ("asked" = giorno chiesto dall'ospite,
+        "proposed" = data proposta, oppure una data AAAA-MM-GG).
+      example: '[{"treatment_id": "spa-privata", "price": 160, "day": "asked"}]'
+      selector:
+        object:
     dry_run:
       name: Solo anteprima
       selector:

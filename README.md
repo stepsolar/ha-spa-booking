@@ -5,7 +5,7 @@ trattamenti con durata propria, operatrici, schede cliente, agenda del giorno
 per operatrice e per categoria, pagamenti, voucher, richieste dal sito web,
 promemoria e report automatici su WhatsApp e Telegram.
 
-Versione corrente: **2.2.1** — documentazione completa in
+Versione corrente: **2.2.2** — documentazione completa in
 [`custom_components/spa_booking/README.md`](custom_components/spa_booking/README.md).
 
 **[Guida alle schede con le anteprime](docs/GUIDA.md)**: ogni scheda della
@@ -132,6 +132,19 @@ hassfest e validazione HACS a ogni push e pull request. Lavora su un branch e
 apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
+
+- **v2.2.2**:
+  - **Trattamenti alternativi in «Proponi data».** Oltre alla prima data
+    disponibile si possono proporre uno o più trattamenti alternativi, ognuno
+    con prezzo (preso dal listino, modificabile), giorno (di base quello
+    chiesto dall'ospite) e orario facoltativo. Compaiono nel messaggio
+    WhatsApp, ad esempio «Spa privata 2 ore, sabato 14 novembre, al prezzo di
+    € 160», e sulla richiesta come «Alternativa: …».
+  - In Notifiche › Proposta di un'altra data: nuovo segnaposto
+    `{alternativa}`, più l'introduzione e la riga di ogni alternativa. Il testo
+    di base della 2.2.1 si aggiorna da solo; uno personalizzato riceve le
+    alternative prima di «Ci risponda…».
+  - Servizio `propose_request_date`: nuovo campo `alternatives`.
 
 - **v2.2.1**:
   - **«Proponi data» nella Lista richieste.** Quando la data chiesta è piena,

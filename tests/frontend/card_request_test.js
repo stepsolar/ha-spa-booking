@@ -75,4 +75,30 @@ assert(card._phoneFromChat("41791234567@c.us") === "+41791234567", "Swiss chat i
 assert(card._phoneFromChat("123456789@lid") === "", "a LID is not a phone number");
 assert(card._phoneFromChat("1203630@g.us") === "", "a group is not a phone number");
 
-console.log("ALL CARD REQUEST TESTS PASSED");
+// 2.2.2: alternative treatments in «Proponi data».
+(async () => {
+  card = makeCard();
+  card._lookup.treatment.get("t2").price = 160;
+  const calls = [];
+  card._service = async (name, data) => { calls.push([name, JSON.parse(JSON.stringify(data))]); return { text: "ok" }; };
+  card._openProposePopup({ id: "req_9", date: "2026-11-14", client: { first_name: "Elena" }, entries: [{ treatment_id: "t1", start: "10:00" }] });
+  const popup = card._proposePopup;
+  assert(Array.isArray(popup.alternatives) && popup.alternatives.length === 0, "popup opens without alternatives");
+  popup.alternatives.push({ key: 1, treatment_id: "", price: "", time: "", day: "asked" });
+  const row = card._renderProposeAlternative(popup, popup.alternatives[0], 0);
+  assert(row.textContent.includes("Il giorno chiesto"), "the asked day is offered (and is the default)");
+  const select = [row, ...row.walk()].find((n) => n.tagName === "SELECT");
+  assert(select && select.listeners.change, "treatment select present");
+  select.listeners.change.forEach((fn) => fn({ target: { value: "t2" } }));
+  assert(popup.alternatives[0].treatment_id === "t2", "treatment picked");
+  assert(popup.alternatives[0].price === "160", "price filled from the list");
+  popup.alternatives[0].price = "150,50";
+  const alts = card._proposeAlternatives(popup);
+  assert(JSON.stringify(alts) === JSON.stringify([{ treatment_id: "t2", price: 150.5, time: "", day: "asked" }]), "alternatives sent to the service");
+  popup.alternatives.push({ key: 2, treatment_id: "", price: "", time: "", day: "asked" });
+  assert(card._proposeAlternatives(popup).length === 1, "an empty row is not sent");
+  await card._refreshProposeText();
+  const last = calls[calls.length - 1];
+  assert(last[0] === "propose_request_date" && last[1].dry_run && last[1].alternatives.length === 1, "the preview carries the alternatives");
+  console.log("ALL CARD REQUEST TESTS PASSED");
+})().catch((error) => { console.error(error); process.exit(1); });
