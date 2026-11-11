@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.3.9";
+const CARD_VERSION = "2.3.10";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -5369,72 +5369,248 @@ class SpaBookingCard extends HTMLElement {
         "Non ci sono trattamenti attivi. Creane uno nella scheda Configurazione.");
     }
 
-    // Persons first: date and count at the top, then one compact block per
-    // person (treatment, masseuse, time), then the shared client card and
-    // the appointment notes. One person = the flat form fields; more = the
-    // persons array, sent all or nothing through create_bookings.
+    // 2.3.10: five numbered steps on the left, the live summary with «Crea»
+    // on the right (a bar fixed at the bottom on a phone). One person = the
+    // flat form fields; more = the persons array, sent all or nothing.
     const multi = Array.isArray(this._form.persons);
-    const wrap = el("div", {
-      class: "stack form-compact" + (this._formEditMode ? " form-edit" : ""),
-    });
+    const wrap = el("div", { class: "stack nv" });
+    wrap.appendChild(this._sectionHead("mdi:calendar-plus",
+      this._batchEditing ? "Modifica gruppo" : "Nuovo appuntamento",
+      "Compila i passi: il riepilogo si aggiorna mentre scrivi."));
 
-    if (this._can("config")) wrap.appendChild(this._formHeader());
+    // Typing a name or a price does not re-render (the cursor would jump):
+    // the summary alone is rebuilt.
+    const steps = el("div", { class: "nv-steps", on: { input: () => this._nvSyncSummary() } });
 
-    add(wrap, this._peopleRow());
+    steps.appendChild(this._pageStep(1, "Quando e quante persone",
+      this._nvWhen(),
+      this._peopleMin() > 1
+        ? el("div", { class: "hint" }, `Questo trattamento richiede almeno ${this._peopleMin()} persone insieme nella stessa fascia.`)
+        : null));
+    steps.appendChild(this._pageStep(2, "Trattamenti", this._formBlock("booking", multi)));
+    steps.appendChild(this._pageStep(3, "Cliente", this._formBlock("client", multi), this._formBlock("guest", multi)));
+    steps.appendChild(this._pageStep(4, "Prezzo e pagamento", this._formBlock("totali", multi), this._formBlock("incassi", multi)));
+    steps.appendChild(this._pageStep(5, "Stato e note", this._formBlock("prenotazione", multi), this._formBlock("notes", multi)));
 
-    if (this._peopleMin() > 1) {
-      wrap.appendChild(el("div", { class: "hint" },
-        `Questo trattamento richiede almeno ${this._peopleMin()} persone insieme nella stessa fascia.`));
-    }
-
-    // Two columns: the booking itself on the left, the client on the right, so
-    // the reception goes from the treatment to who it belongs to without
-    // scrolling. On a narrow screen the columns stack to one. In edit mode the
-    // blocks inside each column can be dragged to a new order and nothing else
-    // changes: no names, no icons, nothing can be added or removed.
-    const columns = this._colsGrid("form");
-    const left = el("div", { class: "stack tight form-col", "data-col": "left" });
-    const right = el("div", { class: "stack tight form-col", "data-col": "right" });
-    this._formOrder("left").forEach((id) => {
-      const content = this._formBlock(id, multi);
-      if (content) add(left, this._formSection(id, content));
-    });
-    this._formOrder("right").forEach((id) => {
-      const content = this._formBlock(id, multi);
-      if (content) add(right, this._formSection(id, content));
-    });
-    columns.appendChild(left);
-    columns.appendChild(right);
-    wrap.appendChild(columns);
-
-    // Everything ready to be booked: every treatment of every person counts,
-    // so one person with two treatments shows "Crea 2 appuntamenti".
-    const states = multi ? this._form.persons : [this._form];
-    let count = 0;
-    states.forEach((person) => {
-      count += this._treatmentsOf(person).filter((treat) => treat.treatment_id).length;
-    });
-    const isBatchEditing = !!this._batchEditing;
-    wrap.appendChild(
-      el("div", { class: "row" },
-        el("button", {
-          class: "btn primary",
-          disabled: this._busy || !count,
-          on: { click: () => isBatchEditing ? this._saveBatchEdit() : this._createBookings() },
-        }, el("ha-icon", { icon: "mdi:check" }), isBatchEditing
-            ? `Salva modifiche al gruppo (${count})`
-            : (count === 1 ? "Crea appuntamento" : `Crea ${count} appuntamenti`)),
-        el("button", {
-          class: "btn",
-          disabled: this._busy,
-          on: { click: () => isBatchEditing
-            ? (this._batchEditing = false, this._batchRows = [], this._batchAnchorId = null, this._batchAnchorBatchId = null, this._tab = "agenda", this._render())
-            : this._clearForm() },
-        }, "Annulla")
-      )
-    );
-
+    this._nvSide = el("div", { class: "nv-side" });
+    this._nvBar = el("div", { class: "nv-bar" });
+    this._nvSyncSummary();
+    steps.appendChild(this._nvBar);
+    wrap.appendChild(el("div", { class: "nv-layout" }, steps, this._nvSide));
     return wrap;
+  }
+
+  /** Every treatment chosen, all persons together. */
+  _nvCount() {
+    const states = Array.isArray(this._form.persons) ? this._form.persons : [this._form];
+    return states.reduce((sum, person) => sum + this._treatmentsOf(person).filter((treat) => treat.treatment_id).length, 0);
+  }
+
+  /** «Crea» and «Annulla», as on the old form (a group being edited saves). */
+  _nvActions(compact) {
+    const count = this._nvCount();
+    const editing = !!this._batchEditing;
+    const create = el("button", {
+      class: "btn primary nv-go", disabled: this._busy || !count,
+      on: { click: () => editing ? this._saveBatchEdit() : this._createBookings() },
+    }, el("ha-icon", { icon: "mdi:check" }), editing
+      ? (compact ? `Salva (${count})` : `Salva modifiche al gruppo (${count})`)
+      : compact ? "Crea" : (count <= 1 ? "Crea appuntamento" : `Crea ${count} appuntamenti`));
+    const cancel = el("button", {
+      class: compact ? "icon-btn" : "btn nv-cancel", disabled: this._busy, title: "Annulla",
+      on: { click: () => editing
+        ? (this._batchEditing = false, this._batchRows = [], this._batchAnchorId = null, this._batchAnchorBatchId = null, this._tab = "agenda", this._render())
+        : this._clearForm() },
+    }, compact ? el("ha-icon", { icon: "mdi:close" }) : "Annulla");
+    return [create, cancel];
+  }
+
+  /** Who is being booked, for the summary. */
+  _nvClientName() {
+    const form = this._form;
+    const picked = form.client_mode === "existing" && form.client_id && this._lookup.client.get(form.client_id);
+    if (picked) return `${picked.first_name || ""} ${picked.last_name || ""}`.trim() || "Cliente";
+    const first = Array.isArray(form.persons) && form.persons[0] ? form.persons[0] : {};
+    return `${form.first_name || ""} ${form.last_name || ""}`.trim()
+      || `${first.first_name || ""} ${first.last_name || ""}`.trim()
+      || "Cliente da inserire";
+  }
+
+  /** Who does it, in words: Automatica, a gender, or the name. */
+  _nvOperatorLabel(id) {
+    if (!id) return "Automatica";
+    if (id === "@F") return "Automatica: massaggiatrice";
+    if (id === "@M") return "Automatica: massaggiatore";
+    const operator = this._lookup.operator.get(id);
+    return operator ? operator.name : "—";
+  }
+
+  /** Rebuild the summary panel and the phone bar from the form. */
+  _nvSyncSummary() {
+    const side = this._nvSide;
+    const bar = this._nvBar;
+    if (!side || !bar) return;
+    const form = this._form;
+    const states = Array.isArray(form.persons) ? form.persons : [form];
+    const { people, total } = this._bookingTotals();
+    const collected = this._stagedCollected();
+    const due = Math.max(0, Math.round((total - collected) * 100) / 100);
+    const day = parseLocal(form.date || todayStr(), "10:00");
+    const guest = GUEST_TYPES.find((type) => type.id === (form.guest_type || GUEST_DEFAULT));
+
+    const body = el("div", { class: "nv-sum-body" });
+    let firstTime = "";
+    states.forEach((person, index) => {
+      const items = this._treatmentsOf(person).filter((treat) => treat.treatment_id);
+      if (!items.length) return;
+      if (states.length > 1) body.appendChild(el("div", { class: "nv-sum-person" }, people[index] ? people[index].name : `Persona ${index + 1}`));
+      const extras = (person.extras || []).map((id) => (this._accessory(id) || {}).label || id);
+      items.forEach((treat) => {
+        const treatment = this._lookup.treatment.get(treat.treatment_id);
+        const start = parseLocal(person.date || form.date, treat.time);
+        const end = new Date(start.getTime() + ((treatment && treatment.duration_min) || 0) * 60000);
+        if (!firstTime) firstTime = timeOf(start);
+        const needsOperator = treatment && this._treatmentRequiresOperator(treatment);
+        const detail = [needsOperator ? this._nvOperatorLabel(treat.operator_id) : null, extras.length ? extras.join(", ") : null].filter(Boolean).join(" · ");
+        body.appendChild(el("div", { class: "nv-sum-item" },
+          el("span", { class: "nv-sum-time" }, `${timeOf(start)}–${timeOf(end)}`),
+          el("span", { class: "nv-sum-what" },
+            el("span", { class: "nv-sum-name" }, treatment ? treatment.name : "—"),
+            detail ? el("span", { class: "nv-sum-op" }, detail) : null),
+          el("span", { class: "nv-sum-price" }, euro(this._treatPrices(treat).price))));
+      });
+    });
+    const count = this._nvCount();
+    if (!count) body.appendChild(el("div", { class: "hint" }, "Scegli un trattamento: qui vedrai orari, operatrici e totale."));
+    if (count) {
+      body.appendChild(el("div", { class: "nv-sum-line" }));
+      body.appendChild(el("div", { class: "nv-sum-tot big" }, el("span", {}, "Totale"), el("span", {}, euro(total))));
+      if (this._can("payments")) {
+        body.appendChild(el("div", { class: "nv-sum-tot" }, el("span", {}, "Incassato"), el("span", {}, euro(collected))));
+        body.appendChild(el("div", { class: "nv-sum-tot" }, el("span", {}, "Da incassare"), el("span", {}, euro(due))));
+      }
+      body.appendChild(el("div", {}, el("span", { class: `nv-badge${form.pending ? " wait" : ""}` },
+        el("ha-icon", { icon: form.pending ? "mdi:clock-outline" : "mdi:check-circle" }),
+        form.pending ? "In attesa di conferma" : "Confermata")));
+    }
+    const [create, cancel] = this._nvActions(false);
+    side.textContent = "";
+    side.appendChild(el("div", { class: "nv-sum" },
+      el("div", { class: "nv-sum-head" },
+        el("div", { class: "nv-sum-kicker" }, "Riepilogo"),
+        el("div", { class: "nv-sum-client" }, this._nvClientName()),
+        el("div", { class: "nv-sum-day" }, `${longDay(day)}${guest ? ` · ${guest.label.toLowerCase()}` : ""}`)),
+      body,
+      el("div", { class: "nv-sum-actions" }, create, cancel)));
+
+    const [barCreate, barCancel] = this._nvActions(true);
+    bar.textContent = "";
+    add(bar,
+      el("div", { class: "nv-bar-text" },
+        el("span", { class: "nv-bar-sub" }, count ? `${count} ${count === 1 ? "trattamento" : "trattamenti"} · ${firstTime}` : "Nessun trattamento"),
+        el("span", { class: "nv-bar-total" }, euro(total))),
+      barCancel, barCreate);
+  }
+
+  /** Step 1: the day (today, tomorrow, another), how many, the voucher. */
+  _nvWhen() {
+    const form = this._form;
+    const today = todayStr();
+    const tomorrow = ymd(addDays(new Date(), 1));
+    const which = this._nvOtherDay || (form.date !== today && form.date !== tomorrow) ? "altro" : form.date === today ? "oggi" : "domani";
+    const setDay = (id) => {
+      this._nvOtherDay = id === "altro";
+      if (id === "oggi") form.date = today;
+      if (id === "domani") form.date = tomorrow;
+      this._render();
+    };
+    const count = this._peopleCount();
+    const box = el("div", { class: "stack tight" });
+    box.appendChild(el("div", { class: "nv-when" },
+      el("div", { class: "field" }, el("span", {}, "Giorno"),
+        el("div", { class: "pg-seg", role: "radiogroup" },
+          [["oggi", "Oggi"], ["domani", "Domani"], ["altro", "Altro giorno…"]].map(([id, label]) => el("button", {
+            type: "button", class: which === id ? "on" : "", role: "radio", "aria-checked": which === id ? "true" : "false",
+            on: { click: () => setDay(id) },
+          }, label)))),
+      which === "altro" ? el("label", { class: "field" }, el("span", {}, "Data"),
+        el("input", {
+          class: "input", type: "date", value: form.date,
+          on: { change: (event) => { form.date = event.target.value || today; this._render(); } },
+        })) : null,
+      el("div", { class: "field" }, el("span", {}, "Persone"),
+        el("div", { class: "nv-stepper" },
+          el("button", { class: "icon-btn", title: "Una persona in meno", disabled: this._busy || count <= 1,
+            on: { click: () => this._setPeople(count - 1) } }, el("ha-icon", { icon: "mdi:minus" })),
+          el("span", { class: "stepper-num" }, String(count)),
+          el("button", { class: "icon-btn", title: "Una persona in più", disabled: this._busy || count >= this._peopleMax(),
+            on: { click: () => this._setPeople(count + 1) } }, el("ha-icon", { icon: "mdi:plus" })))),
+      Array.isArray(form.persons) && form.persons.length > 1
+        ? el("button", {
+            class: "btn small", title: "Porta i trattamenti e gli orari della persona 1 su tutte le altre. La massaggiatrice resta quella scelta per ciascuna persona.",
+            disabled: this._busy || !this._treatmentsOf(form.persons[0]).some((t) => t.treatment_id),
+            on: { click: () => this._copyFirstToAll() },
+          }, el("ha-icon", { icon: "mdi:content-copy" }), "Uguale per tutti")
+        : null));
+    box.appendChild(el("div", { class: "pg-sum" }, el("ha-icon", { icon: "mdi:calendar" }),
+      el("b", {}, longDay(parseLocal(form.date || today, "10:00")))));
+    const applied = form.payment && form.payment.voucher && form.payment.voucher_code;
+    if (applied || this._nvVoucherOpen || (form.voucher_query || "").trim()) {
+      box.appendChild(this._voucherField());
+    } else {
+      box.appendChild(el("button", { class: "nv-link", on: { click: () => { this._nvVoucherOpen = true; this._render(); } } },
+        el("ha-icon", { icon: "mdi:ticket-confirmation-outline" }), "Ha un voucher? Cercalo per codice o nome"));
+    }
+    return box;
+  }
+
+  /** Masseuses busy around this treatment's slot (pause after theirs included). */
+  _nvBusyOperators(treat, treatment) {
+    const busy = new Map();
+    if (!treatment || !treat.time) return busy;
+    const start = parseLocal(this._form.date, treat.time);
+    const end = new Date(start.getTime() + (treatment.duration_min || 0) * 60000);
+    const skip = new Set((this._batchRows || []).map((row) => row.id).filter(Boolean));
+    this._appointmentsOfDay(ymd(start)).forEach((appointment) => {
+      if (!appointment.operator_id || skip.has(appointment.id)) return;
+      if (["cancelled", "no_show"].includes(appointment.status)) return;
+      const otherStart = parseDate(appointment.start);
+      const otherEnd = parseDate(appointment.end);
+      if (!otherStart || !otherEnd) return;
+      const guard = new Date(otherEnd.getTime() + this._pauseOfAppointment(appointment) * 60000);
+      if (otherStart < end && guard > start) busy.set(appointment.operator_id, timeOf(otherStart));
+    });
+    return busy;
+  }
+
+  /** «Chi lo fa» as buttons: Automatica, a gender, then the able team. */
+  _masseuseChips(state, treatment) {
+    const pool = this._operatorsForTreatment(treatment.id)
+      .slice()
+      .sort((a, b) => (Number(a.priority) || 0) - (Number(b.priority) || 0) || a.name.localeCompare(b.name));
+    const busy = this._nvBusyOperators(state, treatment);
+    const pick = (id) => { state.operator_id = id; this._render(); };
+    const chip = (id, label, extra = {}) => el("button", {
+      type: "button", class: `nv-chip${(state.operator_id || "") === id ? " on" : ""}`,
+      "aria-pressed": (state.operator_id || "") === id ? "true" : "false",
+      title: extra.title || label, on: { click: () => pick(id) },
+    }, extra.dot ? el("span", { class: `nv-dot ${extra.dot}` }) : null, extra.icon ? el("ha-icon", { icon: extra.icon }) : null, label);
+    const box = el("div", { class: "nv-chips" });
+    box.appendChild(chip("", "Automatica", { icon: "mdi:auto-fix" }));
+    const genders = new Set(pool.filter((operator) => operator.active !== false).map((operator) => operator.gender));
+    if (genders.has("F") && genders.has("M")) {
+      box.appendChild(chip("@F", "Massaggiatrice", { icon: "mdi:face-woman-outline" }));
+      box.appendChild(chip("@M", "Massaggiatore", { icon: "mdi:face-man-outline" }));
+    }
+    pool.forEach((operator) => {
+      const at = busy.get(operator.id);
+      box.appendChild(chip(operator.id, operator.name, {
+        dot: at ? "busy" : "free",
+        title: at ? `${operator.name}: già impegnata alle ${at}` : `${operator.name}: libera a quest'ora`,
+      }));
+    });
+    if (!pool.length) box.appendChild(el("span", { class: "hint" }, "Nessuna operatrice abile per questo trattamento."));
+    return el("div", { class: "field" }, el("span", {}, "Chi lo fa"), box);
   }
 
   /**
@@ -6826,11 +7002,11 @@ class SpaBookingCard extends HTMLElement {
     // nobody else's booking is touched. It comes before the accessories.
     box.appendChild(
       el("button", {
-        class: "btn primary small add-treat-btn",
+        class: "nv-add add-treat-btn",
         title: `Aggiungi un altro trattamento alla persona ${index + 1}, con un'altra fascia oraria`,
         disabled: this._busy,
         on: { click: () => this._addTreatment(state) },
-      }, el("ha-icon", { icon: "mdi:plus-circle-outline" }), "Aggiungi trattamento")
+      }, el("ha-icon", { icon: "mdi:plus" }), "Aggiungi un altro trattamento a questa persona")
     );
 
     box.appendChild(this._extrasField(state));
@@ -6858,9 +7034,7 @@ class SpaBookingCard extends HTMLElement {
     const sub = el("div", { class: "bk-treat-sub" });
     if (treatment && this._treatmentRequiresOperator(treatment)) {
       sub.appendChild(
-        el("label", { class: "field" },
-          el("span", {}, "Massaggiatrice"),
-          this._masseuseSelect(treat, treatment))
+        this._masseuseChips(treat, treatment)
       );
     }
     // The accessories are not here: they are one choice for the whole booking
@@ -18710,6 +18884,86 @@ _renderClients() {
       .operators-column:only-child { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 10px; align-items: start; }
       .operators-column:only-child > .column-header { grid-column: 1 / -1; }
       .icon-btn.danger-icon { color: var(--sb-danger-fg, #c62828); }
+      /* 2.3.10: Nuovo appuntamento in steps, with the live summary */
+      .nv-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start; }
+      .nv-steps { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+      .nv-side { position: sticky; top: 120px; min-width: 0; }
+      .nv-sum { background: var(--sb-card, var(--card-background-color, #fff)); border: 1px solid var(--sb-line); border-radius: 14px; overflow: hidden; box-shadow: var(--sb-shadow); }
+      .nv-sum-head { padding: 14px 16px; color: #fff;
+        background: linear-gradient(135deg, var(--primary-color), color-mix(in srgb, var(--primary-color) 70%, #22c1d6)); }
+      .nv-sum-kicker { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; opacity: .85; }
+      .nv-sum-client { font-size: 17px; font-weight: 700; margin-top: 2px; overflow-wrap: anywhere; }
+      .nv-sum-day { font-size: 13px; opacity: .95; }
+      .nv-sum-body { padding: 12px 16px; display: flex; flex-direction: column; gap: 10px; }
+      .nv-sum-person { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--secondary-text-color); }
+      .nv-sum-item { display: flex; gap: 10px; align-items: flex-start; }
+      .nv-sum-time { font-weight: 700; color: var(--primary-color); font-size: 13px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+      .nv-sum-what { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+      .nv-sum-name { font-weight: 600; }
+      .nv-sum-op { font-size: 12px; color: var(--secondary-text-color); }
+      .nv-sum-price { font-weight: 600; white-space: nowrap; }
+      .nv-sum-line { height: 1px; background: var(--sb-line); }
+      .nv-sum-tot { display: flex; justify-content: space-between; font-size: 13px; color: var(--secondary-text-color); }
+      .nv-sum-tot span:last-child { color: var(--primary-text-color); font-variant-numeric: tabular-nums; }
+      .nv-sum-tot.big { font-size: 16px; font-weight: 800; color: var(--primary-text-color); }
+      .nv-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 700;
+        background: var(--sb-ok-bg); color: var(--sb-ok-fg); }
+      .nv-badge.wait { background: var(--sb-warn-bg); color: var(--sb-warn-fg); }
+      .nv-badge ha-icon { --mdc-icon-size: 16px; }
+      .nv-sum-actions { padding: 0 16px 16px; display: flex; flex-direction: column; gap: 6px; }
+      .nv-sum-actions .nv-go { justify-content: center; padding: 12px; font-size: 15px; border-radius: 12px; }
+      .nv-sum-actions .nv-cancel { justify-content: center; border: none; background: none; color: var(--secondary-text-color); }
+      .nv-bar { display: none; }
+      .nv-when { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+      .nv-stepper { display: inline-flex; align-items: center; gap: 2px; border: 1px solid var(--sb-line); border-radius: 10px; padding: 2px; background: var(--sb-card, transparent); }
+      .nv-link { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; color: var(--primary-color); font-weight: 600; font-size: 13px; align-self: flex-start; }
+      .nv-link ha-icon { --mdc-icon-size: 18px; }
+      .nv-link:focus-visible { outline: 2px solid var(--primary-color); border-radius: 6px; }
+      .nv-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+      .nv-chip { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px;
+        border: 1px solid var(--sb-line); background: var(--sb-card, var(--card-background-color, #fff)); font-size: 13px; font-weight: 500; }
+      .nv-chip ha-icon { --mdc-icon-size: 16px; }
+      .nv-chip.on { border-color: var(--primary-color); color: var(--primary-color); font-weight: 700;
+        background: color-mix(in srgb, var(--primary-color) 10%, transparent); }
+      .nv-chip:focus-visible { outline: 2px solid var(--primary-color); }
+      .nv-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; flex: none; }
+      .nv-dot.busy { background: #f59e0b; }
+      .nv-add { all: unset; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 9px; margin-top: 10px;
+        border: 1.5px dashed color-mix(in srgb, var(--primary-color) 45%, var(--sb-line)); border-radius: 10px; color: var(--primary-color); font-weight: 600; font-size: 13px; }
+      .nv-add ha-icon { --mdc-icon-size: 18px; }
+      .nv-add:hover { background: color-mix(in srgb, var(--primary-color) 6%, transparent); }
+      .nv-add:focus-visible { outline: 2px solid var(--primary-color); }
+      .nv .bk-person { background: var(--sb-soft); border-color: var(--sb-line); border-radius: 12px; padding: 12px; }
+      .nv .bk-person-head .dim { font-weight: 700; color: var(--primary-text-color); font-size: 14px; }
+      .nv .pg-step h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--secondary-text-color); margin: 4px 0 0; }
+      .nv .role-choice { display: inline-flex; gap: 3px; padding: 3px; border-radius: 10px; background: var(--sb-soft); width: max-content; max-width: 100%; flex-wrap: wrap; }
+      .nv .role-opt { border: none; background: transparent; box-shadow: none; }
+      .nv .role-opt.on { background: var(--sb-card, var(--card-background-color, #fff)); color: var(--primary-color); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+      .nv .pg-step .cfg-box { box-shadow: none; }
+      .nv .bk-person .role-choice { display: flex; flex-wrap: wrap; gap: 6px; padding: 0; background: none; width: auto; }
+      .nv .bk-person .role-opt { border: 1px solid var(--sb-line); border-radius: 999px; background: var(--sb-card, var(--card-background-color, #fff)); }
+      .nv .bk-person .role-opt.on { border-color: var(--primary-color); background: color-mix(in srgb, var(--primary-color) 10%, transparent); box-shadow: none; }
+      .nv .stack > .btn.small { align-self: flex-start; }
+      .nv .preview-time { flex-wrap: wrap; }
+      .nv .preview-time > * { white-space: nowrap; }
+      @container (max-width: 900px) {
+        .nv-layout { grid-template-columns: minmax(0, 1fr); }
+        .nv-side { display: none; }
+        .nv-bar { display: flex; }
+      }
+      @media (max-width: 900px) {
+        .nv-layout { grid-template-columns: minmax(0, 1fr); }
+        .nv-side { display: none; }
+        .nv-bar { display: flex; }
+      }
+      .nv-bar { position: sticky; bottom: 0; z-index: 3; align-items: center; gap: 8px; padding: 10px 12px; margin: 0 -4px;
+        border-radius: 14px; border: 1px solid var(--sb-line); background: var(--sb-card, var(--card-background-color, #fff));
+        box-shadow: 0 -4px 14px rgba(0,0,0,.08); }
+      .nv-bar-text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+      .nv-bar-sub { font-size: 12px; color: var(--secondary-text-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .nv-bar-total { font-size: 16px; font-weight: 800; white-space: nowrap; }
+      .nv-bar .nv-go { border-radius: 12px; padding: 10px 14px; }
+
       /* 2.3.9: saved promos and themes */
       .pg-step-head .btn { margin-left: auto; }
       .pg-sum.warn { background: var(--sb-warn-bg); border-color: transparent; }

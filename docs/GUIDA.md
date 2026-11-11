@@ -1,6 +1,6 @@
 # Spa Booking — guida alle schede (2.2)
 
-Aggiornata alla 2.3.9: [promo salvate e modelli](#promo-salvate-e-modelli-239); [Promo e Impostazioni](#promo-e-impostazioni-238); [Notifiche](#notifiche-236); [messaggi e chat](#messaggi-e-chat-235); [preferenza massaggiatrice/massaggiatore](#preferenza-massaggiatrice-o-massaggiatore); [promo e fedeltà del cliente](#promo-e-fedeltà-del-cliente); [conferme e promemoria WhatsApp](#conferme-e-promemoria-whatsapp); [firme e storico](#firme-e-storico); [chiusure con giorni esclusi](#chiusure-con-giorni-esclusi); [Proponi data](#proponi-data) nelle richieste, con trattamenti alternativi e prezzo; [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
+Aggiornata alla 2.3.10: [Nuovo appuntamento a passi](#nuovo-appuntamento-a-passi-2310); [promo salvate e modelli](#promo-salvate-e-modelli-239); [Promo e Impostazioni](#promo-e-impostazioni-238); [Notifiche](#notifiche-236); [messaggi e chat](#messaggi-e-chat-235); [preferenza massaggiatrice/massaggiatore](#preferenza-massaggiatrice-o-massaggiatore); [promo e fedeltà del cliente](#promo-e-fedeltà-del-cliente); [conferme e promemoria WhatsApp](#conferme-e-promemoria-whatsapp); [firme e storico](#firme-e-storico); [chiusure con giorni esclusi](#chiusure-con-giorni-esclusi); [Proponi data](#proponi-data) nelle richieste, con trattamenti alternativi e prezzo; [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
 
 Questa guida mostra ogni scheda della dashboard **Spa Booking** e spiega a
 cosa serve ogni funzione. Le immagini sono state fatte con dati di prova.
@@ -32,6 +32,29 @@ in Impostazioni › Aspetto).
 
 
 
+
+## Nuovo appuntamento a passi (2.3.10)
+
+Nuovo › **Appuntamento** si compila in cinque passi:
+
+1. **Quando e quante persone**: Oggi, Domani o «Altro giorno…» (apre il
+   calendario), il numero di persone con − e +, «Uguale per tutti» per copiare
+   trattamenti e orari della persona 1. «Ha un voucher?» apre la ricerca.
+2. **Trattamenti**: per ogni persona trattamento, ora e **Chi lo fa**.
+   Automatica sceglie in ordine di priorità; Massaggiatrice o Massaggiatore
+   sceglie la prima libera di quel genere; un nome sceglie lei. Il pallino verde
+   vuol dire libera a quell'ora, l'arancione già impegnata.
+3. **Cliente**: nuovo o scheda cliente, ospite dell'hotel o esterno.
+4. **Prezzo e pagamento**: prezzi (listino e scontato), acconto da chiedere,
+   incassi.
+5. **Stato e note**: confermata o in attesa, note dell'appuntamento.
+
+Il **riepilogo** a destra si aggiorna mentre scrivi e ha il pulsante «Crea».
+Sul telefono è una barra in basso con il totale.
+
+| | |
+|---|---|
+| ![Nuovo appuntamento](anteprime/37-nuovo-appuntamento.png) | ![Sul telefono](anteprime/38-nuovo-telefono.png) |
 
 ## Promo salvate e modelli (2.3.9)
 

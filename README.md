@@ -133,6 +133,19 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v2.3.10** — Nuovo appuntamento riorganizzato (cambia solo la card):
+  - Cinque passi numerati: **Quando e quante persone** (Oggi, Domani o Altro
+    giorno, persone, voucher a richiesta), **Trattamenti**, **Cliente**,
+    **Prezzo e pagamento**, **Stato e note**.
+  - **Chi lo fa** a pulsanti: Automatica, Massaggiatrice, Massaggiatore e i
+    nomi, con il pallino verde (libera a quell'ora) o arancione (già
+    impegnata).
+  - **Riepilogo** sempre visibile a destra: cliente, giorno, ogni trattamento
+    con orario, operatrice, accessori e prezzo, totale, incassato, da
+    incassare, stato e il pulsante «Crea». Sul telefono diventa una barra in
+    basso con totale e «Crea».
+  - L'ordine dei blocchi è fisso: la matita per spostarli non c'è più.
+
 - **v2.3.9** — Promo salvate e modelli a tema:
   - **Le tue promo**: ogni campagna resta in un elenco, con stato
     (Programmata, Ogni giorno, Inviata, Scaduta, Bozza), data e ora di inizio
