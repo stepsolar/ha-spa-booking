@@ -5,7 +5,7 @@ trattamenti con durata propria, operatrici, schede cliente, agenda del giorno
 per operatrice e per categoria, pagamenti, voucher, richieste dal sito web,
 promemoria e report automatici su WhatsApp e Telegram.
 
-Versione corrente: **2.3.4** — documentazione completa in
+Versione corrente: **2.3.5** — documentazione completa in
 [`custom_components/spa_booking/README.md`](custom_components/spa_booking/README.md).
 
 **[Guida alle schede con le anteprime](docs/GUIDA.md)**: ogni scheda della
@@ -132,6 +132,32 @@ hassfest e validazione HACS a ogni push e pull request. Lavora su un branch e
 apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
+
+- **v2.3.5**:
+  - **Correzioni voucher.** Dopo la firma con il PIN compariva per un attimo
+    la pagina d'errore della card, ed eliminando un voucher appena creato
+    usciva «Failed to execute 'appendChild'». La causa era la stessa: il
+    riquadro «Voucher creato» per un voucher non (ancora) presente.
+  - **Chat WhatsApp conservate.** Le conversazioni della scheda WhatsApp
+    (messaggi ricevuti e risposte, con chi ha risposto) restano salvate dopo
+    un riavvio. Si eliminano solo a mano: la chat aperta (cestino) o «Elimina
+    tutte» (Manager e Amministratore).
+  - **Messaggi più curati.** Nuovi testi per conferma (riepilogo), richiesta
+    ricevuta, promemoria e richiesta d'acconto. I testi base si aggiornano da
+    soli, quelli personalizzati restano come sono.
+  - **Un solo messaggio per più persone.** Conferma e promemoria di una
+    prenotazione per due o più persone ora partono come un unico messaggio con
+    un appuntamento per riga («Persona 1», «Persona 2»).
+  - **Acconto.** Nel dettaglio di un appuntamento in attesa compaiono la data
+    della richiesta e il pulsante «Reinvia richiesta».
+  - **Offerte alle massaggiatrici verificate** con test sull'intero giro:
+    proposta in ordine di priorità, rifiuto che passa alla successiva,
+    promemoria e scadenza. Novità: se nessuna accetta, la reception riceve un
+    WhatsApp (sui numeri degli avvisi) e una notifica in Home Assistant.
+  - **Nuova grafica** per Trattamenti (schede per categoria con durata, prezzo
+    e operatrici), Accessori (schede e popup con icone pronte da scegliere,
+    icone predefinite più adatte) e Operatori (avatar, interruttore Attiva,
+    trattamenti, contatti e azioni).
 
 - **v2.3.4**:
   - **Preferenza per ogni persona nel modulo del sito.** «Per il massaggio

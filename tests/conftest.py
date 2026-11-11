@@ -39,6 +39,10 @@ class _FakeStore:
         self.saved = data
         self.saves += 1
 
+    def async_delay_save(self, func: Any, delay: float = 0) -> None:
+        self.saved = func()
+        self.saves += 1
+
 
 async def _executor(func: Callable[..., Any], *args: Any) -> Any:
     return func(*args)
@@ -56,6 +60,8 @@ def build_coordinator(data: dict[str, Any] | None = None) -> SpaBookingCoordinat
     coordinator._lock = asyncio.Lock()
     coordinator._send_lock = asyncio.Lock()
     coordinator._external_messages = deque(maxlen=20)
+    coordinator._chats_store = _FakeStore()
+    coordinator._chats = {}
     coordinator._waha_inbound = None
     coordinator._card_version = ""
     coordinator.scheduler = None

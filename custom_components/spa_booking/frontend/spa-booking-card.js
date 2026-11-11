@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.3.4";
+const CARD_VERSION = "2.3.5";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -95,15 +95,33 @@ const GUEST_DEFAULT = "external";
 // card falls back to before the settings have loaded (and while the key has
 // never been saved), so the booking form is never left without accessories.
 const ACC_FALLBACK = [
-  { id: "wellness_kit", label: "Wellness Kit", icon: "mdi:gift-outline", price: null, description: "" },
-  { id: "accappatoio", label: "Accappatoio", icon: "mdi:tshirt-crew-outline", price: null, description: "" },
-  { id: "cuffia", label: "Cuffia", icon: "mdi:shower-head", price: null, description: "" },
-  { id: "ciabattine", label: "Ciabattine", icon: "mdi:shoe-formal", price: null, description: "" },
+  { id: "wellness_kit", label: "Wellness Kit", icon: "mdi:bag-personal-outline", price: null, description: "" },
+  { id: "accappatoio", label: "Accappatoio", icon: "mdi:hanger", price: null, description: "" },
+  { id: "cuffia", label: "Cuffia", icon: "mdi:swim", price: null, description: "" },
+  { id: "ciabattine", label: "Ciabattine", icon: "mdi:shoe-ballet", price: null, description: "" },
 ];
 
 // Drawn when an accessory has no icon of its own, and for one that has since
 // been deleted from the configuration.
 const ACC_DEFAULT_ICON = "mdi:gift-outline";
+
+// Icons that fit a spa accessory, offered with one tap in its popup.
+const ACC_ICON_PRESETS = [
+  ["mdi:bag-personal-outline", "Kit"],
+  ["mdi:hanger", "Accappatoio"],
+  ["mdi:swim", "Cuffia"],
+  ["mdi:shoe-ballet", "Ciabattine"],
+  ["mdi:spa-outline", "Spa"],
+  ["mdi:flower-outline", "Fiori"],
+  ["mdi:bottle-tonic-outline", "Olio / crema"],
+  ["mdi:cup-outline", "Tisana"],
+  ["mdi:glass-wine", "Calice"],
+  ["mdi:fruit-cherries", "Frutta"],
+  ["mdi:hair-dryer-outline", "Phon"],
+  ["mdi:lock-outline", "Armadietto"],
+  ["mdi:water-outline", "Acqua"],
+  ["mdi:gift-outline", "Regalo"],
+];
 
 // Distinct colours handed to the day's groups in order of appearance, so two
 // groups of the same day never share a vertical bar. The last one wraps
@@ -3968,30 +3986,37 @@ class SpaBookingCard extends HTMLElement {
         // Deposit request: ask the guest to pay her deposit by bank transfer.
         // Only a still-waiting booking that expects a deposit (amount set, no
         // money received yet) and has not already been asked qualifies.
+        // 2.3.5: with when it went out, and «Reinvia».
         (!cancelled
           && appointment.status === "pending"
           && this._can("offers")
           && !this._paymentReceived(appointment)
           && (appointment.deposit_amount > 0)
-          && !appointment.deposit_request_sent
           && client && client.phone)
           ? this._detailLine(
-              "Acconto",
-              el("button", {
-                class: "btn small offer-wait",
-                disabled: this._busy,
-                on: {
-                  click: (event) => {
-                    event.stopPropagation();
-                    this._call("send_deposit_request", {
-                      appointment_id: appointment.id,
-                    });
+              `Acconto ${euro(appointment.deposit_amount)}`,
+              el("span", { class: "wa-send-cell" },
+                el("span", { class: appointment.deposit_request_sent ? "detail-value ok" : "dim" },
+                  appointment.deposit_request_sent
+                    ? (appointment.deposit_request_sent_at
+                      ? `richiesta inviata ${shortDate(appointment.deposit_request_sent_at)} ${timeOf(parseDate(appointment.deposit_request_sent_at))}`
+                      : "richiesta inviata")
+                    : "non richiesto"),
+                el("button", {
+                  class: `btn small ${appointment.deposit_request_sent ? "" : "wa"}`,
+                  disabled: this._busy,
+                  on: {
+                    click: (event) => {
+                      event.stopPropagation();
+                      this._call("send_deposit_request", {
+                        appointment_id: appointment.id,
+                        ...(appointment.deposit_request_sent ? { resend: true } : {}),
+                      });
+                    },
                   },
                 },
-              },
-              el("ha-icon", { icon: "mdi:bank-transfer" }),
-              "Richiedi acconto")
-            )
+                el("ha-icon", { icon: "mdi:bank-transfer" }),
+                appointment.deposit_request_sent ? "Reinvia richiesta" : "Richiedi acconto")))
           : null,
         // Appointment summary: send it by hand at any time, e.g. when the desk
         // confirmed by phone and the guest asks for the details in writing.
@@ -8106,7 +8131,13 @@ class SpaBookingCard extends HTMLElement {
           on: { click: () => { this._voucherDraftState(); this._voucherCreated = null; this._render(); } },
         }, el("ha-icon", { icon: "mdi:plus" }), "Nuovo voucher")
         : null));
-    if (this._voucherCreated) wrap.appendChild(this._voucherCreatedBox(this._voucherCreated));
+    // The box is null while the new voucher is not loaded yet, or once it
+    // has been deleted: appending null broke the whole card (2.3.5).
+    if (this._voucherCreated) {
+      const created = this._voucherCreatedBox(this._voucherCreated);
+      if (created) wrap.appendChild(created);
+      else if (!this._loading) this._voucherCreated = null;
+    }
     if (canCreate && draft) wrap.appendChild(this._voucherForm());
     wrap.appendChild(this._voucherStats());
     wrap.appendChild(this._voucherFilters());
@@ -8486,8 +8517,8 @@ class SpaBookingCard extends HTMLElement {
       this._voucherPin = null;
       this._voucherDraft = null;
       const voucher = response && response.voucher;
-      this._voucherCreated = voucher ? voucher.id : null;
       await this._loadData();
+      this._voucherCreated = voucher ? voucher.id : null;
       this._message = {
         kind: "ok",
         text: `Voucher creato: ${voucher ? voucher.code : ""}${voucher && voucher.created_by_name ? `, firmato da ${voucher.created_by_name}` : ""}`,
@@ -9064,26 +9095,70 @@ class SpaBookingCard extends HTMLElement {
     return el("div", { class: "bk-treat-block" }, row, sub);
   }
 
+  /**
+   * The conversations, kept by the server on disk (2.3.5): reloaded when the
+   * messages sensor changes (a new message arrived) or after a reply.
+   */
+  _refreshWaChats(force = false) {
+    const sensorState = this._hass && this._hass.states["sensor.spa_booking_messaggi_whatsapp_esterni"];
+    const stamp = sensorState ? `${sensorState.last_updated}|${sensorState.state}` : "";
+    if (!force && (this._waChatsLoading || stamp === this._waChatsStamp)) return;
+    this._waChatsStamp = stamp;
+    this._waChatsLoading = true;
+    this._service("whatsapp_chats", {}).then((response) => {
+      this._waChats = (response && response.chats) || [];
+      this._waChatsLoading = false;
+      if (this._tab === "whatsapp") this._render();
+    }).catch(() => {
+      // An older integration: the sensor's last 20 messages, as before.
+      const messages = (sensorState && sensorState.attributes && sensorState.attributes.messages) || [];
+      const byChat = new Map();
+      messages.forEach((msg) => {
+        const id = msg.chat_id || "Sconosciuto";
+        if (!byChat.has(id)) byChat.set(id, []);
+        byChat.get(id).unshift({ dir: "in", text: msg.text, at: msg.received_at });
+      });
+      this._waChats = [...byChat.entries()].map(([id, list]) => ({ chat_id: id, messages: list, last_at: (list[list.length - 1] || {}).at || "" }));
+      this._waChatsLoading = false;
+      if (this._tab === "whatsapp") this._render();
+    });
+  }
+
+  async _deleteWaChats(chatId) {
+    const all = !chatId;
+    const question = all
+      ? "Eliminare TUTTE le chat WhatsApp? I messaggi non si potranno recuperare."
+      : `Eliminare la chat con ${this._chatLabel(chatId)}? I messaggi non si potranno recuperare.`;
+    if (!window.confirm(question)) return;
+    try {
+      await this._call("delete_whatsapp_chats", all ? { all: true } : { chat_id: chatId });
+      if (!all && this._waChat === chatId) { this._waChat = null; this._waChatOpen = false; }
+      this._refreshWaChats(true);
+    } catch (error) { /* shown */ }
+  }
+
   _renderWhatsapp() {
-    const sensorState = this._hass.states["sensor.spa_booking_messaggi_whatsapp_esterni"];
-    const messages = (sensorState && sensorState.attributes && sensorState.attributes.messages) || [];
+    this._refreshWaChats();
     const wrap = el("div", { class: "stack" });
+    const canDelete = this._can("messages");
+    const stored = this._waChats || [];
     wrap.appendChild(this._sectionHead("mdi:whatsapp", "Messaggi WhatsApp",
-      "Messaggi arrivati al numero dell'hotel da chi non è un'operatrice. Rispondi, crea una richiesta o salva il cliente."));
-    if (!messages.length) {
-      wrap.appendChild(el("div", { class: "empty" }, "Nessun messaggio esterno ricevuto."));
+      "Messaggi arrivati al numero dell'hotel da chi non è un'operatrice. Restano salvati anche dopo un riavvio, finché non elimini la chat.",
+      canDelete && stored.length
+        ? el("button", { class: "btn small danger-ghost", on: { click: () => this._deleteWaChats(null) } },
+            el("ha-icon", { icon: "mdi:delete-sweep-outline" }), "Elimina tutte")
+        : null));
+    if (!stored.length) {
+      wrap.appendChild(el("div", { class: "empty" }, this._waChats ? "Nessun messaggio esterno ricevuto." : "Caricamento…"));
       return wrap;
     }
     // One conversation per number, newest first.
-    const chats = new Map();
-    messages.forEach((msg) => {
-      const id = msg.chat_id || "Sconosciuto";
-      if (!chats.has(id)) chats.set(id, []);
-      chats.get(id).push(msg);
-    });
-    const ordered = [...chats.entries()]
-      .map(([id, list]) => [id, list.slice().sort((a, b) => String(a.received_at || "").localeCompare(String(b.received_at || "")))])
-      .sort((a, b) => String(b[1][b[1].length - 1].received_at || "").localeCompare(String(a[1][a[1].length - 1].received_at || "")));
+    const chats = new Map(stored.map((chat) => [chat.chat_id, (chat.messages || []).map((m) => ({ ...m, received_at: m.at }))]));
+    const ordered = [...chats.entries()].filter(([, list]) => list.length);
+    if (!ordered.length) {
+      wrap.appendChild(el("div", { class: "empty" }, "Nessun messaggio esterno ricevuto."));
+      return wrap;
+    }
     if (!this._waChat || !chats.has(this._waChat)) this._waChat = ordered[0][0];
 
     const shell = el("div", { class: `wa-shell${this._waChatOpen ? " open" : ""}` });
@@ -9112,12 +9187,16 @@ class SpaBookingCard extends HTMLElement {
         el("ha-icon", { icon: "mdi:arrow-left" })),
       el("div", { class: "grow" },
         el("div", { class: "wa-chat-name" }, client ? this._clientName({ client_id: client.id }) : this._chatLabel(chatId)),
-        el("div", { class: "dim small" }, client ? this._clientSummary(client) : `${this._chatLabel(chatId)} · non è ancora un cliente`))));
+        el("div", { class: "dim small" }, client ? this._clientSummary(client) : `${this._chatLabel(chatId)} · non è ancora un cliente`)),
+      canDelete
+        ? el("button", { class: "icon-btn", title: "Elimina questa chat", "aria-label": "Elimina questa chat",
+            on: { click: () => this._deleteWaChats(chatId) } }, el("ha-icon", { icon: "mdi:delete-outline" }))
+        : null));
     const bubbles = el("div", { class: "wa-bubbles" });
     items.forEach((msg) => bubbles.appendChild(
-      el("div", { class: "bubble in" }, el("span", {}, msg.text || ""), el("span", { class: "bubble-time" }, this._waTime(msg.received_at)))));
-    (this._waSent && this._waSent[chatId] || []).forEach((text) =>
-      bubbles.appendChild(el("div", { class: "bubble out" }, el("span", {}, text))));
+      el("div", { class: `bubble ${msg.dir === "out" ? "out" : "in"}` },
+        el("span", {}, msg.text || ""),
+        el("span", { class: "bubble-time" }, [msg.dir === "out" && msg.by ? msg.by : "", this._waTime(msg.received_at)].filter(Boolean).join(" · ")))));
     conv.appendChild(bubbles);
     conv.appendChild(el("div", { class: "wa-compose" },
       el("input", {
@@ -9212,10 +9291,8 @@ class SpaBookingCard extends HTMLElement {
     if (!text) return;
     this._waBusy = true;
     this._call("send_external_message", { chat_id: chatId, text }).then(() => {
-      // Only the incoming messages are stored: the replies sent from here
-      // show in the conversation until the page is reloaded.
-      if (!this._waSent) this._waSent = {};
-      this._waSent[chatId] = [...(this._waSent[chatId] || []), text];
+      // The server keeps the reply in the conversation (2.3.5).
+      this._refreshWaChats(true);
       this._waReplyTo = null;
       this._waReplyText = "";
       this._waBusy = false;
@@ -10308,8 +10385,8 @@ _renderClients() {
             } },
           }, el("ha-icon", { icon: "mdi:whatsapp" }), "Prova avviso")))));
     box.appendChild(el("div", { class: "hint" },
-      "Numeri che ricevono un messaggio quando un ospite manda una richiesta " +
-      "dal sito (reception, manager…). Nessun numero = nessun avviso: la " +
+      "Numeri della reception (e del manager…) che ricevono un messaggio quando un ospite manda una richiesta " +
+      "dal sito, e quando nessuna massaggiatrice accetta un massaggio. Nessun numero = nessun avviso: la " +
       "richiesta arriva comunque in Nuovo › Lista richieste."));
     box.appendChild(
       el("div", { class: "row tight" },
@@ -13389,9 +13466,10 @@ _renderClients() {
     summaryBox.appendChild(el("div", { class: "hint" },
       "Inviato via WhatsApp all'ospite quando l'appuntamento viene confermato. " +
       "Segnaposti: {nome}, {cognome}, {cliente} nome e cognome, {hotel} intestazione qui sopra, " +
-      "{codice} codice prenotazione, {trattamento}, {durata} minuti, {data}, {ora}, {fine}, " +
+      "{codice} codice prenotazione, {appuntamenti} un appuntamento per riga (con «Persona N» se sono più persone), " +
+      "{data} giorno, {ora} primo inizio, {fine} ultima fine, {trattamento}, {durata} minuti, " +
       "{totale} prezzo, {acconto} acconto richiesto, {versato} incassato, {residuo} da saldare, " +
-      "{pagamenti} elenco dei versamenti registrati."));
+      "{pagamenti} elenco dei versamenti registrati. Per più persone parte un solo messaggio con tutti gli appuntamenti."));
     summaryBox.appendChild(
       el("label", { class: "field" },
         el("span", {}, "Numero di prova"),
@@ -13431,7 +13509,7 @@ _renderClients() {
       "Inviato automaticamente via WhatsApp al richiedente (se ha il telefono) " +
       "quando la richiesta viene salvata. Segnaposti: {nome} nome, {cognome} cognome, " +
       "{data} data, {ora} orario del primo trattamento, {persone} numero persone, " +
-      "{trattamenti} elenco trattamenti, {codice} codice richiesta."));
+      "{trattamenti} un trattamento per riga con orario (e «Persona N» per più persone), {codice} codice richiesta."));
     right.appendChild(reqMsgBox);
 
     // Proposta di un'altra data: Lista richieste › Proponi data.
@@ -13496,8 +13574,9 @@ _renderClients() {
     );
     apptReminderBox.appendChild(el("div", { class: "hint" },
       "Inviato via WhatsApp al cliente prima dell'appuntamento. " +
-      "Segnaposti: {nome} nome, {cognome} cognome, {data} data (dd/mm/yyyy), " +
-      "{ora} orario, {trattamenti} elenco trattamenti, {codice} codice prenotazione."));
+      "Un solo messaggio per ospite e giorno, anche per più persone o più trattamenti. " +
+      "Segnaposti: {nome} nome, {cognome} cognome, {data} giorno, " +
+      "{ora} primo orario, {trattamenti} un appuntamento per riga (su una riga con altro testo diventa un elenco con virgole), {codice} codice prenotazione."));
     apptReminderBox.appendChild(
       el("label", { class: "check" },
         el("input", {
@@ -14217,9 +14296,11 @@ _renderClients() {
       hotel: this._notifyDraft?.guest_header || "Il Marchese Hotel & Spa",
       codice: "ABC12",
       trattamento: "Massaggio rilassante",
-      trattamenti: "Massaggio rilassante",
+      trattamenti: "• 10:00–11:30 Massaggio Relax 90 min · Persona 1\n• 10:00–11:30 Massaggio Relax 90 min · Persona 2",
+      appuntamenti: "• 10:00–11:30 Massaggio Relax 90 min · Persona 1\n• 10:00–11:30 Massaggio Relax 90 min · Persona 2",
+      importo: "50,00",
       durata: "60",
-      data: "12/10/2026",
+      data: "sabato 14 novembre",
       ora: "15:00",
       fine: "16:00",
       persone: "2",
@@ -14546,11 +14627,16 @@ _renderClients() {
       return head;
     }
     head.appendChild(
-      el("button", {
-        class: "icon-btn spa-menu-btn",
-        title: "Modifica accessori",
-        on: { click: () => { this._accEditMode = true; this._render(); } },
-      }, el("ha-icon", { icon: "mdi:pencil" }))
+      el("div", { class: "spa-head-actions" },
+        el("button", {
+          class: "btn primary small",
+          on: { click: () => this._accOpen("__new__") },
+        }, el("ha-icon", { icon: "mdi:plus" }), "Nuovo accessorio"),
+        el("button", {
+          class: "icon-btn spa-menu-btn",
+          title: "Cambia l'ordine degli accessori",
+          on: { click: () => { this._accEditMode = true; this._render(); } },
+        }, el("ha-icon", { icon: "mdi:swap-vertical" })))
     );
     return head;
   }
@@ -14567,7 +14653,7 @@ _renderClients() {
   /** The accessory rows, in configured order; draggable while editing. */
   _accList(items) {
     const list = el("div", {
-      class: "stack tight acc-list" + (this._accEditMode ? " editing" : ""),
+      class: "acc2-grid acc-list" + (this._accEditMode ? " editing" : ""),
     });
     items.forEach((item) => list.appendChild(this._accRow(item)));
     if (this._accEditMode) {
@@ -14586,18 +14672,20 @@ _renderClients() {
     return list;
   }
 
-  /** One accessory row: icon, name, and price/description underneath. */
+  /** One accessory as a tile: icon, name, price and description (2.3.5). */
   _accRow(item) {
-    const sub = [
-      item.price === null ? null : euro(item.price),
-      item.description || null,
-    ].filter(Boolean).join(" · ");
+    const used = (this._data.appointments || []).filter((a) =>
+      a.status !== "cancelled" && (a.extras || []).includes(item.id) && String(a.start || "") >= todayStr()).length;
     const row = el("div", {
-      class: "row item trt-item",
+      class: `acc2 trt-item${this._accEditMode ? " editing" : ""}`,
       "data-acc": item.id,
       draggable: this._accEditMode ? "true" : "false",
+      role: "button",
+      tabindex: "0",
+      title: "Modifica accessorio",
       on: {
-        click: () => { if (this._accEditMode) this._accOpen(item.id); },
+        click: () => this._accOpen(item.id),
+        keydown: (event) => { if (event.key === "Enter") this._accOpen(item.id); },
       },
     });
     if (this._accEditMode) {
@@ -14605,14 +14693,15 @@ _renderClients() {
         el("span", { class: "trt-drag", title: "Trascina" },
           el("ha-icon", { icon: "mdi:drag-vertical" })));
     }
-    row.appendChild(el("ha-icon", { icon: item.icon }));
+    row.appendChild(el("span", { class: "acc2-icon" }, el("ha-icon", { icon: item.icon || ACC_DEFAULT_ICON })));
     row.appendChild(
-      el("div", { class: "grow" },
-        el("div", {}, item.label),
-        sub ? el("div", { class: "dim small" }, sub) : null));
-    if (this._accEditMode) {
-      row.appendChild(el("ha-icon", { icon: "mdi:pencil" }));
-    }
+      el("div", { class: "acc2-text" },
+        el("div", { class: "acc2-name" }, item.label),
+        el("div", { class: "dim small" }, item.description || "Nessuna descrizione")));
+    row.appendChild(el("div", { class: "acc2-side" },
+      el("span", { class: `acc2-price${item.price === null || item.price === undefined ? " none" : ""}` },
+        item.price === null || item.price === undefined ? "senza prezzo" : euro(item.price)),
+      used ? el("span", { class: "acc2-used" }, `${used} prenotat${used === 1 ? "o" : "i"}`) : null));
     return row;
   }
 
@@ -14652,7 +14741,8 @@ _renderClients() {
     });
     sheet.appendChild(
       el("div", { class: "detail-head" },
-        el("div", {},
+        el("span", { class: "acc2-icon big" }, el("ha-icon", { icon: draft.icon || ACC_DEFAULT_ICON })),
+        el("div", { class: "grow" },
           el("div", { class: "detail-title" }, isNew ? "Nuovo accessorio" : "Modifica accessorio"),
           el("div", { class: "detail-sub" },
             isNew ? "Comparirà tra gli accessori di ogni prenotazione" : (draft.label || ""))),
@@ -14670,6 +14760,7 @@ _renderClients() {
     }, isNew ? "Aggiungi" : "Salva");
 
     const nameInput = el("input", {
+      class: "input",
       type: "text",
       value: draft.label || "",
       placeholder: "Es. Accappatoio",
@@ -14681,19 +14772,31 @@ _renderClients() {
     sheet.appendChild(el("div", { class: "detail-section" },
       el("h4", {}, "Nome"), nameInput));
 
+    // 2.3.5: the icons that fit a spa, one tap each; any other from the
+    // Home Assistant picker below.
     const iconPicker = document.createElement("ha-icon-picker");
     iconPicker.hass = this._hass;
     iconPicker.value = draft.icon || "";
-    iconPicker.label = "Icona";
+    iconPicker.label = "Altra icona";
     iconPicker.addEventListener("value-changed", (event) => {
       draft.icon = (event.detail && event.detail.value) || "";
+      this._render();
     });
+    const presets = el("div", { class: "acc-icon-grid", role: "radiogroup", "aria-label": "Icona" },
+      ACC_ICON_PRESETS.map(([icon, label]) => el("button", {
+        type: "button",
+        class: `acc-icon-opt${draft.icon === icon ? " on" : ""}`,
+        role: "radio", "aria-checked": draft.icon === icon ? "true" : "false",
+        title: label, "aria-label": label,
+        on: { click: () => { draft.icon = icon; this._render(); } },
+      }, el("ha-icon", { icon }), el("span", {}, label))));
     sheet.appendChild(el("div", { class: "detail-section" },
-      el("h4", {}, "Icona"), iconPicker,
+      el("h4", {}, "Icona"), presets, iconPicker,
       el("div", { class: "hint" },
         "Compare accanto al nome dell'accessorio nelle prenotazioni.")));
 
     const priceInput = el("input", {
+      class: "input",
       type: "number",
       min: "0",
       step: "0.01",
@@ -14709,7 +14812,7 @@ _renderClients() {
       el("div", { class: "hint" },
         "Solo informativo: non entra nei totali né nella caparra. Lascia vuoto se non ha un prezzo.")));
 
-    const descInput = el("textarea", { rows: "2", placeholder: "Facoltativa" });
+    const descInput = el("textarea", { class: "input", rows: "2", placeholder: "Facoltativa" });
     descInput.value = draft.description || "";
     descInput.addEventListener("input", () => { draft.description = descInput.value; });
     sheet.appendChild(el("div", { class: "detail-section" },
@@ -15000,22 +15103,28 @@ _renderClients() {
       return wrap;
     }
 
-    // Normal view: two columns, one block per category.
-    const grid = el("div", { class: "trt-grid" });
+    // Normal view (2.3.5): a few figures, then one section per category with
+    // its colour and the treatments as tiles.
+    const all = this._data.treatments || [];
+    wrap.appendChild(el("div", { class: "stats" },
+      el("div", { class: "stat" }, el("span", { class: "stat-label" }, "Trattamenti attivi"),
+        el("span", { class: "stat-value" }, String(all.filter((t) => t.active).length))),
+      el("div", { class: "stat" }, el("span", { class: "stat-label" }, "Sul sito"),
+        el("span", { class: "stat-value" }, String(all.filter((t) => t.active && t.web_visible !== false).length))),
+      el("div", { class: "stat" }, el("span", { class: "stat-label" }, "Con operatrice"),
+        el("span", { class: "stat-value" }, String(all.filter((t) => t.active && this._treatmentRequiresOperator(t)).length)))));
     this._treatmentGroups().forEach((group) => {
-      const block = el("div", { class: "trt-group" });
-      block.appendChild(
-        el("div", { class: "trt-group-head" },
-          group.category.color
-            ? el("span", { class: "swatch", style: `background:${group.category.color}` })
-            : null,
-          el("span", {}, group.category.name),
-          el("span", { class: "badge" }, String(group.items.length)))
-      );
-      group.items.forEach((treatment) => add(block, this._treatmentRow(treatment)));
-      grid.appendChild(block);
+      const color = group.category.color || "var(--primary-color)";
+      const section = el("section", { class: "trt2-section", style: `--cat:${color}` },
+        el("div", { class: "trt2-section-head" },
+          el("span", { class: "trt2-dot" }),
+          el("span", { class: "trt2-section-name" }, group.category.name),
+          el("span", { class: "badge" }, String(group.items.length))));
+      const grid = el("div", { class: "trt2-grid" });
+      group.items.forEach((treatment) => add(grid, this._treatmentRow(treatment)));
+      section.appendChild(grid);
+      wrap.appendChild(section);
     });
-    wrap.appendChild(grid);
 
     return wrap;
   }
@@ -15360,49 +15469,57 @@ _renderClients() {
   }
 
   /** One treatment in the list, with its edit and delete buttons. */
+  /** One treatment as a tile: what it is, how long, how much, who does it. */
   _treatmentRow(treatment) {
-    const category = this._categoryOf(treatment);
-    return el("div", { class: "row item" },
-      el("div", { class: "grow" },
-        el("div", {}, treatment.name,
-          treatment.active ? null : el("span", { class: "chip warn" }, "disattivato"),
-          treatment.web_visible === false ? el("span", { class: "chip" }, "non sul sito") : null),
-        el("div", { class: "dim small" },
-          [
-            category ? category.name : "senza categoria",
-            minutesLabel(treatment.duration_min),
-            treatment.price ? euro(treatment.price) : null,
-            this._operatorNamesFor(treatment).length
-              ? this._operatorNamesFor(treatment).join(", ")
-              : "nessuna operatrice",
-            treatment.min_parallel > 1 ? `min ${treatment.min_parallel} insieme` : null,
-            treatment.max_parallel > 0 ? `max ${treatment.max_parallel} insieme` : null,
-          ].filter(Boolean).join(" · "))),
-      el("button", {
-        class: "icon-btn",
-        title: "Modifica",
-        on: {
-          click: () => {
-            this._editing = {
-              kind: "treatment",
-              id: treatment.id,
-              draft: {
-                name: treatment.name,
-                category_id: treatment.category_id || "",
-                duration_min: treatment.duration_min,
-                price: treatment.price === null || treatment.price === undefined ? null : treatment.price,
-                active: treatment.active,
-                web_visible: treatment.web_visible !== false,
-                min_parallel: treatment.min_parallel || 0,
-                max_parallel: treatment.max_parallel || 0,
-                operator_ids: [...(treatment.operator_ids || [])],
-              },
-            };
-            this._render();
-          },
+    const operators = (this._data.operators || []).filter((op) => (op.treatment_ids || []).includes(treatment.id));
+    const needsOperator = this._treatmentRequiresOperator(treatment);
+    const edit = () => {
+      this._editing = {
+        kind: "treatment",
+        id: treatment.id,
+        draft: {
+          name: treatment.name,
+          category_id: treatment.category_id || "",
+          duration_min: treatment.duration_min,
+          price: treatment.price === null || treatment.price === undefined ? null : treatment.price,
+          active: treatment.active,
+          web_visible: treatment.web_visible !== false,
+          min_parallel: treatment.min_parallel || 0,
+          max_parallel: treatment.max_parallel || 0,
+          operator_ids: [...(treatment.operator_ids || [])],
         },
-      }, el("ha-icon", { icon: "mdi:pencil" }))
-    );
+      };
+      this._render();
+    };
+    const people = treatment.max_parallel > 0
+      ? `${treatment.min_parallel > 1 ? `${treatment.min_parallel}–` : "fino a "}${treatment.max_parallel} insieme`
+      : treatment.min_parallel > 1 ? `almeno ${treatment.min_parallel} insieme` : "";
+    return el("button", {
+      class: `trt2${treatment.active ? "" : " off"}`,
+      title: "Modifica trattamento",
+      on: { click: edit },
+    },
+      el("div", { class: "trt2-top" },
+        el("span", { class: "trt2-name" }, treatment.name),
+        el("ha-icon", { class: "trt2-edit", icon: "mdi:pencil-outline" })),
+      el("div", { class: "trt2-facts" },
+        el("span", { class: "trt2-fact" }, el("ha-icon", { icon: "mdi:clock-outline" }), minutesLabel(treatment.duration_min)),
+        el("span", { class: "trt2-fact price" }, el("ha-icon", { icon: "mdi:cash" }),
+          treatment.price ? euro(treatment.price) : "prezzo libero"),
+        people ? el("span", { class: "trt2-fact" }, el("ha-icon", { icon: "mdi:account-group-outline" }), people) : null),
+      el("div", { class: "trt2-foot" },
+        needsOperator
+          ? el("span", { class: "trt2-ops", title: operators.map((op) => op.name).join(", ") || "Nessuna operatrice" },
+              operators.length
+                ? operators.slice(0, 4).map((op) => el("span", { class: `op2-avatar mini ${op.gender === "M" ? "m" : "f"}` }, this._initials(op.name)))
+                : el("span", { class: "chip warn" }, "nessuna operatrice"),
+              operators.length > 4 ? el("span", { class: "dim small" }, `+${operators.length - 4}`) : null)
+          : el("span", { class: "dim small" }, "senza operatrice"),
+        el("span", { class: "spacer" }),
+        treatment.active ? null : el("span", { class: "trt2-badge off" }, "disattivato"),
+        el("span", { class: `trt2-badge ${treatment.web_visible === false ? "hidden" : "web"}` },
+          el("ha-icon", { icon: treatment.web_visible === false ? "mdi:web-off" : "mdi:web" }),
+          treatment.web_visible === false ? "non sul sito" : "sul sito")));
   }
 
   /**
@@ -16012,97 +16129,65 @@ _renderClients() {
         if (operator.notify_whatsapp) channels.push("WhatsApp");
         if (operator.notify_telegram) channels.push("Telegram");
         const role = roleOf(operator);
-        const opCard = el("div", { class: "op-card" });
-        opCard.appendChild(
-          el("div", { class: "row item op-head" },
-            el("div", { class: "op-role" },
-              el("span", { class: `role-badge ${operator.role === "spa_manager" ? "mgr" : "mass"}` },
-                el("ha-icon", { icon: role.icon }),
-                role.label),
-              el("div", { class: "op-priority" },
-                el("span", { class: "dim small" }, `Priorità ${operator.priority || 0}`),
-                el("button", {
-                  class: `btn small${operator.active === false ? "" : " primary"}`,
-                  title: operator.active === false ? "Attiva" : "Disattiva",
-                  disabled: this._busy,
-                  on: {
-                    click: async () => {
-                      try {
-                        await this._call("update_operator", {
-                          operator_id: operator.id,
-                          active: operator.active === false,
-                        });
-                      } catch (error) { /* shown */ }
-                    },
-                  },
-                }, el("ha-icon", { icon: operator.active === false ? "mdi:toggle-switch-off-outline" : "mdi:toggle-switch" })))),
-            el("div", { class: "grow" },
-              el("div", {}, operator.name),
-              el("div", { class: "dim small" },
-                [
-                  operator.active === false ? "NON ATTIVA" : "attiva",
-                  `priorità ${operator.priority || 0}`,
-                  operator.phone || "senza telefono",
-                  massages.length
-                    ? `${massages.length} massaggi: ${massages.map((t) => t.name).join(", ")}`
-                    : "nessun massaggio assegnato",
-                  channels.length ? channels.join(" + ") : "nessuna notifica",
-                  `${upcoming} futuri`,
-                ].join(" · "))),
-            el("div", { class: "op-actions" },
-              el("button", {
-                class: "btn small",
-                title: "Modifica",
-                on: {
-                  click: () => {
-                    this._editing = {
-                      kind: "operator",
-                      id: operator.id,
-                      draft: {
-                        name: operator.name,
-                        role: roleOf(operator).id,
-                        phone: operator.phone || "",
-                        whatsapp_chat_id: operator.whatsapp_chat_id || "",
-                        telegram_chat_id: operator.telegram_chat_id || "",
-                        treatment_ids: [...(operator.treatment_ids || [])],
-                        notify_whatsapp: operator.notify_whatsapp !== false,
-                        notify_telegram: operator.notify_telegram !== false,
-                        notify_service: operator.notify_service || "",
-                        notify_on_create: operator.notify_on_create !== false,
-                        priority: operator.priority ?? 0,
-                        active: operator.active !== false,
-                        gender: operator.gender || "",
-                      },
-                    };
-                    this._render();
-                  },
-                },
-              }, el("ha-icon", { icon: "mdi:pencil" })),
-              el("button", {
-                class: "btn small danger",
-                title: "Elimina",
-                disabled: this._busy,
-                on: {
-                  click: async () => {
-                    if (!window.confirm(`Eliminare l'operatore «${operator.name}»?`)) return;
-                    let force = false;
-                    if (upcoming) {
-                      if (!window.confirm(`Ci sono ${upcoming} appuntamenti futuri. Eliminare comunque?`)) return;
-                      force = true;
-                    }
-                    try { await this._call("delete_operator", { operator_id: operator.id, force }); } catch (e) { /* shown */ }
-                  },
-                },
-              }, el("ha-icon", { icon: "mdi:delete" })),
-              operator.phone
-                ? el("a", { class: "btn small tel", href: telHref(operator.phone), title: operator.phone },
-                    el("ha-icon", { icon: "mdi:phone" }))
-                : el("span", { class: "op-slot" }),
-              operator.phone
-                ? el("a", { class: "btn small wa", href: waLink(operator.phone), target: "_blank", rel: "noopener", title: "WhatsApp" },
-                    el("ha-icon", { icon: "mdi:whatsapp" }))
-                : el("span", { class: "op-slot" })))
-      );
+        const off = operator.active === false;
+        const gender = operator.gender === "F" ? ["mdi:face-woman-outline", "Donna"]
+          : operator.gender === "M" ? ["mdi:face-man-outline", "Uomo"] : null;
+        const shown = massages.slice(0, 4);
+        const opCard = el("div", { class: `op-card op2${off ? " off" : ""}` });
+        opCard.appendChild(el("div", { class: "op2-head" },
+          el("span", { class: `op2-avatar ${operator.gender === "M" ? "m" : "f"}` }, this._initials(operator.name)),
+          el("div", { class: "op2-id" },
+            el("div", { class: "op2-name" }, operator.name),
+            el("div", { class: "op2-tags" },
+              el("span", { class: `op2-tag ${operator.role === "spa_manager" ? "mgr" : "mass"}` },
+                el("ha-icon", { icon: role.icon }), role.label),
+              gender ? el("span", { class: "op2-tag" }, el("ha-icon", { icon: gender[0] }), gender[1]) : null,
+              el("span", { class: "op2-tag prio", title: "Le proposte vanno prima a chi ha il numero più basso" },
+                el("ha-icon", { icon: "mdi:sort-numeric-ascending" }), `Priorità ${operator.priority || 0}`))),
+          el("button", {
+            class: `op2-switch${off ? "" : " on"}`,
+            role: "switch", "aria-checked": off ? "false" : "true",
+            title: off ? "Non riceve proposte: tocca per attivarla" : "Riceve le proposte: tocca per disattivarla",
+            disabled: this._busy,
+            on: { click: async () => {
+              try { await this._call("update_operator", { operator_id: operator.id, active: off }); } catch (error) { /* shown */ }
+            } },
+          }, el("span", { class: "op2-knob" }), el("span", { class: "op2-switch-label" }, off ? "Non attiva" : "Attiva"))));
+        opCard.appendChild(el("div", { class: "op2-chips" },
+          massages.length
+            ? [...shown.map((t) => el("span", { class: "op2-chip" }, t.name)),
+              massages.length > shown.length ? el("span", { class: "op2-chip more" }, `+${massages.length - shown.length}`) : null]
+            : el("span", { class: "dim small" }, "Nessun trattamento assegnato")));
+        opCard.appendChild(el("div", { class: "op2-info" },
+          el("span", { class: "op2-info-item" }, el("ha-icon", { icon: "mdi:phone-outline" }), operator.phone || "senza telefono"),
+          el("span", { class: "op2-info-item" }, el("ha-icon", { icon: "mdi:bell-outline" }), channels.length ? channels.join(" + ") : "nessuna notifica"),
+          el("span", { class: "op2-info-item" }, el("ha-icon", { icon: "mdi:calendar-clock" }), `${upcoming} ${upcoming === 1 ? "appuntamento" : "appuntamenti"} in arrivo`)));
+        opCard.appendChild(el("div", { class: "op2-actions" },
+          el("button", { class: "btn small", on: { click: () => this._editOperator(operator) } },
+            el("ha-icon", { icon: "mdi:pencil" }), "Modifica"),
+          operator.phone
+            ? el("a", { class: "btn small tel", href: telHref(operator.phone), title: operator.phone },
+                el("ha-icon", { icon: "mdi:phone" }), "Chiama")
+            : null,
+          operator.phone
+            ? el("a", { class: "btn small wa", href: waLink(operator.phone), target: "_blank", rel: "noopener", title: "WhatsApp" },
+                el("ha-icon", { icon: "mdi:whatsapp" }), "WhatsApp")
+            : null,
+          el("span", { class: "spacer" }),
+          el("button", {
+            class: "icon-btn danger-icon",
+            title: "Elimina", "aria-label": `Elimina ${operator.name}`,
+            disabled: this._busy,
+            on: { click: async () => {
+              if (!window.confirm(`Eliminare l'operatore «${operator.name}»?`)) return;
+              let force = false;
+              if (upcoming) {
+                if (!window.confirm(`Ci sono ${upcoming} appuntamenti futuri. Eliminare comunque?`)) return;
+                force = true;
+              }
+              try { await this._call("delete_operator", { operator_id: operator.id, force }); } catch (e) { /* shown */ }
+            } },
+          }, el("ha-icon", { icon: "mdi:delete-outline" }))));
       add(opCard, this._operatorHistoryBlock(operator));
       column.appendChild(opCard);
     });
@@ -16113,6 +16198,30 @@ _renderClients() {
     renderColumn("Spa Manager", altri, "mdi:account-tie-outline");
 
     return wrap;
+  }
+
+  /** Open the operator form with her current card. */
+  _editOperator(operator) {
+    this._editing = {
+      kind: "operator",
+      id: operator.id,
+      draft: {
+        name: operator.name,
+        role: roleOf(operator).id,
+        phone: operator.phone || "",
+        whatsapp_chat_id: operator.whatsapp_chat_id || "",
+        telegram_chat_id: operator.telegram_chat_id || "",
+        treatment_ids: [...(operator.treatment_ids || [])],
+        notify_whatsapp: operator.notify_whatsapp !== false,
+        notify_telegram: operator.notify_telegram !== false,
+        notify_service: operator.notify_service || "",
+        notify_on_create: operator.notify_on_create !== false,
+        priority: operator.priority ?? 0,
+        active: operator.active !== false,
+        gender: operator.gender || "",
+      },
+    };
+    this._render();
   }
 
   /**
@@ -18235,6 +18344,103 @@ _renderClients() {
       .stat-sub { font-size: 11px; color: var(--secondary-text-color); }
       .wa-send-cell { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-start; }
       .btn.wa { background: #25d366; border-color: #25d366; color: #fff; }
+      /* 2.3.5: Trattamenti, Accessori, Operatori */
+      .trt2-section { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+      .trt2-section-head { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700;
+        letter-spacing: .06em; text-transform: uppercase; color: var(--secondary-text-color); }
+      .trt2-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--cat); }
+      .trt2-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr)); gap: 10px; }
+      .trt2 { all: unset; box-sizing: border-box; cursor: pointer; display: flex; flex-direction: column; gap: 8px;
+        padding: 12px 14px 10px; border-radius: var(--sb-radius, 12px); background: var(--sb-card, var(--card-background-color));
+        border: 1px solid var(--sb-line, var(--divider-color)); border-left: 4px solid var(--cat);
+        box-shadow: var(--sb-shadow, none); transition: transform .12s ease, box-shadow .12s ease; }
+      .trt2:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(0,0,0,.08); }
+      .trt2:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
+      .trt2.off { opacity: .6; }
+      .trt2-top { display: flex; align-items: flex-start; gap: 8px; }
+      .trt2-name { flex: 1; font-weight: 600; font-size: 15px; line-height: 1.3; color: var(--primary-text-color); }
+      .trt2-edit { --mdc-icon-size: 18px; color: var(--secondary-text-color); opacity: .6; }
+      .trt2:hover .trt2-edit { opacity: 1; color: var(--primary-color); }
+      .trt2-facts { display: flex; flex-wrap: wrap; gap: 6px; }
+      .trt2-fact { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; padding: 3px 8px; border-radius: 999px;
+        background: var(--sb-soft, rgba(0,0,0,.04)); color: var(--primary-text-color); }
+      .trt2-fact ha-icon { --mdc-icon-size: 14px; color: var(--secondary-text-color); }
+      .trt2-fact.price { font-weight: 600; }
+      .trt2-foot { display: flex; align-items: center; gap: 6px; min-height: 24px; }
+      .trt2-ops { display: inline-flex; align-items: center; }
+      .trt2-ops .op2-avatar.mini + .op2-avatar.mini { margin-left: -6px; }
+      .trt2-badge { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; }
+      .trt2-badge ha-icon { --mdc-icon-size: 13px; }
+      .trt2-badge.web { background: color-mix(in srgb, #2e7d32 12%, transparent); color: #2e7d32; }
+      .trt2-badge.hidden { background: var(--sb-soft, rgba(0,0,0,.05)); color: var(--secondary-text-color); }
+      .trt2-badge.off { background: color-mix(in srgb, #c62828 12%, transparent); color: #c62828; }
+      .acc2-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: 10px; }
+      .acc2-grid > .acc-add { grid-column: 1 / -1; justify-self: start; }
+      .acc2 { display: flex; align-items: center; gap: 12px; padding: 12px 14px; cursor: pointer;
+        border-radius: var(--sb-radius, 12px); background: var(--sb-card, var(--card-background-color));
+        border: 1px solid var(--sb-line, var(--divider-color)); box-shadow: var(--sb-shadow, none); transition: transform .12s ease; }
+      .acc2:hover { transform: translateY(-1px); }
+      .acc2:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
+      .acc2-icon { flex: none; width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center;
+        background: color-mix(in srgb, var(--primary-color) 12%, transparent); color: var(--primary-color); }
+      .acc2-icon ha-icon { --mdc-icon-size: 24px; }
+      .acc2-icon.big { width: 52px; height: 52px; margin-right: 10px; }
+      .acc2-icon.big ha-icon { --mdc-icon-size: 28px; }
+      .acc2-text { flex: 1; min-width: 0; }
+      .acc2-name { font-weight: 600; font-size: 15px; }
+      .acc2-side { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; text-align: right; }
+      .acc2-price { font-weight: 700; font-size: 14px; }
+      .acc2-price.none { font-weight: 500; color: var(--secondary-text-color); font-size: 12px; }
+      .acc-icon-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(74px, 1fr)); gap: 6px; margin-bottom: 8px; }
+      .acc-icon-opt { all: unset; box-sizing: border-box; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 4px;
+        padding: 8px 4px; border-radius: 10px; border: 1px solid var(--sb-line, var(--divider-color)); font-size: 11px; text-align: center;
+        color: var(--primary-text-color); }
+      .acc-icon-opt ha-icon { --mdc-icon-size: 22px; color: var(--secondary-text-color); }
+      .acc-icon-opt.on { border-color: var(--primary-color); background: color-mix(in srgb, var(--primary-color) 10%, transparent); }
+      .acc-icon-opt.on ha-icon { color: var(--primary-color); }
+      .acc-icon-opt:focus-visible { outline: 2px solid var(--primary-color); }
+      .op-card.op2 { display: flex; flex-direction: column; gap: 10px; padding: 14px; }
+      .op-card.op2.off { opacity: .7; }
+      .op2-head { display: flex; align-items: center; gap: 12px; }
+      .op2-avatar { flex: none; width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center;
+        font-weight: 700; font-size: 15px; color: #fff; background: #b05a7a; }
+      .op2-avatar.m { background: #3f6fb0; }
+      .op2-avatar.mini { width: 24px; height: 24px; font-size: 10px; border: 2px solid var(--sb-card, #fff); }
+      .op2-id { flex: 1; min-width: 0; }
+      .op2-name { font-weight: 700; font-size: 16px; }
+      .op2-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+      .op2-tag { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px;
+        background: var(--sb-soft, rgba(0,0,0,.05)); color: var(--secondary-text-color); }
+      .op2-tag ha-icon { --mdc-icon-size: 13px; }
+      .op2-tag.mass { color: var(--primary-color); background: color-mix(in srgb, var(--primary-color) 10%, transparent); }
+      .op2-tag.mgr { color: #8a5a00; background: color-mix(in srgb, #f0a000 14%, transparent); }
+      .op2-switch { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600;
+        color: var(--secondary-text-color); }
+      .op2-switch::before { content: ""; }
+      .op2-knob { position: relative; width: 36px; height: 20px; border-radius: 999px; background: var(--divider-color, #ccc); transition: background .15s; }
+      .op2-knob::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff;
+        box-shadow: 0 1px 2px rgba(0,0,0,.3); transition: left .15s; }
+      .op2-switch.on { color: #2e7d32; }
+      .op2-switch.on .op2-knob { background: #2e7d32; }
+      .op2-switch.on .op2-knob::after { left: 18px; }
+      .op2-switch:focus-visible { outline: 2px solid var(--primary-color); border-radius: 6px; }
+      .op2-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+      .op2-chip { font-size: 12px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--sb-line, var(--divider-color)); }
+      .op2-chip.more { color: var(--secondary-text-color); }
+      .op2-info { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--secondary-text-color); }
+      .op2-info-item { display: inline-flex; align-items: center; gap: 4px; }
+      .op2-info-item ha-icon { --mdc-icon-size: 15px; }
+      .op2-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding-top: 10px;
+        border-top: 1px solid var(--sb-line, var(--divider-color)); }
+      .op2-actions .spacer { flex: 1; }
+      .op2-actions a.btn { text-decoration: none; }
+      .acc2-used { font-size: 11px; color: var(--secondary-text-color); white-space: nowrap; }
+      .operators-columns:has(> .operators-column:only-child) { grid-template-columns: minmax(0, 1fr); }
+      .operators-column:only-child { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 10px; align-items: start; }
+      .operators-column:only-child > .column-header { grid-column: 1 / -1; }
+      .icon-btn.danger-icon { color: var(--sb-danger-fg, #c62828); }
+      .btn.danger-ghost { color: var(--sb-danger-fg, #c62828); border-color: color-mix(in srgb, var(--sb-danger-fg, #c62828) 35%, transparent); background: transparent; }
+      .btn.danger-ghost ha-icon { color: inherit; }
       .btn.wa ha-icon { color: #fff; }
       .req-author ha-icon { --mdc-icon-size: 14px; }
       .history-list { display: flex; flex-direction: column; gap: 8px; max-height: 320px; overflow-y: auto; }

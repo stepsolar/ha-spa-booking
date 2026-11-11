@@ -57,7 +57,11 @@ from .const import (
     DEFAULT_PROPOSE_ALT_INTRO,
     DEFAULT_PROPOSE_ALT_LINE,
     DEFAULT_PROPOSE_MESSAGE,
+    LEGACY_APPOINTMENT_REMINDER_MESSAGE,
+    LEGACY_DEPOSIT_MESSAGE,
     LEGACY_PROPOSE_MESSAGE,
+    LEGACY_REQUEST_MESSAGE,
+    LEGACY_SUMMARY_MESSAGE,
     DEFAULT_REQUEST_MESSAGE,
     DEFAULT_SUMMARY_MESSAGE,
     DEFAULT_APPOINTMENT_REMINDER_MESSAGE,
@@ -96,6 +100,7 @@ from .const import (
     GUEST_TYPE_DEFAULT,
     GUEST_TYPES,
     ACCESSORY_DEFAULTS,
+    EXTRAS_OLD_ICONS,
     OFFER_NONE,
     OFFER_PENDING,
     OFFER_UNASSIGNED,
@@ -840,9 +845,7 @@ def _norm_settings(raw: dict[str, Any]) -> dict[str, Any]:
         "deposit_iban": str(raw.get("deposit_iban") or DEFAULT_DEPOSIT_IBAN).strip(),
         # The deposit request the reception wants sent, and the test number.
         # An empty message falls back to the built-in text.
-        "deposit_message": str(
-            raw.get("deposit_message") or DEFAULT_DEPOSIT_MESSAGE
-        ),
+        "deposit_message": _upgraded(raw.get("deposit_message"), DEFAULT_DEPOSIT_MESSAGE, LEGACY_DEPOSIT_MESSAGE),
         "deposit_test_phone": str(raw.get("deposit_test_phone") or "").strip(),
         # The headline shown after the title of the guest-facing appointment
         # summary. Editable from the notifications tab.
@@ -853,9 +856,7 @@ def _norm_settings(raw: dict[str, Any]) -> dict[str, Any]:
         # notifications tab, and the number a test send goes to. An empty
         # message falls back to the built-in one, so a cleared field never
         # leaves the guest without a summary.
-        "summary_message": str(
-            raw.get("summary_message") or DEFAULT_SUMMARY_MESSAGE
-        ),
+        "summary_message": _upgraded(raw.get("summary_message"), DEFAULT_SUMMARY_MESSAGE, LEGACY_SUMMARY_MESSAGE),
         "summary_test_phone": str(raw.get("summary_test_phone") or "").strip(),
         # The message a guest receives when the desk takes her appointment
         # request: it says the request was received and is waiting for the
@@ -874,9 +875,7 @@ def _norm_settings(raw: dict[str, Any]) -> dict[str, Any]:
         "request_propose_alt_line": str(
             raw.get("request_propose_alt_line") or DEFAULT_PROPOSE_ALT_LINE
         ),
-        "request_message": str(
-            raw.get("request_message") or DEFAULT_REQUEST_MESSAGE
-        ),
+        "request_message": _upgraded(raw.get("request_message"), DEFAULT_REQUEST_MESSAGE, LEGACY_REQUEST_MESSAGE),
         # Voucher expiration reminder: message sent to the recipient before
         # the voucher expires. The number of days before expiry to send it.
         "voucher_expiry_reminder_message": str(
@@ -885,9 +884,7 @@ def _norm_settings(raw: dict[str, Any]) -> dict[str, Any]:
         "voucher_expiry_reminder_days": int(raw.get("voucher_expiry_reminder_days") or DEFAULT_VOUCHER_EXPIRY_REMINDER_DAYS),
         # Appointment reminder for the guest: customizable message, and whether
         # it is sent automatically (with how many hours advance) or manually.
-        "appointment_reminder_message": str(
-            raw.get("appointment_reminder_message") or DEFAULT_APPOINTMENT_REMINDER_MESSAGE
-        ),
+        "appointment_reminder_message": _upgraded(raw.get("appointment_reminder_message"), DEFAULT_APPOINTMENT_REMINDER_MESSAGE, LEGACY_APPOINTMENT_REMINDER_MESSAGE),
         "appointment_reminder_auto": bool(
             raw.get("appointment_reminder_auto", DEFAULT_APPOINTMENT_REMINDER_AUTO)
         ),
@@ -1268,9 +1265,11 @@ def _norm_accessory(raw: Any) -> dict[str, Any] | None:
     return {
         "id": item_id,
         "label": str(raw.get("label") or (factory["label"] if factory else item_id)).strip(),
-        "icon": str(
-            raw.get("icon") or (factory["icon"] if factory else "mdi:gift-outline")
-        ).strip(),
+        "icon": (
+            factory["icon"]
+            if factory and (item_id, str(raw.get("icon") or "")) in EXTRAS_OLD_ICONS
+            else str(raw.get("icon") or (factory["icon"] if factory else "mdi:gift-outline")).strip()
+        ),
         "price": price,
         "description": str(raw.get("description") or "").strip(),
     }
@@ -1434,6 +1433,7 @@ def _norm_appointment(raw: dict[str, Any]) -> dict[str, Any]:
         "reminder_sent_at": str(raw.get("reminder_sent_at") or ""),
         # When the booking confirmation (the summary) last went out on WhatsApp.
         "confirmation_sent_at": str(raw.get("confirmation_sent_at") or ""),
+        "deposit_request_sent_at": str(raw.get("deposit_request_sent_at") or ""),
         # The review request is sent once, a few hours after the appointment is
         # over. One flag per appointment: a guest with two treatments the same
         # day is asked once, not twice.
@@ -1924,3 +1924,14 @@ def _norm_preference(value: Any) -> str:
     """"F", "M" or "" (a gender, or no preference)."""
     text = str(value or "").strip().upper()[:1]
     return {"F": "F", "D": "F", "W": "F", "M": "M", "U": "M"}.get(text, "")
+
+
+def _upgraded(value: Any, default: str, legacy: str) -> str:
+    """A message text: the new default when empty or still the old default.
+
+    A text the reception wrote herself is kept as it is.
+    """
+    text = str(value or "")
+    if not text.strip() or text.strip() == legacy.strip():
+        return default
+    return text

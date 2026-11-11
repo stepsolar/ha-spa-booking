@@ -2092,6 +2092,24 @@ restart_home_assistant:
     amministratori.
 
 
+whatsapp_chats:
+  name: Chat WhatsApp
+  description: Le conversazioni della scheda WhatsApp, conservate anche dopo un riavvio.
+
+delete_whatsapp_chats:
+  name: Elimina chat WhatsApp
+  description: Elimina una conversazione (chat_id) oppure tutte (all true).
+  fields:
+    chat_id:
+      name: Chat
+      example: 393331234567@c.us
+      selector:
+        text:
+    all:
+      name: Tutte le chat
+      selector:
+        boolean:
+
 test_web_notice:
   name: Prova avviso richieste dal sito
   description: >-

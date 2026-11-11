@@ -252,3 +252,53 @@ def test_promo_counted_on_the_client(coordinator, sent, freeze) -> None:
     run(coordinator.async_send_promo([client["id"]]))
     assert client["promo_sent_count"] == 2
     assert client["promo_last_sent_at"].startswith("2026-11-10")
+
+
+def _party(coordinator):
+    """Anna and her friend, two massages at the same time (2.3.5)."""
+    maria, giulia = coordinator.operators[0]["id"], coordinator.operators[1]["id"]
+    first = _confirmed_booking(coordinator, "2026-11-11 09:00")
+    second = run(coordinator.async_create_appointment(
+        treatment_id="trt_massaggio_relax_90", start="2026-11-11 09:00",
+        client_id=first["client_id"], operator_ids=[giulia], force_client_overlap=True,
+    ))
+    for appointment in coordinator.appointments:
+        if appointment["id"] == second["id"]:
+            appointment["status"] = "confirmed"
+            appointment["person"] = 1
+    assert maria != giulia
+    return first, second
+
+
+def test_party_summary_is_one_message(coordinator, sent, freeze) -> None:
+    freeze("2026-11-10 10:00")
+    first, second = _party(coordinator)
+    run(coordinator.async_send_guest_summary(appointment_ids=[first["id"], second["id"]]))
+    assert len(sent) == 1
+    text = sent[0][1] if isinstance(sent[0], tuple) else str(sent[0])
+    assert text.count("Gentile Anna") == 1
+    assert "Persona 1" in text and "Persona 2" in text
+    assert "mercoledì 11 novembre" in text
+
+
+def test_party_reminder_is_one_message(coordinator, sent, freeze) -> None:
+    freeze("2026-11-10 10:00")
+    first, _second = _party(coordinator)
+    assert run(coordinator.async_send_reminders())["sent"] == 1
+    text = sent[0][1] if isinstance(sent[0], tuple) else str(sent[0])
+    assert text.count("Le ricordiamo") == 1 and "Persona 2" in text
+    # The desk's button for one of them also reminds the whole party at once.
+    sent.clear()
+    assert run(coordinator.async_send_reminders(first["id"]))["sent"] == 1
+
+
+def test_old_default_texts_are_upgraded() -> None:
+    from custom_components.spa_booking.const import (
+        DEFAULT_SUMMARY_MESSAGE, LEGACY_SUMMARY_MESSAGE, LEGACY_DEPOSIT_MESSAGE, DEFAULT_DEPOSIT_MESSAGE,
+    )
+    from custom_components.spa_booking.normalize import _norm_settings
+
+    settings = _norm_settings({"summary_message": LEGACY_SUMMARY_MESSAGE, "deposit_message": LEGACY_DEPOSIT_MESSAGE})
+    assert settings["summary_message"] == DEFAULT_SUMMARY_MESSAGE
+    assert settings["deposit_message"] == DEFAULT_DEPOSIT_MESSAGE
+    assert _norm_settings({"summary_message": "Ciao {nome}"})["summary_message"] == "Ciao {nome}"

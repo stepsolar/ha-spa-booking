@@ -93,3 +93,30 @@ def test_operator_chat_id_migration():
     assert maria["whatsapp_chat_id"] == "393921234567@c.us"
     assert giulia["whatsapp_chat_id"] == "120363@g.us"
     assert coordinator._migrate_operator_chat_ids() is False
+
+
+def test_whatsapp_chats_survive_and_are_deleted_by_hand() -> None:
+    """2.3.5: conversations are stored on disk and deleted only on purpose."""
+
+    from tests.conftest import build_coordinator
+
+    coordinator = build_coordinator()
+    from tests.conftest import run as go
+
+    go(coordinator.async_add_external_message("39333@c.us", "Buongiorno, avete posto sabato?"))
+    go(coordinator.async_add_external_message("39444@c.us", "Info prezzi"))
+    saved = coordinator._chats_store.saved
+    assert set(saved["chats"]) == {"39333@c.us", "39444@c.us"}
+
+    # A restart: a new coordinator reads the same file back.
+    again = build_coordinator()
+    async def load():
+        return saved
+    again._chats_store.async_load = load
+    go(again._async_load_chats())
+    assert [c["chat_id"] for c in again.whatsapp_chats()] == ["39444@c.us", "39333@c.us"]
+    assert again.external_messages[0]["text"] == "Info prezzi"
+
+    assert go(again.async_delete_chats("39444@c.us")) == 1
+    assert [c["chat_id"] for c in again.whatsapp_chats()] == ["39333@c.us"]
+    assert go(again.async_delete_chats()) == 1 and again.whatsapp_chats() == []
