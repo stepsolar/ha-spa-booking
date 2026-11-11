@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.3.5";
+const CARD_VERSION = "2.3.6";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -104,6 +104,105 @@ const ACC_FALLBACK = [
 // Drawn when an accessory has no icon of its own, and for one that has since
 // been deleted from the configuration.
 const ACC_DEFAULT_ICON = "mdi:gift-outline";
+
+// The guest messages of the Notifiche tab (2.3.6), in the order of the
+// guest's journey. `key` is the setting with the text; `chips` the
+// placeholders offered with a tap; `options` the settings shown above the
+// text; `auto` whether it goes out on its own.
+const NOTIFY_FIELD = (label, input, hint) => el("label", { class: "field" }, el("span", {}, label), input,
+  hint ? el("span", { class: "dim small" }, hint) : null);
+const NOTIFY_TEXT = (draft, key, changed, placeholder) => el("input", {
+  class: "input", type: "text", value: draft[key] || "", placeholder: placeholder || "",
+  on: { input: (event) => { draft[key] = event.target.value; changed(); } },
+});
+const NOTIFY_AUTO = (draft, autoKey, hoursKey, fallback, label, hoursLabel, changed, rerender) => [
+  el("label", { class: "nt-auto" },
+    el("input", { type: "checkbox", checked: draft[autoKey] !== false,
+      on: { change: (event) => { draft[autoKey] = event.target.checked; changed(); rerender(); } } }),
+    el("span", {}, label)),
+  draft[autoKey] !== false
+    ? el("label", { class: "nt-hours" },
+        el("input", { class: "input", type: "number", min: "1", max: "168", step: "1",
+          value: draft[hoursKey] || fallback,
+          on: { input: (event) => { draft[hoursKey] = event.target.value; changed(); } } }),
+        el("span", {}, hoursLabel))
+    : el("span", { class: "dim small" }, "Invio solo dal pulsante nell'appuntamento."),
+];
+const NOTIFY_MESSAGES = [
+  {
+    id: "request", group: "Prima della visita", icon: "mdi:email-receive-outline",
+    title: "Richiesta ricevuta", key: "request_message",
+    when: () => "Quando si salva una richiesta", auto: () => true,
+    description: "Parte da solo quando una richiesta viene salvata, dal sito o dalla reception, se l'ospite ha il telefono.",
+    chips: [["{nome}", "Nome"], ["{cognome}", "Cognome"], ["{data}", "Giorno chiesto"], ["{ora}", "Orario del primo trattamento"],
+      ["{persone}", "Numero di persone"], ["{trattamenti}", "Un trattamento per riga, con orario"], ["{codice}", "Codice richiesta"]],
+  },
+  {
+    id: "propose", group: "Prima della visita", icon: "mdi:calendar-arrow-right",
+    title: "Proposta di un'altra data", key: "request_propose_message",
+    when: () => "Pulsante «Proponi data»", auto: () => false,
+    description: "Dalla Lista richieste, quando il giorno chiesto è pieno. La reception lo vede e lo può cambiare prima di inviarlo.",
+    chips: [["{nome}", "Nome"], ["{codice}", "Codice richiesta"], ["{data_richiesta}", "Giorno chiesto"], ["{trattamenti}", "Trattamenti chiesti"],
+      ["{data_proposta}", "Prima data disponibile"], ["{orario_proposto}", "« alle 10:30» o vuoto"], ["{alternativa}", "I trattamenti alternativi scelti nel popup"]],
+    after: (draft, changed) => el("div", { class: "nt-options" },
+      NOTIFY_FIELD("Introduzione alle alternative", NOTIFY_TEXT(draft, "request_propose_alt_intro", changed, "In alternativa Le proponiamo:")),
+      NOTIFY_FIELD("Riga di ogni alternativa", NOTIFY_TEXT(draft, "request_propose_alt_line", changed),
+        "{trattamento_alternativo}, {data_alternativa}, {orario_alternativo}, {prezzo_alternativo}")),
+  },
+  {
+    id: "deposit", group: "Prima della visita", icon: "mdi:bank-transfer",
+    title: "Richiesta acconto", key: "deposit_message",
+    when: () => "Prenotazione in attesa", auto: () => false,
+    description: "Dal dettaglio di un appuntamento in attesa, o dalla domanda che compare dopo averlo salvato con l'acconto.",
+    chips: [["{nome}", "Nome"], ["{importo}", "Acconto"], ["{codice}", "Codice prenotazione"], ["{intestatario}", "Intestatario"], ["{iban}", "IBAN"]],
+    options: (draft, changed) => [
+      NOTIFY_FIELD("Intestatario bonifico", NOTIFY_TEXT(draft, "deposit_intestatario", changed, "IL MARCHESE SOC COOP ARL")),
+      NOTIFY_FIELD("IBAN", NOTIFY_TEXT(draft, "deposit_iban", changed, "IT…")),
+    ],
+  },
+  {
+    id: "summary", group: "Prima della visita", icon: "mdi:check-decagram-outline",
+    title: "Conferma prenotazione", key: "summary_message",
+    when: () => "Quando si conferma", auto: () => false,
+    description: "Il riepilogo che l'ospite riceve quando la prenotazione è confermata. Per più persone parte un solo messaggio.",
+    chips: [["{nome}", "Nome"], ["{cognome}", "Cognome"], ["{data}", "Giorno"], ["{appuntamenti}", "Un appuntamento per riga"],
+      ["{codice}", "Codice prenotazione"], ["{hotel}", "Intestazione"], ["{ora}", "Primo inizio"], ["{fine}", "Ultima fine"],
+      ["{totale}", "Prezzo"], ["{acconto}", "Acconto"], ["{versato}", "Incassato"], ["{residuo}", "Da saldare"], ["{pagamenti}", "Versamenti"]],
+    options: (draft, changed) => [
+      NOTIFY_FIELD("Intestazione ({hotel})", NOTIFY_TEXT(draft, "guest_header", changed, "Il Marchese Hotel & Spa")),
+    ],
+  },
+  {
+    id: "reminder", group: "Prima della visita", icon: "mdi:alarm",
+    title: "Promemoria", key: "appointment_reminder_message",
+    when: (draft) => draft.appointment_reminder_auto !== false ? `${draft.appointment_reminder_hours || 24} ore prima` : "Dal pulsante",
+    auto: (draft) => draft.appointment_reminder_auto !== false,
+    description: "Uno per ospite e giorno, con tutti i suoi appuntamenti.",
+    chips: [["{nome}", "Nome"], ["{cognome}", "Cognome"], ["{data}", "Giorno"], ["{ora}", "Primo orario"],
+      ["{trattamenti}", "Un appuntamento per riga"], ["{codice}", "Codice prenotazione"]],
+    options: (draft, changed, rerender) => NOTIFY_AUTO(draft, "appointment_reminder_auto", "appointment_reminder_hours", 24,
+      "Invio automatico", "ore prima dell'appuntamento", changed, rerender),
+  },
+  {
+    id: "review", group: "Dopo la visita", icon: "mdi:star-outline",
+    title: "Richiesta recensione", key: "review_request_message",
+    when: (draft) => draft.review_request_auto !== false ? `${draft.review_request_after_hours || 6} ore dopo` : "Dal pulsante",
+    auto: (draft) => draft.review_request_auto !== false,
+    description: "Chiede all'ospite di lasciare una recensione, una volta al giorno per persona.",
+    chips: [["{nome}", "Nome"]],
+    options: (draft, changed, rerender) => NOTIFY_AUTO(draft, "review_request_auto", "review_request_after_hours", 6,
+      "Invio automatico", "ore dopo il trattamento", changed, rerender),
+  },
+];
+// Every setting the Notifiche Save bar writes.
+const NOTIFY_SAVE_KEYS = [
+  "request_message", "request_propose_message", "request_propose_alt_intro", "request_propose_alt_line",
+  "deposit_message", "deposit_intestatario", "deposit_iban", "summary_message", "guest_header",
+  "appointment_reminder_message", "appointment_reminder_auto", "appointment_reminder_hours",
+  "review_request_message", "review_request_auto", "review_request_after_hours",
+  "offer_timeout_hours", "offer_reminder_hours",
+  "report_telegram_chats", "report_whatsapp_chat", "report_per_operator", "telegram_config_entry_id",
+];
 
 // Icons that fit a spa accessory, offered with one tap in its popup.
 const ACC_ICON_PRESETS = [
@@ -13156,132 +13255,325 @@ _renderClients() {
     return wrap;
   }
 
+  /**
+   * The Notifiche tab, in four parts: the guest messages (in the order of the
+   * guest's journey, one editor with a live WhatsApp preview), the offers to
+   * the masseuses, the report, and the connections. One Save bar for all of
+   * it, shown only when something changed.
+   */
   _renderNotify() {
-    const wrap = el("div", { class: "stack" + (this._notifyEditMode ? " form-edit" : "") });
     const settings = this._data.settings || {};
     const draft = this._notifyDraft || (this._notifyDraft = { ...settings });
-
-    // Edit mode toggle in the header.
-    if (this._can("config")) wrap.appendChild(this._notifyHeader());
-
-    // Two columns of blocks. In edit mode the blocks drag by their handle, the
-    // same way the booking form does.
-    const columns = this._colsGrid("notifiche");
-    const left = el("div", { class: "stack tight form-col", "data-col": "left" });
-    const right = el("div", { class: "stack tight form-col", "data-col": "right" });
-
-    // One field appended to a given box, so the layout can be reorganised
-    // without touching the fields themselves.
-    const field = (box, label, key, placeholder, hint) => {
-      box.appendChild(
-        el("label", { class: "field" }, el("span", {}, label),
-          el("input", { class: "input", type: "text", value: draft[key] || "",
-            placeholder: placeholder || "",
-            on: { input: (event) => { draft[key] = event.target.value; } } }))
-      );
-      if (hint) box.appendChild(el("div", { class: "hint" }, hint));
-    };
-    const box = (id, title, ...children) => {
-      const node = el("div", { class: "cfg-box" }, el("h3", {}, title));
-      add(node, children);
-      return this._tagBlock(id, this._notifySection(id, node));
-    };
-
-    // Left column: the two channels, one box each, with a test button per chat.
-    const telegramBox = box("telegram", "Telegram");
-    field(telegramBox, "ID configurazione bot", "telegram_config_entry_id", "01J...",
-      "ID della configurazione del bot Telegram da usare per i messaggi.");
-    field(telegramBox, "Chat Telegram del report", "report_telegram_chats", "123456789, 987654321",
-      "Separate da virgola. Ricevono il report completo di ogni mese.");
-    add(telegramBox, this._testRows("telegram", draft.report_telegram_chats));
-    left.appendChild(telegramBox);
-
-    const whatsappBox = box("whatsapp", "WhatsApp");
-    field(whatsappBox, "Chat WhatsApp del report", "report_whatsapp_chat", "120363@g.us",
-      "Lascia vuoto se il report completo non deve andare su WhatsApp.");
-    add(whatsappBox, this._testRows("whatsapp", draft.report_whatsapp_chat));
-    whatsappBox.appendChild(
-      el("label", { class: "field" }, el("span", {}, "Prova su un numero"),
-        phoneInput(draft.report_whatsapp_test || "",
-          (value) => { draft.report_whatsapp_test = value; }))
-    );
-    whatsappBox.appendChild(
-      el("div", { class: "row tight" },
-        el("button", {
-          class: "btn small",
-          disabled: this._busy,
-          on: {
-            click: () => {
-              const raw = String(draft.report_whatsapp_test || "").trim();
-              if (!raw) {
-                this._message = { kind: "error", text: "Inserisci un numero o una chat WhatsApp da provare." };
-                this._render();
-                return;
-              }
-              const id = raw.includes("@") ? raw : this._whatsappIdOf({ phone: raw, whatsapp_chat_id: "" });
-              this._testChannel("whatsapp", id);
-            },
-          },
-        }, el("ha-icon", { icon: "mdi:whatsapp" }), "Prova WhatsApp"))
-    );
-    left.appendChild(whatsappBox);
-
-    // Which connection carries WhatsApp: the one built into Spa Booking
-    // (beta), or the WAHA add-on.
-    left.appendChild(this._whatsappEngineBox(box, settings));
-
-    // The WAHA gateway: where the add-on is, its key, the session, and the two
-    // buttons that prove it. Everything here is local to this installation:
-    // with an URL set, every WhatsApp send goes straight to the add-on, and the
-    // webhook below brings the operators' answers back with no other
-    // integration and no automation in the way.
-    const wahaBox = box("waha", "Gateway WhatsApp (WAHA)");
-    field(wahaBox, "Indirizzo WAHA", "waha_url", "http://homeassistant:3000",
-      "Indirizzo dell'add-on WAHA. Vuoto = si usa il rest_command del pacchetto, come prima.");
-    wahaBox.appendChild(
-      el("label", { class: "field" }, el("span", {}, "Chiave API"),
-        el("input", { class: "input", type: "password",
-          value: draft.waha_api_key || "",
-          placeholder: "chiave dell'add-on",
-          autocomplete: "new-password",
-          on: { input: (event) => { draft.waha_api_key = event.target.value; } } }))
-    );
-    wahaBox.appendChild(el("div", { class: "hint" },
-      "La stessa chiave configurata nell'add-on WAHA. È nascosta e non viene mai mostrata."));
-    field(wahaBox, "Sessione", "waha_session", "default",
-      "Nome della sessione WAHA che porta il numero dell'hotel.");
-    field(wahaBox, "Indirizzo Home Assistant (solo se WAHA è su un altro host)", "waha_ha_url",
-      "http://homeassistant:8123",
-      "Come l'add-on raggiunge Home Assistant, usato per il webhook delle risposte. Vuoto = rete Supervisor.");
-    wahaBox.appendChild(
-      el("div", { class: "row tight" },
-        el("button", {
-          class: "btn small",
-          disabled: this._busy,
-          on: { click: () => this._checkWaha() },
-        }, el("ha-icon", { icon: "mdi:lan-check" }), "Verifica connessione"),
-        el("button", {
-          class: "btn small primary",
-          disabled: this._busy,
-          on: { click: () => this._enableWaha() },
-        }, el("ha-icon", { icon: "mdi:webhook" }), "Attiva ricezione risposte"))
-    );
-    if (this._wahaStatus) {
-      wahaBox.appendChild(
-        el("div", { class: "hint" }, this._wahaStatus)
-      );
+    if (!draft.notify_test_phone) {
+      draft.notify_test_phone = settings.summary_test_phone || settings.deposit_test_phone
+        || settings.review_request_test_phone || settings.report_whatsapp_test || "";
     }
-    wahaBox.appendChild(el("div", { class: "hint" },
-      "«Verifica connessione» chiede all'add-on la sua versione, senza inviare messaggi. " +
-      "«Attiva ricezione» iscrive la sessione al webhook di Spa Booking: da quel momento le " +
-      "risposte delle massaggiatrici (testo o reazione) arrivano qui, senza altre integrazioni."));
-    wahaBox.appendChild(
-      el("div", { class: "row tight" },
+    const tab = this._notifyTab || "ospiti";
+    const wrap = el("div", { class: "stack nt" });
+    wrap.appendChild(this._sectionHead("mdi:bell-outline", "Notifiche",
+      "Messaggi agli ospiti, avvisi alle operatrici, report e collegamenti."));
+    const tabs = [
+      ["ospiti", "mdi:message-text-outline", "Messaggi agli ospiti"],
+      ["operatrici", "mdi:hand-heart", "Operatrici"],
+      ["report", "mdi:chart-box-outline", "Report"],
+      ["collegamenti", "mdi:connection", "Collegamenti"],
+    ];
+    wrap.appendChild(el("div", { class: "nt-tabs", role: "tablist" },
+      tabs.map(([id, icon, label]) => el("button", {
+        class: `nt-tab${tab === id ? " on" : ""}`, role: "tab", "aria-selected": tab === id ? "true" : "false",
+        on: { click: () => { this._notifyTab = id; this._render(); } },
+      }, el("ha-icon", { icon }), el("span", {}, label),
+        id === "ospiti" ? el("span", { class: "nt-count" }, String(NOTIFY_MESSAGES.length)) : null))));
+
+    if (tab === "ospiti") wrap.appendChild(this._notifyGuestMessages(draft));
+    if (tab === "operatrici") wrap.appendChild(this._notifyOperators(draft));
+    if (tab === "report") wrap.appendChild(this._notifyReport(draft));
+    if (tab === "collegamenti") wrap.appendChild(this._notifyConnections(draft, settings));
+
+    const bar = el("div", { class: "nt-save" },
+      el("span", { class: "nt-save-dot" }),
+      el("strong", {}, "Modifiche non salvate"),
+      el("span", { class: "spacer" }),
+      el("button", { class: "btn", on: { click: () => { this._notifyDraft = null; this._render(); } } }, "Annulla"),
+      el("button", { class: "btn primary", disabled: this._busy, on: { click: () => this._saveNotify() } },
+        el("ha-icon", { icon: "mdi:content-save" }), "Salva"));
+    this._notifySaveBar = bar;
+    this._notifySyncSave();
+    wrap.appendChild(bar);
+    return wrap;
+  }
+
+  /** Whether the draft differs from what is saved. */
+  _notifyDirty() {
+    const draft = this._notifyDraft;
+    const settings = (this._data && this._data.settings) || {};
+    if (!draft) return false;
+    return NOTIFY_SAVE_KEYS.some((key) => {
+      const a = draft[key] === undefined ? "" : draft[key];
+      const b = settings[key] === undefined ? "" : settings[key];
+      return String(a) !== String(b);
+    }) || String(draft.notify_test_phone || "") !== String(settings.summary_test_phone || draft.notify_test_phone || "");
+  }
+
+  /** Show or hide the Save bar without redrawing (typing keeps the focus). */
+  _notifySyncSave() {
+    if (this._notifySaveBar) this._notifySaveBar.classList.toggle("show", this._notifyDirty());
+  }
+
+  async _saveNotify() {
+    const draft = this._notifyDraft || {};
+    const payload = {};
+    NOTIFY_SAVE_KEYS.forEach((key) => {
+      if (draft[key] === undefined) return;
+      payload[key] = draft[key];
+    });
+    ["deposit_test_phone", "summary_test_phone", "review_request_test_phone", "report_whatsapp_test"]
+      .forEach((key) => { payload[key] = draft.notify_test_phone || ""; });
+    payload.offer_timeout_hours = Number(payload.offer_timeout_hours) || 24;
+    payload.offer_reminder_hours = Number(payload.offer_reminder_hours) || 0;
+    payload.appointment_reminder_hours = Number(payload.appointment_reminder_hours) || 24;
+    payload.review_request_after_hours = Number(payload.review_request_after_hours) || 6;
+    try {
+      await this._call("update_settings", payload);
+      this._notifyDraft = null;
+      this._message = { kind: "ok", text: "Notifiche salvate." };
+      this._render();
+    } catch (error) { /* shown */ }
+  }
+
+  /** The shared test number, then a send of `text` to it. */
+  _notifyTest(text) {
+    const raw = String((this._notifyDraft || {}).notify_test_phone || "").trim();
+    if (!raw) {
+      this._message = { kind: "error", text: "Scrivi il numero di prova accanto a «Prova su WhatsApp»." };
+      this._render();
+      return;
+    }
+    const id = raw.includes("@") ? raw : this._whatsappIdOf({ phone: raw, whatsapp_chat_id: "" });
+    this._testChannel("whatsapp", id, text);
+  }
+
+  /** The text of a message with example data, as the guest would read it. */
+  _notifySample(message, draft) {
+    let text = String(draft[message.key] || "");
+    if (message.id === "propose") {
+      text = text
+        .replace(/\{data_richiesta\}/g, "sabato 14 novembre").replace(/\{data_proposta\}/g, "domenica 15 novembre")
+        .replace(/\{orario_proposto\}/g, " alle 10:30")
+        .replace(/\n*\{alternativa\}\n*/g, `\n\n${[
+          String(draft.request_propose_alt_intro || "").trim(),
+          String(draft.request_propose_alt_line || "")
+            .replace(/\{trattamento_alternativo\}/g, "Spa privata").replace(/\{prezzo_alternativo\}/g, "€ 160")
+            .replace(/\{data_alternativa\}/g, "sabato 14 novembre").replace(/\{orario_alternativo\}/g, ""),
+        ].filter(Boolean).join("\n")}\n\n`);
+    }
+    return this._sampleMessage(text, {
+      intestatario: draft.deposit_intestatario || "IL MARCHESE SOC COOP ARL",
+      iban: draft.deposit_iban || "IT92Q0326882970052705511040",
+      hotel: draft.guest_header || "Il Marchese Hotel & Spa",
+      trattamenti: message.id === "propose"
+        ? "Massaggio Relax 90 min"
+        : "• 10:00–11:30 Massaggio Relax 90 min · Persona 1\n• 10:00–11:30 Massaggio Relax 90 min · Persona 2",
+    }).replace(/\n{3,}/g, "\n\n").trim();
+  }
+
+  _notifyGuestMessages(draft) {
+    const current = NOTIFY_MESSAGES.find((m) => m.id === this._notifyMsg) || NOTIFY_MESSAGES[3];
+    const grid = el("div", { class: `nt-grid${this._notifyMsgOpen ? " open" : ""}` });
+    const list = el("div", { class: "nt-list" });
+    let group = "";
+    NOTIFY_MESSAGES.forEach((message) => {
+      if (message.group !== group) {
+        group = message.group;
+        list.appendChild(el("div", { class: "nt-step" }, group));
+      }
+      const auto = message.auto(draft);
+      list.appendChild(el("button", {
+        class: `nt-item${message.id === current.id ? " on" : ""}`,
+        on: { click: () => { this._notifyMsg = message.id; this._notifyMsgOpen = true; this._render(); } },
+      },
+        el("span", { class: "nt-icon" }, el("ha-icon", { icon: message.icon })),
+        el("span", { class: "nt-item-text" },
+          el("span", { class: "nt-item-name" }, message.title),
+          el("span", { class: "nt-item-when" }, message.when(draft))),
+        el("span", { class: `nt-badge ${auto ? "auto" : "man"}` }, auto ? "Automatico" : "Manuale")));
+    });
+    grid.appendChild(list);
+    grid.appendChild(this._notifyEditor(current, draft));
+    return grid;
+  }
+
+  _notifyEditor(message, draft) {
+    const editor = el("div", { class: "nt-editor cfg-box" });
+    editor.appendChild(el("div", { class: "nt-ed-head" },
+      el("button", { class: "icon-btn nt-back", title: "Torna ai messaggi", "aria-label": "Torna ai messaggi",
+        on: { click: () => { this._notifyMsgOpen = false; this._render(); } } }, el("ha-icon", { icon: "mdi:arrow-left" })),
+      el("span", { class: "nt-icon big" }, el("ha-icon", { icon: message.icon })),
+      el("div", { class: "grow" },
+        el("div", { class: "nt-ed-title" }, message.title),
+        el("div", { class: "dim small" }, message.description))));
+
+    const changed = () => this._notifySyncSave();
+    const options = message.options ? message.options(draft, changed, () => this._render()) : null;
+    if (options) editor.appendChild(el("div", { class: "nt-options" }, options));
+
+    const bubble = el("div", { class: "nt-bubble" }, this._notifySample(message, draft));
+    const textarea = el("textarea", {
+      class: "input nt-text", rows: "16", spellcheck: "true",
+      placeholder: "Vuoto = testo base",
+      on: { input: (event) => {
+        draft[message.key] = event.target.value;
+        bubble.textContent = this._notifySample(message, draft);
+        changed();
+      } },
+    }, draft[message.key] || "");
+    const insert = (token) => {
+      const start = textarea.selectionStart ?? textarea.value.length;
+      const end = textarea.selectionEnd ?? start;
+      textarea.value = textarea.value.slice(0, start) + token + textarea.value.slice(end);
+      textarea.focus();
+      textarea.selectionStart = textarea.selectionEnd = start + token.length;
+      draft[message.key] = textarea.value;
+      bubble.textContent = this._notifySample(message, draft);
+      changed();
+    };
+    editor.appendChild(el("div", { class: "nt-two" },
+      el("div", { class: "nt-col" },
+        el("div", { class: "nt-label" }, "Testo"),
+        textarea,
+        el("div", { class: "nt-label" }, "Tocca per inserire"),
+        el("div", { class: "nt-chips" }, message.chips.map(([token, help]) => el("button", {
+          type: "button", class: "nt-chip", title: help,
+          on: { click: () => insert(token) },
+        }, token)))),
+      el("div", { class: "nt-col" },
+        el("div", { class: "nt-label" }, "Anteprima con dati di esempio"),
+        el("div", { class: "nt-phone" }, bubble,
+          el("div", { class: "nt-phone-time" }, "10:31 ✓✓")))));
+    if (message.after) editor.appendChild(message.after(draft, changed));
+
+    editor.appendChild(el("div", { class: "nt-foot" },
+      el("button", {
+        class: "btn small", title: "Rimette il testo che Spa Booking propone",
+        disabled: this._busy,
+        on: { click: async () => {
+          if (!window.confirm(`Rimettere il testo base di «${message.title}»? Il tuo testo andrà perso.`)) return;
+          try {
+            await this._call("update_settings", { [message.key]: "" });
+            draft[message.key] = (this._data.settings || {})[message.key] || "";
+            this._render();
+          } catch (error) { /* shown */ }
+        } },
+      }, el("ha-icon", { icon: "mdi:restore" }), "Ripristina testo base"),
+      el("span", { class: "spacer" }),
+      el("div", { class: "nt-test", title: "Lo stesso numero vale per tutti i messaggi" },
+        el("div", { class: "nt-test-phone" },
+          phoneInput(draft.notify_test_phone || "", (value) => { draft.notify_test_phone = value; changed(); })),
         el("button", {
-          class: "btn primary small",
-          disabled: this._busy,
-          on: {
-            click: async () => {
+          class: "btn small wa", disabled: this._busy,
+          on: { click: () => this._notifyTest(this._notifySample(message, draft)) },
+        }, el("ha-icon", { icon: "mdi:whatsapp" }), "Prova su WhatsApp"))));
+    return editor;
+  }
+
+  _notifyOperators(draft) {
+    const changed = () => this._notifySyncSave();
+    const number = (key, fallback, min) => el("input", {
+      class: "input", type: "number", min: String(min), step: "1",
+      value: draft[key] != null ? draft[key] : fallback,
+      on: { input: (event) => { draft[key] = event.target.value; changed(); } },
+    });
+    return el("div", { class: "nt-panels" },
+      el("div", { class: "cfg-box nt-panel" },
+        el("div", { class: "nt-panel-head" },
+          el("span", { class: "nt-icon" }, el("ha-icon", { icon: "mdi:hand-heart" })),
+          el("div", {},
+            el("div", { class: "nt-ed-title" }, "Offerte alle massaggiatrici"),
+            el("div", { class: "dim small" }, "Come vengono proposti i massaggi a chi li fa."))),
+        el("div", { class: "nt-flow" },
+          el("div", { class: "nt-flow-step" }, el("b", {}, "1"), "La proposta va alla massaggiatrice libera con la priorità più bassa (Configurazione › Operatori)."),
+          el("div", { class: "nt-flow-step" }, el("b", {}, "2"), "Se rifiuta, passa subito alla successiva; per quella fascia non viene più ricontattata."),
+          el("div", { class: "nt-flow-step" }, el("b", {}, "3"), "Se non risponde, riceve un promemoria; alla scadenza la proposta passa alla successiva."),
+          el("div", { class: "nt-flow-step" }, el("b", {}, "4"), "Se nessuna accetta, la reception riceve un WhatsApp (numeri «WhatsApp avvisi dal sito» in Impostazioni) e una notifica in Home Assistant.")),
+        el("div", { class: "row" },
+          el("label", { class: "field" }, el("span", {}, "Tempo per rispondere (ore)"), number("offer_timeout_hours", 24, 1)),
+          el("label", { class: "field" }, el("span", {}, "Promemoria prima della scadenza (ore)"), number("offer_reminder_hours", 2, 0))),
+        el("div", { class: "hint" }, "Promemoria 0 = nessun promemoria.")));
+  }
+
+  _notifyReport(draft) {
+    const changed = () => this._notifySyncSave();
+    const text = (label, key, placeholder, hint) => el("label", { class: "field" },
+      el("span", {}, label),
+      el("input", { class: "input", type: "text", value: draft[key] || "", placeholder,
+        on: { input: (event) => { draft[key] = event.target.value; changed(); } } }),
+      hint ? el("span", { class: "dim small" }, hint) : null);
+    return el("div", { class: "nt-panels two" },
+      el("div", { class: "cfg-box nt-panel" },
+        el("div", { class: "nt-panel-head" },
+          el("span", { class: "nt-icon" }, el("ha-icon", { icon: "mdi:send-clock-outline" })),
+          el("div", {},
+            el("div", { class: "nt-ed-title" }, "Report mensile"),
+            el("div", { class: "dim small" }, "Parte il 1° di ogni mese alle 08:00 con i dati del mese prima."))),
+        text("Chat Telegram", "report_telegram_chats", "123456789, 987654321", "Separate da virgola."),
+        text("Chat WhatsApp", "report_whatsapp_chat", "120363@g.us", "Vuoto = il report non va su WhatsApp."),
+        el("label", { class: "check" },
+          el("input", { type: "checkbox", checked: draft.report_per_operator !== false,
+            on: { change: (event) => { draft.report_per_operator = event.target.checked; changed(); } } }),
+          el("span", {}, "Invia a ogni massaggiatrice anche il suo riepilogo personale")),
+        add(el("div", { class: "stack tight" }), this._testRows("telegram", draft.report_telegram_chats)),
+        add(el("div", { class: "stack tight" }), this._testRows("whatsapp", draft.report_whatsapp_chat)),
+        el("div", { class: "row tight" },
+          el("button", {
+            class: "btn small", disabled: this._busy,
+            on: { click: async () => {
+              if (!window.confirm("Inviare subito il report del mese scorso?")) return;
+              try {
+                const result = await this._call("get_monthly_report", { notify: true });
+                const sent = (result && result.sent) || 0;
+                const failed = (result && result.failed) || 0;
+                this._message = { kind: failed ? "error" : "ok", text: `Report inviato: ${sent} canali ok, ${failed} falliti.` };
+                this._render();
+              } catch (error) { /* shown */ }
+            } },
+          }, el("ha-icon", { icon: "mdi:send" }), "Invia ora il report del mese scorso"))),
+      el("div", { class: "cfg-box nt-panel" },
+        el("div", { class: "nt-panel-head" },
+          el("span", { class: "nt-icon" }, el("ha-icon", { icon: "mdi:file-chart-outline" })),
+          el("div", {},
+            el("div", { class: "nt-ed-title" }, "Anteprima report"),
+            el("div", { class: "dim small" }, "Da stampare o salvare in PDF."))),
+        this._reportControls()));
+  }
+
+  _notifyConnections(draft, settings) {
+    const changed = () => this._notifySyncSave();
+    const panels = el("div", { class: "nt-panels two" });
+    const box = (id, title, ...children) => {
+      const node = el("div", { class: "cfg-box nt-panel" }, el("h3", {}, title));
+      add(node, children);
+      return node;
+    };
+    panels.appendChild(this._whatsappEngineBox(box, settings));
+    if ((settings.whatsapp_engine || "waha") !== "integrated") {
+      const field = (label, key, placeholder, type = "text") => el("label", { class: "field" },
+        el("span", {}, label),
+        el("input", { class: "input", type, value: draft[key] || "", placeholder,
+          autocomplete: type === "password" ? "new-password" : "off",
+          on: { input: (event) => { draft[key] = event.target.value; } } }));
+      panels.appendChild(box("waha", "Gateway WhatsApp (WAHA)",
+        field("Indirizzo WAHA", "waha_url", "http://homeassistant:3000"),
+        field("Chiave API", "waha_api_key", "chiave dell'add-on", "password"),
+        field("Sessione", "waha_session", "default"),
+        field("Indirizzo Home Assistant (solo se WAHA è su un altro host)", "waha_ha_url", "http://homeassistant:8123"),
+        el("div", { class: "row tight" },
+          el("button", { class: "btn small", disabled: this._busy, on: { click: () => this._checkWaha() } },
+            el("ha-icon", { icon: "mdi:lan-check" }), "Verifica connessione"),
+          el("button", { class: "btn small", disabled: this._busy, on: { click: () => this._enableWaha() } },
+            el("ha-icon", { icon: "mdi:webhook" }), "Attiva ricezione risposte"),
+          el("button", {
+            class: "btn small primary", disabled: this._busy,
+            on: { click: async () => {
               try {
                 await this._call("update_settings", {
                   waha_url: (draft.waha_url || "").trim(),
@@ -13292,450 +13584,17 @@ _renderClients() {
                 this._wahaStatus = "Impostazioni gateway salvate.";
                 this._render();
               } catch (error) { /* shown */ }
-            },
-          },
-        }, el("ha-icon", { icon: "mdi:content-save" }), "Salva gateway"))
-    );
-    if ((settings.whatsapp_engine || "waha") !== "integrated") left.appendChild(wahaBox);
-
-    // Right column: how the report goes out, the offer timings, deposit request
-    // and guest headline.
-    const reportBox = box("report", "Invio report");
-    reportBox.appendChild(
-      el("label", { class: "check" },
-        el("input", { type: "checkbox", checked: draft.report_per_operator !== false,
-          on: { change: (event) => { draft.report_per_operator = event.target.checked; } } }),
-        el("span", {}, "Invia a ogni massaggiatrice anche il suo riepilogo personale"))
-    );
-    reportBox.appendChild(
-      el("div", { class: "row" },
-        el("button", {
-          class: "btn primary",
-          disabled: this._busy,
-          on: {
-            click: async () => {
-              try {
-                await this._call("update_settings", {
-                  report_telegram_chats: draft.report_telegram_chats || "",
-                  report_whatsapp_chat: draft.report_whatsapp_chat || "",
-                  telegram_config_entry_id: draft.telegram_config_entry_id || "",
-                  report_per_operator: draft.report_per_operator !== false,
-                  offer_timeout_hours: Number(draft.offer_timeout_hours) || 24,
-                  offer_reminder_hours: Number(draft.offer_reminder_hours) || 2,
-                });
-              } catch (error) { /* shown */ }
-            },
-          },
-        }, "Salva destinatari"),
-        el("button", {
-          class: "btn",
-          disabled: this._busy,
-          on: {
-            click: async () => {
-              if (!window.confirm("Inviare subito il report del mese scorso?")) return;
-              try {
-                const result = await this._call("get_monthly_report", { notify: true });
-                const sent = (result && result.sent) || 0;
-                const failed = (result && result.failed) || 0;
-                this._message = {
-                  kind: failed ? "error" : "ok",
-                  text: "Report inviato: " + sent + " canali ok, " + failed + " falliti.",
-                };
-                this._render();
-              } catch (error) { /* shown */ }
-            },
-          },
-        }, el("ha-icon", { icon: "mdi:send" }), "Invia ora"))
-    );
-    reportBox.appendChild(el("div", { class: "hint" },
-      "L'automazione «SPA: report mensile massaggi» invia il report del mese precedente il 1° di ogni mese alle 08:00."));
-    right.appendChild(reportBox);
-
-    const offerBox = box("offers", "Offerte alle massaggiatrici");
-    offerBox.appendChild(
-      el("div", { class: "row" },
-        el("label", { class: "field" },
-          el("span", {}, "Scadenza offerta (ore)"),
-          el("input", {
-            class: "input",
-            type: "number",
-            min: "1",
-            step: "1",
-            value: draft.offer_timeout_hours != null ? draft.offer_timeout_hours : 24,
-            on: { input: (event) => { draft.offer_timeout_hours = Number(event.target.value) || 24; } },
-          })),
-        el("label", { class: "field" },
-          el("span", {}, "Promemoria (ore)"),
-          el("input", {
-            class: "input",
-            type: "number",
-            min: "0",
-            step: "1",
-            value: draft.offer_reminder_hours != null ? draft.offer_reminder_hours : 2,
-            on: { input: (event) => { draft.offer_reminder_hours = Number(event.target.value) || 0; } },
-          })))
-    );
-    offerBox.appendChild(el("div", { class: "hint" },
-      "Alla scadenza l'offerta passa automaticamente alla successiva massaggiatrice abile. " +
-      "Chi rifiuta non viene ricontattata per la stessa fascia oraria finche' non si segnala di nuovo disponibile."));
-    right.appendChild(offerBox);
-
-    // Deposit request: bank details and the message the guest receives.
-    const depositBox = box("deposit", "Richiesta acconto");
-    depositBox.appendChild(
-      el("label", { class: "field" },
-        el("span", {}, "Intestatario bonifico"),
-        el("input", { class: "input", type: "text",
-          value: draft.deposit_intestatario || "",
-          placeholder: "IL MARCHESE SOC COOP ARL",
-          on: { input: (event) => { draft.deposit_intestatario = event.target.value; } } }))
-    );
-    depositBox.appendChild(
-      el("label", { class: "field" },
-        el("span", {}, "IBAN"),
-        el("input", { class: "input", type: "text",
-          value: draft.deposit_iban || "",
-          placeholder: "IT92Q0326882970052705511040",
-          on: { input: (event) => { draft.deposit_iban = event.target.value; } } }))
-    );
-    depositBox.appendChild(el("div", { class: "hint" },
-      "Compare nella richiesta inviata all'ospite."));
-    depositBox.appendChild(
-      el("label", { class: "field" },
-        el("span", {}, "Messaggio all'ospite"),
-        el("textarea", { class: "input", rows: "12",
-          on: { input: (event) => { draft.deposit_message = event.target.value; } },
-        }, draft.deposit_message || ""))
-    );
-    depositBox.appendChild(el("div", { class: "hint" },
-      "Inviato dal pulsante nell'appuntamento, o chiedendolo quando la richiesta " +
-      "viene salvata. Segnaposti: {nome} nome, " +
-      "{importo} acconto, {intestatario} e {iban} dati sopra, {codice} codice prenotazione."));
-    depositBox.appendChild(
-      el("label", { class: "field" },
-        el("span", {}, "Numero di prova"),
-        phoneInput(draft.deposit_test_phone || "", (value) => { draft.deposit_test_phone = value; }))
-    );
-    depositBox.appendChild(
-      el("div", { class: "row tight" },
-        el("button", {
-          class: "btn small",
-          disabled: this._busy,
-          on: {
-            click: () => {
-              const raw = String(draft.deposit_test_phone || "").trim();
-              if (!raw) {
-                this._message = { kind: "error", text: "Inserisci un numero di prova." };
-                this._render();
-                return;
-              }
-              const id = raw.includes("@") ? raw : this._whatsappIdOf({ phone: raw, whatsapp_chat_id: "" });
-              this._testChannel("whatsapp", id, this._sampleMessage(draft.deposit_message, {
-                intestatario: draft.deposit_intestatario || "IL MARCHESE SOC COOP ARL",
-                iban: draft.deposit_iban || "IT92Q0326882970052705511040",
-              }));
-            },
-          },
-        }, el("ha-icon", { icon: "mdi:whatsapp" }), "Prova su WhatsApp"))
-    );
-    right.appendChild(depositBox);
-
-    // Guest-facing summary headline.
-    const guestBox = box("guest_header", "Intestazione riepilogo");
-    guestBox.appendChild(
-      el("label", { class: "field" },
-        el("span", {}, "Nome hotel / intestazione"),
-        el("input", { class: "input", type: "text",
-          value: draft.guest_header || "",
-          placeholder: "Il Marchese Hotel & Spa",
-          on: { input: (event) => { draft.guest_header = event.target.value; } } }))
-    );
-    guestBox.appendChild(el("div", { class: "hint" },
-      "Compare come titolo nel riepilogo inviato all'ospite (dopo RIEPILOGO APPUNTAMENTO)."));
-    right.appendChild(guestBox);
-
-    // Riepilogo appuntamento: il testo che l'ospite riceve alla conferma.
-    const summaryBox = box("summary", "Riepilogo appuntamento");
-    summaryBox.appendChild(
-      el("label", { class: "field" },
-        el("span", {}, "Testo del riepilogo"),
-        el("textarea", { class: "input", rows: "16",
-          on: { input: (event) => { draft.summary_message = event.target.value; } },
-        }, draft.summary_message || ""))
-    );
-    summaryBox.appendChild(el("div", { class: "hint" },
-      "Inviato via WhatsApp all'ospite quando l'appuntamento viene confermato. " +
-      "Segnaposti: {nome}, {cognome}, {cliente} nome e cognome, {hotel} intestazione qui sopra, " +
-      "{codice} codice prenotazione, {appuntamenti} un appuntamento per riga (con «Persona N» se sono più persone), " +
-      "{data} giorno, {ora} primo inizio, {fine} ultima fine, {trattamento}, {durata} minuti, " +
-      "{totale} prezzo, {acconto} acconto richiesto, {versato} incassato, {residuo} da saldare, " +
-      "{pagamenti} elenco dei versamenti registrati. Per più persone parte un solo messaggio con tutti gli appuntamenti."));
-    summaryBox.appendChild(
-      el("label", { class: "field" },
-        el("span", {}, "Numero di prova"),
-        phoneInput(draft.summary_test_phone || "", (value) => { draft.summary_test_phone = value; }))
-    );
-    summaryBox.appendChild(
-      el("div", { class: "row tight" },
-        el("button", {
-          class: "btn small",
-          disabled: this._busy,
-          on: {
-            click: () => {
-              const raw = String(draft.summary_test_phone || "").trim();
-              if (!raw) {
-                this._message = { kind: "error", text: "Inserisci un numero di prova." };
-                this._render();
-                return;
-              }
-              const id = raw.includes("@") ? raw : this._whatsappIdOf({ phone: raw, whatsapp_chat_id: "" });
-              this._testChannel("whatsapp", id, this._sampleMessage(draft.summary_message));
-            },
-          },
-        }, el("ha-icon", { icon: "mdi:whatsapp" }), "Prova su WhatsApp"))
-    );
-    right.appendChild(summaryBox);
-
-    // Messaggio richiesta: il testo inviato al richiedente quando salva la richiesta.
-    const reqMsgBox = box("request_message", "Messaggio richiesta");
-    reqMsgBox.appendChild(
-      el("label", { class: "field" },
-        el("span", {}, "Testo messaggio"),
-        el("textarea", { class: "input", rows: "14",
-          on: { input: (event) => { draft.request_message = event.target.value; } },
-        }, draft.request_message || ""))
-    );
-    reqMsgBox.appendChild(el("div", { class: "hint" },
-      "Inviato automaticamente via WhatsApp al richiedente (se ha il telefono) " +
-      "quando la richiesta viene salvata. Segnaposti: {nome} nome, {cognome} cognome, " +
-      "{data} data, {ora} orario del primo trattamento, {persone} numero persone, " +
-      "{trattamenti} un trattamento per riga con orario (e «Persona N» per più persone), {codice} codice richiesta."));
-    right.appendChild(reqMsgBox);
-
-    // Proposta di un'altra data: Lista richieste › Proponi data.
-    const proposeBox = box("request_propose", "Proposta di un'altra data");
-    proposeBox.appendChild(
-      el("label", { class: "field" },
-        el("span", {}, "Testo messaggio"),
-        el("textarea", { class: "input", rows: "10",
-          on: { input: (event) => { draft.request_propose_message = event.target.value; } },
-        }, draft.request_propose_message || ""))
-    );
-    proposeBox.appendChild(el("div", { class: "stack", style: "gap:8px" },
-      el("label", { class: "field" },
-        el("span", {}, "Introduzione alle alternative"),
-        el("input", { class: "input", value: draft.request_propose_alt_intro || "",
-          on: { input: (event) => { draft.request_propose_alt_intro = event.target.value; } } })),
-      el("label", { class: "field" },
-        el("span", {}, "Riga di ogni trattamento alternativo"),
-        el("input", { class: "input", value: draft.request_propose_alt_line || "",
-          on: { input: (event) => { draft.request_propose_alt_line = event.target.value; } } }))));
-    proposeBox.appendChild(el("div", { class: "hint" },
-      "Inviato su WhatsApp dal pulsante «Proponi data» della Lista richieste, quando la data chiesta è piena. " +
-      "Prima di inviarlo la reception lo vede e lo può cambiare. Segnaposti: {nome} nome, {cognome} cognome, " +
-      "{codice} codice richiesta, {data_richiesta} data chiesta, {trattamenti} trattamenti chiesti, " +
-      "{data_proposta} prima data disponibile, {orario_proposto} « alle 10:30» (vuoto se l'orario non è indicato), " +
-      "{alternativa} i trattamenti alternativi scelti nel popup (l'introduzione e una riga per trattamento; " +
-      "sparisce se non ne scegli). Nella riga: {trattamento_alternativo}, {prezzo_alternativo} «€ 160», " +
-      "{data_alternativa} giorno, {orario_alternativo} « alle 10:00» o vuoto."));
-    proposeBox.appendChild(el("button", {
-      class: "btn small",
-      on: { click: () => {
-        const raw = String(draft.deposit_test_phone || draft.summary_test_phone || "").trim();
-        if (!raw) {
-          this._message = { kind: "error", text: "Scrivi un numero di prova (Acconto o Riepilogo) per provare il messaggio." };
-          this._render();
-          return;
-        }
-        const sample = String(draft.request_propose_message || "")
-          .replace(/\{nome\}/g, "Elena").replace(/\{cognome\}/g, "Conti").replace(/\{codice\}/g, "R-4821")
-          .replace(/\{data_richiesta\}/g, "sabato 14 novembre").replace(/\{trattamenti\}/g, "Massaggio relax e Ingresso Spa")
-          .replace(/\{data_proposta\}/g, "domenica 15 novembre").replace(/\{orario_proposto\}/g, " alle 10:30")
-          .replace(/\n*\{alternativa\}\n*/g, `\n\n${[
-            String(draft.request_propose_alt_intro || "").trim(),
-            String(draft.request_propose_alt_line || "")
-              .replace(/\{trattamento_alternativo\}/g, "Spa privata").replace(/\{prezzo_alternativo\}/g, "€ 160")
-              .replace(/\{data_alternativa\}/g, "sabato 14 novembre").replace(/\{orario_alternativo\}/g, ""),
-          ].filter(Boolean).join("\n")}\n\n`);
-        const id = raw.includes("@") ? raw : this._whatsappIdOf({ phone: raw, whatsapp_chat_id: "" });
-        this._testChannel("whatsapp", id, sample);
-      } },
-    }, el("ha-icon", { icon: "mdi:whatsapp" }), "Prova su WhatsApp"));
-    right.appendChild(proposeBox);
-
-    // Appointment reminder: customizable message sent before the appointment.
-    const apptReminderBox = box("appointment_reminder", "Prememoria appuntamento");
-    apptReminderBox.appendChild(
-      el("label", { class: "field" },
-        el("span", {}, "Testo messaggio"),
-        el("textarea", { class: "input", rows: "12",
-          on: { input: (event) => { draft.appointment_reminder_message = event.target.value; } },
-        }, draft.appointment_reminder_message || ""))
-    );
-    apptReminderBox.appendChild(el("div", { class: "hint" },
-      "Inviato via WhatsApp al cliente prima dell'appuntamento. " +
-      "Un solo messaggio per ospite e giorno, anche per più persone o più trattamenti. " +
-      "Segnaposti: {nome} nome, {cognome} cognome, {data} giorno, " +
-      "{ora} primo orario, {trattamenti} un appuntamento per riga (su una riga con altro testo diventa un elenco con virgole), {codice} codice prenotazione."));
-    apptReminderBox.appendChild(
-      el("label", { class: "check" },
-        el("input", {
-          type: "checkbox",
-          checked: draft.appointment_reminder_auto !== false,
-          on: { change: (event) => {
-            draft.appointment_reminder_auto = event.target.checked;
-            this._render();
-          } },
-        }),
-        el("span", {}, "Invio automatico (ricorda l'appuntamento a tutti i clienti)"))
-    );
-    if (draft.appointment_reminder_auto !== false) {
-      apptReminderBox.appendChild(
-        el("label", { class: "field" },
-          el("span", {}, "Ore prima dell'appuntamento"),
-          el("input", {
-            class: "input", type: "number", min: "1", max: "168",
-            value: draft.appointment_reminder_hours || 24,
-            on: { input: (event) => { draft.appointment_reminder_hours = Number(event.target.value) || 24; } },
-          })));
-      apptReminderBox.appendChild(el("div", { class: "hint" },
-        "Il messaggio viene inviato automaticamente quando mancano le ore indicate all'appuntamento."));
-    } else {
-      apptReminderBox.appendChild(el("div", { class: "hint" },
-        "Invio manuale: usa il pulsante qui sotto per inviare la prememoria."));
+            } },
+          }, el("ha-icon", { icon: "mdi:content-save" }), "Salva gateway")),
+        this._wahaStatus ? el("div", { class: "hint" }, this._wahaStatus) : null));
     }
-    apptReminderBox.appendChild(
-      el("div", { class: "row tight" },
-        el("button", {
-          class: "btn small",
-          disabled: this._busy,
-          on: { click: async () => {
-            try {
-              this._busy = true; this._render();
-              await this._call("send_reminders", { appointment_id: null });
-              this._message = { kind: "ok", text: "Prememoria inviati." };
-            } catch (error) { /* shown */ }
-            this._busy = false; this._render();
-          } },
-        }, el("ha-icon", { icon: "mdi:send-outline" }), "Invia prememoria manualmente"))
-    );
-    right.appendChild(apptReminderBox);
-
-    // Review request: the text a guest receives, whether it goes out on its own
-    // and after how long, a test number, and the ready-made placeholders.
-    const reviewBox = box("review", "Richiesta recensione");
-    reviewBox.appendChild(
+    panels.appendChild(box("telegram", "Bot Telegram",
       el("label", { class: "field" },
-        el("span", {}, "Testo messaggio"),
-        el("textarea", { class: "input", rows: "12",
-          on: { input: (event) => { draft.review_request_message = event.target.value; } },
-        }, draft.review_request_message || ""))
-    );
-    reviewBox.appendChild(el("div", { class: "hint" },
-      "Inviato via WhatsApp al cliente dopo il trattamento, o dal pulsante nel " +
-      "popup dell'appuntamento. Usa {nome} per il nome del cliente."));
-    reviewBox.appendChild(
-      el("label", { class: "check" },
-        el("input", {
-          type: "checkbox",
-          checked: draft.review_request_auto !== false,
-          on: { change: (event) => {
-            draft.review_request_auto = event.target.checked;
-            this._render();
-          } },
-        }),
-        el("span", {}, "Invio automatico (chiede la recensione a tutti i clienti)"))
-    );
-    if (draft.review_request_auto !== false) {
-      reviewBox.appendChild(
-        el("label", { class: "field" },
-          el("span", {}, "Ore dopo il trattamento"),
-          el("input", {
-            class: "input", type: "number", min: "1", max: "168",
-            value: draft.review_request_after_hours || 6,
-            on: { input: (event) => { draft.review_request_after_hours = Number(event.target.value) || 6; } },
-          })));
-      reviewBox.appendChild(el("div", { class: "hint" },
-        "La richiesta parte da sola quando sono passate le ore indicate dalla fine del trattamento."));
-    } else {
-      reviewBox.appendChild(el("div", { class: "hint" },
-        "Invio manuale: usa il pulsante nel popup dell'appuntamento per chiedere la recensione."));
-    }
-    reviewBox.appendChild(
-      el("label", { class: "field" },
-        el("span", {}, "Numero di prova"),
-        phoneInput(draft.review_request_test_phone || "", (value) => { draft.review_request_test_phone = value; }))
-    );
-    reviewBox.appendChild(
-      el("div", { class: "row tight" },
-        el("button", {
-          class: "btn small",
-          disabled: this._busy,
-          on: {
-            click: () => {
-              const raw = String(draft.review_request_test_phone || "").trim();
-              if (!raw) {
-                this._message = { kind: "error", text: "Inserisci un numero di prova." };
-                this._render();
-                return;
-              }
-              const id = raw.includes("@") ? raw : this._whatsappIdOf({ phone: raw, whatsapp_chat_id: "" });
-              this._testChannel("whatsapp", id, this._sampleMessage(draft.review_request_message));
-            },
-          },
-        }, el("ha-icon", { icon: "mdi:whatsapp" }), "Prova su WhatsApp"))
-    );
-    right.appendChild(reviewBox);
-
-    // Anteprima report: a real, movable block like the others. It is added
-    // before the order is applied, so a saved position (either column) sticks.
-    left.appendChild(box("preview", "Anteprima report", this._reportControls()));
-
-    this._placeBlocks(left, right, "notifiche_order");
-    columns.appendChild(left);
-    columns.appendChild(right);
-    wrap.appendChild(columns);
-
-    // Save the deposit request and guest headline.
-    const saveBox = el("div", { class: "cfg-box" }, el("h3", {}, "Salva modifiche"));
-    saveBox.appendChild(
-      el("div", { class: "row tight" },
-        el("button", {
-          class: "btn primary small",
-          disabled: this._busy,
-          on: {
-            click: async () => {
-              try {
-                await this._call("update_settings", {
-                  deposit_intestatario: draft.deposit_intestatario || "",
-                  deposit_iban: draft.deposit_iban || "",
-                  deposit_message: draft.deposit_message || "",
-                  deposit_test_phone: draft.deposit_test_phone || "",
-                  guest_header: draft.guest_header || "",
-                  summary_message: draft.summary_message || "",
-                  summary_test_phone: draft.summary_test_phone || "",
-                  request_message: draft.request_message || "",
-                  request_propose_message: draft.request_propose_message || "",
-                  request_propose_alt_intro: draft.request_propose_alt_intro || "",
-                  request_propose_alt_line: draft.request_propose_alt_line || "",
-                  appointment_reminder_message: draft.appointment_reminder_message || "",
-                  appointment_reminder_auto: draft.appointment_reminder_auto !== false,
-                  appointment_reminder_hours: draft.appointment_reminder_hours || 24,
-                  review_request_message: draft.review_request_message || "",
-                  review_request_auto: draft.review_request_auto !== false,
-                  review_request_after_hours: draft.review_request_after_hours || 6,
-                  review_request_test_phone: draft.review_request_test_phone || "",
-                });
-                this._message = { kind: "ok", text: "Impostazioni notifiche salvate." };
-                this._render();
-              } catch (error) { /* shown */ }
-            },
-          },
-        }, el("ha-icon", { icon: "mdi:content-save" }), "Salva notifiche"))
-    );
-    wrap.appendChild(saveBox);
-
-    return wrap;
+        el("span", {}, "ID configurazione bot"),
+        el("input", { class: "input", type: "text", value: draft.telegram_config_entry_id || "", placeholder: "01J…",
+          on: { input: (event) => { draft.telegram_config_entry_id = event.target.value; changed(); } } })),
+      el("div", { class: "hint" }, "Il bot Telegram di Home Assistant da usare per i messaggi e il report.")));
+    return panels;
   }
 
   // --------------------------------------------------------------- PROMO
@@ -18439,6 +18298,88 @@ _renderClients() {
       .operators-column:only-child { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 10px; align-items: start; }
       .operators-column:only-child > .column-header { grid-column: 1 / -1; }
       .icon-btn.danger-icon { color: var(--sb-danger-fg, #c62828); }
+      /* 2.3.6: Notifiche */
+      .nt-tabs { display: flex; gap: 4px; padding: 4px; border-radius: 12px; background: var(--sb-soft, rgba(0,0,0,.05)); width: max-content; max-width: 100%; overflow-x: auto; }
+      .nt-tab { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 9px;
+        font-weight: 600; font-size: 13px; color: var(--secondary-text-color); white-space: nowrap; }
+      .nt-tab ha-icon { --mdc-icon-size: 18px; }
+      .nt-tab.on { background: var(--sb-card, #fff); color: var(--primary-color); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+      .nt-tab:focus-visible { outline: 2px solid var(--primary-color); }
+      .nt-count { background: var(--primary-color); color: #fff; border-radius: 999px; font-size: 11px; padding: 0 7px; }
+      .nt-grid { display: grid; grid-template-columns: minmax(260px, 320px) minmax(0, 1fr); gap: 16px; align-items: start; }
+      .nt-list { display: flex; flex-direction: column; gap: 8px; }
+      .nt-step { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--secondary-text-color); margin: 6px 4px 0; }
+      .nt-item { all: unset; box-sizing: border-box; cursor: pointer; display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+        border-radius: 12px; background: var(--sb-card, var(--card-background-color)); border: 1px solid var(--sb-line, var(--divider-color)); }
+      .nt-item.on { border-color: var(--primary-color); box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary-color) 20%, transparent); }
+      .nt-item:focus-visible { outline: 2px solid var(--primary-color); }
+      .nt-icon { flex: none; width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center;
+        background: color-mix(in srgb, var(--primary-color) 12%, transparent); color: var(--primary-color); }
+      .nt-icon ha-icon { --mdc-icon-size: 19px; }
+      .nt-icon.big { width: 44px; height: 44px; }
+      .nt-icon.big ha-icon { --mdc-icon-size: 24px; }
+      .nt-item-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+      .nt-item-name { font-weight: 600; font-size: 14px; color: var(--primary-text-color); }
+      .nt-item-when { font-size: 12px; color: var(--secondary-text-color); }
+      .nt-badge { font-size: 11px; font-weight: 700; border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
+      .nt-badge.auto { background: color-mix(in srgb, #2e7d32 13%, transparent); color: #2e7d32; }
+      .nt-badge.man { background: var(--sb-soft, rgba(0,0,0,.05)); color: var(--secondary-text-color); }
+      .nt-editor { display: flex; flex-direction: column; gap: 14px; }
+      .nt-ed-head { display: flex; align-items: center; gap: 12px; }
+      .nt-ed-title { font-size: 17px; font-weight: 700; }
+      .nt-back { display: none; }
+      .nt-options { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 16px; padding: 10px 12px; border-radius: 10px;
+        background: var(--sb-soft, rgba(0,0,0,.035)); }
+      .nt-options > .field { flex: 1 1 220px; margin: 0; }
+      .nt-auto { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; }
+      .nt-hours { display: inline-flex; align-items: center; gap: 8px; }
+      .nt-hours .input { width: 80px; }
+      .nt-two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 320px); gap: 14px; }
+      .nt-col { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+      .nt-label { font-size: 12px; font-weight: 600; color: var(--secondary-text-color); margin-top: 4px; }
+      .nt-text { min-height: 300px; font-size: 13.5px; line-height: 1.5; resize: vertical; }
+      .nt-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+      .nt-chip { all: unset; cursor: pointer; font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        padding: 3px 9px; border-radius: 999px; border: 1px dashed var(--secondary-text-color); color: var(--primary-text-color); }
+      .nt-chip:hover, .nt-chip:focus-visible { border-style: solid; border-color: var(--primary-color); color: var(--primary-color); }
+      .nt-phone { background: #e5ddd5; border-radius: 14px; padding: 12px; min-height: 300px; }
+      :host([data-spa-theme="dark"]) .nt-phone { background: #0b141a; }
+      .nt-bubble { background: #d9fdd3; color: #111b21; border-radius: 10px 10px 2px 10px; padding: 9px 10px; font-size: 13px;
+        line-height: 1.45; white-space: pre-wrap; word-break: break-word; box-shadow: 0 1px 1px rgba(0,0,0,.1); }
+      :host([data-spa-theme="dark"]) .nt-bubble { background: #005c4b; color: #e9edef; }
+      .nt-phone-time { font-size: 10px; color: #667781; text-align: right; margin-top: 4px; }
+      .nt-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-top: 12px; border-top: 1px solid var(--sb-line, var(--divider-color)); }
+      .nt-foot .spacer { flex: 1; }
+      .nt-test { display: flex; align-items: center; gap: 8px; flex: 1 1 420px; justify-content: flex-end; }
+      .nt-test-phone { flex: 1 1 270px; max-width: 320px; min-width: 260px; }
+      .nt { padding-bottom: 8px; }
+      .nt-test .btn { white-space: nowrap; flex: none; }
+      .nt-panels { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; max-width: 760px; }
+      .nt-panels.two { grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); max-width: none; align-items: start; }
+      .nt-panel { display: flex; flex-direction: column; gap: 12px; }
+      .nt-panel-head { display: flex; align-items: center; gap: 12px; }
+      .nt-flow { display: flex; flex-direction: column; gap: 8px; }
+      .nt-flow-step { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; line-height: 1.45; }
+      .nt-flow-step b { flex: none; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 12px;
+        background: var(--primary-color); color: #fff; }
+      .nt-save { display: none; position: sticky; bottom: 8px; z-index: 5; align-items: center; gap: 10px; padding: 10px 14px;
+        border-radius: 12px; background: var(--sb-card, var(--card-background-color)); border: 1px solid var(--sb-line, var(--divider-color));
+        box-shadow: 0 -4px 18px rgba(0,0,0,.08); }
+      .nt-save.show { display: flex; }
+      .nt-save .spacer { flex: 1; }
+      .nt-save-dot { width: 9px; height: 9px; border-radius: 50%; background: #f59e0b; }
+      @media (max-width: 900px) {
+        .nt-two { grid-template-columns: minmax(0, 1fr); }
+        .nt-phone { min-height: 0; }
+      }
+      @media (max-width: 760px) {
+        .nt-grid { grid-template-columns: minmax(0, 1fr); }
+        .nt-grid:not(.open) .nt-editor { display: none; }
+        .nt-grid.open .nt-list { display: none; }
+        .nt-back { display: inline-flex; }
+        .nt-test { flex-wrap: wrap; justify-content: flex-start; }
+        .nt-test-phone { max-width: none; min-width: 0; }
+      }
       .btn.danger-ghost { color: var(--sb-danger-fg, #c62828); border-color: color-mix(in srgb, var(--sb-danger-fg, #c62828) 35%, transparent); background: transparent; }
       .btn.danger-ghost ha-icon { color: inherit; }
       .btn.wa ha-icon { color: #fff; }

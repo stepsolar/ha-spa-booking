@@ -5,7 +5,7 @@ trattamenti con durata propria, operatrici, schede cliente, agenda del giorno
 per operatrice e per categoria, pagamenti, voucher, richieste dal sito web,
 promemoria e report automatici su WhatsApp e Telegram.
 
-Versione corrente: **2.3.5** — documentazione completa in
+Versione corrente: **2.3.6** — documentazione completa in
 [`custom_components/spa_booking/README.md`](custom_components/spa_booking/README.md).
 
 **[Guida alle schede con le anteprime](docs/GUIDA.md)**: ogni scheda della
@@ -132,6 +132,18 @@ hassfest e validazione HACS a ogni push e pull request. Lavora su un branch e
 apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
+
+- **v2.3.6** — Notifiche riorganizzate:
+  - Quattro sotto-schede: **Messaggi agli ospiti**, **Operatrici**, **Report**
+    e **Collegamenti**.
+  - I messaggi agli ospiti sono in ordine di percorso (richiesta, proposta di
+    un'altra data, acconto, conferma, promemoria, recensione), ognuno con
+    «Automatico» o «Manuale» e quando parte.
+  - Editor con anteprima in stile WhatsApp che si aggiorna mentre scrivi,
+    segnaposto da toccare per inserirli, «Ripristina testo base».
+  - Un solo numero di prova per tutti i messaggi.
+  - Un'unica barra «Salva», che compare solo quando ci sono modifiche.
+  - Su telefono elenco e messaggio sono due schermate.
 
 - **v2.3.5**:
   - **Correzioni voucher.** Dopo la firma con il PIN compariva per un attimo
