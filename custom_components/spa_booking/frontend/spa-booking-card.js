@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.3.2";
+const CARD_VERSION = "2.3.3";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -1388,6 +1388,7 @@ class SpaBookingCard extends HTMLElement {
       const treatment = this._lookup.treatment.get(next.treatment_id);
       if (
         next.operator_id &&
+        !String(next.operator_id).startsWith("@") &&
         treatment &&
         !this._operatorsForTreatment(treatment.id).some((op) => op.id === next.operator_id)
       ) {
@@ -1869,6 +1870,25 @@ class SpaBookingCard extends HTMLElement {
    *  A person can book several treatments the same day, each in its own slot:
    *  one row per treatment. Only the first row of a person opens her client
    *  card, every following row lands on that very same card. */
+  /**
+   * What the booking sends for the masseuse: the one the desk picked, or for
+   * «Automatica» every able one (the backend asks them in priority order),
+   * optionally only women ("@F") or only men ("@M"). Up to 2.3.2 Automatica
+   * sent nothing and a massage was refused with «Seleziona un operatore».
+   */
+  _operatorChoice(treat) {
+    const choice = String(treat.operator_id || "");
+    if (choice && !choice.startsWith("@")) return { operator_id: choice };
+    const treatment = this._lookup.treatment.get(treat.treatment_id);
+    if (!treatment || !this._treatmentRequiresOperator(treatment)) return {};
+    const pool = this._operatorsForTreatment(treatment.id)
+      .filter((operator) => operator.active !== false)
+      .map((operator) => operator.id);
+    if (!pool.length) return {};
+    const preference = choice === "@F" ? "F" : choice === "@M" ? "M" : "";
+    return { operator_ids: pool, ...(preference ? { therapist_preference: preference } : {}) };
+  }
+
   _bookingRows() {
     const clients =
       this._form.client_mode === "existing"
@@ -1905,7 +1925,7 @@ class SpaBookingCard extends HTMLElement {
               ...(treat.appointment_id ? { appointment_id: treat.appointment_id } : {}),
               ...(treat.list_price != null ? { list_price: treat.list_price } : {}),
               ...(treat.price != null ? { price: treat.price } : {}),
-              ...(treat.operator_id ? { operator_id: treat.operator_id } : {}),
+              ...this._operatorChoice(treat),
               ...(this._batchEditing ? {} : (this._paymentData() ? { payment: this._paymentData() } : {})),
               ...clients,
               // Which person of the party this row is: 0 is the one written on
@@ -3626,6 +3646,19 @@ class SpaBookingCard extends HTMLElement {
   }
 
   /** The hotel/external toggle shared by the new-booking and edit forms. */
+  /** «Preferisce»: a woman, a man or anybody for the massages (2.3.3). */
+  _preferenceField(target) {
+    const choices = [["", "Indifferente", "mdi:account-outline"], ["F", "Massaggiatrice", "mdi:face-woman-outline"], ["M", "Massaggiatore", "mdi:face-man-outline"]];
+    return el("div", { class: "field" },
+      el("span", {}, "Preferisce per i massaggi"),
+      el("div", { class: "role-choice" },
+        choices.map(([id, label, icon]) => el("button", {
+          type: "button",
+          class: `role-opt${(target.therapist_preference || "") === id ? " on" : ""}`,
+          on: { click: () => { target.therapist_preference = id; this._render(); } },
+        }, el("ha-icon", { icon }), label))));
+  }
+
   _guestField(target) {
     return el("div", { class: "field" },
       el("span", {}, "Ospite"),
@@ -3870,6 +3903,9 @@ class SpaBookingCard extends HTMLElement {
             guest.label)
         ),
         this._detailLine("Inserito da", this._authorText(appointment)),
+        appointment.therapist_preference
+          ? this._detailLine("Preferisce", appointment.therapist_preference === "F" ? "una massaggiatrice" : "un massaggiatore")
+          : null,
         appointment.confirmed_by
           ? this._detailLine("Confermato da", appointment.confirmed_by)
           : null,
@@ -6671,6 +6707,21 @@ class SpaBookingCard extends HTMLElement {
     if (!pool.length) {
       select.appendChild(el("option", { value: "" }, "Nessuna operatrice abile"));
     }
+    // 2.3.3: the guest would like a woman or a man. Offered when the able
+    // team has both; the first free one of that gender is asked.
+    const genders = new Set(pool.filter((operator) => operator.active !== false).map((operator) => operator.gender));
+    if (genders.has("F") && genders.has("M")) {
+      const auto = select.firstChild;
+      const female = el("option", { value: "@F", selected: state.operator_id === "@F" }, "— Automatica: massaggiatrice —");
+      const male = el("option", { value: "@M", selected: state.operator_id === "@M" }, "— Automatica: massaggiatore —");
+      if (auto && auto.nextSibling) {
+        select.insertBefore(male, auto.nextSibling);
+        select.insertBefore(female, male);
+      } else {
+        select.appendChild(female);
+        select.appendChild(male);
+      }
+    }
     return select;
   }
 
@@ -6905,6 +6956,7 @@ class SpaBookingCard extends HTMLElement {
       request_id: "",
       pending: false,
       guest_type: GUEST_DEFAULT,
+      therapist_preference: "",
       voucher_query: "",
       voucher_code: "",
       stagedPayments: [],
@@ -6946,7 +6998,7 @@ class SpaBookingCard extends HTMLElement {
       return otherStart < end && guard > start;
     });
 
-    if (state.operator_id) {
+    if (state.operator_id && !String(state.operator_id).startsWith("@")) {
       const mine = conflicts.filter((appointment) => appointment.operator_id === state.operator_id);
       if (mine.length) {
         box.appendChild(
@@ -7627,6 +7679,7 @@ class SpaBookingCard extends HTMLElement {
       guest_type: entry.guest_type || GUEST_DEFAULT,
       notes: entry.notes || "",
       voucher_code: (entry.voucher_code || "").trim().toUpperCase(),
+      therapist_preference: entry.therapist_preference || "",
     };
     // Opened with "Modifica": rewrite that request instead of adding one.
     if (entry.request_id) payload.request_id = entry.request_id;
@@ -8876,7 +8929,7 @@ class SpaBookingCard extends HTMLElement {
     left.appendChild(block("trattamenti", "Trattamenti", this._richiestaBlock()));
 
     // Right column: Ospite + Cliente + Note
-    right.appendChild(block("ospite", "Ospite", this._guestField(this._form)));
+    right.appendChild(block("ospite", "Ospite", this._guestField(this._form), this._preferenceField(this._form)));
     right.appendChild(block("cliente", "Cliente", this._clientSection(this._form)));
     right.appendChild(block("note", "Note",
       el("label", { class: "field" },
@@ -9323,6 +9376,11 @@ class SpaBookingCard extends HTMLElement {
             el("div", { class: "req-name" }, name, " ",
               el("span", { class: `pill ${tone}` }, el("ha-icon", { icon }), label),
               req.source === "web" && req.seen === false ? el("span", { class: "pill warn" }, "Nuova") : null,
+              req.therapist_preference
+                ? el("span", { class: "pill info" },
+                    el("ha-icon", { icon: req.therapist_preference === "F" ? "mdi:face-woman-outline" : "mdi:face-man-outline" }),
+                    `Preferisce ${req.therapist_preference === "F" ? "massaggiatrice" : "massaggiatore"}`)
+                : null,
               req.proposed_date ? el("span", { class: "pill info", title: req.proposed_by ? `Proposta da ${req.proposed_by}` : "" },
                 el("ha-icon", { icon: "mdi:calendar-clock" }),
                 `Proposta: ${longDay(new Date(`${req.proposed_date}T00:00:00`)).split(" ").slice(0, 3).join(" ")}${req.proposed_time ? ` ${req.proposed_time}` : ""}`) : null,
@@ -9437,6 +9495,7 @@ class SpaBookingCard extends HTMLElement {
       notes: req.notes || "",
       voucher_code: req.voucher_code || "",
       guest_type: req.guest_type || GUEST_DEFAULT,
+      therapist_preference: req.therapist_preference || "",
       new_client: !req.client_id,
     };
     this._tab = "nuovo";
@@ -15768,6 +15827,13 @@ _renderClients() {
       prioritaBox.appendChild(
         el("div", { class: "row" },
           el("label", { class: "field" },
+            el("span", {}, "Genere"),
+            el("select", { class: "input",
+              on: { change: (event) => { draft.gender = event.target.value; } } },
+              el("option", { value: "", selected: !draft.gender }, "Non indicato"),
+              el("option", { value: "F", selected: draft.gender === "F" }, "Donna (massaggiatrice)"),
+              el("option", { value: "M", selected: draft.gender === "M" }, "Uomo (massaggiatore)"))),
+          el("label", { class: "field" },
             el("span", {}, "Priorità (più basso = prima)"),
             el("input", { class: "input", type: "number", min: "0", max: "999", step: "1",
               value: draft.priority ?? 0,
@@ -15894,6 +15960,7 @@ _renderClients() {
                 notify_on_create: true,
                 priority: 0,
                 active: true,
+                gender: "",
               },
             };
             this._render();
@@ -15995,6 +16062,7 @@ _renderClients() {
                         notify_on_create: operator.notify_on_create !== false,
                         priority: operator.priority ?? 0,
                         active: operator.active !== false,
+                        gender: operator.gender || "",
                       },
                     };
                     this._render();

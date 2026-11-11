@@ -839,8 +839,16 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         start: datetime,
         end: datetime,
         requested: list[str] | None = None,
+        preference: str = "",
     ) -> list[str]:
         """Return the operators to offer, in order, minus the refused ones.
+
+        ``preference`` ("F" or "M") is the guest's wish for a woman or a man.
+        It narrows an automatic choice (more than one candidate) to the
+        operators of that gender; when none of them is free the booking is
+        refused with a message for the desk rather than given to somebody
+        else. A single operator picked by the desk is never second-guessed,
+        and operators with no gender written in their card are not filtered.
 
         The caller states the candidates: the booking form sends either the
         masseuses it lists or the whole able list for "automatica", and the
@@ -886,6 +894,33 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 order.get(oid, 0),
             )
         )
+        if preference in ("F", "M") and len(pool) > 1 and any(
+            (self._operator(oid) or {}).get("gender") for oid in pool
+        ):
+            def busy(oid: str) -> bool:
+                for other in self.appointments:
+                    if other.get("operator_id") != oid or not occupies_slot(other):
+                        continue
+                    other_start = dt_util.parse_datetime(other["start"])
+                    other_end = dt_util.parse_datetime(other["end"])
+                    if other_start and other_end and other_start < end and start < other_end:
+                        return True
+                return False
+
+            wanted = [
+                oid
+                for oid in available
+                if (self._operator(oid) or {}).get("gender") == preference and not busy(oid)
+            ]
+            if not wanted:
+                who = "massaggiatrice" if preference == "F" else "massaggiatore"
+                local = dt_util.as_local(start)
+                raise ValidationError(
+                    f"L'ospite preferisce un{'a' if preference == 'F' else 'o'} {who}, ma nessun{'a' if preference == 'F' else ''} "
+                    f"{who} è liber{'a' if preference == 'F' else 'o'} per '{treatment['name']}' "
+                    f"alle {local.strftime('%H:%M')}: scegli l'operatore a mano o togli la preferenza"
+                )
+            return wanted
         return available
 
     def _next_candidate(
@@ -1590,6 +1625,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         batch_id: str | None = None,
         defer_operator: bool = False,
         forward_pause: bool = True,
+        therapist_preference: str = "",
     ) -> tuple[dict[str, Any], dict[str, Any], bool]:
         """Validate one booking and return it without appending anything.
 
@@ -1635,7 +1671,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             candidates: list[str] = []
         else:
             candidates = self._available_candidates(
-                treatment, start_dt, end_dt, requested
+                treatment, start_dt, end_dt, requested, therapist_preference
             )
 
         # Closures decided from the dashboard: a facility or category closure
@@ -1758,6 +1794,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "created_by": acting_person()[0]
                 or (self._current_user_id if hasattr(self, "_current_user_id") else None),
                 "created_by_name": acting_person()[1],
+                "therapist_preference": therapist_preference if therapist_preference in ("F", "M") else "",
                 # Payment never refuses anything, so it is copied through the
                 # normaliser rather than validated here.
                 **_norm_payment(payment),
@@ -1794,6 +1831,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         force_client_overlap: bool = False,
         force_new: bool = False,
         batch_id: str | None = None,
+        therapist_preference: str = "",
     ) -> dict[str, Any]:
         """Create an appointment, deriving its end time from the treatment.
 
@@ -1828,6 +1866,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 force_client_overlap=force_client_overlap,
                 force_new=force_new,
                 batch_id=batch_id,
+                therapist_preference=therapist_preference,
             )
             # Appended only after validation, so a refused booking never leaves
             # an empty client card behind.
@@ -1861,6 +1900,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         list_price: Any = None,
         price: Any = None,
         force_client_overlap: bool = False,
+        therapist_preference: str | None = None,
     ) -> dict[str, Any]:
         """Update an appointment in place, re-running every business rule.
 
@@ -1999,6 +2039,11 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     price=price,
                     force_client_overlap=force_client_overlap,
                     batch_totals=batch_totals,
+                    therapist_preference=(
+                        appointment.get("therapist_preference", "")
+                        if therapist_preference is None
+                        else therapist_preference
+                    ),
                 )
             except Exception:
                 # Refused: put the original back exactly as it was.
@@ -2309,6 +2354,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             ),
                             defer_operator=defer_operator,
                             batch_id=batch_id,
+                            therapist_preference=str(entry.get("therapist_preference") or ""),
                         )
                         if is_new and not any(
                             staged["id"] == client["id"] for staged in staged_clients
@@ -2837,6 +2883,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             "client_id": request["client_id"],
                             "person": person,
                             "extras": entry.get("extras") or [],
+                            "therapist_preference": request.get("therapist_preference") or "",
                         }
                         for person in persons
                     ],
@@ -3018,6 +3065,8 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         appointment["created_at"] = existing_appt.get("created_at") or appointment.get("created_at")
                         appointment["created_by"] = existing_appt.get("created_by", appointment.get("created_by"))
                         appointment["created_by_name"] = existing_appt.get("created_by_name", "")
+                        if not appointment.get("therapist_preference"):
+                            appointment["therapist_preference"] = existing_appt.get("therapist_preference", "")
                         appointment["history"] = list(existing_appt.get("history") or [])
                         appointment["payments"] = _norm_payment_list(existing_appt.get("payments"))
                         appointment["checked_in"] = existing_appt.get("checked_in", False)
@@ -3096,6 +3145,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         user_id: str | None = None,
         source: str = REQUEST_SOURCE_DESK,
         request_id: str | None = None,
+        therapist_preference: str = "",
     ) -> dict[str, Any]:
         """Take a guest's appointment request and acknowledge it on WhatsApp.
 
@@ -3212,6 +3262,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         "notes": notes,
                         "voucher_code": code,
                         "guest_type": _norm_guest_type(guest_type),
+                        "therapist_preference": therapist_preference,
                     }
                 )
                 existing_request.clear()
@@ -3230,6 +3281,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "notes": notes,
                     "voucher_code": code,
                     "guest_type": _norm_guest_type(guest_type),
+                    "therapist_preference": therapist_preference,
                     "status": REQUEST_PENDING,
                     "source": (
                         REQUEST_SOURCE_WEB
@@ -5825,6 +5877,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         notify_on_create: bool = True,
         priority: int = 0,
         active: bool = True,
+        gender: str = "",
     ) -> dict[str, Any]:
         """Create an operator with her role and the massage types she performs."""
         if not name.strip():
@@ -5850,6 +5903,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "notify_on_create": notify_on_create,
                     "priority": priority,
                     "active": active,
+                    "gender": gender,
                 }
             )
             self.operators.append(operator)
@@ -5888,6 +5942,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         notify_on_create: bool | None = None,
         priority: int | None = None,
         active: bool | None = None,
+        gender: str | None = None,
     ) -> dict[str, Any]:
         """Update an operator."""
         async with self._lock:
@@ -5924,6 +5979,8 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 operator["priority"] = max(0, int(priority))
             if active is not None:
                 operator["active"] = bool(active)
+            if gender is not None:
+                operator["gender"] = gender if gender in ("F", "M") else ""
             await self._async_save()
         return operator
 

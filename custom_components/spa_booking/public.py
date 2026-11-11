@@ -229,6 +229,15 @@ class SpaBookingPublicTreatmentsView(_PublicView):
                     "category_name": payload.get("category_name") or "",
                     "duration_min": payload["duration_min"],
                 }
+                # The guest may ask for a woman or a man only where it means
+                # something: a massage done by both (2.3.3).
+                genders = {
+                    operator.get("gender")
+                    for operator in coordinator.operators_for_treatment(treatment["id"])
+                    if operator.get("active", True)
+                } if coordinator._treatment_requires_operator(treatment) else set()
+                if {"F", "M"} <= genders:
+                    item["gender_choice"] = True
                 # The price only when the reception chose to show it.
                 if show_prices and payload.get("price") is not None:
                     item["price"] = payload["price"]
@@ -419,6 +428,9 @@ class SpaBookingPublicRequestView(_PublicView):
                 notes=notes,
                 voucher_code=voucher_code,
                 source=REQUEST_SOURCE_WEB,
+                therapist_preference=str(data.get("therapist_preference") or "")[:1].upper()
+                if str(data.get("therapist_preference") or "")[:1].upper() in ("F", "M")
+                else "",
             )
             # The payload carries the guest's own card back; the site only
             # needs what it can show as a receipt.

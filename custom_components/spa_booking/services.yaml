@@ -88,6 +88,14 @@ create_appointment:
               value: hotel
             - label: Esterno
               value: external
+    therapist_preference:
+      name: Preferenza dell'ospite
+      description: >-
+        F = preferisce una massaggiatrice, M = un massaggiatore, vuoto =
+        indifferente. Restringe la scelta automatica tra più operatori.
+      selector:
+        select:
+          options: ["", "F", "M"]
 
 cancel_appointment:
   name: Annulla appuntamento
@@ -697,6 +705,12 @@ add_operator:
       default: true
       selector:
         boolean:
+    gender:
+      name: Genere
+      description: F = donna (massaggiatrice), M = uomo (massaggiatore), vuoto = non indicato.
+      selector:
+        select:
+          options: ["", "F", "M"]
 
 update_operator:
   name: Modifica operatore
@@ -753,6 +767,12 @@ update_operator:
       name: Avvisa su nuovi appuntamenti
       selector:
         boolean:
+    gender:
+      name: Genere
+      description: F = donna (massaggiatrice), M = uomo (massaggiatore), vuoto = non indicato.
+      selector:
+        select:
+          options: ["", "F", "M"]
 
 delete_operator:
   name: Elimina operatore
@@ -1702,6 +1722,14 @@ create_request:
               value: hotel
             - label: Esterno
               value: external
+    therapist_preference:
+      name: Preferenza dell'ospite
+      description: >-
+        F = preferisce una massaggiatrice, M = un massaggiatore, vuoto =
+        indifferente. Restringe la scelta automatica tra più operatori.
+      selector:
+        select:
+          options: ["", "F", "M"]
 
 delete_request:
   name: Elimina richiesta

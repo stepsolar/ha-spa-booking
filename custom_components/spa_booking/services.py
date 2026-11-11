@@ -316,6 +316,8 @@ CREATE_APPOINTMENT_SCHEMA = vol.Schema(
         vol.Optional(ATTR_OPERATOR_IDS): vol.All(
             cv.ensure_list, [cv.string]
         ),
+        #: The guest would like a woman ("F") or a man ("M"); "" = anybody.
+        vol.Optional("therapist_preference"): vol.Any(vol.In(("", "F", "M")), None),
         vol.Optional("notes"): cv.string,
         vol.Optional(ATTR_PAYMENT): vol.Any(PAYMENT_SCHEMA, None),
         #: Take the booking and leave it waiting. Any money on it confirms it
@@ -384,6 +386,9 @@ DELETE_APPOINTMENT_SCHEMA = vol.Schema({vol.Required(ATTR_APPOINTMENT_ID): cv.st
 UPDATE_APPOINTMENT_SCHEMA = vol.Schema(
     {
         vol.Required(ATTR_APPOINTMENT_ID): cv.string,
+        #: The guest would like a woman ("F") or a man ("M"); "" = anybody.
+        vol.Optional("therapist_preference"): vol.Any(vol.In(("", "F", "M")), None),
+
         vol.Optional(ATTR_TREATMENT_ID): vol.Any(cv.string, None),
         vol.Optional("start"): vol.Any(cv.string, None),
         vol.Optional(ATTR_CLIENT_ID): vol.Any(cv.string, None),
@@ -614,6 +619,8 @@ ADD_OPERATOR_SCHEMA = vol.Schema(
             vol.Coerce(int), vol.Range(min=0, max=999)
         ),
         vol.Optional("active", default=True): cv.boolean,
+        #: "F" (massaggiatrice), "M" (massaggiatore) or "" (not said).
+        vol.Optional("gender", default=""): vol.In(("", "F", "M")),
     }
 )
 
@@ -635,6 +642,7 @@ UPDATE_OPERATOR_SCHEMA = vol.Schema(
             vol.All(vol.Coerce(int), vol.Range(min=0, max=999)), None
         ),
         vol.Optional("active"): vol.Any(cv.boolean, None),
+        vol.Optional("gender"): vol.Any(vol.In(("", "F", "M")), None),
     }
 )
 
@@ -915,6 +923,8 @@ BOOKING_ENTRY_SCHEMA = vol.Schema(
         **_CLIENT_FIELDS,
         vol.Optional(ATTR_OPERATOR_ID): vol.Any(cv.string, None),
         vol.Optional(ATTR_OPERATOR_IDS): vol.All(cv.ensure_list, [cv.string]),
+        #: The guest would like a woman ("F") or a man ("M"); "" = anybody.
+        vol.Optional("therapist_preference"): vol.Any(vol.In(("", "F", "M")), None),
         vol.Optional("notes"): cv.string,
         #: The accessories this person gets with the booking, unknown ones
         #: dropped by the coordinator. Leave it out for none.
@@ -1039,6 +1049,8 @@ CREATE_REQUEST_SCHEMA = vol.Schema(
         ),
         #: Rewrite this request instead of adding a new one (card "Modifica").
         vol.Optional(ATTR_REQUEST_ID): vol.Any(cv.string, None),
+        #: The guest would like a woman ("F") or a man ("M"); "" = anybody.
+        vol.Optional("therapist_preference"): vol.Any(vol.In(("", "F", "M")), None),
     },
     extra=vol.PREVENT_EXTRA,
 )
@@ -1355,6 +1367,7 @@ async def _async_create_appointment(call: ServiceCall) -> ServiceResponse:
         price=data.get("price"),
         force_client_overlap=data.get("force_client_overlap", False),
         batch_id=data.get("batch_id"),
+        therapist_preference=data.get("therapist_preference") or "",
     )
     return {"appointment": appointment}
 
@@ -1385,6 +1398,7 @@ async def _async_create_request(call: ServiceCall) -> ServiceResponse:
         guest_type=data.get(ATTR_GUEST_TYPE, GUEST_TYPE_DEFAULT),
         user_id=user_id,
         request_id=data.get(ATTR_REQUEST_ID),
+        therapist_preference=data.get("therapist_preference") or "",
     )
 
 
@@ -1786,6 +1800,7 @@ async def _async_update_appointment(call: ServiceCall) -> ServiceResponse:
         "list_price": data.get("list_price"),
         "price": data.get("price"),
         "force_client_overlap": data.get("force_client_overlap", False),
+        "therapist_preference": data.get("therapist_preference"),
     }
     if data.get("whole_group"):
         return await coordinator.async_update_appointment_group(
@@ -2013,6 +2028,7 @@ async def _async_add_operator(call: ServiceCall) -> ServiceResponse:
         notify_service=call.data["notify_service"],
         notify_on_create=call.data["notify_on_create"],
         priority=call.data["priority"],
+        gender=call.data.get("gender", ""),
         active=call.data["active"],
     )
     return {"operator": operator}
@@ -2034,6 +2050,7 @@ async def _async_update_operator(call: ServiceCall) -> ServiceResponse:
         notify_service=data.get("notify_service"),
         notify_on_create=data.get("notify_on_create"),
         priority=data.get("priority"),
+        gender=data.get("gender"),
         active=data.get("active"),
     )
     return {"operator": operator}

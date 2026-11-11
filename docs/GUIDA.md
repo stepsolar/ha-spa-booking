@@ -1,6 +1,6 @@
 # Spa Booking — guida alle schede (2.2)
 
-Aggiornata alla 2.3.2: [promo e fedeltà del cliente](#promo-e-fedeltà-del-cliente); [conferme e promemoria WhatsApp](#conferme-e-promemoria-whatsapp); [firme e storico](#firme-e-storico); [chiusure con giorni esclusi](#chiusure-con-giorni-esclusi); [Proponi data](#proponi-data) nelle richieste, con trattamenti alternativi e prezzo; [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
+Aggiornata alla 2.3.3: [preferenza massaggiatrice/massaggiatore](#preferenza-massaggiatrice-o-massaggiatore); [promo e fedeltà del cliente](#promo-e-fedeltà-del-cliente); [conferme e promemoria WhatsApp](#conferme-e-promemoria-whatsapp); [firme e storico](#firme-e-storico); [chiusure con giorni esclusi](#chiusure-con-giorni-esclusi); [Proponi data](#proponi-data) nelle richieste, con trattamenti alternativi e prezzo; [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
 
 Questa guida mostra ogni scheda della dashboard **Spa Booking** e spiega a
 cosa serve ogni funzione. Le immagini sono state fatte con dati di prova.
@@ -29,6 +29,32 @@ in Impostazioni › Aspetto).
 
 
 
+
+
+## Preferenza massaggiatrice o massaggiatore
+
+Dalla 2.3.3:
+
+- **Genere dell'operatore.** Configurazione › Operatori › scheda: «Genere»
+  (Donna / Uomo / Non indicato), accanto alla priorità.
+- **Ordine automatico.** Con «Automatica» il massaggio viene proposto prima a
+  chi ha il numero di priorità più basso; chi è disattivata, chiusa in Fasce
+  bloccate o ha rifiutato quella fascia viene saltata.
+- **Preferenza dell'ospite.**
+  - Sul sito: se il massaggio scelto lo fanno sia donne sia uomini, compare
+    «Per il massaggio preferisci… Indifferente / Una massaggiatrice / Un
+    massaggiatore».
+  - In Nuova richiesta: «Preferisce per i massaggi», nel riquadro Ospite.
+  - In Nuovo appuntamento: nella scelta della massaggiatrice, «Automatica:
+    massaggiatrice» o «Automatica: massaggiatore».
+- **Cosa succede.** La proposta va solo a chi è del genere chiesto, in ordine
+  di priorità. Se nessuno è libero a quell'ora, la reception vede un avviso
+  («L'ospite preferisce un massaggiatore, ma nessun massaggiatore è libero…»)
+  e sceglie a mano o toglie la preferenza. Un'operatrice scelta a mano non
+  viene mai cambiata. La preferenza resta scritta sulla richiesta e
+  sull'appuntamento («Preferisce …»).
+
+![Preferenza nel modulo del sito](anteprime/27-modulo-preferenza.png)
 
 ## Promo e fedeltà del cliente
 

@@ -5,7 +5,7 @@ trattamenti con durata propria, operatrici, schede cliente, agenda del giorno
 per operatrice e per categoria, pagamenti, voucher, richieste dal sito web,
 promemoria e report automatici su WhatsApp e Telegram.
 
-Versione corrente: **2.3.2** — documentazione completa in
+Versione corrente: **2.3.3** — documentazione completa in
 [`custom_components/spa_booking/README.md`](custom_components/spa_booking/README.md).
 
 **[Guida alle schede con le anteprime](docs/GUIDA.md)**: ogni scheda della
@@ -132,6 +132,23 @@ hassfest e validazione HACS a ogni push e pull request. Lavora su un branch e
 apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
+
+- **v2.3.3** — Massaggi:
+  - **Correzione «Automatica».** Nel modulo Nuovo, con la massaggiatrice su
+    «Automatica», un massaggio veniva rifiutato con «Seleziona un operatore»:
+    la card non inviava nessuna candidata. Ora invia tutte quelle abili e il
+    server le propone in ordine di priorità (numero più basso prima, saltando
+    chi è disattivata, chiusa o ha rifiutato quella fascia).
+  - **Genere dell'operatore** (Donna / Uomo) nella sua scheda.
+  - **Preferenza dell'ospite** «Massaggiatrice / Massaggiatore /
+    Indifferente»: nel modulo del sito (IT/EN/DE, solo se il massaggio scelto
+    lo fanno sia donne sia uomini), nella Nuova richiesta e in Nuovo
+    («Automatica: massaggiatrice / massaggiatore»). Passa dalla richiesta
+    all'appuntamento confermato e compare come «Preferisce …».
+  - **Assegnazione automatica con preferenza**: si propone solo a chi è del
+    genere chiesto, in ordine di priorità. Se nessuno è libero, la reception
+    riceve un avviso invece di un'assegnazione forzata. Un'operatrice scelta a
+    mano dalla reception non viene mai cambiata.
 
 - **v2.3.2** — Clienti:
   - **Promo e fedeltà nella scheda cliente**: promo inviate (con l'ultima),
