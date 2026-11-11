@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.3.11";
+const CARD_VERSION = "2.3.12";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -3452,14 +3452,365 @@ class SpaBookingCard extends HTMLElement {
     return wrap;
   }
 
-  /** Agenda sub-tab: the working day, hour by hour, in user order. */
+  /** Agenda sub-tab (2.3.12): date bar, week strip, day numbers, then the timeline or the list. */
   _renderAgendaDay() {
-    const wrap = el("div", { class: "stack" });
+    const wrap = el("div", { class: "stack ag" });
     const day = new Date(`${this._day}T00:00:00`);
+    const view = this._agendaView || "timeline";
+    wrap.appendChild(this._agHeader(day, view));
+    wrap.appendChild(this._agWeek(day));
+
+    const allOfDay = this._appointmentsOfDay(this._day).filter(
+      (appointment) => this._categoryMatch(appointment) && this._guestMatch(appointment) && this._matchesSearch(appointment));
+    const filters = [...this._categoryChips(), ...this._guestChips()];
+    wrap.appendChild(el("div", { class: "ag-kpis" }, add(el("div", { class: "ag-pills" }), this._agPills(allOfDay)),
+      filters.length ? el("div", { class: "ag-filters" }, ...filters) : null));
+
+    if (view === "elenco") {
+      add(wrap, this._renderAgendaList());
+      return wrap;
+    }
+    const dayList = allOfDay.filter((appointment) => this._agQuickMatch(appointment));
+    if (!dayList.length) {
+      wrap.appendChild(el("div", { class: "empty" }, allOfDay.length
+        ? "Nessun appuntamento con questo filtro." : "Nessun appuntamento per questa data."));
+    } else {
+      const main = el("div", { class: "ag-main" });
+      main.appendChild(this._agTimeline(dayList));
+      add(main, this._agSide(dayList));
+      wrap.appendChild(main);
+      wrap.appendChild(this._agPhoneList(dayList));
+    }
+    const cancelled = (this._byDay.get(this._day) || []).filter(
+      (appointment) => appointment.status === "cancelled" && this._categoryMatch(appointment) && this._guestMatch(appointment));
+    if (cancelled.length) {
+      wrap.appendChild(el("details", { class: "cancelled-box" },
+        el("summary", {}, `Annullati (${cancelled.length})`),
+        cancelled.map((appointment) => this._appointmentRow(appointment, true))));
+    }
+    return wrap;
+  }
+
+  /** «Sabato 14 novembre, fra 3 giorni» with arrows, Oggi, the views, print and new. */
+  _agHeader(day, view) {
+    const diff = Math.round((day - new Date(`${todayStr()}T00:00:00`)) / 86400000);
+    const relative = diff === 0 ? "oggi" : diff === 1 ? "domani" : diff === -1 ? "ieri"
+      : diff > 0 ? `fra ${diff} giorni` : `${-diff} giorni fa`;
+    const go = (value) => { this._day = value; this._render(); };
+    const label = longDay(day).replace(/ \d{4}$/, "");
+    const views = [["timeline", "Timeline", "mdi:chart-timeline"], ["elenco", "Elenco", "mdi:format-list-bulleted"], ["mese", "Mese", "mdi:calendar-month"]];
+    return el("div", { class: "ag-head" },
+      el("div", { class: "ag-nav" },
+        el("button", { class: "icon-btn ag-arrow", title: "Giorno prima", on: { click: () => go(ymd(addDays(day, -1))) } }, el("ha-icon", { icon: "mdi:chevron-left" })),
+        el("label", { class: "ag-day", title: "Scegli un giorno" },
+          el("span", { class: "ag-day-name" }, label),
+          el("span", { class: "ag-day-rel" }, relative),
+          el("input", { class: "ag-date", type: "date", value: this._day, "aria-label": "Scegli un giorno",
+            on: { change: (event) => go(event.target.value || todayStr()) } })),
+        el("button", { class: "icon-btn ag-arrow", title: "Giorno dopo", on: { click: () => go(ymd(addDays(day, 1))) } }, el("ha-icon", { icon: "mdi:chevron-right" })),
+        diff !== 0 ? el("button", { class: "btn small", on: { click: () => go(todayStr()) } }, "Oggi") : null),
+      el("div", { class: "pg-seg ag-views", role: "radiogroup" },
+        views.map(([id, text, icon]) => el("button", {
+          type: "button", class: view === id ? "on" : "", role: "radio", "aria-checked": view === id ? "true" : "false",
+          on: { click: () => {
+            if (id === "mese") { this._agendaTab = "calendario"; } else { this._agendaView = id; }
+            this._render();
+          } },
+        }, el("ha-icon", { icon }), el("span", { class: "btn-label" }, text)))),
+      el("span", { class: "spacer" }),
+      el("button", { class: "btn small ag-print", title: "Stampa PDF", on: { click: () => this._printDay() } },
+        el("ha-icon", { icon: "mdi:printer" }), el("span", { class: "btn-label" }, "Stampa")),
+      this._can("book") ? el("button", {
+        class: "btn primary small", title: "Nuovo appuntamento", disabled: this._busy,
+        on: { click: () => { this._form.date = this._day; this._tab = "nuovo"; this._nuovoTab = "appuntamento"; this._render(); } },
+      }, el("ha-icon", { icon: "mdi:plus" }), el("span", { class: "btn-label" }, "Nuovo")) : null);
+  }
+
+  /** The week of the shown day, Monday first: a tap opens a day, a bar shows how busy it is. */
+  _agWeek(day) {
+    const monday = addDays(day, -((day.getDay() + 6) % 7));
+    const days = Array.from({ length: 7 }, (_, index) => addDays(monday, index));
+    const minutes = days.map((date) => this._appointmentsOfDay(ymd(date))
+      .reduce((sum, appointment) => sum + (this._durationOf(appointment) || 0), 0));
+    const counts = days.map((date) => this._appointmentsOfDay(ymd(date)).length);
+    const top = Math.max(1, ...minutes);
+    const today = todayStr();
+    const names = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"];
+    return el("div", { class: "ag-week" }, days.map((date, index) => {
+      const key = ymd(date);
+      return el("button", {
+        type: "button",
+        class: `ag-wd${key === this._day ? " on" : ""}${key < today ? " past" : ""}${key === today ? " today" : ""}`,
+        title: `${longDay(date)}: ${counts[index]} appuntamenti`,
+        on: { click: () => { this._day = key; this._render(); } },
+      },
+      el("span", { class: "ag-wd-name" }, names[index]),
+      el("span", { class: "ag-wd-num" }, String(date.getDate())),
+      el("span", { class: "ag-wd-count" }, counts[index] ? `${counts[index]} app.` : "libero"),
+      el("span", { class: "ag-wd-bar" }, el("i", { style: `width:${Math.round((minutes[index] / top) * 100)}%` })));
+    }));
+  }
+
+  /** What still has to be paid on one appointment. */
+  _agDue(appointment) {
+    const price = Number(this._lineBreakdown(appointment).price) || 0;
+    const paid = (appointment.payments || []).reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+    return Math.max(0, price - paid);
+  }
+
+  /** The quick filter of the pills: in the room, to confirm, to collect. */
+  _agQuickMatch(appointment) {
+    const quick = this._agQuick || "";
+    if (quick === "inside") return appointment.checked_in && !appointment.checked_out;
+    if (quick === "waiting") return appointment.status === "pending" || appointment.offer_state === "offered";
+    if (quick === "due") return this._agDue(appointment) > 0;
+    return true;
+  }
+
+  /** The day's numbers as pills; a tap filters the day to them. */
+  _agPills(dayList) {
+    const live = dayList.filter((appointment) => appointment.status !== "cancelled");
+    const inside = live.filter((a) => a.checked_in && !a.checked_out).length;
+    const waiting = live.filter((a) => a.status === "pending" || a.offer_state === "offered").length;
+    const pill = (id, dot, value, label) => el("button", {
+      type: "button", class: `ag-pill${(this._agQuick || "") === id ? " on" : ""}`,
+      title: id ? "Tocca per vedere solo questi" : "Tutti gli appuntamenti del giorno",
+      on: { click: () => { this._agQuick = (this._agQuick || "") === id ? "" : id; this._render(); } },
+    }, el("span", { class: `ag-dot ${dot}` }), el("b", {}, value), label);
+    const pills = [
+      pill("", "conf", String(live.length), live.length === 1 ? "appuntamento" : "appuntamenti"),
+      pill("inside", "in", String(inside), "in sala ora"),
+      pill("waiting", "wait", String(waiting), "da confermare"),
+    ];
+    if (this._can("payments")) {
+      const due = Math.round(live.reduce((sum, a) => sum + this._agDue(a), 0) * 100) / 100;
+      pills.push(pill("due", "due", euro(due), "da incassare"));
+    }
+    return pills;
+  }
+
+  /** How an appointment stands, for its colour: wait, in, done or conf. */
+  _agState(appointment) {
+    if (appointment.status === "pending" || appointment.offer_state === "offered") return "wait";
+    if (appointment.checked_in && !appointment.checked_out) return "in";
+    const end = parseDate(appointment.end);
+    if (appointment.checked_out || (end && end.getTime() < Date.now())) return "done";
+    return "conf";
+  }
+
+  /** Same treatment, client, start and operator: one party, one block. */
+  _agParties(list) {
+    const parties = [];
+    const seen = new Map();
+    list.forEach((appointment) => {
+      const key = [appointment.treatment_id, appointment.client_id, appointment.start, appointment.operator_id || ""].join("|");
+      if (!seen.has(key)) { seen.set(key, []); parties.push(seen.get(key)); }
+      seen.get(key).push(appointment);
+    });
+    const at = (members) => { const date = parseDate(members[0].start); return date ? date.getTime() : 0; };
+    return parties.sort((a, b) => at(a) - at(b));
+  }
+
+  /** One row per masseuse (and one for the spa), hours left to right. */
+  _agTimeline(dayList) {
+    const parties = this._agParties(dayList);
+    let first = 24 * 60;
+    let last = 0;
+    parties.forEach((members) => {
+      const start = parseDate(members[0].start);
+      const end = parseDate(members[0].end);
+      if (!start || !end) return;
+      first = Math.min(first, start.getHours() * 60 + start.getMinutes());
+      last = Math.max(last, end.getHours() * 60 + end.getMinutes() + this._pauseOfAppointment(members[0]));
+    });
+    const fromHour = Math.min(9, Math.floor(first / 60));
+    const toHour = Math.max(fromHour + 8, Math.min(24, Math.ceil(last / 60)));
+    const span = (toHour - fromHour) * 60;
+    const pct = (minutes) => `${((minutes - fromHour * 60) / span) * 100}%`;
+    const minutesOf = (date) => date.getHours() * 60 + date.getMinutes();
+
+    // Lanes: the masseuses on duty (busy ones first), then the treatments without one.
+    const lanes = new Map();
+    this._data.operators
+      .filter((operator) => operator.active !== false)
+      .sort((a, b) => (Number(a.priority) || 0) - (Number(b.priority) || 0) || a.name.localeCompare(b.name))
+      .forEach((operator) => lanes.set(operator.id, []));
+    parties.forEach((members) => {
+      const key = members[0].operator_id && this._lookup.operator.get(members[0].operator_id) ? members[0].operator_id : "__none__";
+      if (!lanes.has(key)) lanes.set(key, []);
+      lanes.get(key).push(members);
+    });
+    if (lanes.has("__none__")) { const none = lanes.get("__none__"); lanes.delete("__none__"); lanes.set("__none__", none); }
+
+    const box = el("div", { class: "ag-tl" });
+    const hours = el("div", { class: "ag-hours" }, el("div", { class: "ag-lane-who" }));
+    const scale = el("div", { class: "ag-scale" });
+    for (let hour = fromHour; hour < toHour; hour += 1) {
+      scale.appendChild(el("span", { style: `left:${pct(hour * 60)}` }, `${hour}`));
+    }
+    hours.appendChild(scale);
+    box.appendChild(hours);
+    const now = new Date();
+    const showNow = this._day === todayStr() && minutesOf(now) >= fromHour * 60 && minutesOf(now) <= toHour * 60;
+    const grid = `background-size: calc(100% / ${toHour - fromHour}) 100%;`;
+    let toneIndex = 0;
+    [...lanes.entries()].forEach(([key, items]) => {
+      const operator = this._lookup.operator.get(key);
+      const busyMin = items.reduce((sum, members) => sum + (this._durationOf(members[0]) || 0), 0);
+      const people = items.reduce((sum, members) => sum + members.length, 0);
+      // Overlapping blocks of the same lane (spa entries) stack in rows.
+      const rowsEnd = [];
+      const placed = items.map((members) => {
+        const start = parseDate(members[0].start);
+        const end = parseDate(members[0].end);
+        const from = start ? minutesOf(start) : fromHour * 60;
+        const to = (end ? minutesOf(end) : from + 30) + this._pauseOfAppointment(members[0]);
+        let row = rowsEnd.findIndex((limit) => limit <= from);
+        if (row < 0) { row = rowsEnd.length; rowsEnd.push(to); } else rowsEnd[row] = to;
+        return { members, start, end, row };
+      });
+      const rows = Math.max(1, rowsEnd.length);
+      const track = el("div", { class: "ag-track", style: `${grid} height:${rows * 58 + 12}px` });
+      placed.forEach(({ members, start, end, row }) => {
+        const appointment = members[0];
+        if (!start || !end) return;
+        const pause = this._pauseOfAppointment(appointment);
+        const state = this._agState(appointment);
+        const width = ((minutesOf(end) - minutesOf(start)) / span) * 100;
+        const name = this._clientName(appointment) + (members.length > 1 ? ` (${members.length})` : "");
+        const block = el("button", {
+          type: "button", class: `ag-ev ${state}`,
+          style: `left:${pct(minutesOf(start))}; width:calc(${width}% - 3px); top:${6 + row * 58}px`,
+          title: `${timeOf(start)}–${timeOf(end)} · ${name} · ${this._treatmentName(appointment)}`,
+          on: { click: () => this._openDetail(appointment) },
+        },
+        el("b", {}, name),
+        el("span", {}, `${timeOf(start)} · ${this._treatmentName(appointment)}`));
+        track.appendChild(block);
+        if (pause > 0) {
+          track.appendChild(el("span", { class: "ag-pause", title: `Pausa ${pause}′`,
+            style: `left:${pct(minutesOf(end))}; width:${(pause / span) * 100}%; top:${6 + row * 58}px` }));
+        }
+      });
+      if (showNow) track.appendChild(el("span", { class: "ag-now", style: `left:${pct(minutesOf(now))}` }));
+      const who = operator
+        ? el("div", { class: "ag-lane-who" },
+            el("span", { class: `user-avatar tone-${toneIndex++ % 6}` }, this._initials(operator.name)),
+            el("span", { class: "ag-who-text" }, el("b", {}, operator.name),
+              el("span", {}, items.length ? `${people} ${people === 1 ? "trattamento" : "trattamenti"} · ${minutesLabel(busyMin)}` : "libera")))
+        : el("div", { class: "ag-lane-who" },
+            el("span", { class: "user-avatar spa" }, el("ha-icon", { icon: "mdi:spa-outline" })),
+            el("span", { class: "ag-who-text" }, el("b", {}, "Senza operatrice"),
+              el("span", {}, `${people} ${people === 1 ? "ingresso" : "ingressi"} · Spa e altri`)));
+      box.appendChild(el("div", { class: `ag-lane${items.length ? "" : " free"}` }, who, track));
+    });
+    box.appendChild(el("div", { class: "ag-legend" },
+      el("span", {}, el("i", { class: "conf" }), "Confermato"),
+      el("span", {}, el("i", { class: "wait" }), "In attesa"),
+      el("span", {}, el("i", { class: "in" }), "In sala"),
+      el("span", {}, el("i", { class: "done" }), "Concluso"),
+      el("span", {}, el("i", { class: "pause" }), "Pausa dopo il trattamento"),
+      showNow ? el("span", { class: "ag-legend-now" }, el("i", { class: "now" }), "Adesso") : null,
+      el("span", { class: "dim" }, "Tocca un appuntamento per aprire la scheda")));
+    return box;
+  }
+
+  /** The one thing to do now on an appointment, or null. */
+  _agMainAction(appointment) {
+    if (appointment.status === "cancelled" || !this._ownsAppointment(appointment)) return null;
+    if (appointment.status === "pending") {
+      return el("button", { class: "btn small primary ag-act wait", disabled: this._busy,
+        on: { click: (event) => { event.stopPropagation(); this._confirmAppointment(appointment); } } }, "Conferma");
+    }
+    if (!this._isToday(appointment) || appointment.status !== "confirmed") return null;
+    if (!appointment.checked_in) {
+      return el("button", { class: "btn small ag-act in", disabled: this._busy,
+        on: { click: (event) => { event.stopPropagation(); this._confirmEntry(appointment); } } }, "Entrata");
+    }
+    if (!appointment.checked_out) {
+      return el("button", { class: "btn small primary ag-act", disabled: this._busy,
+        on: { click: (event) => { event.stopPropagation(); this._confirmExit(appointment); } } }, "Uscita");
+    }
+    return null;
+  }
+
+  /** Beside the timeline: exits now, next arrivals, what waits for a confirmation. */
+  _agSide(dayList) {
+    const side = el("div", { class: "ag-side" });
+    const now = Date.now();
+    const row = (appointment, timeText, action) => el("div", {
+      class: "ag-next", role: "button", tabindex: "0",
+      on: { click: () => this._openDetail(appointment) },
+    },
+    el("span", { class: "ag-next-time" }, timeText),
+    el("span", { class: "ag-next-text" }, el("b", {}, this._clientName(appointment)),
+      el("span", {}, [this._treatmentName(appointment), this._operatorName(appointment)].filter(Boolean).join(" · "))),
+    action);
+    const panel = (title, icon, rows) => rows.length
+      ? el("div", { class: "ag-panel" }, el("div", { class: "ag-panel-head" }, el("ha-icon", { icon }), title,
+          el("span", { class: "badge" }, String(rows.length))), ...rows)
+      : null;
+    if (this._day === todayStr()) {
+      const exits = this._exitAppointments(dayList);
+      add(side, panel(`Uscite (${EXIT_LEAD_MIN}′ prima / ${EXIT_GRACE_MIN}′ dopo)`, "mdi:exit-run", exits.map((appointment) => row(appointment,
+        timeOf(parseDate(appointment.end)),
+        this._can("day") ? el("button", { class: "btn small primary ag-act", disabled: this._busy,
+          on: { click: (event) => { event.stopPropagation(); this._confirmExit(appointment); } } }, "Uscita") : null))));
+      const arrivals = this._agParties(dayList.filter((appointment) =>
+        appointment.status === "confirmed" && !appointment.checked_in &&
+        (parseDate(appointment.start) || 0) >= now - 30 * 60000)).slice(0, 6).map((members) => members[0]);
+      add(side, panel("Prossimi arrivi", "mdi:account-arrow-right-outline", arrivals.map((appointment) =>
+        row(appointment, timeOf(parseDate(appointment.start)), this._agMainAction(appointment)))));
+    }
+    const waiting = this._agParties(dayList.filter((appointment) => appointment.status === "pending")).map((m) => m[0]);
+    add(side, panel("Da confermare", "mdi:clock-outline", waiting.map((appointment) =>
+      row(appointment, timeOf(parseDate(appointment.start)), this._agMainAction(appointment)))));
+    if (!side.children.length && !side.childNodes.length) {
+      side.appendChild(el("div", { class: "ag-panel" }, el("div", { class: "hint" },
+        "Tocca un appuntamento per aprire la scheda: entrata, uscita, modifica, incasso, chiamata e WhatsApp.")));
+    }
+    return side;
+  }
+
+  /** On a phone: the day by hour, one card per party, one action and «⋯». */
+  _agPhoneList(dayList) {
+    const box = el("div", { class: "ag-phone" });
+    let lastPart = "";
+    this._agParties(dayList).forEach((members) => {
+      const appointment = members[0];
+      const start = parseDate(appointment.start);
+      const end = parseDate(appointment.end);
+      const hour = start ? start.getHours() : 12;
+      const part = hour < 13 ? "Mattina" : hour < 18 ? "Pomeriggio" : "Sera";
+      if (part !== lastPart) { box.appendChild(el("div", { class: "ag-part" }, part)); lastPart = part; }
+      const state = this._agState(appointment);
+      const tag = { wait: ["Da confermare", "mdi:clock-outline"], in: ["In sala", "mdi:account-check"] }[state];
+      const operator = this._operatorName(appointment);
+      box.appendChild(el("div", {
+        class: `ag-card ${state}`, role: "button", tabindex: "0", "data-appt": appointment.id,
+        on: { click: () => this._openDetail(appointment), keydown: (event) => { if (event.key === "Enter") this._openDetail(appointment); } },
+      },
+      el("span", { class: "ag-card-time" }, start ? timeOf(start) : "—", el("small", {}, end ? timeOf(end) : "")),
+      el("span", { class: "ag-card-body" },
+        el("b", {}, this._clientName(appointment) + (members.length > 1 ? ` (${members.length})` : "")),
+        el("span", {}, [this._treatmentName(appointment), operator].filter(Boolean).join(" · ")),
+        tag ? el("span", { class: `ag-tag ${state}` }, el("ha-icon", { icon: tag[1] }), tag[0]) : null),
+      el("span", { class: "ag-card-side" },
+        this._agMainAction(appointment),
+        el("button", { class: "icon-btn", title: "Apri la scheda", "aria-label": "Apri la scheda",
+          on: { click: (event) => { event.stopPropagation(); this._openDetail(appointment); } } },
+          el("ha-icon", { icon: "mdi:dots-horizontal" })))));
+    });
+    return box;
+  }
+
+  /** The «Elenco» view: the working day per masseuse, as before 2.3.12. */
+  _renderAgendaList() {
+    const wrap = el("div", { class: "stack" });
     const dayList = this._appointmentsOfDay(this._day).filter(
       (appointment) =>
         this._categoryMatch(appointment) && this._guestMatch(appointment) &&
-        this._matchesSearch(appointment));
+        this._matchesSearch(appointment) && this._agQuickMatch(appointment));
     // Once the reception has recorded the exit the appointment is over: it
     // leaves the working agenda and folds into the "Usciti" section below.
     const exited = dayList.filter((appointment) => appointment.checked_out);
@@ -3467,80 +3818,7 @@ class SpaBookingCard extends HTMLElement {
     const list = this._showCheckedIn ? allActive : allActive.filter((appointment) => !appointment.checked_in);
     const totalMin = list.reduce((sum, item) => sum + (this._durationOf(item) || 0), 0);
 
-    const categoryChips = this._categoryChips();
-    const guestChips = this._guestChips();
 
-    // One row that never wraps: Oggi, the day arrows, then the two actions
-    // (print and new). The category and guest chips move to their own row
-    // below, so the bar itself always fits on a phone.
-    wrap.appendChild(
-      el(
-        "div",
-        { class: "row agenda-bar" },
-        // Calendario toggle button: left of Oggi. Shows opposite view name.
-        el("button", {
-          class: `btn primary small agenda-toggle`,
-          on: { click: () => { this._agendaTab = this._agendaTab === "agenda" ? "calendario" : "agenda"; this._render(); } },
-        },
-          el("ha-icon", { icon: this._agendaTab === "agenda" ? "mdi:calendar-month" : "mdi:view-day" }),
-          el("span", { class: "btn-label" }, this._agendaTab === "agenda" ? "Calendario" : "Agenda")
-        ),
-        el("button", {
-          class: "btn small",
-          on: { click: () => { this._day = todayStr(); this._render(); } },
-        }, "Oggi"),
-        el(
-          "button",
-          { class: "icon-btn", on: { click: () => { this._day = ymd(addDays(day, -1)); this._render(); } } },
-          el("ha-icon", { icon: "mdi:chevron-left" })
-        ),
-        el("input", {
-          class: "date-input",
-          type: "date",
-          value: this._day,
-          on: { change: (event) => { this._day = event.target.value || todayStr(); this._render(); } },
-        }),
-        el(
-          "button",
-          { class: "icon-btn", on: { click: () => { this._day = ymd(addDays(day, 1)); this._render(); } } },
-          el("ha-icon", { icon: "mdi:chevron-right" })
-        ),
-        el("button", {
-          class: "btn small",
-          title: "Stampa PDF",
-          on: { click: () => this._printDay() },
-        }, el("ha-icon", { icon: "mdi:printer" }),
-          el("span", { class: "btn-label" }, "Stampa PDF")),
-        el("button", {
-          class: "btn primary small",
-          title: "Nuovo",
-          disabled: this._busy,
-          style: this._can("book") ? null : "display: none",
-          on: {
-            click: () => {
-              this._form.date = this._day;
-              this._tab = "nuovo";
-              this._nuovoTab = "appuntamento";
-              this._render();
-            },
-          },
-        }, el("ha-icon", { icon: "mdi:plus" }),
-          el("span", { class: "btn-label" }, "Nuovo"))
-      )
-    );
-
-    // The filters have their own row: they can wrap freely without moving
-    // the bar above.
-    if (categoryChips.length || guestChips.length) {
-      wrap.appendChild(
-        el("div", { class: "row tight agenda-filters" },
-          ...categoryChips,
-          ...guestChips)
-      );
-    }
-
-    add(wrap, this._agendaStats(dayList));
-    wrap.appendChild(el("div", { class: "day-title" }, longDay(day)));
 
     // Today only: the clients leaving now or shortly, so the reception can
     // confirm each exit while it happens (or shortly after).
@@ -18884,6 +19162,132 @@ _renderClients() {
       .operators-column:only-child { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 10px; align-items: start; }
       .operators-column:only-child > .column-header { grid-column: 1 / -1; }
       .icon-btn.danger-icon { color: var(--sb-danger-fg, #c62828); }
+      /* 2.3.12: Agenda with week strip, timeline and phone cards */
+      .ag-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+      .ag-nav { display: flex; align-items: center; gap: 6px; min-width: 0; }
+      .ag-arrow { border: 1px solid var(--sb-line); border-radius: 10px; background: var(--sb-card, var(--card-background-color, #fff)); }
+      .ag-day { position: relative; display: flex; flex-direction: column; padding: 2px 6px; cursor: pointer; min-width: 0; }
+      .ag-day-name { font-size: 20px; font-weight: 800; line-height: 1.15; white-space: nowrap; }
+      .ag-day-rel { font-size: 12px; color: var(--secondary-text-color); }
+      .ag-date { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
+      .ag-views ha-icon { --mdc-icon-size: 16px; }
+      .ag-views button { display: inline-flex; align-items: center; gap: 6px; }
+      .ag-week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+      .ag-wd { all: unset; cursor: pointer; display: flex; flex-direction: column; gap: 1px; padding: 8px 10px; border-radius: 12px;
+        border: 1px solid var(--sb-line); background: var(--sb-card, var(--card-background-color, #fff)); min-width: 0; }
+      .ag-wd:focus-visible { outline: 2px solid var(--primary-color); }
+      .ag-wd-name { font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--secondary-text-color); }
+      .ag-wd-num { font-size: 18px; font-weight: 800; }
+      .ag-wd-count { font-size: 11.5px; color: var(--secondary-text-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .ag-wd-bar { height: 4px; border-radius: 2px; background: var(--sb-line); margin-top: 4px; overflow: hidden; }
+      .ag-wd-bar i { display: block; height: 100%; background: var(--primary-color); border-radius: 2px; }
+      .ag-wd.past { opacity: .55; }
+      .ag-wd.today .ag-wd-name { color: var(--primary-color); }
+      .ag-wd.on { border-color: var(--primary-color); box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary-color) 25%, transparent); opacity: 1; }
+      .ag-wd.on .ag-wd-num { color: var(--primary-color); }
+      .ag-kpis { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+      .ag-pills { display: flex; gap: 8px; flex-wrap: wrap; }
+      .ag-pill { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; padding: 7px 14px; border-radius: 999px; font-size: 13px;
+        border: 1px solid var(--sb-line); background: var(--sb-card, var(--card-background-color, #fff)); white-space: nowrap; }
+      .ag-pill b { font-size: 15px; }
+      .ag-pill.on { border-color: var(--primary-color); background: color-mix(in srgb, var(--primary-color) 10%, transparent); }
+      .ag-pill:focus-visible { outline: 2px solid var(--primary-color); }
+      .ag-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--primary-color); }
+      .ag-dot.in { background: #22a35a; } .ag-dot.wait { background: #e59a0b; } .ag-dot.due { background: #7c5cd6; }
+      .ag-filters { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; }
+      .ag-main { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 14px; align-items: start; }
+      .ag-tl { background: var(--sb-card, var(--card-background-color, #fff)); border: 1px solid var(--sb-line); border-radius: 14px; overflow: hidden; min-width: 0; }
+      .ag-hours, .ag-lane { display: grid; grid-template-columns: 170px minmax(0, 1fr); }
+      .ag-hours { border-bottom: 1px solid var(--sb-line); }
+      .ag-scale { position: relative; height: 30px; }
+      .ag-scale span { position: absolute; top: 8px; font-size: 11.5px; font-weight: 600; color: var(--secondary-text-color); padding-left: 5px;
+        border-left: 1px solid var(--sb-line); height: 22px; top: 8px; }
+      .ag-lane { border-bottom: 1px solid var(--sb-line); }
+      .ag-lane.free .ag-who-text span { color: #22a35a; }
+      .ag-lane-who { display: flex; align-items: center; gap: 9px; padding: 10px 12px; border-right: 1px solid var(--sb-line); min-width: 0; }
+      .ag-lane-who .user-avatar { width: 32px; height: 32px; font-size: 12px; }
+      .ag-lane-who .user-avatar.spa { background: color-mix(in srgb, var(--primary-color) 14%, transparent); color: var(--primary-color); display: grid; place-items: center; }
+      .ag-who-text { display: flex; flex-direction: column; min-width: 0; }
+      .ag-who-text b { font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .ag-who-text span { font-size: 11.5px; color: var(--secondary-text-color); }
+      .ag-track { position: relative; min-height: 70px;
+        background-image: linear-gradient(90deg, var(--sb-line) 1px, transparent 1px); background-repeat: repeat-x; }
+      .ag-ev { all: unset; box-sizing: border-box; cursor: pointer; position: absolute; height: 52px; padding: 6px 8px; border-radius: 9px; border-left: 4px solid;
+        font-size: 12px; line-height: 1.3; overflow: hidden; z-index: 1; display: flex; flex-direction: column; justify-content: center; min-width: 26px; }
+      .ag-ev b { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .ag-ev span { color: var(--secondary-text-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .ag-ev:hover { filter: brightness(.97); box-shadow: 0 2px 8px rgba(0,0,0,.12); }
+      .ag-ev:focus-visible { outline: 2px solid var(--primary-color); }
+      .ag-ev.conf { background: color-mix(in srgb, var(--primary-color) 13%, var(--sb-card, #fff)); border-color: var(--primary-color); }
+      .ag-ev.wait { background: var(--sb-warn-bg); border-color: #e59a0b; }
+      .ag-ev.in { background: var(--sb-ok-bg); border-color: #22a35a; }
+      .ag-ev.done { background: var(--sb-soft); border-color: #9ca3af; opacity: .75; }
+      .ag-pause { position: absolute; height: 52px; border-radius: 0 6px 6px 0;
+        background: repeating-linear-gradient(45deg, color-mix(in srgb, var(--primary-text-color) 12%, transparent) 0 3px, transparent 3px 7px); }
+      .ag-now { position: absolute; top: 0; bottom: 0; width: 2px; background: #e11d48; z-index: 2; pointer-events: none; }
+      .ag-legend { display: flex; gap: 14px; flex-wrap: wrap; padding: 10px 14px; font-size: 12px; color: var(--secondary-text-color); align-items: center; }
+      .ag-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; background: var(--primary-color); }
+      .ag-legend i.wait { background: #e59a0b; } .ag-legend i.in { background: #22a35a; } .ag-legend i.done { background: #9ca3af; }
+      .ag-legend i.pause { background: repeating-linear-gradient(45deg, #9ca3af 0 2px, transparent 2px 4px); }
+      .ag-legend i.now { width: 2px; background: #e11d48; }
+      .ag-legend .dim { margin-left: auto; }
+      .ag-side { display: flex; flex-direction: column; gap: 12px; position: sticky; top: 120px; }
+      .ag-panel { background: var(--sb-card, var(--card-background-color, #fff)); border: 1px solid var(--sb-line); border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; }
+      .ag-panel-head { display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 14px; margin-bottom: 4px; }
+      .ag-panel-head ha-icon { --mdc-icon-size: 18px; color: var(--primary-color); }
+      .ag-panel-head .badge { margin-left: auto; }
+      .ag-next { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-top: 1px solid var(--sb-line); cursor: pointer; }
+      .ag-panel-head + .ag-next { border-top: none; }
+      .ag-next-time { font-weight: 800; color: var(--primary-color); width: 44px; flex: none; font-variant-numeric: tabular-nums; }
+      .ag-next-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+      .ag-next-text b { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .ag-next-text span { font-size: 12px; color: var(--secondary-text-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .ag-act { flex: none; }
+      .ag-act.in { background: #22a35a; border-color: #22a35a; color: #fff; }
+      .ag-act.wait { background: #e59a0b; border-color: #e59a0b; color: #fff; }
+      .ag-phone { display: none; flex-direction: column; gap: 8px; }
+      .ag-part { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--secondary-text-color); margin-top: 6px; }
+      .ag-card { display: flex; gap: 12px; align-items: flex-start; padding: 12px; border-radius: 14px; cursor: pointer;
+        background: var(--sb-card, var(--card-background-color, #fff)); border: 1px solid var(--sb-line); border-left: 4px solid var(--primary-color); }
+      .ag-card.wait { border-left-color: #e59a0b; } .ag-card.in { border-left-color: #22a35a; } .ag-card.done { border-left-color: #9ca3af; opacity: .7; }
+      .ag-card:focus-visible { outline: 2px solid var(--primary-color); }
+      .ag-card-time { display: flex; flex-direction: column; font-weight: 800; color: var(--primary-color); font-size: 15px; line-height: 1.2; font-variant-numeric: tabular-nums; }
+      .ag-card-time small { color: var(--secondary-text-color); font-weight: 500; font-size: 12px; }
+      .ag-card-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+      .ag-card-body b { font-size: 14.5px; }
+      .ag-card-body > span { font-size: 13px; color: var(--secondary-text-color); }
+      .ag-tag { display: inline-flex !important; align-items: center; gap: 4px; align-self: flex-start; font-size: 11.5px !important; font-weight: 700;
+        padding: 2px 8px; border-radius: 999px; margin-top: 4px; }
+      .ag-tag ha-icon { --mdc-icon-size: 14px; }
+      .ag-tag.wait { background: var(--sb-warn-bg); color: var(--sb-warn-fg) !important; }
+      .ag-tag.in { background: var(--sb-ok-bg); color: var(--sb-ok-fg) !important; }
+      .ag-card-side { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex: none; }
+      @container (max-width: 760px) {
+        .ag-main { display: none; }
+        .ag-phone { display: flex; }
+        .ag-week { gap: 4px; }
+        .ag-wd { padding: 6px 2px; align-items: center; }
+        .ag-wd-count { display: none; }
+        .ag-wd-num { font-size: 16px; }
+        .ag-day-name { font-size: 17px; }
+        .ag-views .btn-label, .ag-print { display: none; }
+        .ag-pills { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+        .ag-filters { margin-left: 0; }
+      }
+      @media (max-width: 760px) {
+        .ag-main { display: none; }
+        .ag-phone { display: flex; }
+        .ag-wd { padding: 6px 2px; align-items: center; }
+        .ag-wd-count { display: none; }
+        .ag-views .btn-label, .ag-print { display: none; }
+        .ag-pills { flex-wrap: nowrap; overflow-x: auto; }
+      }
+      @container (max-width: 1080px) and (min-width: 761px) {
+        .ag-main { grid-template-columns: minmax(0, 1fr); }
+        .ag-side { position: static; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+        .ag-hours, .ag-lane { grid-template-columns: 130px minmax(0, 1fr); }
+      }
+
       /* 2.3.10: Nuovo appuntamento in steps, with the live summary */
       .nv-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start; }
       .nv-steps { display: flex; flex-direction: column; gap: 12px; min-width: 0; }

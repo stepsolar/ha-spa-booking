@@ -1,6 +1,6 @@
 # Spa Booking — guida alle schede (2.2)
 
-Aggiornata alla 2.3.11: [Nuovo appuntamento a passi](#nuovo-appuntamento-a-passi-2310); [promo salvate e modelli](#promo-salvate-e-modelli-239); [Promo e Impostazioni](#promo-e-impostazioni-238); [Notifiche](#notifiche-236); [messaggi e chat](#messaggi-e-chat-235); [preferenza massaggiatrice/massaggiatore](#preferenza-massaggiatrice-o-massaggiatore); [promo e fedeltà del cliente](#promo-e-fedeltà-del-cliente); [conferme e promemoria WhatsApp](#conferme-e-promemoria-whatsapp); [firme e storico](#firme-e-storico); [chiusure con giorni esclusi](#chiusure-con-giorni-esclusi); [Proponi data](#proponi-data) nelle richieste, con trattamenti alternativi e prezzo; [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
+Aggiornata alla 2.3.12: [Agenda](#agenda-2312); [Nuovo appuntamento a passi](#nuovo-appuntamento-a-passi-2310); [promo salvate e modelli](#promo-salvate-e-modelli-239); [Promo e Impostazioni](#promo-e-impostazioni-238); [Notifiche](#notifiche-236); [messaggi e chat](#messaggi-e-chat-235); [preferenza massaggiatrice/massaggiatore](#preferenza-massaggiatrice-o-massaggiatore); [promo e fedeltà del cliente](#promo-e-fedeltà-del-cliente); [conferme e promemoria WhatsApp](#conferme-e-promemoria-whatsapp); [firme e storico](#firme-e-storico); [chiusure con giorni esclusi](#chiusure-con-giorni-esclusi); [Proponi data](#proponi-data) nelle richieste, con trattamenti alternativi e prezzo; [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
 
 Questa guida mostra ogni scheda della dashboard **Spa Booking** e spiega a
 cosa serve ogni funzione. Le immagini sono state fatte con dati di prova.
@@ -32,6 +32,31 @@ in Impostazioni › Aspetto).
 
 
 
+
+## Agenda (2.3.12)
+
+- **In alto**: il giorno per esteso (toccalo per scegliere una data), le
+  frecce, «Oggi», le viste **Timeline**, **Elenco** (quella di prima, per
+  operatrice) e **Mese**, poi Stampa e Nuovo.
+- **La settimana**: sette riquadri con il numero di appuntamenti e una barretta
+  di quanto è pieno il giorno. Tocca un giorno per aprirlo.
+- **Le pillole** (appuntamenti, in sala ora, da confermare, da incassare):
+  toccane una per vedere solo quelli; ritoccala per tornare a tutti. Accanto, i
+  filtri per categoria e ospite.
+- **Timeline** (computer e tablet): una riga per operatrice e una per i
+  trattamenti senza operatrice (Spa). Colori: blu confermato, arancione in
+  attesa, verde in sala, grigio concluso; il tratteggio è la pausa dopo il
+  trattamento, la linea rossa è l'ora attuale. Tocca un appuntamento per aprire
+  la scheda con Entrata, Uscita, Modifica, Incassa, Chiama, WhatsApp, Annulla.
+  A lato: le uscite del momento, i prossimi arrivi con «Entrata» e quelli da
+  confermare.
+- **Sul telefono**: le schede del giorno divise in mattina, pomeriggio e sera.
+  Ogni scheda ha un solo pulsante, quello che serve adesso (Conferma, Entrata o
+  Uscita), e «⋯» per aprire la scheda completa.
+
+| | |
+|---|---|
+| ![Timeline](anteprime/40-agenda-timeline.png) | ![Sul telefono](anteprime/41-agenda-telefono.png) |
 
 ## Nuovo appuntamento a passi (2.3.10)
 
