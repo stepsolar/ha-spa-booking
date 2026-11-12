@@ -1376,6 +1376,13 @@ def _norm_partner(raw: Any) -> dict[str, Any]:
         # Campaign emails received (2.5.0).
         "campaigns_sent": _norm_count(raw.get("campaigns_sent"), 0, 10**6, 0),
         "campaign_last_at": str(raw.get("campaign_last_at") or ""),
+        # The structure and the newsletter (2.6.0): subscribed unless they opt out.
+        "city": str(raw.get("city") or "").strip(),
+        "structure_type": str(raw.get("structure_type") or "").strip(),
+        "whatsapp": bool(raw.get("whatsapp", False)),
+        "subscribed": bool(raw.get("subscribed", True)),
+        "unsubscribed_at": str(raw.get("unsubscribed_at") or ""),
+        "unsub_token": str(raw.get("unsub_token") or secrets.token_urlsafe(18)),
     }
 
 

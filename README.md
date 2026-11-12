@@ -133,6 +133,14 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v2.6.0** — **Partner: importa file e newsletter** (serve il riavvio di
+  Home Assistant): in Clienti › Partner il tasto «Importa file» carica un CSV
+  (Nome struttura, Tipo, Nome, Cognome o Titolare, Città, Telefono, WhatsApp,
+  Email) senza creare doppioni a parità di email; «Modello» scarica il file
+  d'esempio. Nuovi campi città, tipo di struttura, WhatsApp e «Iscritto a
+  email e promo» (attivo di default). Ogni campagna partner ha in fondo il
+  link per cancellarsi: chi si cancella non riceve più nulla, nemmeno dopo un
+  nuovo import. Filtri Iscritti, Disiscritti, Senza email.
 - **v2.5.5** — **Nuova vista Mese** dell'agenda (basta ricaricare la pagina):
   intestazione come la giornata (Timeline / Elenco / Mese), pillole del mese,
   primi appuntamenti dentro ogni giorno coi colori delle categorie, barretta

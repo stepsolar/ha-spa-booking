@@ -83,6 +83,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.http.register_view(GoogleCallbackView())
         hass.data[f"{DOMAIN}_google_view"] = True
 
+    # The unsubscribe page of the partner campaigns (2.6.0).
+    if not hass.data.get(f"{DOMAIN}_unsub_view"):
+        from .partner_unsub import PartnerUnsubscribeView
+
+        hass.http.register_view(PartnerUnsubscribeView())
+        hass.data[f"{DOMAIN}_unsub_view"] = True
+
     add_extra_js_url(hass, coordinator.card_js_url())
     await coordinator._async_sync_card_resource()
 

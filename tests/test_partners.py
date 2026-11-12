@@ -127,3 +127,46 @@ def test_billing_data(coordinator) -> None:
     settings = coordinator._data["settings"]
     assert settings["billing_company"] == "Il Marchese S.r.l."
     assert settings["billing_vat_number"] == "01234567890" and settings["billing_province"] == "AG"
+
+
+def test_import_and_unsubscribe(coordinator, monkeypatch, freeze) -> None:
+    """Import from a file (2.6.0): no duplicates; an unsubscribed partner gets nothing."""
+    freeze("2026-11-10 08:00")
+    existing = _partner(coordinator)
+    result = run(coordinator.async_import_partners([
+        {"company": "Hotel Mare", "city": "Menfi", "email": "INFO@hotelmare.it", "phone": "0925 1", "whatsapp": "sì",
+         "structure_type": "Hotel"},
+        {"company": "B&B Il Faro", "email": "faro@example.com", "city": "Sciacca"},  # same email: completed
+        {"company": "Senza contatti"},  # no email nor phone: skipped
+        {"company": "Hotel Mare", "city": "Menfi", "email": "info@hotelmare.it"},  # twice in the file
+    ]))
+    assert result == {"added": 1, "updated": 1, "skipped": 2}
+    mare = next(p for p in coordinator.partners if p["company"] == "Hotel Mare")
+    assert mare["email"] == "info@hotelmare.it" and mare["whatsapp"] and mare["subscribed"] and mare["code"].startswith("PRT-")
+    assert next(p for p in coordinator.partners if p["id"] == existing["id"])["city"] == "Sciacca"
+
+    mails = []
+
+    async def deliver(to, subject, body, html=None):
+        mails.append((to, body))
+        return {"sent": True, "to": [to]}
+
+    monkeypatch.setattr(coordinator, "_async_deliver_email", deliver)
+    coordinator._data["settings"].update(email_enabled=True, web_public_url="https://casa.example.com")
+    run(coordinator.async_update_settings(partner_campaigns=[{"id": "c1", "name": "Promo", "message": "Ciao {nome}"}]))
+    run(coordinator.async_send_partner_campaign("c1"))
+    assert sorted(m[0] for m in mails) == ["faro@example.com", "info@hotelmare.it"]
+    body = next(b for to, b in mails if to == "info@hotelmare.it")
+    assert f"https://casa.example.com/api/spa_booking/partner/unsubscribe?t={mare['unsub_token']}" in body
+    # The link unsubscribes; a wrong token does nothing.
+    assert run(coordinator.async_partner_unsubscribe("x" * 20)) is None
+    run(coordinator.async_partner_unsubscribe(mare["unsub_token"]))
+    assert mare["subscribed"] is False and mare["unsubscribed_at"]
+    mails.clear()
+    run(coordinator.async_send_partner_campaign("c1"))
+    assert [m[0] for m in mails] == ["faro@example.com"]
+    # A new import with the same email does not subscribe it again.
+    run(coordinator.async_import_partners([{"company": "Hotel Mare", "email": "info@hotelmare.it"}]))
+    assert mare["subscribed"] is False
+    run(coordinator.async_delete_partner(mare["id"]))
+    assert all(p["id"] != mare["id"] for p in coordinator.partners)

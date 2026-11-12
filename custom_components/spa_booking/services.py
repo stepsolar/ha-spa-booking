@@ -139,6 +139,7 @@ SERVICE_PARTNER_POINTS_ADJUST = "partner_points_adjust"
 SERVICE_SET_APPOINTMENT_PARTNER = "set_appointment_partner"
 SERVICE_SEND_PARTNER_CAMPAIGN = "send_partner_campaign"
 SERVICE_DELETE_PARTNER = "delete_partner"
+SERVICE_IMPORT_PARTNERS = "import_partners"
 SERVICE_PROMO_VOUCHER_TICK = "promo_voucher_tick"
 SERVICE_SEND_OPERATOR_MESSAGE = "send_operator_message"
 SERVICE_SEND_GUEST_SUMMARY = "send_guest_summary"
@@ -245,6 +246,7 @@ ALL_SERVICES = (
     SERVICE_SET_APPOINTMENT_PARTNER,
     SERVICE_SEND_PARTNER_CAMPAIGN,
     SERVICE_DELETE_PARTNER,
+    SERVICE_IMPORT_PARTNERS,
     SERVICE_PROMO_VOUCHER_TICK,
     SERVICE_SEND_OPERATOR_MESSAGE,
     SERVICE_SEND_GUEST_SUMMARY,
@@ -1228,8 +1230,16 @@ SAVE_PARTNER_SCHEMA = vol.Schema(
         vol.Optional("code"): vol.Any(cv.string, None),
         vol.Optional("notes"): vol.Any(cv.string, None),
         vol.Optional("active"): vol.Any(cv.boolean, None),
+        vol.Optional("city"): vol.Any(cv.string, None),
+        vol.Optional("structure_type"): vol.Any(cv.string, None),
+        vol.Optional("whatsapp"): vol.Any(cv.boolean, None),
+        vol.Optional("subscribed"): vol.Any(cv.boolean, None),
     },
     extra=vol.PREVENT_EXTRA,
+)
+
+IMPORT_PARTNERS_SCHEMA = vol.Schema(
+    {vol.Required("partners"): vol.All(cv.ensure_list, [dict])}, extra=vol.PREVENT_EXTRA
 )
 
 PARTNER_POINTS_ADJUST_SCHEMA = vol.Schema(
@@ -1739,6 +1749,11 @@ async def _async_send_partner_campaign(call: ServiceCall) -> ServiceResponse:
     return await _coordinator(call).async_send_partner_campaign(
         call.data["campaign_id"], call.data.get("test_to") or ""
     )
+
+
+async def _async_import_partners(call: ServiceCall) -> ServiceResponse:
+    """Add many partners at once, from the file the card read (2.6.0)."""
+    return await _coordinator(call).async_import_partners(call.data["partners"])
 
 
 async def _async_delete_partner(call: ServiceCall) -> ServiceResponse:
@@ -2983,6 +2998,7 @@ _HANDLERS: dict[str, tuple[Any, Any, SupportsResponse]] = {
     SERVICE_LOYALTY_ADJUST: (_async_loyalty_adjust, LOYALTY_ADJUST_SCHEMA, SupportsResponse.ONLY),
     SERVICE_SAVE_PARTNER: (_async_save_partner, SAVE_PARTNER_SCHEMA, SupportsResponse.ONLY),
     SERVICE_DELETE_PARTNER: (_async_delete_partner, DELETE_PARTNER_SCHEMA, SupportsResponse.ONLY),
+    SERVICE_IMPORT_PARTNERS: (_async_import_partners, IMPORT_PARTNERS_SCHEMA, SupportsResponse.ONLY),
     SERVICE_PARTNER_POINTS_ADJUST: (_async_partner_points_adjust, PARTNER_POINTS_ADJUST_SCHEMA, SupportsResponse.ONLY),
     SERVICE_SET_APPOINTMENT_PARTNER: (_async_set_appointment_partner, SET_APPOINTMENT_PARTNER_SCHEMA, SupportsResponse.ONLY),
     SERVICE_SEND_PARTNER_CAMPAIGN: (_async_send_partner_campaign, SEND_PARTNER_CAMPAIGN_SCHEMA, SupportsResponse.ONLY),
@@ -3253,6 +3269,7 @@ SERVICE_LEVELS: dict[str, str] = {
     SERVICE_LOYALTY_ADJUST: "manager",
     SERVICE_SAVE_PARTNER: "operator",
     SERVICE_DELETE_PARTNER: "manager",
+    SERVICE_IMPORT_PARTNERS: "manager",
     SERVICE_PARTNER_POINTS_ADJUST: "manager",
     SERVICE_SET_APPOINTMENT_PARTNER: "operator",
     SERVICE_SEND_PARTNER_CAMPAIGN: "manager",
