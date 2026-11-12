@@ -1636,6 +1636,9 @@ loyalty_adjust:
       selector:
         text:
 
+delete_all_partners:
+  name: Svuota lista partner
+  description: Elimina tutti i partner, per importarli di nuovo da capo.
 wp_sync:
   name: Sincronizza shop online
   description: Legge subito i voucher venduti sullo shop WordPress («Buoni PDF»).

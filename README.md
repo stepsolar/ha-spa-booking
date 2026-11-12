@@ -133,6 +133,13 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v2.7.3** — **Corretto: i partner non comparivano.** La card non
+  caricava partner, punti dei partner e punti fedeltà dei clienti (erano
+  salvati, ma la lista restava vuota dopo ogni aggiornamento della pagina):
+  ora si vedono. Partner: filtro per città, lista a pagine (100 alla volta),
+  tasto «Svuota lista» con conferma. Campagne partner: «Solo alcune città»,
+  con il numero di destinatari aggiornato (serve il riavvio di Home
+  Assistant).
 - **v2.7.2** — Shop online: nell'abbinamento il campo **gift card (valore
   in €)**: nessuna, valore fisso o «prezzo pagato» (per le gift card a
   importo libero). Il credito va sul voucher (prima persona) e si aggiorna

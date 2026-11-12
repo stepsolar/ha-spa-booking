@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.7.2";
+const CARD_VERSION = "2.7.3";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -1312,6 +1312,11 @@ class SpaBookingCard extends HTMLElement {
         slot_blocks: data.slot_blocks || [],
         closures: data.closures || [],
         settings: data.settings || {},
+        // Partners and points (2.4.0) were never copied here: the list
+        // stayed empty after every reload (fixed in 2.7.3).
+        partners: data.partners || [],
+        loyalty: data.loyalty || {},
+        partner_points: data.partner_points || {},
       };
       // The notification and promo forms keep their unsaved edits across a
       // reload, so the placeholder of the saved values must not overwrite them.
@@ -10452,8 +10457,36 @@ class SpaBookingCard extends HTMLElement {
       el("span", {}, el("b", {}, `${partners.length} partner · ${subscribed} iscritti a email e promo. `),
         "Le campagne vanno solo agli iscritti; ogni email ha in fondo il link per cancellarsi. Importa un file CSV con le colonne Nome struttura, Nome, Cognome, Città, Tipo, Telefono, WhatsApp, Email.")));
     const filter = this._partnerFilter || "";
-    wrap.appendChild(el("div", { class: "row chips" }, [["", "Tutti"], ["sub", "Iscritti"], ["unsub", "Disiscritti"], ["noemail", "Senza email"]].map(([id, text]) =>
-      el("button", { class: `pm-chip${filter === id ? " info" : ""}`, style: "cursor:pointer;border:0", on: { click: () => { this._partnerFilter = id; this._render(); } } }, text))));
+    const cityOf = (p) => String(p.city || "").trim();
+    const cityCounts = new Map();
+    partners.forEach((p) => { const c = cityOf(p); if (c) cityCounts.set(c, (cityCounts.get(c) || 0) + 1); });
+    const city = this._partnerCity || "";
+    wrap.appendChild(el("div", { class: "row chips" },
+      [["", "Tutti"], ["sub", "Iscritti"], ["unsub", "Disiscritti"], ["noemail", "Senza email"]].map(([id, text]) =>
+        el("button", { class: `pm-chip${filter === id ? " info" : ""}`, style: "cursor:pointer;border:0", on: { click: () => { this._partnerFilter = id; this._render(); } } }, text)),
+      cityCounts.size ? el("select", { class: "input partner-city", style: "width:auto;min-width:180px", on: { change: (event) => { this._partnerCity = event.target.value; this._render(); } } },
+        el("option", { value: "" }, "Tutte le città"),
+        ...[...cityCounts.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([name, count]) =>
+          el("option", { value: name, selected: city === name }, `${name} (${count})`))) : null,
+      el("span", { class: "spacer" }),
+      canEdit && this._can("config") && partners.length ? el("button", { class: "btn small ghost danger", on: { click: () => { this._partnerReset = true; this._render(); } } },
+        el("ha-icon", { icon: "mdi:delete-sweep-outline" }), "Svuota lista") : null));
+    if (this._partnerReset) {
+      wrap.appendChild(el("div", { class: "cfg-box pg-step" },
+        el("div", { class: "pg-sum warn" }, el("ha-icon", { icon: "mdi:alert-outline" }),
+          el("span", {}, el("b", {}, `Eliminare tutti i ${partners.length} partner? `),
+            "Non si può annullare (salvo un backup in Impostazioni › Dati e backup). Le prenotazioni restano, ma non sono più collegate a un partner.")),
+        el("div", { class: "row" }, el("span", { class: "spacer" }),
+          el("button", { class: "btn", on: { click: () => { this._partnerReset = false; this._render(); } } }, "Annulla"),
+          el("button", { class: "btn primary danger", disabled: this._busy, on: { click: async () => {
+            try {
+              const r = await this._call("delete_all_partners", {});
+              this._partnerReset = false;
+              this._message = { kind: "ok", text: `Eliminati ${(r && r.deleted) || 0} partner: ora puoi importare di nuovo il file.` };
+              this._render();
+            } catch (error) { /* shown */ }
+          } } }, el("ha-icon", { icon: "mdi:delete-sweep" }), `Elimina ${partners.length} partner`))));
+    }
 
     add(wrap, this._partnerImportPanel());
     if (this._partnerDraft) {
@@ -10499,13 +10532,16 @@ class SpaBookingCard extends HTMLElement {
     const shown = partners.filter((p) => (!query || [p.first_name, p.last_name, p.company, p.city, p.structure_type, p.phone, p.email, p.code, p.notes]
       .join(" ").toLowerCase().includes(query))
       && (filter !== "sub" || p.subscribed !== false) && (filter !== "unsub" || p.subscribed === false)
-      && (filter !== "noemail" || !p.email));
+      && (filter !== "noemail" || !p.email)
+      && (!city || cityOf(p) === city));
     if (!shown.length) {
       wrap.appendChild(el("div", { class: "empty" }, query ? "Nessun partner trovato." : "Nessun partner ancora. Aggiungine uno con «Nuovo partner»."));
       return wrap;
     }
     const list = el("div", { class: "stack tight client-list cfg-box" });
-    shown.forEach((partner, index) => {
+    // Hundreds of partners: draw them a page at a time (2.7.3).
+    const limit = this._partnerLimit || 100;
+    shown.slice(0, limit).forEach((partner, index) => {
       const name = [partner.first_name, partner.last_name].filter(Boolean).join(" ");
       list.appendChild(el("div", { class: "client-row" },
         el("span", { class: `user-avatar tone-${(index + 3) % 6}` }, this._initials(partner.company || name)),
@@ -10547,6 +10583,10 @@ class SpaBookingCard extends HTMLElement {
           } } }, el("ha-icon", { icon: "mdi:delete" })) : null)));
     });
     wrap.appendChild(list);
+    if (shown.length > limit) {
+      wrap.appendChild(el("div", { class: "row" }, el("span", { class: "dim small" }, `${limit} di ${shown.length} mostrati`),
+        el("button", { class: "btn small", on: { click: () => { this._partnerLimit = limit + 200; this._render(); } } }, "Mostra altri")));
+    }
     return wrap;
   }
 
@@ -15589,10 +15629,35 @@ class SpaBookingCard extends HTMLElement {
         ? el("div", { class: "pg-sum warn" }, el("ha-icon", { icon: "mdi:alert-outline" }), el("span", {}, "Nel testo manca {link_prenotazione}: senza il link personale le prenotazioni non portano punti al partner."))
         : null));
 
+    // 2. Who (2.7.3): every subscribed partner, or only some towns.
+    const reachable = partners.filter((p) => p.subscribed !== false);
+    const byCity = new Map();
+    reachable.forEach((p) => { const c = String(p.city || "").trim() || "—"; byCity.set(c, (byCity.get(c) || 0) + 1); });
+    const chosenCities = new Set(campaign.cities || []);
+    const targets = chosenCities.size ? reachable.filter((p) => chosenCities.has(String(p.city || "").trim())) : reachable;
+    const toggleCity = (name) => {
+      const next = new Set(chosenCities);
+      if (next.has(name)) next.delete(name); else next.add(name);
+      campaign.cities = [...next].sort();
+      changed();
+      this._render();
+    };
     wrap.appendChild(this._pageStep(2, "A chi",
+      el("div", { class: "pg-seg", role: "radiogroup" },
+        [["all", "Tutti i partner"], ["cities", "Solo alcune città"]].map(([id, label]) => el("button", {
+          type: "button", class: (chosenCities.size ? "cities" : (this._pcCityMode === campaign.id ? "cities" : "all")) === id ? "on" : "", role: "radio",
+          on: { click: () => { this._pcCityMode = id === "cities" ? campaign.id : null; if (id === "all") { campaign.cities = []; changed(); } this._render(); } },
+        }, label))),
+      chosenCities.size || this._pcCityMode === campaign.id
+        ? el("div", { class: "shop-chips" }, [...byCity.entries()].filter(([name]) => name !== "—").sort((a, b) => a[0].localeCompare(b[0])).map(([name, count]) =>
+            el("button", { type: "button", class: `shop-chip${chosenCities.has(name) ? " on" : ""}`, on: { click: () => toggleCity(name) } },
+              chosenCities.has(name) ? el("ha-icon", { icon: "mdi:check" }) : null, `${name} · ${count}`)))
+        : null,
       el("div", { class: "pg-sum" }, el("ha-icon", { icon: "mdi:account-group-outline" }),
-        el("span", {}, "Ai ", el("b", {}, `${partners.length} partner attivi con email`),
-          (this._data.partners || []).length > partners.length ? ` (${(this._data.partners || []).length - partners.length} senza email o non attivi restano esclusi).` : "."))));
+        el("span", {}, "Partirà a ", el("b", {}, `${targets.length} partner`),
+          chosenCities.size ? ` di ${[...chosenCities].join(", ")}` : "",
+          " (attivi, iscritti e con email).",
+          (this._data.partners || []).length > reachable.length ? ` ${(this._data.partners || []).length - reachable.length} senza email, non attivi o disiscritti restano esclusi.` : ""))));
 
     const mode = campaign.mode || "giorno";
     const at = campaign.date && campaign.time ? parseLocal(campaign.date, campaign.time) : null;

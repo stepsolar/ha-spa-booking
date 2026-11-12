@@ -3144,8 +3144,12 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Unsubscribed partners (2.6.0) receive nothing at all.
         targets = [p for p in self.partners
                    if p.get("active", True) and p.get("subscribed", True) and "@" in str(p.get("email") or "")]
+        # Only some towns (2.7.3).
+        cities = {str(c).strip().lower() for c in campaign.get("cities") or [] if str(c).strip()}
+        if cities:
+            targets = [p for p in targets if str(p.get("city") or "").strip().lower() in cities]
         if not targets:
-            raise ValidationError("Nessun partner attivo e iscritto con email")
+            raise ValidationError("Nessun partner attivo e iscritto con email" + (" nelle città scelte" if cities else ""))
         sent = 0
         errors: list[str] = []
         for index, partner in enumerate(targets):
@@ -3477,6 +3481,17 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 voucher["redeemed_at"] = voucher["wp_redeemed_at"]
             await self._async_save()
         return {"ok": True}
+
+    async def async_delete_all_partners(self) -> dict[str, Any]:
+        """Empty the partner list (2.7.3), to import it again from scratch.
+
+        The bookings keep their partner id, which then names nobody.
+        """
+        async with self._lock:
+            count = len(self.partners)
+            self._data[KEY_PARTNERS] = []
+            await self._async_save()
+        return {"deleted": count}
 
     async def async_delete_partner(self, partner_id: str) -> dict[str, Any]:
         """Remove a partner from the list."""

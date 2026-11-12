@@ -170,3 +170,27 @@ def test_import_and_unsubscribe(coordinator, monkeypatch, freeze) -> None:
     assert mare["subscribed"] is False
     run(coordinator.async_delete_partner(mare["id"]))
     assert all(p["id"] != mare["id"] for p in coordinator.partners)
+
+
+def test_campaign_by_city_and_empty_list(coordinator, monkeypatch, freeze) -> None:
+    """2.7.3: a campaign to some towns only; the list can be emptied."""
+    freeze("2026-11-10 08:00")
+    run(coordinator.async_import_partners([
+        {"company": "Hotel A", "city": "Sciacca", "email": "a@x.it"},
+        {"company": "Hotel B", "city": "Menfi", "email": "b@x.it"},
+        {"company": "Hotel C", "city": "sciacca ", "email": "c@x.it"},
+    ]))
+    mails = []
+
+    async def deliver(to, subject, body, html=None):
+        mails.append(to)
+        return {"sent": True, "to": [to]}
+
+    monkeypatch.setattr(coordinator, "_async_deliver_email", deliver)
+    coordinator._data["settings"]["email_enabled"] = True
+    run(coordinator.async_update_settings(partner_campaigns=[{"id": "c1", "name": "Sciacca", "message": "Ciao", "cities": ["Sciacca"]}]))
+    assert coordinator._data["settings"]["partner_campaigns"][0]["cities"] == ["Sciacca"]
+    run(coordinator.async_send_partner_campaign("c1"))
+    assert sorted(mails) == ["a@x.it", "c@x.it"]
+    assert run(coordinator.async_delete_all_partners()) == {"deleted": 3}
+    assert coordinator.partners == []

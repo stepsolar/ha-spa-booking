@@ -1393,6 +1393,8 @@ def _norm_partner_campaign(raw: Any) -> dict[str, Any] | None:
         "sent_at": str(raw.get("sent_at") or ""),
         "sent_count": _norm_count(raw.get("sent_count"), 0, 10**6, 0),
         "last_error": str(raw.get("last_error") or ""),
+        # Only the partners of these towns (2.7.3); empty = everyone.
+        "cities": sorted({str(c).strip() for c in raw.get("cities") or [] if str(c).strip()})[:200],
     }
 
 
