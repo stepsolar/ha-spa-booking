@@ -91,3 +91,12 @@ card._data.partners = [{ id: "p1", first_name: "Giulia", company: "B&B Mare", co
 card._clientsTab = "partner";
 const partnersPage = card._renderClients();
 assert(partnersPage.textContent.includes("B&B Mare") && partnersPage.textContent.includes("PRT-1A2B"), "partner listed with its code");
+
+// 2.5.5: the month shows the day's first appointments and the chosen day beside.
+card._month = new Date(`${day}T00:00:00`);
+card._data.closures = card._data.closures || [];
+const monthPage = card._renderCalendar();
+assert(byClass(monthPage, "mo-c").length >= 35, "a cell per day");
+assert(byClass(monthPage, "mo-c today").length + byClass(monthPage, "mo-c sel").length >= 1, "today or the chosen day marked");
+assert(byClass(monthPage, "mo-ev").length >= 1, "appointments inside the cells");
+assert(byClass(monthPage, "mo-day")[0].textContent.includes("Apri la giornata"), "the chosen day beside, with its button");

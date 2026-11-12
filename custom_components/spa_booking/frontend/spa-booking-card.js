@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.5.4";
+const CARD_VERSION = "2.5.5";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -3572,7 +3572,6 @@ class SpaBookingCard extends HTMLElement {
       : diff > 0 ? `fra ${diff} giorni` : `${-diff} giorni fa`;
     const go = (value) => { this._day = value; this._render(); };
     const label = longDay(day).replace(/ \d{4}$/, "");
-    const views = [["timeline", "Timeline", "mdi:chart-timeline"], ["elenco", "Elenco", "mdi:format-list-bulleted"], ["mese", "Mese", "mdi:calendar-month"]];
     return el("div", { class: "ag-head" },
       el("div", { class: "ag-nav" },
         el("button", { class: "icon-btn ag-arrow", title: "Giorno prima", on: { click: () => go(ymd(addDays(day, -1))) } }, el("ha-icon", { icon: "mdi:chevron-left" })),
@@ -3583,14 +3582,7 @@ class SpaBookingCard extends HTMLElement {
             on: { change: (event) => go(event.target.value || todayStr()) } })),
         el("button", { class: "icon-btn ag-arrow", title: "Giorno dopo", on: { click: () => go(ymd(addDays(day, 1))) } }, el("ha-icon", { icon: "mdi:chevron-right" })),
         diff !== 0 ? el("button", { class: "btn small", on: { click: () => go(todayStr()) } }, "Oggi") : null),
-      el("div", { class: "pg-seg ag-views", role: "radiogroup" },
-        views.map(([id, text, icon]) => el("button", {
-          type: "button", class: view === id ? "on" : "", role: "radio", "aria-checked": view === id ? "true" : "false",
-          on: { click: () => {
-            if (id === "mese") { this._agendaTab = "calendario"; } else { this._agendaView = id; }
-            this._render();
-          } },
-        }, el("ha-icon", { icon }), el("span", { class: "btn-label" }, text)))),
+      this._agViews(view),
       el("span", { class: "spacer" }),
       el("button", { class: "btn small ag-print", title: "Stampa PDF", on: { click: () => this._printDay() } },
         el("ha-icon", { icon: "mdi:printer" }), el("span", { class: "btn-label" }, "Stampa")),
@@ -8487,200 +8479,239 @@ class SpaBookingCard extends HTMLElement {
     return wrap;
   }
 
-  /**
-   * Every appointment of the month, one per line, under its day.
-   *
-   * All of them, not only the coming days: the same view is the way to read a
-   * month that is already over, and a column that empties itself when you page
-   * back through the calendar answers nothing. Cancelled ones are already gone
-   * here, because they are not part of the month that is still to come.
-   */
-  _renderMonthAgenda(monthAppointments, month, total, totalMin) {
-    const side = el("div", { class: "stack tight month-side" });
-    side.appendChild(
-      el("h3", {}, `Appuntamenti di ${MESI[month.getMonth()].toLowerCase()}`)
-    );
-    side.appendChild(
-      el("div", { class: "dim small" },
-        `${counted(total, "appuntamento", "appuntamenti")} · ${minutesLabel(totalMin)}`)
-    );
-
-    const days = [...monthAppointments.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-    if (!days.length) {
-      side.appendChild(el("div", { class: "hint" }, "Nessun appuntamento in questo mese."));
-      return side;
-    }
-
-    const list = el("div", { class: "month-list" });
-    const today = todayStr();
-    days.forEach(([key, items]) => {
-      const isToday = key === today;
-      list.appendChild(
-        el("div", { class: `month-day${isToday ? " today" : ""}` },
-          el("button", {
-            class: "month-day-head",
-            on: {
-              click: () => {
-                this._day = key;
-                this._tab = "agenda";
-                this._render();
-              },
-            },
-          },
-          el("span", {}, shortDay(new Date(`${key}T00:00:00`))),
-          isToday ? el("span", { class: "chip" }, "oggi") : null,
-          el("span", { class: "badge" }, String(items.length))))
-      );
-
-      [...items]
-        .sort((a, b) => String(a.start).localeCompare(String(b.start)))
-        .forEach((item) => {
-          list.appendChild(
-            el("div", { class: "month-row" },
-              el("span", { class: "month-time" }, timeOf(parseDate(item.start))),
-              el("span", { class: "grow month-body" },
-                el("div", { class: "month-client" }, this._clientName(item)),
-                el("div", { class: "dim small" },
-                  `${this._treatmentName(item)} · ${minutesLabel(this._durationOf(item))}`)),
-              el("span", { class: "dim small month-op" }, this._operatorName(item)))
-          );
-        });
-    });
-    side.appendChild(list);
-    return side;
+  /** «Anna Rossi» → «Anna R.»: a month cell has room for a dozen letters. */
+  _moShortName(appointment) {
+    const name = String(this._clientName(appointment) || "").trim();
+    const parts = name.split(/\s+/);
+    return parts.length > 1 && !/^\d+$/.test(parts[parts.length - 1])
+      ? `${parts.slice(0, -1).join(" ")} ${parts[parts.length - 1][0]}.` : name;
   }
 
+  /** The category colour of an appointment, or the card's own. */
+  _moColor(appointment) {
+    const treatment = appointment.treatment_id && this._lookup.treatment.get(appointment.treatment_id);
+    const category = treatment ? this._categoryOf(treatment) : null;
+    return (category && category.color) || "var(--primary-color)";
+  }
+
+  /** What the day takes in, VAT included (treatments and extras). */
+  _moTakings(list) {
+    return Math.round(list.reduce((sum, appointment) => {
+      const line = this._lineBreakdown(appointment);
+      return sum + line.price + line.extras;
+    }, 0) * 100) / 100;
+  }
+
+  /** The agenda views (Timeline, Elenco, Mese) as one segmented control. */
+  _agViews(view) {
+    const views = [["timeline", "Timeline", "mdi:chart-timeline"], ["elenco", "Elenco", "mdi:format-list-bulleted"], ["mese", "Mese", "mdi:calendar-month"]];
+    return el("div", { class: "pg-seg ag-views", role: "radiogroup" },
+      views.map(([id, text, icon]) => el("button", {
+        type: "button", class: view === id ? "on" : "", role: "radio", "aria-checked": view === id ? "true" : "false",
+        on: { click: () => {
+          if (id === "mese") {
+            this._agendaTab = "calendario";
+            const day = new Date(`${this._day}T00:00:00`);
+            this._month = new Date(day.getFullYear(), day.getMonth(), 1);
+          } else { this._agendaTab = "agenda"; this._agendaView = id; }
+          this._render();
+        } },
+      }, el("ha-icon", { icon }), el("span", { class: "btn-label" }, text))));
+  }
+
+  /**
+   * The month (2.5.5): a calendar whose days show their first appointments,
+   * coloured by category, and how full they are; beside it the chosen day.
+   * A tap chooses a day, «Apri la giornata» opens it in the timeline.
+   */
   _renderCalendar() {
-    const wrap = el("div", { class: "stack" });
-    const month = this._month;
+    const month = new Date(this._month.getFullYear(), this._month.getMonth(), 1);
     const monthAppointments = this._appointmentsOfMonth(month);
-    const total = [...monthAppointments.values()].reduce((sum, list) => sum + list.length, 0);
+    const all = [...monthAppointments.values()].flat();
+    const totalMin = all.reduce((sum, item) => sum + (this._durationOf(item) || 0), 0);
+    const today = todayStr();
+    const inMonth = (key) => key.slice(0, 7) === ymd(month).slice(0, 7);
+    // The chosen day: the agenda's own when it is in this month, else today, else the 1st.
+    let selected = inMonth(this._day) ? this._day : inMonth(today) ? today : ymd(month);
 
-    wrap.appendChild(
-      el(
-        "div",
-        { class: "row" },
-        // Agenda button: returns to agenda day view. Left of left arrow.
-        el("button", {
-          class: "btn primary small",
-          on: { click: () => { this._agendaTab = "agenda"; this._tab = "agenda"; this._render(); } },
-        },
-          el("ha-icon", { icon: "mdi:view-day" }),
-          el("span", { class: "btn-label" }, "Agenda")
-        ),
-        el("button", {
-          class: "icon-btn",
-          on: { click: () => { this._month = addMonths(month, -1); this._render(); } },
-        }, el("ha-icon", { icon: "mdi:chevron-left" })),
-        el("div", { class: "month-title" }, `${MESI[month.getMonth()]} ${month.getFullYear()}`),
-        el("button", {
-          class: "icon-btn",
-          on: { click: () => { this._month = addMonths(month, 1); this._render(); } },
-        }, el("ha-icon", { icon: "mdi:chevron-right" })),
-        el("div", { class: "spacer" }),
-        el("button", {
-          class: "btn small",
-          on: { click: () => { this._month = new Date(); this._render(); } },
-        }, "Oggi")
-      )
-    );
+    const wrap = el("div", { class: "stack ag mo" });
+    const current = addMonths(new Date(), 0);
+    const isCurrent = current.getFullYear() === month.getFullYear() && current.getMonth() === month.getMonth();
+    const goMonth = (date) => { this._month = date; this._render(); };
+    wrap.appendChild(el("div", { class: "ag-head" },
+      el("div", { class: "ag-nav" },
+        el("button", { class: "icon-btn ag-arrow", title: "Mese prima", on: { click: () => goMonth(addMonths(month, -1)) } }, el("ha-icon", { icon: "mdi:chevron-left" })),
+        el("div", { class: "ag-day" },
+          el("span", { class: "ag-day-name" }, `${MESI[month.getMonth()]} ${month.getFullYear()}`),
+          el("span", { class: "ag-day-rel" }, `${counted(all.length, "appuntamento", "appuntamenti")} · ${minutesLabel(totalMin)}`)),
+        el("button", { class: "icon-btn ag-arrow", title: "Mese dopo", on: { click: () => goMonth(addMonths(month, 1)) } }, el("ha-icon", { icon: "mdi:chevron-right" })),
+        isCurrent ? null : el("button", { class: "btn small", on: { click: () => { this._day = today; goMonth(addMonths(new Date(), 0)); } } }, "Oggi")),
+      this._agViews("mese"),
+      el("span", { class: "spacer" }),
+      this._can("book") ? el("button", {
+        class: "btn primary small", title: "Nuovo appuntamento", disabled: this._busy,
+        on: { click: () => { this._form.date = selected; this._tab = "nuovo"; this._nuovoTab = "appuntamento"; this._render(); } },
+      }, el("ha-icon", { icon: "mdi:plus" }), el("span", { class: "btn-label" }, "Nuovo")) : null));
 
-    const grid = el("div", { class: "cal" });
-    GIORNI.forEach((label) => grid.appendChild(el("div", { class: "cal-dow" }, label)));
-
+    // The 42 cells (35 when the sixth week is all next month).
     const first = new Date(month.getFullYear(), month.getMonth(), 1);
-    const offset = (first.getDay() + 6) % 7;
-    const start = addDays(first, -offset);
-    const today = new Date();
-
-    // The closures of the very cells being drawn, resolved once for the grid.
+    const start = addDays(first, -((first.getDay() + 6) % 7));
     const cells = [];
-    for (let index = 0; index < 42; index += 1) {
-      const day = addDays(start, index);
-      cells.push({ day, key: ymd(day) });
-    }
-    const closuresByDay = this._closuresByDay(cells.map((cell) => cell.key));
+    for (let index = 0; index < 42; index += 1) cells.push(addDays(start, index));
+    if (cells[35].getMonth() !== month.getMonth()) cells.length = 35;
+    const closuresByDay = this._closuresByDay(cells.map((date) => ymd(date)));
+    const minutesOf = (list) => list.reduce((sum, item) => sum + (this._durationOf(item) || 0), 0);
+    const busiest = Math.max(1, ...[...monthAppointments.values()].map(minutesOf));
+    let busiestKey = "";
+    monthAppointments.forEach((list, key) => { if (!busiestKey || minutesOf(list) > minutesOf(monthAppointments.get(busiestKey))) busiestKey = key; });
+    const shutDays = cells.filter((date) => inMonth(ymd(date))
+      && (closuresByDay.get(ymd(date)) || []).some((closure) => closure.scope === "facility")).length;
 
-    // Two columns: the month on the left, what happens in it on the right.
-    const layout = el("div", { class: "cal-layout" });
-    const left = el("div", { class: "stack" });
+    // The month in pills.
+    const waiting = all.filter((a) => a.status === "pending" || a.offer_state === "offered").length;
+    const pill = (dot, value, label) => el("span", { class: "ag-pill static" }, el("span", { class: `ag-dot ${dot}` }), el("b", {}, value), label);
+    const pills = [pill("conf", String(all.length), all.length === 1 ? "appuntamento" : "appuntamenti")];
+    if (this._can("payments")) pills.push(pill("due", euro(this._moTakings(all)), "nel mese"));
+    pills.push(pill("wait", String(waiting), "da confermare"));
+    if (busiestKey) pills.push(el("span", { class: "ag-pill static mo-wide" }, el("span", { class: "ag-dot in" }), "più pieno:",
+      el("b", {}, shortDay(new Date(`${busiestKey}T00:00:00`)).toLowerCase())));
+    if (shutDays) pills.push(el("span", { class: "ag-pill static mo-wide" }, el("span", { class: "ag-dot shut" }), el("b", {}, String(shutDays)), shutDays === 1 ? "giorno chiuso" : "giorni chiusi"));
+    wrap.appendChild(el("div", { class: "ag-kpis" }, el("div", { class: "ag-pills" }, ...pills)));
 
-    cells.forEach(({ day, key }) => {
-      const inMonth = day.getMonth() === month.getMonth();
-      const items = monthAppointments.get(key) || [];
+    const cal = el("div", { class: "mo-cal" });
+    cal.appendChild(el("div", { class: "mo-dow" }, GIORNI.map((name, index) => el("div", { class: index >= 5 ? "we" : "" }, name))));
+    const grid = el("div", { class: "mo-grid" });
+    const colorsUsed = new Map();
+    cells.forEach((date, index) => {
+      const key = ymd(date);
+      const out = !inMonth(key);
+      const list = out ? [] : [...(monthAppointments.get(key) || [])].sort((a, b) => String(a.start).localeCompare(String(b.start)));
+      const parties = this._agParties(list);
       const closures = closuresByDay.get(key) || [];
-      // A facility closure shuts the door, so it gets the strong mark; a
-      // category or an operator closure only takes that part of the offer.
       const shut = closures.some((closure) => closure.scope === "facility");
-      const classes = ["cal-day"];
-      if (!inMonth) classes.push("dim");
-      if (isSameDay(day, today)) classes.push("today");
-      if (key === this._day) classes.push("sel");
-      if (items.length) classes.push("has");
-      // How full the day is, as a tint: four steps against the busiest day
-      // of the month, so a glance finds the free days.
-      if (items.length && inMonth) {
-        const busiest = Math.max(1, ...[...monthAppointments.values()].map((list) => list.length));
-        classes.push(`heat-${Math.min(4, Math.ceil((items.length / busiest) * 4))}`);
-      }
-      if (shut) classes.push("closed");
-      else if (closures.length) classes.push("closed-soft");
-
-      // The tooltip is the full answer: the cell is too small for it.
+      const classes = ["mo-c"];
+      if (index % 7 >= 5) classes.push("we");
+      if (out) classes.push("out");
+      if (key === today) classes.push("today");
+      if (!out && key === selected) classes.push("sel");
+      if (!out && shut) classes.push("closed");
       const tip = [
-        items.length ? `${longDay(day)} — ${items.length} appuntamenti` : longDay(day),
-        ...closures.map(
-          (closure) =>
-            `${this._closureScopeLabel(closure)}${closure.label ? ` · ${closure.label}` : ""} — ${this._closureWhen(closure)}`
-        ),
+        list.length ? `${longDay(date)} — ${counted(list.length, "appuntamento", "appuntamenti")}` : longDay(date),
+        ...closures.map((closure) => `${this._closureScopeLabel(closure)}${closure.label ? ` · ${closure.label}` : ""} — ${this._closureWhen(closure)}`),
       ].join("\n");
-
-      grid.appendChild(
-        el(
-          "button",
-          {
-            class: classes.join(" "),
-            title: tip,
-            on: {
-              click: () => {
-                this._day = key;
-                this._agendaTab = "agenda";
-                this._tab = "agenda";
-                this._render();
-              },
-            },
+      const cell = el("button", {
+        type: "button", class: classes.join(" "), title: tip,
+        on: {
+          click: () => {
+            if (out) { this._day = key; this._month = new Date(date.getFullYear(), date.getMonth(), 1); this._render(); return; }
+            this._day = key; this._render();
           },
-          el("span", { class: "cal-num" }, String(day.getDate())),
-          items.length
-            ? el("span", { class: "cal-count" },
-                String(items.length),
-                el("span", { class: "sr-only" }, " appuntamenti"))
-            : null,
-          closures.length
-            ? el("span", { class: "cal-lock" },
-                el("ha-icon", { icon: shut ? "mdi:lock" : "mdi:lock-outline" }),
-                el("span", { class: "sr-only" },
-                  closures.length === 1
-                    ? " giorno chiuso"
-                    : ` giorni con ${closures.length} chiusure`))
-            : null
-        )
-      );
+          dblclick: () => { this._day = key; this._agendaTab = "agenda"; this._render(); },
+        },
+      }, el("span", { class: "mo-n" }, String(date.getDate())));
+      if (list.length) cell.appendChild(el("span", { class: "mo-cnt" }, String(list.length)));
+      if (!out && closures.length) {
+        cell.appendChild(el("span", { class: `mo-tag${shut ? "" : " soft"}` },
+          el("ha-icon", { icon: shut ? "mdi:lock" : "mdi:lock-outline" }), shut ? "Chiuso" : "In parte chiuso"));
+      }
+      parties.slice(0, 3).forEach((members) => {
+        const appointment = members[0];
+        const wait = this._agState(appointment) === "wait";
+        const color = this._moColor(appointment);
+        cell.appendChild(el("span", { class: `mo-ev${wait ? " wait" : ""}`, style: wait ? null : `--mo:${color}` },
+          el("b", {}, timeOf(parseDate(appointment.start))),
+          this._moShortName(appointment) + (members.length > 1 ? ` (${members.length})` : "")));
+      });
+      if (parties.length > 3) cell.appendChild(el("span", { class: "mo-more" }, `+${parties.length - 3} altri`));
+      if (list.length) {
+        const dots = new Map();
+        list.forEach((appointment) => {
+          const wait = this._agState(appointment) === "wait";
+          const color = wait ? "#e59a0b" : this._moColor(appointment);
+          dots.set(color, true);
+          if (!wait) {
+            const treatment = this._lookup.treatment.get(appointment.treatment_id);
+            const category = treatment ? this._categoryOf(treatment) : null;
+            colorsUsed.set(color, (category && category.name) || "Appuntamenti");
+          }
+        });
+        cell.appendChild(el("span", { class: "mo-dots" }, [...dots.keys()].slice(0, 4).map((color) => el("i", { style: `background:${color}` }))));
+        cell.appendChild(el("span", { class: "mo-load" }, el("i", { style: `width:${Math.max(6, Math.round((minutesOf(list) / busiest) * 100))}%` })));
+      }
+      grid.appendChild(cell);
     });
-    left.appendChild(grid);
-    add(left, this._renderMonthClosures(closuresByDay, month));
+    cal.appendChild(grid);
+    const legend = el("div", { class: "mo-legend" });
+    colorsUsed.forEach((name, color) => legend.appendChild(el("span", {}, el("i", { style: `background:${color}` }), name)));
+    if (waiting) legend.appendChild(el("span", {}, el("i", { style: "background:#e59a0b" }), "Da confermare"));
+    legend.appendChild(el("span", { class: "mo-legend-load" }, el("i", {}), "quanto è pieno il giorno"));
+    legend.appendChild(el("span", { class: "mo-hint" }, "Tocca un giorno per il riepilogo, due volte per aprirlo"));
+    cal.appendChild(legend);
 
-    const monthTotalMin = [...monthAppointments.values()]
-      .flat()
-      .reduce((sum, item) => sum + (this._durationOf(item) || 0), 0);
-
-    layout.appendChild(left);
-    layout.appendChild(
-      this._renderMonthAgenda(monthAppointments, month, total, monthTotalMin)
-    );
-    wrap.appendChild(layout);
-
+    const side = el("div", { class: "mo-side" });
+    side.appendChild(this._moDayPanel(selected, monthAppointments.get(selected) || [], closuresByDay.get(selected) || []));
+    const closuresBox = this._renderMonthClosures(closuresByDay, month);
+    if (closuresBox.childNodes.length) side.appendChild(el("div", { class: "mo-panel" }, closuresBox));
+    wrap.appendChild(el("div", { class: "mo-main" }, cal, side));
     return wrap;
+  }
+
+  /** The chosen day beside the month: load per operator and its appointments. */
+  _moDayPanel(key, list, closures) {
+    const date = new Date(`${key}T00:00:00`);
+    const minutes = list.reduce((sum, item) => sum + (this._durationOf(item) || 0), 0);
+    const facts = [counted(list.length, "appuntamento", "appuntamenti")];
+    if (minutes) facts.push(minutesLabel(minutes));
+    if (list.length && this._can("payments")) facts.push(euro(this._moTakings(list)));
+    const panel = el("div", { class: "mo-panel mo-day" },
+      el("h3", {}, longDay(date).replace(/ \d{4}$/, "")),
+      el("div", { class: "mo-sub" }, facts.join(" · ")));
+    closures.forEach((closure) => panel.appendChild(el("div", { class: "mo-closed" },
+      el("ha-icon", { icon: closure.scope === "facility" ? "mdi:lock" : "mdi:lock-outline" }),
+      `${this._closureScopeLabel(closure)}${closure.label ? ` · ${closure.label}` : ""} — ${this._closureWhen(closure)}`)));
+    if (list.length) {
+      // Minutes per operator, against the busiest one; the spa as entries.
+      const load = new Map();
+      let spa = 0;
+      list.forEach((appointment) => {
+        if (appointment.operator_id && this._lookup.operator.get(appointment.operator_id)) {
+          load.set(appointment.operator_id, (load.get(appointment.operator_id) || 0) + (this._durationOf(appointment) || 0));
+        } else spa += 1;
+      });
+      const top = Math.max(1, ...load.values());
+      const ops = el("div", { class: "mo-ops" });
+      [...load.entries()].sort((a, b) => b[1] - a[1]).forEach(([id, value]) => ops.appendChild(el("div", { class: "mo-op" },
+        el("span", {}, this._lookup.operator.get(id).name),
+        el("span", { class: "mo-bar" }, el("i", { style: `width:${Math.round((value / top) * 100)}%` })),
+        el("span", {}, minutesLabel(value)))));
+      if (spa) ops.appendChild(el("div", { class: "mo-op" }, el("span", {}, "Spa"),
+        el("span", { class: "mo-bar spa" }, el("i", { style: `width:${Math.min(100, Math.round((spa / list.length) * 100))}%` })),
+        el("span", {}, `${spa} ingr.`)));
+      panel.appendChild(ops);
+      const parties = this._agParties([...list]);
+      parties.slice(0, 6).forEach((members) => {
+        const appointment = members[0];
+        const state = this._agState(appointment);
+        const tag = { wait: "Da confermare", in: "In sala", done: appointment.checked_out ? "Concluso" : "" }[state] || "";
+        panel.appendChild(el("button", {
+          type: "button", class: "mo-row", title: "Apri la scheda",
+          on: { click: () => this._openDetail(appointment) },
+        },
+        el("span", { class: "mo-t" }, timeOf(parseDate(appointment.start))),
+        el("span", { class: "mo-who" },
+          el("b", {}, this._clientName(appointment) + (members.length > 1 ? ` (${members.length})` : "")),
+          el("span", {}, [this._treatmentName(appointment), this._operatorName(appointment)].filter(Boolean).join(" · "))),
+        tag ? el("span", { class: `mo-st ${state}` }, tag) : null));
+      });
+      if (parties.length > 6) panel.appendChild(el("div", { class: "mo-sub mo-rest" }, `+ altri ${parties.length - 6}`));
+    } else {
+      panel.appendChild(el("div", { class: "mo-empty" }, closures.some((c) => c.scope === "facility") ? "Giornata chiusa." : "Nessun appuntamento."));
+    }
+    panel.appendChild(el("button", {
+      class: "btn primary mo-open",
+      on: { click: () => { this._day = key; this._agendaTab = "agenda"; this._render(); } },
+    }, "Apri la giornata", el("ha-icon", { icon: "mdi:arrow-right" })));
+    return panel;
   }
 
   // ----------------------------------------------------------------- CLIENTI
@@ -20223,6 +20254,102 @@ class SpaBookingCard extends HTMLElement {
         .ag-main.detail-open { grid-template-columns: minmax(0, 1fr) 340px; }
         .ag-side { position: static; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
         .ag-hours, .ag-lane { grid-template-columns: 130px minmax(0, 1fr); }
+      }
+
+      /* 2.5.5: the month, with the chosen day beside it */
+      .ag-pill.static { cursor: default; }
+      .ag-dot.shut { background: #b9a0a0; }
+      .mo-main { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 14px; align-items: start; }
+      .mo-cal { background: var(--sb-card, var(--card-background-color, #fff)); border: 1px solid var(--sb-line); border-radius: 14px; overflow: hidden; min-width: 0; }
+      .mo-dow { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); border-bottom: 1px solid var(--sb-line); }
+      .mo-dow div { padding: 9px 10px; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--secondary-text-color); }
+      .mo-dow div.we { color: var(--primary-color); }
+      .mo-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+      .mo-c { all: unset; box-sizing: border-box; cursor: pointer; position: relative; min-height: 116px; min-width: 0; padding: 7px 7px 9px;
+        display: flex; flex-direction: column; gap: 3px; border-right: 1px solid var(--sb-line); border-bottom: 1px solid var(--sb-line); }
+      .mo-c:nth-child(7n) { border-right: 0; }
+      .mo-c.we { background: color-mix(in srgb, var(--primary-color) 2%, transparent); }
+      .mo-c:hover { background: color-mix(in srgb, var(--primary-color) 5%, transparent); }
+      .mo-c:focus-visible { outline: 2px solid var(--primary-color); outline-offset: -2px; }
+      .mo-c.out { background: color-mix(in srgb, var(--secondary-text-color) 4%, transparent); }
+      .mo-c.out .mo-n { color: var(--secondary-text-color); opacity: .45; }
+      .mo-n { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 13px; margin: -2px 0 2px -2px; flex: none; }
+      .mo-c.today .mo-n { background: var(--primary-color); color: var(--text-primary-color, #fff); }
+      .mo-c.sel { box-shadow: inset 0 0 0 2px var(--primary-color); background: color-mix(in srgb, var(--primary-color) 6%, transparent); }
+      .mo-cnt { position: absolute; top: 9px; right: 9px; font-size: 11px; font-weight: 700; color: var(--secondary-text-color); }
+      .mo-ev { display: block; font-size: 11.5px; line-height: 1.25; padding: 3px 6px; border-radius: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        border-left: 3px solid var(--mo, var(--primary-color)); background: color-mix(in srgb, var(--mo, var(--primary-color)) 14%, var(--sb-card, #fff)); color: var(--primary-text-color); }
+      .mo-ev b { font-weight: 700; margin-right: 4px; }
+      .mo-ev.wait { border-left-color: #e59a0b; background: var(--sb-warn-bg); }
+      .mo-more { font-size: 11px; font-weight: 700; color: var(--primary-color); padding-left: 4px; }
+      .mo-load { margin-top: auto; height: 4px; border-radius: 2px; background: var(--sb-line); overflow: hidden; flex: none; }
+      .mo-load i { display: block; height: 100%; border-radius: 2px; background: var(--primary-color); }
+      .mo-dots { display: none; gap: 3px; justify-content: center; }
+      .mo-dots i { width: 5px; height: 5px; border-radius: 50%; }
+      .mo-c.closed { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--secondary-text-color) 5%, transparent) 0 8px,
+        color-mix(in srgb, var(--secondary-text-color) 10%, transparent) 8px 16px); }
+      .mo-c.closed .mo-n { color: var(--secondary-text-color); }
+      .mo-tag { display: inline-flex; align-items: center; gap: 4px; align-self: flex-start; font-size: 11px; padding: 2px 8px; border-radius: 999px;
+        background: var(--sb-card, #fff); border: 1px solid var(--sb-line); color: var(--secondary-text-color); max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .mo-tag ha-icon { --mdc-icon-size: 12px; }
+      .mo-tag.soft { color: #b26b00; }
+      .mo-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 10px 14px; font-size: 12px; color: var(--secondary-text-color); border-top: 1px solid var(--sb-line); }
+      .mo-legend span { display: inline-flex; align-items: center; gap: 6px; }
+      .mo-legend i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+      .mo-legend .mo-legend-load i { width: 16px; height: 4px; border-radius: 2px; background: var(--primary-color); }
+      .mo-legend .mo-hint { margin-left: auto; }
+      .mo-side { display: flex; flex-direction: column; gap: 14px; position: sticky; top: 120px; }
+      .mo-panel { background: var(--sb-card, var(--card-background-color, #fff)); border: 1px solid var(--sb-line); border-radius: 14px; padding: 16px; }
+      .mo-panel h3 { margin: 0; font-size: 16px; text-transform: none; letter-spacing: 0; color: var(--primary-text-color); }
+      .mo-sub { font-size: 12.5px; color: var(--secondary-text-color); margin-top: 2px; }
+      .mo-closed { display: flex; gap: 6px; align-items: flex-start; font-size: 12.5px; margin-top: 10px; padding: 8px 10px; border-radius: 10px;
+        background: color-mix(in srgb, var(--secondary-text-color) 7%, transparent); }
+      .mo-closed ha-icon { --mdc-icon-size: 16px; flex: none; }
+      .mo-ops { display: flex; flex-direction: column; gap: 8px; margin: 14px 0 6px; }
+      .mo-op { display: grid; grid-template-columns: 70px minmax(0, 1fr) 56px; gap: 8px; align-items: center; font-size: 12.5px; }
+      .mo-op span:first-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .mo-op span:last-child { text-align: right; color: var(--secondary-text-color); }
+      .mo-bar { height: 8px; border-radius: 5px; background: var(--sb-line); overflow: hidden; }
+      .mo-bar i { display: block; height: 100%; border-radius: 5px; background: var(--primary-color); }
+      .mo-bar.spa i { background: color-mix(in srgb, var(--primary-color) 55%, #fff); }
+      .mo-row { all: unset; box-sizing: border-box; cursor: pointer; width: 100%; display: grid; grid-template-columns: 46px minmax(0, 1fr) auto; gap: 10px;
+        align-items: center; padding: 9px 2px; border-top: 1px solid var(--sb-line); }
+      .mo-row:hover { background: color-mix(in srgb, var(--primary-color) 5%, transparent); }
+      .mo-row:focus-visible { outline: 2px solid var(--primary-color); }
+      .mo-t { font-weight: 800; color: var(--primary-color); font-size: 13px; }
+      .mo-who { display: flex; flex-direction: column; min-width: 0; }
+      .mo-who b { font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .mo-who span { font-size: 12px; color: var(--secondary-text-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .mo-st { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+      .mo-st.wait { background: var(--sb-warn-bg); color: var(--sb-warn-fg); }
+      .mo-st.in, .mo-st.done { background: var(--sb-ok-bg); color: var(--sb-ok-fg); }
+      .mo-rest { padding: 6px 0 0 56px; }
+      .mo-empty { padding: 18px 0 6px; color: var(--secondary-text-color); }
+      .mo-open { width: 100%; justify-content: center; margin-top: 12px; }
+      .mo-panel h3 + .row.item, .mo-panel .row.item { flex-wrap: nowrap; align-items: flex-start; gap: 10px; padding: 8px 0 0; border: 0; }
+      .mo-panel .stack.tight > h3 { font-size: 14px; margin-bottom: 4px; }
+      .mo-open ha-icon { --mdc-icon-size: 18px; }
+      @container (max-width: 1080px) {
+        .mo-main { grid-template-columns: minmax(0, 1fr); }
+        .mo-side { position: static; }
+      }
+      @container (max-width: 760px) {
+        .mo-c { min-height: 54px; padding: 5px 2px; align-items: center; gap: 3px; }
+        .mo-n { margin: 0; }
+        .mo-cnt, .mo-ev, .mo-more, .mo-tag, .mo-legend, .mo-wide { display: none !important; }
+        .mo-dots { display: flex; }
+        .mo-load { width: 70%; margin-top: 0; }
+        .mo-dow div { padding: 8px 0; text-align: center; }
+      }
+      @media (max-width: 760px) {
+        .mo-main { grid-template-columns: minmax(0, 1fr); }
+        .mo-side { position: static; }
+        .mo-c { min-height: 54px; padding: 5px 2px; align-items: center; gap: 3px; }
+        .mo-n { margin: 0; }
+        .mo-cnt, .mo-ev, .mo-more, .mo-tag, .mo-legend, .mo-wide { display: none !important; }
+        .mo-dots { display: flex; }
+        .mo-load { width: 70%; margin-top: 0; }
+        .mo-dow div { padding: 8px 0; text-align: center; }
       }
 
       /* 2.3.10: Nuovo appuntamento in steps, with the live summary */
