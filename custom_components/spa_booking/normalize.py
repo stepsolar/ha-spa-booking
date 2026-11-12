@@ -241,6 +241,8 @@ def _norm_voucher(raw: Any) -> dict[str, Any]:
         "wp_redeemed_at": str(raw.get("wp_redeemed_at") or ""),
         "wp_redeem_error": str(raw.get("wp_redeem_error") or ""),
         "wp_note": str(raw.get("wp_note") or ""),
+        # What the package also includes that has no record here (2.7.1).
+        "package_note": str(raw.get("package_note") or "").strip(),
     }
 
 
@@ -1025,6 +1027,9 @@ def _norm_settings(raw: dict[str, Any]) -> dict[str, Any]:
             str(key): {
                 "people": _norm_count((entry or {}).get("people"), 1, 10, 1),
                 "treatment_ids": [str(t) for t in (entry or {}).get("treatment_ids") or [] if t][:20],
+                # The accessories in the package (2.7.1), given to each person.
+                "extras": [str(e) for e in (entry or {}).get("extras") or [] if e][:20],
+                "note": str((entry or {}).get("note") or "").strip()[:300],
             }
             for key, entry in (raw.get("wp_product_map") or {}).items()
             if isinstance(entry, dict) and re.fullmatch(r"\d+:\d+", str(key))

@@ -41,18 +41,24 @@ def mapping_for(mapping: dict[str, Any], product_id: Any, variation_id: Any) -> 
     """The pairing of a variation, else of its whole product."""
     for key in (product_key(product_id, variation_id), product_key(product_id, 0)):
         entry = mapping.get(key)
-        if isinstance(entry, dict) and entry.get("treatment_ids"):
+        if isinstance(entry, dict) and (entry.get("treatment_ids") or entry.get("extras") or entry.get("note")):
             return entry
     return None
 
 
 def people_of(entry: dict[str, Any] | None) -> list[dict[str, Any]]:
-    """The voucher's people: each one gets every paired treatment."""
-    if not entry:
+    """The voucher's people: each one gets every paired treatment and accessory."""
+    if not entry or not (entry.get("treatment_ids") or entry.get("extras")):
         return []
     count = max(1, min(10, int(entry.get("people") or 1)))
     treatments = [str(t) for t in entry.get("treatment_ids") or [] if t]
-    return [{"name": "", "treatment_ids": list(treatments), "extras": [], "gift_card_amount": None} for _ in range(count)]
+    extras = [str(e) for e in entry.get("extras") or [] if e]
+    return [{"name": "", "treatment_ids": list(treatments), "extras": list(extras), "gift_card_amount": None} for _ in range(count)]
+
+
+def note_of(entry: dict[str, Any] | None) -> str:
+    """What the package also includes, in words (what has no record here)."""
+    return str((entry or {}).get("note") or "").strip()
 
 
 async def _request(session: Any, method: str, base: str, secret: str, path: str, **kwargs: Any) -> dict[str, Any]:

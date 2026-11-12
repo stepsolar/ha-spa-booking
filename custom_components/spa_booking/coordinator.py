@@ -2521,8 +2521,9 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             for entry in row.get("entries") or []:
                 person = int(entry.get("person") or 0)
                 booked.setdefault(person, []).append(str(row.get("treatment_id") or ""))
-        # A voucher from the shop whose product is not paired yet only records
-        # the code (2.7.0): the desk books what the guest bought.
+        # A voucher from the shop whose product is not paired yet (or paired
+        # with accessories only) only records the code: the desk books what
+        # the guest bought (2.7.0).
         if voucher.get("source") == "wordpress" and not any(p["treatment_ids"] for p in voucher["people"]):
             return
         wanted = [sorted(p["treatment_ids"]) for p in voucher["people"]]
@@ -3323,6 +3324,29 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         mapping = self._data.get(KEY_SETTINGS, {}).get("wp_product_map") or {}
         return wp_shop.people_of(wp_shop.mapping_for(mapping, product_id, variation_id))
 
+    def _wp_apply_pairing(self) -> int:
+        """Bring every unused voucher from the shop in line with the pairing.
+
+        Run when the pairing is saved (2.7.1) and at every check of the shop:
+        a product paired again later, with the treatments or accessories that
+        were missing, updates the vouchers already received. Called with the
+        lock held.
+        """
+        mapping = self._data.get(KEY_SETTINGS, {}).get("wp_product_map") or {}
+        changed = 0
+        for voucher in self.vouchers:
+            if voucher.get("source") != "wordpress" or voucher["status"] != VOUCHER_ACTIVE:
+                continue
+            product_id, _, variation_id = str(voucher.get("wp_product_key") or "0:0").partition(":")
+            entry = wp_shop.mapping_for(mapping, product_id, variation_id or 0)
+            people = wp_shop.people_of(entry)
+            note = wp_shop.note_of(entry)
+            if people != voucher["people"] or note != voucher.get("package_note", ""):
+                voucher["people"] = people
+                voucher["package_note"] = note
+                changed += 1
+        return changed
+
     async def async_wp_sync(self, reason: str = "") -> dict[str, Any]:
         """Read the vouchers sold on the shop and bring the list up to date.
 
@@ -3365,6 +3389,9 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         "wp_order_id": item.get("order_id"),
                         "wp_product_key": wp_shop.product_key(item.get("product_id"), item.get("variation_id")),
                         "wp_product_name": item.get("product_name"), "expires_on": expires,
+                        "package_note": wp_shop.note_of(wp_shop.mapping_for(
+                            self._data.get(KEY_SETTINGS, {}).get("wp_product_map") or {},
+                            item.get("product_id"), item.get("variation_id"))),
                         "created_at": str(item.get("order_date") or dt_util.utcnow().isoformat()),
                         "created_by_name": "Shop online",
                     })
@@ -3375,10 +3402,6 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if voucher.get("source") != "wordpress":
                     continue
                 changed = False
-                # The pairing may have changed: an unused voucher follows it.
-                if voucher["status"] == VOUCHER_ACTIVE and people and people != voucher["people"]:
-                    voucher["people"] = people
-                    changed = True
                 if expires and voucher.get("expires_on") != expires:
                     voucher["expires_on"] = expires
                     changed = True
@@ -3397,6 +3420,8 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     voucher["wp_note"] = "ordine annullato o rimborsato sul sito"
                     changed = True
                 updated += 1 if changed else 0
+            # The pairing may have changed since: unused vouchers follow it.
+            updated += self._wp_apply_pairing()
             # Booked, then every booking cancelled before the guest came: usable again.
             appointments = {a["id"]: a for a in self.appointments}
             for voucher in self.vouchers:
@@ -7477,6 +7502,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if key in settings and value is not None:
                     settings[key] = value
             settings = _norm_settings(settings)
+            pairing_changed = "wp_product_map" in changes
             # Switching the website on issues its token straight away, so the
             # card can show the value to copy before the first guest arrives;
             # switching it off keeps the token, ready for the next season.
@@ -7485,6 +7511,8 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ).strip():
                 settings["web_token"] = secrets.token_urlsafe(32)
             self._data[KEY_SETTINGS] = settings
+            if pairing_changed:
+                self._wp_apply_pairing()
             await self._async_save()
         if "whatsapp_engine" in changes:
             await self.async_apply_whatsapp_engine()

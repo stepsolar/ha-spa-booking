@@ -51,7 +51,12 @@ I voucher venduti su **benessere.hotelilmarchese.it** (WooCommerce con
 
 **Abbinare i prodotti** – per ogni prodotto o variante scegli uno o più
 trattamenti (un pacchetto ne ha più di uno) e per quante persone vale (es.
-You&Me = 2). Un voucher di un prodotto non abbinato si può comunque usare:
+You&Me = 2). Nei pacchetti scegli anche gli **accessori inclusi** e, se c'è
+qualcosa che non esiste in Spa Booking, scrivilo nella nota «altro incluso».
+Se manca un trattamento o un accessorio, crealo con «Nuovo trattamento» /
+«Nuovo accessorio» e torna: l'abbinamento non salvato resta lì. Puoi rifare
+l'abbinamento quando vuoi: al salvataggio i voucher non ancora usati si
+aggiornano. Un voucher di un prodotto non abbinato si può comunque usare:
 prenoti quello che il cliente ha acquistato.
 
 **Come funziona** – ogni 15 minuti (e subito quando il sito avvisa di un

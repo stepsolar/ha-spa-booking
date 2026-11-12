@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.7.0";
+const CARD_VERSION = "2.7.1";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -9479,6 +9479,7 @@ class SpaBookingCard extends HTMLElement {
         el("span", {}, el("ha-icon", { icon: "mdi:pencil" }),
           voucher.source === "wordpress" ? `Shop online${voucher.wp_order_id ? ` · ordine #${voucher.wp_order_id}` : ""}` : `Creato da ${voucher.created_by_name || "—"}`),
         voucher.source === "wordpress" && voucher.message ? el("span", {}, el("ha-icon", { icon: "mdi:message-heart-outline" }), `«${voucher.message}»`) : null,
+        voucher.package_note ? el("span", {}, el("ha-icon", { icon: "mdi:package-variant" }), `Incluso: ${voucher.package_note}`) : null,
         voucher.source === "wordpress" && state === "riscattato"
           ? el("span", { class: voucher.wp_redeemed ? "" : "warn" }, el("ha-icon", { icon: voucher.wp_redeemed ? "mdi:check-decagram" : "mdi:sync-alert" }),
             voucher.wp_redeemed ? "Riscattato anche sul sito" : (voucher.wp_redeem_error ? "Da segnare sul sito" : "Sul sito: all'arrivo del cliente"))
@@ -15111,47 +15112,68 @@ class SpaBookingCard extends HTMLElement {
     // 2. Products → treatments.
     const products = settings.wp_products || [];
     const treatments = (this._data.treatments || []).filter((t) => t.active !== false);
+    const accessories = this._accessories();
     const query = (this._shopQuery || "").trim().toLowerCase();
     const onlyFree = !!this._shopOnlyFree;
     const step2 = [];
     if (!products.length) {
       step2.push(el("div", { class: "empty" }, "Nessun prodotto ancora: premi «Prova collegamento» per leggere i prodotti del sito."));
     } else {
-      const paired = products.filter((p) => ((draft.wp_product_map[p.key] || {}).treatment_ids || []).length).length;
+      const isPaired = (key) => {
+        const entry = draft.wp_product_map[key] || {};
+        return Boolean((entry.treatment_ids || []).length || (entry.extras || []).length || entry.note);
+      };
+      const paired = products.filter((p) => isPaired(p.key)).length;
       const search = el("input", { class: "input grow shop-search", type: "search", value: this._shopQuery || "", placeholder: "Cerca prodotto o codice (SKU)" });
       this._searchInputRedraw(search, ".shop-search", (value) => { this._shopQuery = value; });
       step2.push(el("div", { class: "row" }, search,
         el("label", { class: "check" }, el("input", { type: "checkbox", checked: onlyFree, on: { change: (event) => { this._shopOnlyFree = event.target.checked; this._render(); } } }), "Solo da abbinare")));
       step2.push(el("div", { class: "pg-sum" }, el("ha-icon", { icon: "mdi:link-variant" }),
         el("span", {}, el("b", {}, `${paired} di ${products.length} prodotti abbinati. `),
-          "Un pacchetto può avere più trattamenti; «persone» è per quante persone vale un voucher (es. You&Me = 2).")));
+          "Un pacchetto può avere più trattamenti e accessori; «persone» è per quante persone vale un voucher (es. You&Me = 2). Puoi rifare l'abbinamento quando vuoi: i voucher non ancora usati si aggiornano al salvataggio.")),
+        el("div", { class: "row" },
+          el("span", { class: "dim small" }, "Manca qualcosa?"),
+          el("button", { class: "btn small ghost", on: { click: () => { this._cfgTab = "trattamenti"; this._render(); } } }, el("ha-icon", { icon: "mdi:plus" }), "Nuovo trattamento"),
+          el("button", { class: "btn small ghost", on: { click: () => { this._cfgTab = "accessori"; this._render(); } } }, el("ha-icon", { icon: "mdi:plus" }), "Nuovo accessorio"),
+          el("span", { class: "dim small" }, "(l'abbinamento non salvato resta qui finché torni)")));
       const shown = products.filter((p) => {
         const entry = draft.wp_product_map[p.key] || {};
-        if (onlyFree && (entry.treatment_ids || []).length) return false;
+        if (onlyFree && isPaired(p.key)) return false;
         return !query || [p.name, p.parent_name, p.sku].join(" ").toLowerCase().includes(query);
       });
       shown.forEach((product) => {
-        const entry = draft.wp_product_map[product.key] || { people: 1, treatment_ids: [] };
-        const set = (patch) => {
-          const next = { people: entry.people || 1, treatment_ids: [...(entry.treatment_ids || [])], ...patch };
-          if (!next.treatment_ids.length) delete draft.wp_product_map[product.key];
+        const entry = draft.wp_product_map[product.key] || { people: 1, treatment_ids: [], extras: [], note: "" };
+        const set = (patch, redraw = true) => {
+          const next = { people: entry.people || 1, treatment_ids: [...(entry.treatment_ids || [])], extras: [...(entry.extras || [])], note: entry.note || "", ...patch };
+          if (!next.treatment_ids.length && !next.extras.length && !next.note) delete draft.wp_product_map[product.key];
           else draft.wp_product_map[product.key] = next;
+          Object.assign(entry, next);
           changed();
-          this._render();
+          if (redraw) this._render();
         };
         const chosen = new Set(entry.treatment_ids || []);
-        step2.push(el("div", { class: `shop-prod${chosen.size ? " on" : ""}` },
+        const chosenExtras = new Set(entry.extras || []);
+        const any = chosen.size || chosenExtras.size;
+        step2.push(el("div", { class: `shop-prod${any || entry.note ? " on" : ""}` },
           el("div", { class: "shop-prod-head" },
             el("div", { class: "shop-prod-name" }, el("b", {}, product.name || product.parent_name),
               el("span", { class: "dim small" }, [product.sku, product.price != null ? euro(product.price) : "", product.voucher ? "voucher" : ""].filter(Boolean).join(" · "))),
             el("div", { class: "shop-people" }, el("span", { class: "dim small" }, "Persone"),
-              el("button", { class: "icon-btn", disabled: (entry.people || 1) <= 1 || !chosen.size, on: { click: () => set({ people: (entry.people || 1) - 1 }) } }, el("ha-icon", { icon: "mdi:minus" })),
+              el("button", { class: "icon-btn", disabled: (entry.people || 1) <= 1 || !any, on: { click: () => set({ people: (entry.people || 1) - 1 }) } }, el("ha-icon", { icon: "mdi:minus" })),
               el("b", {}, String(entry.people || 1)),
-              el("button", { class: "icon-btn", disabled: (entry.people || 1) >= 10 || !chosen.size, on: { click: () => set({ people: (entry.people || 1) + 1 }) } }, el("ha-icon", { icon: "mdi:plus" })))),
+              el("button", { class: "icon-btn", disabled: (entry.people || 1) >= 10 || !any, on: { click: () => set({ people: (entry.people || 1) + 1 }) } }, el("ha-icon", { icon: "mdi:plus" })))),
+          el("div", { class: "shop-label" }, "Trattamenti"),
           el("div", { class: "shop-chips" }, treatments.map((t) => el("button", {
             type: "button", class: `shop-chip${chosen.has(t.id) ? " on" : ""}`,
             on: { click: () => set({ treatment_ids: chosen.has(t.id) ? [...chosen].filter((id) => id !== t.id) : [...chosen, t.id] }) },
-          }, chosen.has(t.id) ? el("ha-icon", { icon: "mdi:check" }) : null, t.name)))));
+          }, chosen.has(t.id) ? el("ha-icon", { icon: "mdi:check" }) : null, t.name))),
+          accessories.length ? el("div", { class: "shop-label" }, "Accessori inclusi (per persona)") : null,
+          accessories.length ? el("div", { class: "shop-chips" }, accessories.map((a) => el("button", {
+            type: "button", class: `shop-chip acc${chosenExtras.has(a.id) ? " on" : ""}`,
+            on: { click: () => set({ extras: chosenExtras.has(a.id) ? [...chosenExtras].filter((id) => id !== a.id) : [...chosenExtras, a.id] }) },
+          }, el("ha-icon", { icon: chosenExtras.has(a.id) ? "mdi:check" : (a.icon || "mdi:gift-outline") }), a.label))) : null,
+          el("input", { class: "input shop-note", value: entry.note || "", placeholder: "Altro incluso nel pacchetto (es. calice di prosecco, frutta) — facoltativo",
+            on: { input: (event) => set({ note: event.target.value }, false), change: () => this._render() } })));
       });
       if (!shown.length) step2.push(el("div", { class: "empty" }, "Nessun prodotto con questo filtro."));
     }
@@ -20634,6 +20656,9 @@ class SpaBookingCard extends HTMLElement {
       .shop-chip ha-icon { --mdc-icon-size: 14px; }
       .shop-chip.on { background: color-mix(in srgb, var(--primary-color) 14%, transparent); border-color: var(--primary-color); color: var(--primary-color); font-weight: 600; }
       .shop-chip:focus-visible { outline: 2px solid var(--primary-color); }
+      .shop-chip.acc.on { background: color-mix(in srgb, #b26b00 12%, transparent); border-color: #b26b00; color: #8a5300; }
+      .shop-label { font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--secondary-text-color); margin-bottom: -4px; }
+      .shop-note { font-size: 13px; }
       .ticket-top .pill ha-icon { --mdc-icon-size: 13px; margin-right: 3px; }
       /* 2.5.5: the month, with the chosen day beside it */
       .ag-pill.static { cursor: default; }
