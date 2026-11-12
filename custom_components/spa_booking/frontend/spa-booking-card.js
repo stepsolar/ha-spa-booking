@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.6.0";
+const CARD_VERSION = "2.6.1";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -10444,6 +10444,7 @@ class SpaBookingCard extends HTMLElement {
     wrap.appendChild(el("div", { class: "row chips" }, [["", "Tutti"], ["sub", "Iscritti"], ["unsub", "Disiscritti"], ["noemail", "Senza email"]].map(([id, text]) =>
       el("button", { class: `pm-chip${filter === id ? " info" : ""}`, style: "cursor:pointer;border:0", on: { click: () => { this._partnerFilter = id; this._render(); } } }, text))));
 
+    add(wrap, this._partnerImportPanel());
     if (this._partnerDraft) {
       const draft = this._partnerDraft;
       const field = (key, label, type = "text", extra = {}) => el("label", { class: "field" }, el("span", {}, label),
@@ -10540,29 +10541,83 @@ class SpaBookingCard extends HTMLElement {
 
   /** Pick a CSV of partners and import it (2.6.0). */
   _partnerImportPick() {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = ".csv,.txt,.tsv,text/csv,text/plain";
+    // Attached to the card while choosing: a detached input loses its
+    // «change» in some browsers and in the mobile app (2.6.1).
+    const input = el("input", { type: "file", accept: ".csv,.txt,.tsv,text/csv,text/plain", style: "display:none" });
     input.addEventListener("change", async () => {
       const file = input.files && input.files[0];
+      input.remove();
       if (!file) return;
-      const text = await file.text();
+      const buffer = await file.arrayBuffer();
+      let text = new TextDecoder("utf-8").decode(buffer);
+      // A file saved again by Excel on Windows is not UTF-8.
+      if (text.includes("\uFFFD")) text = new TextDecoder("windows-1252").decode(buffer);
       const partners = partnersFromCsv(text);
-      if (!partners.length) {
-        this._message = { kind: "error", text: "Nel file non ho trovato partner: serve una riga di intestazione con almeno Nome struttura (o Nome) e Email o Telefono." };
-        this._render();
-        return;
-      }
-      const withEmail = partners.filter((p) => p.email).length;
-      if (!window.confirm(`Importare ${partners.length} partner da «${file.name}» (${withEmail} con email)?\nChi ha già la stessa email non viene duplicato.`)) return;
-      try {
-        const result = await this._call("import_partners", { partners });
-        const r = (result && result.response) || result || {};
-        this._message = { kind: "ok", text: `Importati ${r.added || 0} partner nuovi, ${r.updated || 0} completati, ${r.skipped || 0} saltati (doppi o senza contatti).` };
-        this._render();
-      } catch (error) { /* shown */ }
+      this._partnerImport = partners.length
+        ? { name: file.name, partners, withEmail: partners.filter((p) => p.email).length }
+        : { name: file.name, error: "Nel file non ho trovato partner: serve una riga di intestazione con almeno «Nome struttura» (o «Nome») e una colonna Email o Telefono." };
+      this._render();
     });
+    (this.shadowRoot || document.body).appendChild(input);
     input.click();
+  }
+
+  /** Send the chosen file in batches, with progress (2.6.1). */
+  async _partnerImportRun() {
+    const job = this._partnerImport;
+    if (!job || !job.partners || job.running) return;
+    const size = 150;
+    const total = { added: 0, updated: 0, skipped: 0 };
+    job.running = true;
+    job.done = 0;
+    this._render();
+    try {
+      for (let start = 0; start < job.partners.length; start += size) {
+        const r = await this._service("import_partners", { partners: job.partners.slice(start, start + size) });
+        total.added += r.added || 0;
+        total.updated += r.updated || 0;
+        total.skipped += r.skipped || 0;
+        job.done = Math.min(job.partners.length, start + size);
+        this._render();
+      }
+      this._partnerImport = null;
+      await this._loadData();
+      this._message = { kind: "ok", text: `Importati ${total.added} partner nuovi, ${total.updated} completati, ${total.skipped} saltati (stessa email di un altro o senza contatti).` };
+    } catch (error) {
+      job.running = false;
+      job.error = `Importazione interrotta dopo ${job.done} righe: ${this._friendlyError(error, "errore")}`
+        + (/unknown|not found|non trovat/i.test(String(error && (error.message || error.code))) ? " — aggiorna Spa Booking e riavvia Home Assistant." : "");
+    }
+    this._render();
+  }
+
+  /** The chosen file, before and while it is imported. */
+  _partnerImportPanel() {
+    const job = this._partnerImport;
+    if (!job) return null;
+    const close = el("button", { class: "btn", disabled: !!job.running, on: { click: () => { this._partnerImport = null; this._render(); } } }, job.partners ? "Annulla" : "Chiudi");
+    if (!job.partners || (job.error && !job.running && !job.done)) {
+      return el("div", { class: "cfg-box pg-step" },
+        el("div", { class: "pg-step-head" }, el("span", { class: "pg-step-title" }, `Importa «${job.name}»`)),
+        el("div", { class: "pg-sum warn" }, el("ha-icon", { icon: "mdi:alert-outline" }), el("span", {}, job.error)),
+        el("div", { class: "row" }, el("span", { class: "spacer" }), close));
+    }
+    const sample = job.partners.slice(0, 5).map((p) => el("div", { class: "dim small" },
+      [p.company || [p.first_name, p.last_name].join(" "), p.city, p.email].filter(Boolean).join(" · ")));
+    return el("div", { class: "cfg-box pg-step" },
+      el("div", { class: "pg-step-head" }, el("span", { class: "pg-step-title" }, `Importa «${job.name}»`)),
+      el("div", { class: "pg-sum" }, el("ha-icon", { icon: "mdi:file-account-outline" }),
+        el("span", {}, el("b", {}, `${job.partners.length} partner trovati, ${job.withEmail} con email. `),
+          "Chi ha la stessa email di un partner già presente non viene duplicato; i nuovi sono iscritti a email e promo.")),
+      ...sample,
+      job.partners.length > 5 ? el("div", { class: "dim small" }, `… e altri ${job.partners.length - 5}`) : null,
+      job.running ? el("div", { class: "mo-load", style: "height:8px;margin-top:6px" },
+        el("i", { style: `width:${Math.round(((job.done || 0) / job.partners.length) * 100)}%` })) : null,
+      job.running ? el("div", { class: "dim small" }, `Importazione… ${job.done || 0} di ${job.partners.length}`) : null,
+      job.error ? el("div", { class: "pg-sum warn" }, el("ha-icon", { icon: "mdi:alert-outline" }), el("span", {}, job.error)) : null,
+      el("div", { class: "row" }, el("span", { class: "spacer" }), close,
+        el("button", { class: "btn primary", disabled: !!job.running, on: { click: () => this._partnerImportRun() } },
+          el("ha-icon", { icon: "mdi:file-upload-outline" }), job.error ? "Riprova" : `Importa ${job.partners.length} partner`)));
   }
 
   /** A CSV with the right columns, to fill in Excel. */
