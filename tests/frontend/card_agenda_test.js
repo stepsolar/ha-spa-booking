@@ -60,3 +60,34 @@ card._agQuick = "";
 card._agendaView = "elenco";
 const list = card._renderAgendaDay();
 assert(byClass(list, "appt").length >= 3, "Elenco keeps the classic rows");
+
+// 2.4.0: on a computer the detail sits beside the day, not in a popup.
+card._agendaView = "timeline";
+card._forceWide = true;
+card._detailId = "2";
+card._detailView = "single";
+const withDetail = card._renderAgendaDay();
+assert(byClass(withDetail, "detail-sheet dt inline").length === 1, "detail beside the timeline");
+assert(card._detailInline === true, "so no popup this time");
+assert(byClass(withDetail, "dt-main").length === 1 && withDetail.textContent.includes("Conferma appuntamento"), "the one action of a pending booking");
+assert(byClass(withDetail, "ag-ev wait sel").length === 1, "its block is highlighted");
+card._agendaView = "elenco";
+assert(byClass(card._renderAgendaDay(), "detail-sheet dt inline").length === 1, "beside the list too");
+card._forceWide = false;
+card._detailInline = false;
+card._agendaView = "timeline";
+assert(byClass(card._renderAgendaDay(), "detail-sheet").length === 0, "on a phone: popup, not inline");
+const popup = card._renderDetail();
+assert(byClass(popup, "detail-sheet dt").length === 1 && byClass(popup, "dt-grip").length === 1, "the phone sheet with its grip");
+
+// Loyalty points on the client card and the partners tab.
+card._data.settings.loyalty_enabled = true;
+card._data.settings.loyalty_threshold = 100;
+card._data.settings.loyalty_reward = 10;
+card._data.loyalty = { c1: { earned: 150, adjust: 0, spent: 0, balance: 150, threshold: 100, ready: true } };
+const points = card._clientPointsBox(card._data.clients[0]);
+assert(points.textContent.includes("150 punti") && points.textContent.includes("Crea buono da"), "points and the reward button");
+card._data.partners = [{ id: "p1", first_name: "Giulia", company: "B&B Mare", code: "PRT-1A2B", phone: "", active: true }];
+card._clientsTab = "partner";
+const partnersPage = card._renderClients();
+assert(partnersPage.textContent.includes("B&B Mare") && partnersPage.textContent.includes("PRT-1A2B"), "partner listed with its code");

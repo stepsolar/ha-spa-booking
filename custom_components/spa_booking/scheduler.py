@@ -128,6 +128,7 @@ class SpaBookingScheduler:
         await self._job(results, "reminders", coordinator.async_send_reminders)
         await self._job(results, "reviews", coordinator.async_send_review_requests)
         await self._job(results, "promo_vouchers", coordinator.async_promo_voucher_tick)
+        await self._job(results, "loyalty", coordinator.async_loyalty_tick)
         await self._job(
             results, "voucher_expiry", coordinator.async_send_voucher_expiry_reminders
         )

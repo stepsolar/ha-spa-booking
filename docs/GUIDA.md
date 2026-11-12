@@ -1,6 +1,6 @@
 # Spa Booking — guida alle schede (2.2)
 
-Aggiornata alla 2.3.12: [Agenda](#agenda-2312); [Nuovo appuntamento a passi](#nuovo-appuntamento-a-passi-2310); [promo salvate e modelli](#promo-salvate-e-modelli-239); [Promo e Impostazioni](#promo-e-impostazioni-238); [Notifiche](#notifiche-236); [messaggi e chat](#messaggi-e-chat-235); [preferenza massaggiatrice/massaggiatore](#preferenza-massaggiatrice-o-massaggiatore); [promo e fedeltà del cliente](#promo-e-fedeltà-del-cliente); [conferme e promemoria WhatsApp](#conferme-e-promemoria-whatsapp); [firme e storico](#firme-e-storico); [chiusure con giorni esclusi](#chiusure-con-giorni-esclusi); [Proponi data](#proponi-data) nelle richieste, con trattamenti alternativi e prezzo; [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
+Aggiornata alla 2.4.0: [dettaglio, punti e partner](#dettaglio-punti-fedelta-e-partner-240); [Agenda](#agenda-2312); [Nuovo appuntamento a passi](#nuovo-appuntamento-a-passi-2310); [promo salvate e modelli](#promo-salvate-e-modelli-239); [Promo e Impostazioni](#promo-e-impostazioni-238); [Notifiche](#notifiche-236); [messaggi e chat](#messaggi-e-chat-235); [preferenza massaggiatrice/massaggiatore](#preferenza-massaggiatrice-o-massaggiatore); [promo e fedeltà del cliente](#promo-e-fedeltà-del-cliente); [conferme e promemoria WhatsApp](#conferme-e-promemoria-whatsapp); [firme e storico](#firme-e-storico); [chiusure con giorni esclusi](#chiusure-con-giorni-esclusi); [Proponi data](#proponi-data) nelle richieste, con trattamenti alternativi e prezzo; [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
 
 Questa guida mostra ogni scheda della dashboard **Spa Booking** e spiega a
 cosa serve ogni funzione. Le immagini sono state fatte con dati di prova.
@@ -32,6 +32,42 @@ in Impostazioni › Aspetto).
 
 
 
+
+## Dettaglio, punti fedeltà e partner (2.4.0)
+
+**Dettaglio appuntamento.** Su computer tocca un appuntamento nell'Agenda
+(Timeline o Elenco): la scheda si apre a destra, senza coprire la giornata. In
+alto lo stato (colore della testata), il nome, il trattamento e l'orario; sotto
+i riquadri (operatrice, ospite, codice, accessori, totale, da incassare), il
+pulsante grande per l'azione del momento (Conferma, Registra entrata, Registra
+uscita) e i pulsanti tondi Modifica, Chiama, WhatsApp, Recensione. Per un gruppo
+scegli «Singolo» o «Gruppo» in alto. In fondo: Annulla appuntamento. La X la
+chiude. Sul telefono la stessa scheda sale dal basso.
+
+**Punti fedeltà.** In Configurazione › Promo › **Punti fedeltà**:
+1. attiva la raccolta;
+2. scegli quanti punti per ogni euro (contano gli incassi registrati sugli
+   appuntamenti, non quelli pagati con voucher o gift card, e i voucher che il
+   cliente compra, riconosciuto dal telefono; un appuntamento annullato perde i
+   suoi punti);
+3. scegli la soglia e il valore del buono premio, e se inviarlo in automatico;
+4. scrivi il messaggio WhatsApp ({nome}, {codice}, {valore}, {punti},
+   {scadenza}).
+Sotto c'è la classifica. Nella scheda cliente trovi il saldo, la barra verso il
+premio, «Crea buono» (quando ha raggiunto la soglia), «Rettifica punti» e le
+ultime operazioni. Il buono premio è un voucher in euro (scheda Voucher) che il
+cliente usa come gli altri.
+
+**Partner.** In Clienti › **Partner**: «Nuovo partner» (nome, attività,
+telefono, email, codice, note, attivo). Il codice PRT-XXXX si crea da solo se
+lo lasci vuoto. La registrazione dei partner dal sito arriverà in seguito.
+
+| | |
+|---|---|
+| ![Dettaglio su computer](anteprime/42-dettaglio-desktop.png) | ![Dettaglio sul telefono](anteprime/43-dettaglio-telefono.png) |
+| ![Punti fedeltà](anteprime/44-punti-fedelta.png) | ![Punti nella scheda cliente](anteprime/45-punti-cliente.png) |
+
+![Partner](anteprime/46-partner.png)
 
 ## Agenda (2.3.12)
 

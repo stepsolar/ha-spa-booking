@@ -16,6 +16,7 @@ import json
 from datetime import date, datetime, time, timedelta
 import hmac
 import logging
+import math
 import re
 import secrets
 from pathlib import Path
@@ -36,6 +37,8 @@ from homeassistant.util import dt as dt_util
 from .const import (
     KEY_VOUCHERS,
     KEY_PROMO_VOUCHERS,
+    KEY_PARTNERS,
+    DEFAULT_LOYALTY_MESSAGE,
     PROMO_VOUCHER_PENDING,
     PROMO_VOUCHER_REDEEMED,
     PROMO_VOUCHER_SENT,
@@ -150,6 +153,8 @@ from .normalize import (
     _norm_clock,
     _norm_closure,
     _norm_count,
+    _norm_partner,
+    _norm_signed,
     _norm_date,
     _norm_extras,
     _norm_guest_type,
@@ -2625,6 +2630,207 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._data[KEY_VOUCHERS] = [v for v in self.vouchers if v["id"] != voucher_id]
             await self._async_save()
         return {"id": voucher_id}
+
+    # ------------------------------------------------------- loyalty points
+
+    def _voucher_value(self, voucher: dict[str, Any]) -> float:
+        """What a sold voucher is worth: its treatments at list price plus gift cards."""
+        prices = {t["id"]: float(t.get("price") or 0) for t in self.treatments}
+        total = 0.0
+        for person in voucher.get("people") or []:
+            total += sum(prices.get(tid, 0.0) for tid in person.get("treatment_ids") or [])
+            total += float(person.get("gift_card_amount") or 0)
+        return round(total, 2)
+
+    def loyalty_of(self, client: dict[str, Any]) -> dict[str, Any]:
+        """The points of one client (2.4.0).
+
+        Earned = euro paid on her appointments that are not cancelled (paid by
+        voucher or gift card excluded: the purchase earned them already) plus
+        the vouchers she bought (matched by phone), times the points per euro.
+        Balance = earned + corrections − spent on rewards.
+        """
+        settings = self._data.get(KEY_SETTINGS, {})
+        rate = float(settings.get("loyalty_points_per_euro") or 0)
+        paid = 0.0
+        for appointment in self.appointments:
+            if appointment.get("client_id") != client["id"] or appointment.get("status") == "cancelled":
+                continue
+            for item in appointment.get("payments") or []:
+                if item.get("method") in ("voucher", "gift_card"):
+                    continue
+                paid += float(item.get("amount") or 0)
+        bought = 0.0
+        phone = str(client.get("phone") or "")
+        if phone:
+            for voucher in self.vouchers:
+                if voucher.get("source") or not voucher.get("buyer_phone"):
+                    continue
+                if _same_phone(voucher["buyer_phone"], phone):
+                    bought += self._voucher_value(voucher)
+        earned = int(math.floor((paid + bought) * rate + 1e-9))
+        adjust = int(client.get("loyalty_adjust") or 0)
+        spent = int(client.get("loyalty_spent") or 0)
+        threshold = int(settings.get("loyalty_threshold") or 0)
+        balance = earned + adjust - spent
+        return {
+            "earned": earned, "adjust": adjust, "spent": spent, "balance": balance,
+            "paid": round(paid, 2), "bought": round(bought, 2),
+            "threshold": threshold, "ready": bool(threshold) and balance >= threshold,
+        }
+
+    def loyalty_summary(self) -> dict[str, dict[str, Any]]:
+        """The points of every client with any, for the card."""
+        out: dict[str, dict[str, Any]] = {}
+        for client in self.clients:
+            info = self.loyalty_of(client)
+            if info["earned"] or info["adjust"] or info["spent"]:
+                out[client["id"]] = info
+        return out
+
+    def format_loyalty_message(self, client: dict[str, Any], voucher: dict[str, Any], points: int) -> str:
+        """The WhatsApp text that carries the reward voucher."""
+        settings = self._data.get(KEY_SETTINGS, {})
+        template = str(settings.get("loyalty_message") or "").strip() or DEFAULT_LOYALTY_MESSAGE
+        value = self._voucher_value(voucher)
+        return (
+            template.replace("{nome}", str(client.get("first_name") or "").strip() or "ospite")
+            .replace("{cognome}", str(client.get("last_name") or "").strip())
+            .replace("{codice}", voucher.get("code") or "")
+            .replace("{valore}", f"{value:.2f} €".replace(".", ","))
+            .replace("{punti}", str(points))
+            .replace("{scadenza}", _date_it(voucher.get("expires_on") or ""))
+        )
+
+    async def async_loyalty_reward(
+        self, client_id: str, by: str = "", send: bool = True
+    ) -> dict[str, Any]:
+        """Turn the threshold of points into a voucher worth the reward, and send it.
+
+        The points are taken at once (before the message goes), so a second
+        call cannot give two vouchers for the same points.
+        """
+        settings = self._data.get(KEY_SETTINGS, {})
+        client = self._find(self.clients, client_id, "Cliente")
+        info = self.loyalty_of(client)
+        threshold = int(settings.get("loyalty_threshold") or 0)
+        reward = float(settings.get("loyalty_reward") or 0)
+        if not threshold or reward <= 0:
+            raise ValidationError("Imposta soglia e valore del premio in Promo › Punti fedeltà")
+        if info["balance"] < threshold:
+            raise ValidationError(
+                f"Servono {threshold} punti: {self.full_name(client)} ne ha {info['balance']}"
+            )
+        voucher = await self.async_create_voucher(
+            "Punti fedeltà", "", self.full_name(client), str(client.get("phone") or ""),
+            [{"name": self.full_name(client), "treatment_ids": [], "gift_card_amount": reward}],
+            None, by or "Punti fedeltà",
+        )
+        async with self._lock:
+            stored = self._find(self.vouchers, voucher["id"], "Voucher")
+            stored["source"] = "punti"
+            stored["client_id"] = client_id
+            client["loyalty_spent"] = int(client.get("loyalty_spent") or 0) + threshold
+            client.setdefault("loyalty_log", []).append({
+                "at": dt_util.utcnow().isoformat(), "kind": "premio", "points": -threshold,
+                "note": f"Buono da {reward:.2f} €".replace(".", ","), "code": stored["code"], "by": by,
+            })
+            await self._async_save()
+        sent = False
+        error = ""
+        chat_id = messaging.whatsapp_chat_id(str(client.get("phone") or ""))
+        if send and chat_id:
+            try:
+                result = await messaging.async_send_whatsapp(
+                    self.hass, chat_id, self.format_loyalty_message(client, stored, threshold), waha=self.waha
+                )
+                sent = bool(result.get("sent"))
+                error = str(result.get("error") or "")
+            except Exception as err:  # noqa: BLE001
+                error = str(err)
+        elif send:
+            error = "il cliente non ha un numero WhatsApp"
+        return {"voucher": self.voucher_payload(stored), "sent": sent, "error": error,
+                "loyalty": self.loyalty_of(client)}
+
+    async def async_loyalty_adjust(
+        self, client_id: str, points: int, note: str = "", by: str = ""
+    ) -> dict[str, Any]:
+        """A correction of points by the desk (a bonus, or points taken back)."""
+        points = _norm_signed(points)
+        if not points:
+            raise ValidationError("Indica quanti punti aggiungere o togliere")
+        async with self._lock:
+            client = self._find(self.clients, client_id, "Cliente")
+            client["loyalty_adjust"] = int(client.get("loyalty_adjust") or 0) + points
+            client.setdefault("loyalty_log", []).append({
+                "at": dt_util.utcnow().isoformat(), "kind": "rettifica", "points": points,
+                "note": str(note or "").strip(), "code": "", "by": by,
+            })
+            await self._async_save()
+        return {"loyalty": self.loyalty_of(client)}
+
+    async def async_loyalty_tick(self) -> dict[str, Any]:
+        """Automatic rewards: every client over the threshold gets her voucher."""
+        settings = self._data.get(KEY_SETTINGS, {})
+        if not settings.get("loyalty_enabled") or not settings.get("loyalty_auto"):
+            return {"rewards": 0, "reason": "premi automatici spenti"}
+        rewards = 0
+        for client in list(self.clients):
+            if not client.get("phone"):
+                continue
+            # One reward per client per tick: the next tick gives the next one.
+            if self.loyalty_of(client)["ready"]:
+                try:
+                    await self.async_loyalty_reward(client["id"], "Automatico")
+                    rewards += 1
+                except ValidationError:
+                    continue
+        return {"rewards": rewards}
+
+    # ------------------------------------------------------------- partners
+
+    @property
+    def partners(self) -> list[dict[str, Any]]:
+        """The partners who promote the spa (2.4.0)."""
+        return self._data.setdefault(KEY_PARTNERS, [])
+
+    async def async_save_partner(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Add a partner or change one; each gets a code PRT-XXXX."""
+        async with self._lock:
+            partner_id = str(data.get("id") or "")
+            current = next((p for p in self.partners if p["id"] == partner_id), None) if partner_id else None
+            if partner_id and current is None:
+                raise ValidationError("Partner non trovato")
+            merged = {**(current or {}), **data}
+            if not str(merged.get("first_name") or "").strip() and not str(merged.get("company") or "").strip():
+                raise ValidationError("Indica almeno il nome o l'attività del partner")
+            codes = {p["code"] for p in self.partners if p is not current}
+            code = str(data.get("code") or (current or {}).get("code") or "").strip().upper()
+            if not code:
+                while True:
+                    code = "PRT-" + secrets.token_hex(2).upper()
+                    if code not in codes:
+                        break
+            elif code in codes:
+                raise ValidationError(f"Il codice {code} è già di un altro partner")
+            record = _norm_partner({**(current or {}), **data, "code": code,
+                                    **({"id": current["id"], "created_at": current["created_at"]} if current else {})})
+            if current is not None:
+                current.clear()
+                current.update(record)
+            else:
+                self.partners.append(record)
+            await self._async_save()
+        return {"partner": record}
+
+    async def async_delete_partner(self, partner_id: str) -> dict[str, Any]:
+        """Remove a partner from the list."""
+        async with self._lock:
+            self._find(self.partners, partner_id, "Partner")
+            self._data[KEY_PARTNERS] = [p for p in self.partners if p["id"] != partner_id]
+            await self._async_save()
+        return {"id": partner_id}
 
     # ------------------------------------------------------- loyalty vouchers
 

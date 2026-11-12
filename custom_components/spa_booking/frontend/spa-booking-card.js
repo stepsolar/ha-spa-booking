@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.3.12";
+const CARD_VERSION = "2.4.0";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -3072,7 +3072,9 @@ class SpaBookingCard extends HTMLElement {
     root.appendChild(body);
     // The popup lives outside the scrolling body so it covers whatever the
     // reader was looking at when they tapped the row.
-    if (this._detailId) add(root, this._renderDetail());
+    // On a computer the agenda shows the detail beside the day (2.4.0).
+    if (this._detailId && !this._detailInline) add(root, this._renderDetail());
+    this._detailInline = false;
     if (this._payPopup) add(root, this._renderPayPopup());
     if (this._overlapPopup) add(root, this._renderOverlapPopup());
     if (this._proposePopup) add(root, this._renderProposePopup());
@@ -3466,20 +3468,26 @@ class SpaBookingCard extends HTMLElement {
     wrap.appendChild(el("div", { class: "ag-kpis" }, add(el("div", { class: "ag-pills" }), this._agPills(allOfDay)),
       filters.length ? el("div", { class: "ag-filters" }, ...filters) : null));
 
+    // The detail of the tapped appointment beside the day, on a computer.
+    const selected = this._detailId && this._detailWide() && this._lookup.appointment.get(this._detailId);
+    if (selected) this._detailInline = true;
     if (view === "elenco") {
-      add(wrap, this._renderAgendaList());
+      const listView = this._renderAgendaList();
+      if (selected) {
+        wrap.appendChild(el("div", { class: "ag-main detail-open" }, listView, el("div", { class: "ag-side" }, this._detailSheet(selected, true))));
+      } else add(wrap, listView);
       return wrap;
     }
     const dayList = allOfDay.filter((appointment) => this._agQuickMatch(appointment));
-    if (!dayList.length) {
+    if (!dayList.length && !selected) {
       wrap.appendChild(el("div", { class: "empty" }, allOfDay.length
         ? "Nessun appuntamento con questo filtro." : "Nessun appuntamento per questa data."));
     } else {
-      const main = el("div", { class: "ag-main" });
-      main.appendChild(this._agTimeline(dayList));
-      add(main, this._agSide(dayList));
+      const main = el("div", { class: `ag-main${selected ? " detail-open" : ""}` });
+      main.appendChild(dayList.length ? this._agTimeline(dayList) : el("div", { class: "empty" }, "Nessun appuntamento con questo filtro."));
+      add(main, selected ? el("div", { class: "ag-side" }, this._detailSheet(selected, true)) : this._agSide(dayList));
       wrap.appendChild(main);
-      wrap.appendChild(this._agPhoneList(dayList));
+      if (dayList.length) wrap.appendChild(this._agPhoneList(dayList));
     }
     const cancelled = (this._byDay.get(this._day) || []).filter(
       (appointment) => appointment.status === "cancelled" && this._categoryMatch(appointment) && this._guestMatch(appointment));
@@ -3679,7 +3687,7 @@ class SpaBookingCard extends HTMLElement {
         const width = ((minutesOf(end) - minutesOf(start)) / span) * 100;
         const name = this._clientName(appointment) + (members.length > 1 ? ` (${members.length})` : "");
         const block = el("button", {
-          type: "button", class: `ag-ev ${state}`,
+          type: "button", class: `ag-ev ${state}${members.some((m) => m.id === this._detailId) ? " sel" : ""}`,
           style: `left:${pct(minutesOf(start))}; width:calc(${width}% - 3px); top:${6 + row * 58}px`,
           title: `${timeOf(start)}–${timeOf(end)} · ${name} · ${this._treatmentName(appointment)}`,
           on: { click: () => this._openDetail(appointment) },
@@ -4296,6 +4304,29 @@ class SpaBookingCard extends HTMLElement {
   _renderDetail() {
     const appointment = this._lookup.appointment.get(this._detailId);
     if (!appointment) return null;
+    return el("div", {
+      class: "detail-backdrop",
+      on: { click: (event) => {
+        // Only a tap on the backdrop itself closes it, never one inside.
+        if (event.target === event.currentTarget) this._closeDetail();
+      } },
+    }, this._detailSheet(appointment, false));
+  }
+
+  /** Whether the card is wide enough to show the detail beside the agenda (2.4.0). */
+  _detailWide() {
+    if (this._forceWide != null) return this._forceWide;
+    const width = this.clientWidth || (typeof window !== "undefined" ? window.innerWidth : 0) || 0;
+    return width >= 1000;
+  }
+
+  /**
+   * The record of one appointment (2.4.0): a coloured head with the state and
+   * the one action that matters now, tiles with the essentials, then the
+   * sections. ``inline`` draws it beside the agenda on a computer; otherwise it
+   * is the sheet over the page (from the bottom on a phone).
+   */
+  _detailSheet(appointment, inline) {
 
     const start = parseDate(appointment.start);
     const end = parseDate(appointment.end);
@@ -4329,54 +4360,94 @@ class SpaBookingCard extends HTMLElement {
         : null;
 
     const sheet = el("div", {
-      class: "detail-sheet",
-      role: "dialog",
-      "aria-modal": "true",
+      class: `detail-sheet dt${inline ? " inline" : ""}`,
+      role: inline ? "region" : "dialog",
+      ...(inline ? {} : { "aria-modal": "true" }),
       "aria-label": `Dettagli ${this._clientName(appointment)}`,
     });
+    const phone = client ? client.phone : "";
+    const whatsapp = waLink(phone);
+    const canBook = this._ownsAppointment(appointment);
+    const state = cancelled ? ["Annullato", "off", "mdi:close-circle-outline"]
+      : appointment.status === "pending" ? ["In attesa di conferma", "wait", "mdi:clock-outline"]
+        : appointment.checked_out ? ["Uscito", "done", "mdi:logout"]
+          : appointment.checked_in ? ["In sala", "in", "mdi:account-check"]
+            : ["Confermato", "ok", "mdi:check-circle"];
+    const extrasList = (appointment.extras || []).map((id) => this._accessory(id));
+    const head = el("div", { class: `dt-hero ${state[1]}` },
+      inline ? null : el("div", { class: "dt-grip" }),
+      el("div", { class: "dt-top" },
+        el("span", { class: "dt-state" }, el("ha-icon", { icon: state[2] }), state[0]),
+        related.length > 1 ? el("div", { class: "dt-seg", role: "radiogroup" },
+          [["single", "Singolo"], ["grouped", `Gruppo (${related.length})`]].map(([id, label]) => el("button", {
+            type: "button", class: (grouped ? "grouped" : "single") === id ? "on" : "", role: "radio",
+            "aria-checked": (grouped ? "grouped" : "single") === id ? "true" : "false",
+            on: { click: () => { this._detailView = id; this._render(); } },
+          }, label))) : null,
+        el("button", { class: "dt-close", title: "Chiudi", "aria-label": "Chiudi", on: { click: () => this._closeDetail() } },
+          el("ha-icon", { icon: "mdi:close" }))),
+      el("div", { class: "dt-name" }, this._clientName(appointment) + (group.length > 1 ? ` (${group.length})` : "")),
+      el("div", { class: "dt-sub" }, `${this._treatmentName(appointment)} · ${longDay(start)}`),
+      el("div", { class: "dt-time" }, el("ha-icon", { icon: "mdi:clock-outline" }),
+        `${start ? timeOf(start) : "—"} – ${end ? timeOf(end) : "—"}`,
+        el("span", {}, ` · ${minutesLabel(this._durationOf(appointment)) || ""}`)));
+    sheet.appendChild(head);
 
-    sheet.appendChild(
-      el("div", { class: "detail-head" },
-        el("div", {},
-          el("div", { class: "detail-title" }, this._clientName(appointment)),
-          el("div", { class: "detail-sub" },
-            `${this._treatmentName(appointment)} · ${longDay(start)}`)),
-        el("div", { class: "detail-toggle" },
-          el("button", {
-            class: `btn small ${this._detailView === "grouped" ? "active" : ""}`,
-            title: this._detailView === "grouped" ? "Mostra vista singola" : "Mostra vista raggruppata",
-            disabled: this._busy,
-            on: { click: () => { this._detailView = this._detailView === "grouped" ? "single" : "grouped"; this._render(); } },
-          },
-            el("ha-icon", { style: "--mdc-icon-size: 20px; --ha-icon-size: 20px; width: 20px; height: 20px;", icon: this._detailView === "grouped" ? "mdi:view-list-outline" : "mdi:view-day" }),
-            el("span", { class: "btn-label" }, this._detailView === "grouped" ? "Singola" : "Raggruppata"))),
-        el("button", {
-          class: "icon-btn",
-          title: "Chiudi",
-          on: { click: () => this._closeDetail() },
-        }, el("ha-icon", { icon: "mdi:close" })))
-    );
+    // The essentials as tiles: who does it, which guest, code, money.
+    const due0 = (grouped ? this._relatedTotals(appointment)
+      : (related.length > 1 ? this._appointmentTotals(appointment) : this._singleTotals(appointment)));
+    const tile = (icon, label, value, tone) => el("div", { class: `dt-tile${tone ? ` ${tone}` : ""}` },
+      el("ha-icon", { icon }), el("span", { class: "dt-tile-label" }, label), el("span", { class: "dt-tile-value" }, value));
+    sheet.appendChild(el("div", { class: "dt-tiles" },
+      tile("mdi:account-heart-outline", "Operatrice", this._operatorName(appointment) || "nessuna"),
+      tile(guest.icon, "Ospite", guest.label),
+      tile("mdi:barcode", "Codice", appointment.code || "—"),
+      tile("mdi:bag-personal-outline", "Accessori", extrasList.length ? extrasList.map((entry) => entry.label).join(", ") : "nessuno"),
+      tile("mdi:cash", grouped ? "Totale gruppo" : "Totale", euro(due0.total)),
+      tile("mdi:cash-clock", "Da incassare", euro(due0.due), due0.due > 0 ? "due" : "ok")));
+
+    // The one thing to do now, big; the rest as round buttons.
+    const primary = [];
+    if (canBook && !cancelled) {
+      if (appointment.status === "pending") {
+        primary.push(el("button", { class: "btn primary dt-main", disabled: this._busy,
+          on: { click: () => this._closeAnd(() => this._confirmAppointment(appointment)) } },
+          el("ha-icon", { icon: "mdi:check" }), "Conferma appuntamento"));
+      } else if (this._isToday(appointment) && appointment.status === "confirmed" && !appointment.checked_in) {
+        primary.push(el("button", { class: "btn dt-main in", disabled: this._busy,
+          on: { click: () => this._closeAnd(() => this._confirmEntry(appointment)) } },
+          el("ha-icon", { icon: "mdi:login" }), "Registra entrata"));
+      } else if (appointment.checked_in && !appointment.checked_out) {
+        primary.push(el("button", { class: "btn primary dt-main", disabled: this._busy,
+          on: { click: () => this._closeAnd(() => this._confirmExit(appointment)) } },
+          el("ha-icon", { icon: "mdi:logout" }), "Registra uscita"));
+      }
+    }
+    const round = (icon, label, opts) => el(opts.href ? "a" : "button", {
+      class: `dt-round${opts.tone ? ` ${opts.tone}` : ""}`, title: opts.title || label,
+      ...(opts.href ? { href: opts.href, ...(opts.blank ? { target: "_blank", rel: "noopener" } : {}) } : { disabled: this._busy || !!opts.disabled, on: { click: opts.click } }),
+    }, el("span", { class: "dt-round-icon" }, el("ha-icon", { icon })), el("span", { class: "dt-round-label" }, label));
+    const rounds = el("div", { class: "dt-rounds" });
+    if (canBook && !cancelled) {
+      rounds.appendChild(round("mdi:pencil-outline", "Modifica", { click: () => this._closeAnd(() => this._openEditAppointment(appointment)) }));
+      if (grouped && related.length > 1 && related.every((member) => this._ownsAppointment(member))) {
+        rounds.appendChild(round("mdi:account-group-outline", "Modifica gruppo", { click: () => this._closeAnd(() => this._openEditBatch(appointment)) }));
+      }
+    }
+    if (phone) rounds.appendChild(round("mdi:phone", "Chiama", { href: telHref(phone), title: phone, tone: "tel" }));
+    if (whatsapp) rounds.appendChild(round("mdi:whatsapp", "WhatsApp", { href: whatsapp, blank: true, tone: "wa" }));
+    if (canBook && !cancelled) {
+      rounds.appendChild(appointment.review_request_sent
+        ? round("mdi:star", "Recensione inviata", { disabled: true, tone: "star", click: () => {} })
+        : round("mdi:star-outline", "Recensione", {
+            disabled: !whatsapp, title: whatsapp ? "Invia la richiesta di recensione" : "Il cliente non ha un numero WhatsApp valido",
+            click: () => this._closeAnd(() => this._sendReviewRequest(appointment)) }));
+    }
+    sheet.appendChild(el("div", { class: "dt-actions" }, ...primary, rounds));
 
     sheet.appendChild(
       section(
-        "Quando",
-        this._detailLine("Inizio", start ? timeOf(start) : "—"),
-        this._detailLine("Fine", end ? timeOf(end) : "—"),
-        this._detailLine("Durata", minutesLabel(this._durationOf(appointment)) || "—"),
-        this._detailLine(
-          "Stato",
-          cancelled
-            ? el("span", { class: "detail-value due" }, "Annullato")
-            : appointment.status === "pending"
-              ? el("span", { class: "detail-value pending" }, "In attesa di conferma")
-              : el("span", { class: "detail-value ok" }, "Confermato")
-        ),
-        this._detailLine(
-          "Ospite",
-          el("span", { class: `detail-guest ${guest.id}` },
-            el("ha-icon", { icon: guest.icon }),
-            guest.label)
-        ),
+        "Prenotazione",
         this._detailLine("Inserito da", this._authorText(appointment)),
         appointment.therapist_preference
           ? this._detailLine("Preferisce", appointment.therapist_preference === "F" ? "una massaggiatrice" : "un massaggiatore")
@@ -4401,7 +4472,6 @@ class SpaBookingCard extends HTMLElement {
         this._detailLine("Trattamento", this._treatmentName(appointment)),
         this._detailLine("Categoria", category ? category.name : "—"),
         this._detailLine("Prezzo", price || "—"),
-        this._detailLine("Operatrice", this._operatorName(appointment) || "nessuna"),
         (() => {
           const op = this._lookup.operator.get(appointment.operator_id);
           if (!op) return null;
@@ -4504,26 +4574,6 @@ class SpaBookingCard extends HTMLElement {
       )
     );
 
-    const extras = (appointment.extras || [])
-      .map((id) => this._accessory(id));
-
-    add(
-      sheet,
-      section(
-        "Accessori",
-        extras.length
-          ? this._detailLine(
-              "Accessori",
-              el("span", { class: "detail-extras" },
-                extras.map((entry) =>
-                  el("span", { class: "extra-pill" },
-                    el("ha-icon", { icon: entry.icon }),
-                    entry.label)))
-            )
-          : this._detailLine("Accessori", "nessuno")
-      )
-    );
-
     // The old Pagamento flags live on in the data, but the popup shows the
     // new register instead: totals and takings with their payment ways. The
     // figures cover the whole party, takings included wherever they were
@@ -4610,144 +4660,23 @@ class SpaBookingCard extends HTMLElement {
       add(sheet, section("Storico modifiche", this._historyList(appointment.history)));
     }
 
-    // The same actions as on the row, so the popup is a shortcut and not a
-    // second, different way of working.
-    const actions = el("div", { class: "detail-actions" });
-    if (grouped && related.length > 1 && related.every((member) => this._ownsAppointment(member))) {
-      actions.appendChild(el("button", {
-        class: "btn primary",
-        disabled: this._busy,
-        on: { click: () => this._closeAnd(() => this._openEditBatch(appointment)) },
-      }, el("ha-icon", { style: "--mdc-icon-size: 20px; --ha-icon-size: 20px; width: 20px; height: 20px;", icon: "mdi:pencil" }),
-      el("span", { class: "btn-label" }, "Modifica gruppo")));
-    }
-    const phone = client ? client.phone : "";
-    const whatsapp = waLink(phone);
-    // Management buttons follow the same rule as the row: operators and above.
-    const canBook = this._ownsAppointment(appointment);
+    // Less frequent and destructive actions at the bottom.
+    const footer = el("div", { class: "dt-footer" });
     if (canBook && !cancelled) {
-      // Waiting: confirming comes first here too, for the same reason.
-      if (appointment.status === "pending") {
-        actions.appendChild(
-          el("button", {
-            class: "btn primary",
-            disabled: this._busy,
-            on: { click: () => this._closeAnd(() => this._confirmAppointment(appointment)) },
-          }, "Conferma")
-        );
-      }
-      if (
-        this._isToday(appointment) &&
-        appointment.status === "confirmed" &&
-        !appointment.checked_in
-      ) {
-        actions.appendChild(
-          el("button", {
-            class: "btn small",
-            disabled: this._busy,
-            on: { click: () => this._closeAnd(() => this._confirmEntry(appointment)) },
-          }, "Registra entrata")
-        );
-      }
       if (appointment.checked_in && !appointment.checked_out) {
-        // The exit follows the entry: a client leaves after arriving, and the
-        // "Uscite" panel counts what is recorded here. Offering it the other way
-        // round would let the desk close an appointment that never opened.
-        actions.appendChild(
-          el("button", {
-            class: "btn small",
-            disabled: this._busy,
-            on: { click: () => this._closeAnd(() => this._confirmExit(appointment)) },
-          }, "Registra uscita")
-        );
-        // Once the entry is recorded, a wrong one can be taken back — but only
-        // before the exit, because the exit closes the visit.
-        actions.appendChild(
-          el("button", {
-            class: "btn small",
-            disabled: this._busy,
-            on: {
-              click: () =>
-                this._closeAnd(() => this._confirmEntry(appointment, false)),
-            },
-          }, "Cancella entrata")
-        );
+        footer.appendChild(el("button", { class: "btn small", disabled: this._busy,
+          on: { click: () => this._closeAnd(() => this._confirmEntry(appointment, false)) } }, "Cancella entrata"));
       }
-      actions.appendChild(
-        el("button", {
-          class: "btn primary",
-          disabled: this._busy,
-          on: {
-            click: () => this._closeAnd(() => this._openEditAppointment(appointment)),
-          },
-        }, "Modifica")
-      );
-      // Richiesta recensione: presente su ogni appuntamento non annullato. Se
-      // la richiesta è già partita il pulsante cambia aspetto e si disattiva,
-      // e la stella appare anche sulla riga dell'agenda.
-      actions.appendChild(
-        appointment.review_request_sent
-          ? el("button", {
-              class: "btn small review-sent",
-              disabled: true,
-              title: "Richiesta recensione già inviata",
-            }, el("ha-icon", { icon: "mdi:star" }), "Recensione inviata")
-          : el("button", {
-              class: "btn small",
-              disabled: this._busy || !whatsapp,
-              title: whatsapp
-                ? "Invia la richiesta di recensione a questo cliente"
-                : "Il cliente non ha un numero WhatsApp valido",
-              on: {
-                click: () => this._closeAnd(() => this._sendReviewRequest(appointment)),
-              },
-            }, el("ha-icon", { icon: "mdi:star-outline" }), "Invia recensione")
-      );
-      actions.appendChild(
-        el("button", {
-          class: "btn danger",
-          disabled: this._busy,
-          on: { click: () => this._closeAnd(() => this._confirmCancel(appointment)) },
-        }, "Annulla")
-      );
+      footer.appendChild(el("button", { class: "btn small danger", disabled: this._busy,
+        on: { click: () => this._closeAnd(() => this._confirmCancel(appointment)) } },
+        el("ha-icon", { icon: "mdi:calendar-remove" }), "Annulla appuntamento"));
     } else if (canBook) {
-      actions.appendChild(
-        el("button", {
-          class: "btn danger",
-          disabled: this._busy,
-          on: {
-            click: () => this._closeAnd(() => this._confirmDeleteAppointment(appointment)),
-          },
-        }, "Elimina definitivamente")
-      );
+      footer.appendChild(el("button", { class: "btn small danger", disabled: this._busy,
+        on: { click: () => this._closeAnd(() => this._confirmDeleteAppointment(appointment)) } },
+        el("ha-icon", { icon: "mdi:delete" }), "Elimina definitivamente"));
     }
-    // Contacts on the right, icon-only coloured buttons: WhatsApp keeps its
-    // own green, the phone takes the card's primary colour.
-    if (phone || whatsapp) {
-      const contacts = el("div", { class: "detail-contacts" });
-      if (phone) {
-        contacts.appendChild(
-          el("a", { class: "btn tel", href: telHref(phone), title: phone },
-            el("ha-icon", { icon: "mdi:phone" }))
-        );
-      }
-      if (whatsapp) {
-        contacts.appendChild(
-          el("a", { class: "btn wa", href: whatsapp, target: "_blank", rel: "noopener", title: "WhatsApp" },
-            el("ha-icon", { icon: "mdi:whatsapp" }))
-        );
-      }
-      actions.appendChild(contacts);
-    }
-    sheet.appendChild(actions);
-
-    return el("div", {
-      class: "detail-backdrop",
-      on: { click: (event) => {
-        // Only a tap on the backdrop itself closes it, never one inside.
-        if (event.target === event.currentTarget) this._closeDetail();
-      } },
-    }, sheet);
+    if (footer.childNodes.length || footer.children.length) sheet.appendChild(footer);
+    return sheet;
   }
 
   /** Close the popup, then run something that redraws on its own. */
@@ -10220,7 +10149,210 @@ class SpaBookingCard extends HTMLElement {
     this._render();
   }
 
-_renderClients() {
+  /** Clienti with two sub-tabs (2.4.0): the clients and the partners. */
+  _renderClients() {
+    const tab = this._clientsTab || "clienti";
+    const wrap = el("div", { class: "stack" });
+    const partners = (this._data.partners || []).length;
+    wrap.appendChild(el("div", { class: "nt-tabs", role: "tablist" },
+      [["clienti", "mdi:account-multiple-outline", `Clienti (${(this._data.clients || []).length})`],
+        ["partner", "mdi:handshake-outline", `Partner (${partners})`]]
+        .map(([id, icon, label]) => el("button", {
+          class: `nt-tab${tab === id ? " on" : ""}`, role: "tab", "aria-selected": tab === id ? "true" : "false",
+          on: { click: () => { this._clientsTab = id; this._render(); } },
+        }, el("ha-icon", { icon }), el("span", {}, label)))));
+    add(wrap, tab === "partner" ? this._renderPartners() : this._renderClientsList());
+    return wrap;
+  }
+
+  /** The partners who promote the spa: list, search, add and change by hand. */
+  _renderPartners() {
+    const wrap = el("div", { class: "stack" });
+    const canEdit = this._can("manage_clients");
+    const label = (p) => p.company || [p.first_name, p.last_name].filter(Boolean).join(" ");
+    const partners = (this._data.partners || []).slice().sort((a, b) => label(a).localeCompare(label(b)));
+    const query = (this._partnerQuery || "").trim().toLowerCase();
+    const search = el("input", { class: "input grow partner-search", type: "search", value: this._partnerQuery || "",
+      placeholder: "Cerca partner per nome, attività, telefono o codice" });
+    this._searchInputRedraw(search, ".partner-search", (value) => { this._partnerQuery = value; });
+    wrap.appendChild(el("div", { class: "row" }, search,
+      canEdit ? el("button", { class: "btn small primary", on: { click: () => {
+        this._partnerDraft = { first_name: "", last_name: "", company: "", phone: "", email: "", code: "", notes: "", active: true };
+        this._render();
+      } } }, el("ha-icon", { icon: "mdi:plus" }), "Nuovo partner") : null));
+    wrap.appendChild(el("div", { class: "pg-sum" }, el("ha-icon", { icon: "mdi:information-outline" }),
+      el("span", {}, "I partner promuovono i vostri trattamenti e voucher. Per ora si aggiungono a mano; la registrazione dal sito arriverà dopo.")));
+
+    if (this._partnerDraft) {
+      const draft = this._partnerDraft;
+      const field = (key, label, type = "text", extra = {}) => el("label", { class: "field" }, el("span", {}, label),
+        key === "phone" ? phoneInput(draft.phone || "", (value) => { draft.phone = value; })
+          : el(type === "textarea" ? "textarea" : "input", {
+              class: "input", ...(type === "textarea" ? { rows: "3" } : { type, value: draft[key] || "" }), ...extra,
+              on: { input: (event) => { draft[key] = event.target.value; } } }, type === "textarea" ? draft[key] || "" : null));
+      wrap.appendChild(el("div", { class: "cfg-box pg-step" },
+        el("div", { class: "pg-step-head" }, el("span", { class: "pg-step-title" }, draft.id ? "Modifica partner" : "Nuovo partner")),
+        el("div", { class: "field-grid" }, field("first_name", "Nome"), field("last_name", "Cognome")),
+        el("div", { class: "field-grid" }, field("company", "Attività (es. B&B, agenzia, palestra)"),
+          field("code", "Codice partner", "text", { placeholder: "automatico (PRT-XXXX)", style: "text-transform: uppercase" })),
+        el("div", { class: "field-grid" }, field("phone", "Telefono"), field("email", "Email", "email")),
+        field("notes", "Note", "textarea"),
+        el("label", { class: "check" }, el("input", { type: "checkbox", checked: draft.active !== false,
+          on: { change: (event) => { draft.active = event.target.checked; } } }), "Attivo"),
+        el("div", { class: "row" }, el("span", { class: "spacer" }),
+          el("button", { class: "btn", on: { click: () => { this._partnerDraft = null; this._render(); } } }, "Annulla"),
+          el("button", { class: "btn primary", disabled: this._busy, on: { click: async () => {
+            try {
+              await this._call("save_partner", { ...draft, code: (draft.code || "").trim().toUpperCase() });
+              this._partnerDraft = null;
+              this._message = { kind: "ok", text: "Partner salvato." };
+              this._render();
+            } catch (error) { /* shown */ }
+          } } }, el("ha-icon", { icon: "mdi:content-save" }), "Salva"))));
+    }
+
+    const shown = partners.filter((p) => !query || [p.first_name, p.last_name, p.company, p.phone, p.email, p.code, p.notes]
+      .join(" ").toLowerCase().includes(query));
+    if (!shown.length) {
+      wrap.appendChild(el("div", { class: "empty" }, query ? "Nessun partner trovato." : "Nessun partner ancora. Aggiungine uno con «Nuovo partner»."));
+      return wrap;
+    }
+    const list = el("div", { class: "stack tight client-list cfg-box" });
+    shown.forEach((partner, index) => {
+      const name = [partner.first_name, partner.last_name].filter(Boolean).join(" ");
+      list.appendChild(el("div", { class: "client-row" },
+        el("span", { class: `user-avatar tone-${(index + 3) % 6}` }, this._initials(partner.company || name)),
+        el("div", { class: "client-main" },
+          el("div", { class: "client-name" }, partner.company || name || "Partner",
+            el("span", { class: "pm-chip info" }, partner.code),
+            partner.active === false ? el("span", { class: "pm-chip" }, "Non attivo") : null),
+          el("div", { class: "dim small" }, [partner.company ? name : "", partner.phone, partner.email].filter(Boolean).join(" · ") || "—"),
+          partner.notes ? el("div", { class: "dim small" }, partner.notes) : null),
+        el("div", { class: "appt-actions" },
+          partner.phone ? el("a", { class: "btn small tel", href: telHref(partner.phone), title: partner.phone }, el("ha-icon", { icon: "mdi:phone" })) : null,
+          partner.phone && waLink(partner.phone) ? el("a", { class: "btn small wa", href: waLink(partner.phone), target: "_blank", rel: "noopener", title: "WhatsApp" }, el("ha-icon", { icon: "mdi:whatsapp" })) : null,
+          canEdit ? el("button", { class: "btn small", title: "Modifica", on: { click: () => { this._partnerDraft = { ...partner }; this._render(); } } }, el("ha-icon", { icon: "mdi:pencil" })) : null,
+          canEdit && this._can("config") ? el("button", { class: "btn small danger", title: "Elimina", disabled: this._busy, on: { click: async () => {
+            if (!window.confirm(`Eliminare il partner «${partner.company || name}»?`)) return;
+            try { await this._call("delete_partner", { partner_id: partner.id }); } catch (error) { /* shown */ }
+          } } }, el("ha-icon", { icon: "mdi:delete" })) : null)));
+    });
+    wrap.appendChild(list);
+    return wrap;
+  }
+
+  /** The points of a client as the server worked them out (2.4.0). */
+  _loyaltyOf(clientId) {
+    return ((this._data && this._data.loyalty) || {})[clientId] || null;
+  }
+
+  /** Points box on the client card: balance, way to the reward, reward, correction, log. */
+  _clientPointsBox(client) {
+    const settings = this._data.settings || {};
+    if (!settings.loyalty_enabled) return null;
+    const info = this._loyaltyOf(client.id) || { earned: 0, adjust: 0, spent: 0, balance: 0 };
+    const threshold = Number(settings.loyalty_threshold) || 0;
+    const reward = Number(settings.loyalty_reward) || 0;
+    const pct = threshold ? Math.min(100, Math.round((Math.max(0, info.balance) / threshold) * 100)) : 0;
+    const box = el("div", { class: "lp-box" },
+      el("div", { class: "lp-head" }, el("ha-icon", { icon: "mdi:star-circle" }), el("b", {}, "Punti fedeltà"),
+        el("span", { class: "lp-balance" }, `${info.balance} punti`)),
+      el("div", { class: "lp-bar" }, el("i", { style: `width:${pct}%` })),
+      el("div", { class: "dim small" }, threshold
+        ? (info.balance >= threshold
+          ? `Ha raggiunto il premio: buono da ${euro(reward)}.`
+          : `Mancano ${threshold - info.balance} punti al buono da ${euro(reward)} (${threshold} punti).`)
+        : "Imposta la soglia in Promo › Punti fedeltà."),
+      el("div", { class: "dim small" }, `Guadagnati ${info.earned}${info.adjust ? ` · rettifiche ${info.adjust > 0 ? "+" : ""}${info.adjust}` : ""}${info.spent ? ` · usati ${info.spent}` : ""}`));
+    const actions = el("div", { class: "lp-actions" });
+    if (threshold && info.balance >= threshold && this._can("book")) {
+      actions.appendChild(el("button", { class: "btn small primary", disabled: this._busy, on: { click: async () => {
+        if (!window.confirm(`Creare il buono da ${euro(reward)} per ${this._clientName({ client_id: client.id })} e inviarlo su WhatsApp? Si scalano ${threshold} punti.`)) return;
+        try {
+          const result = await this._call("loyalty_reward", { client_id: client.id });
+          this._message = result && result.sent
+            ? { kind: "ok", text: `Buono ${result.voucher.code} creato e inviato.` }
+            : { kind: "warn", text: `Buono ${result.voucher.code} creato, ma non inviato: ${result.error || "errore"}.` };
+          this._render();
+        } catch (error) { /* shown */ }
+      } } }, el("ha-icon", { icon: "mdi:gift-outline" }), `Crea buono da ${euro(reward)}`));
+    }
+    if (this._can("config") || this._can("manage_clients")) {
+      actions.appendChild(el("button", { class: "btn small", disabled: this._busy, on: { click: async () => {
+        const raw = window.prompt("Punti da aggiungere (es. 50) o da togliere (es. -50):", "");
+        if (raw == null || !raw.trim()) return;
+        const points = Math.round(Number(raw.replace(",", ".")));
+        if (!points) { this._message = { kind: "error", text: "Scrivi un numero di punti, positivo o negativo." }; this._render(); return; }
+        const note = window.prompt("Motivo (facoltativo):", "") || "";
+        try { await this._call("loyalty_adjust", { client_id: client.id, points, note }); } catch (error) { /* shown */ }
+      } } }, el("ha-icon", { icon: "mdi:plus-minus-variant" }), "Rettifica punti"));
+    }
+    if (actions.childNodes.length || actions.children.length) box.appendChild(actions);
+    const log = (client.loyalty_log || []).slice(-5).reverse();
+    if (log.length) {
+      box.appendChild(el("div", { class: "lp-log" }, log.map((item) => el("div", { class: "lp-log-row" },
+        el("span", { class: `lp-pts ${item.points >= 0 ? "plus" : "minus"}` }, `${item.points > 0 ? "+" : ""}${item.points}`),
+        el("span", { class: "grow" }, item.kind === "premio" ? `Premio ${item.code ? `· ${item.code}` : ""}` : (item.note || "Rettifica")),
+        el("span", { class: "dim small" }, item.at ? shortDate(item.at) : "")))));
+    }
+    return box;
+  }
+
+  /** Promo › Punti fedeltà: on/off, points per euro, the reward, its message, who is close. */
+  _promoPoints(draft, changed) {
+    const wrap = el("div", { class: "stack" });
+    const rate = Number(String(draft.loyalty_points_per_euro).replace(",", ".")) || 0;
+    const threshold = Number(draft.loyalty_threshold) || 0;
+    const reward = Number(draft.loyalty_reward) || 0;
+    const num = (key, extra = {}) => el("input", { class: "input", type: "number", min: "0", value: draft[key] ?? "", ...extra,
+      on: { input: (event) => { draft[key] = event.target.value; changed(); } } });
+    const switchRow = (key, title, hint) => el("label", { class: "pg-switch-row lp-switch" },
+      el("input", { type: "checkbox", checked: !!draft[key], on: { change: (event) => { draft[key] = event.target.checked; changed(); this._render(); } } }),
+      el("span", {}, el("b", {}, title), el("span", { class: "dim small" }, hint)));
+
+    wrap.appendChild(this._pageStep(1, "Raccolta punti",
+      switchRow("loyalty_enabled", "Attiva i punti fedeltà", "I clienti accumulano punti con quello che pagano; il saldo compare nella scheda cliente.")));
+    wrap.appendChild(this._pageStep(2, "Come si guadagnano",
+      el("div", { class: "nt-options" },
+        el("label", { class: "field" }, el("span", {}, "Punti per ogni euro"), num("loyalty_points_per_euro", { step: "0.1" }))),
+      el("div", { class: "pg-sum" }, el("ha-icon", { icon: "mdi:calculator-variant-outline" }),
+        el("span", {}, el("b", {}, `Un massaggio da 60 € vale ${Math.floor(60 * rate)} punti.`),
+          " Contano gli incassi registrati sugli appuntamenti (non quelli pagati con voucher o gift card) e i voucher che il cliente compra. Un appuntamento annullato perde i suoi punti."))));
+    wrap.appendChild(this._pageStep(3, "Il premio",
+      el("div", { class: "nt-options" },
+        el("label", { class: "field" }, el("span", {}, "Punti necessari"), num("loyalty_threshold", { step: "10" })),
+        el("label", { class: "field" }, el("span", {}, "Valore del buono (€)"), num("loyalty_reward", { step: "1" }))),
+      el("div", { class: "pg-sum" }, el("ha-icon", { icon: "mdi:gift-outline" }),
+        el("span", {}, el("b", {}, `A ${threshold} punti il cliente riceve un buono da ${euro(reward)}`),
+          rate ? ` (circa ${euro(threshold / rate)} spesi, cioè ${threshold && rate ? Math.round((reward / (threshold / rate)) * 1000) / 10 : 0}% di ritorno).` : ".",
+          " I punti del premio si scalano dal saldo.")),
+      switchRow("loyalty_auto", "Invio automatico", "Appena raggiunge la soglia, il buono si crea e parte su WhatsApp. Spento: lo crei tu dalla scheda cliente.")));
+    const sample = (text) => String(text || "").split("{nome}").join("Mario").split("{cognome}").join("Rossi")
+      .split("{codice}").join("VCH-AB12CD34").split("{valore}").join(euro(reward)).split("{punti}").join(String(threshold))
+      .split("{scadenza}").join("12/11/2027");
+    wrap.appendChild(this._pageStep(4, "Il messaggio con il buono",
+      this._pageEditor(draft, "loyalty_message",
+        [["{nome}", "Nome"], ["{cognome}", "Cognome"], ["{codice}", "Codice buono"], ["{valore}", "Valore"], ["{punti}", "Punti"], ["{scadenza}", "Scadenza"]],
+        sample, changed)));
+
+    // Who is closest to the reward.
+    const loyalty = this._data.loyalty || {};
+    const ranking = Object.entries(loyalty).map(([id, info]) => ({ id, info, client: this._lookup.client.get(id) }))
+      .filter((row) => row.client).sort((a, b) => b.info.balance - a.info.balance).slice(0, 10);
+    const box = el("div", { class: "cfg-box pg-step" }, el("div", { class: "pg-step-head" }, el("span", { class: "pg-step-title" }, "Classifica punti")));
+    if (!ranking.length) box.appendChild(el("div", { class: "hint" }, "Ancora nessun cliente con punti."));
+    ranking.forEach(({ id, info, client }) => {
+      const pct = threshold ? Math.min(100, Math.round((Math.max(0, info.balance) / threshold) * 100)) : 0;
+      box.appendChild(el("button", { class: "lp-rank", on: { click: () => { this._tab = "clienti"; this._clientsTab = "clienti"; this._clientSelected = id; this._render(); } } },
+        el("span", { class: "lp-rank-name" }, [client.first_name, client.last_name].filter(Boolean).join(" ") || client.phone || "Cliente"),
+        el("span", { class: "lp-bar" }, el("i", { style: `width:${pct}%` })),
+        el("span", { class: `lp-rank-pts${info.ready ? " ready" : ""}` }, `${info.balance} pt${info.ready ? " · premio!" : ""}`)));
+    });
+    wrap.appendChild(box);
+    return wrap;
+  }
+
+  _renderClientsList() {
     const wrap = el("div", { class: "stack" });
     // Only a manager and above may open or change a client card; lower levels
     // keep the search and the read-only detail.
@@ -10313,6 +10445,10 @@ _renderClients() {
           client.promo_opt_in === false
             ? el("span", { class: "promo-off", title: "Promo disattivate" },
                 el("ha-icon", { icon: "mdi:bell-off-outline" }))
+            : null,
+          (this._data.settings || {}).loyalty_enabled && this._loyaltyOf(client.id)
+            ? el("span", { class: `lp-chip${this._loyaltyOf(client.id).ready ? " ready" : ""}`, title: "Punti fedeltà" },
+                el("ha-icon", { icon: "mdi:star-circle" }), `${this._loyaltyOf(client.id).balance}`)
             : null),
         el("div", { class: "dim small" },
           [client.phone, client.email].filter(Boolean).join(" · ") || "—"),
@@ -10589,6 +10725,7 @@ _renderClients() {
       this._can("totals")
         ? el("div", { class: "stat" }, el("span", { class: "stat-label" }, "Incassato"), el("span", { class: "stat-value small-value" }, euro(spent)))
         : null));
+    add(left, this._clientPointsBox(client));
 
     if (this._clientEditing) {
       const draft = this._clientEditing;
@@ -14349,6 +14486,13 @@ _renderClients() {
         promo_voucher_auto: settings.promo_voucher_auto === true,
         // The saved campaigns (2.3.9), each edited in place in the draft.
         promos: JSON.parse(JSON.stringify(settings.promos || [])),
+        // Loyalty points (2.4.0).
+        loyalty_enabled: settings.loyalty_enabled === true,
+        loyalty_points_per_euro: settings.loyalty_points_per_euro != null ? settings.loyalty_points_per_euro : 1,
+        loyalty_threshold: settings.loyalty_threshold != null ? settings.loyalty_threshold : 500,
+        loyalty_reward: settings.loyalty_reward != null ? settings.loyalty_reward : 25,
+        loyalty_auto: settings.loyalty_auto !== false,
+        loyalty_message: settings.loyalty_message || "",
       };
       this._promoBase = JSON.stringify(this._promoDraft);
     }
@@ -14358,7 +14502,7 @@ _renderClients() {
     wrap.appendChild(this._sectionHead("mdi:bullhorn-outline", "Promo",
       "Offerte ai clienti iscritti e voucher fedeltà dopo la visita."));
     wrap.appendChild(el("div", { class: "nt-tabs", role: "tablist" },
-      [["campagna", "mdi:bullhorn-outline", "Campagna promo"], ["fedelta", "mdi:ticket-percent-outline", "Voucher fedeltà"]]
+      [["campagna", "mdi:bullhorn-outline", "Campagna promo"], ["fedelta", "mdi:ticket-percent-outline", "Voucher fedeltà"], ["punti", "mdi:star-circle-outline", "Punti fedeltà"]]
         .map(([id, icon, label]) => el("button", {
           class: `nt-tab${tab === id ? " on" : ""}`, role: "tab", "aria-selected": tab === id ? "true" : "false",
           on: { click: () => { this._promoTab = id; this._render(); } },
@@ -14378,6 +14522,7 @@ _renderClients() {
 
     const changed = () => this._pageSyncSave("promo");
     if (tab === "campagna") wrap.appendChild(this._promoCampaign(draft, changed));
+    else if (tab === "punti") wrap.appendChild(this._promoPoints(draft, changed));
     else wrap.appendChild(this._promoLoyalty(draft, changed));
 
     wrap.appendChild(this._pageSaveBar("promo", () => this._savePromo(), () => {
@@ -14418,6 +14563,9 @@ _renderClients() {
       await this._call("update_settings", {
         ...draft,
         promos: draft.promos.map((p) => ({ ...p, name: (p.name || "").trim() || "Promo", code: (p.code || "").trim() })),
+        loyalty_points_per_euro: Number(String(draft.loyalty_points_per_euro).replace(",", ".")) || 0,
+        loyalty_threshold: Math.max(1, Math.round(Number(draft.loyalty_threshold) || 0)),
+        loyalty_reward: Math.max(1, Math.round(Number(draft.loyalty_reward) || 0)),
         promo_time: (draft.promo_time || "").trim(),
         promo_code: (draft.promo_code || "").trim(),
         promo_interval_sec: Number(draft.promo_interval_sec) || 0,
@@ -19162,6 +19310,101 @@ _renderClients() {
       .operators-column:only-child { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 10px; align-items: start; }
       .operators-column:only-child > .column-header { grid-column: 1 / -1; }
       .icon-btn.danger-icon { color: var(--sb-danger-fg, #c62828); }
+      /* 2.4.0: loyalty points */
+      .lp-box { display: flex; flex-direction: column; gap: 6px; padding: 12px; border-radius: 12px; border: 1px solid var(--sb-line);
+        background: linear-gradient(135deg, color-mix(in srgb, #f5b301 10%, transparent), transparent); }
+      .lp-head { display: flex; align-items: center; gap: 8px; }
+      .lp-head ha-icon { color: #e0a800; }
+      .lp-balance { margin-left: auto; font-weight: 800; font-size: 17px; }
+      .lp-bar { display: block; height: 8px; border-radius: 4px; background: var(--sb-line); overflow: hidden; flex: 1; min-width: 60px; }
+      .lp-box .lp-bar { flex: none; }
+      .lp-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+      .lp-switch { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
+      .lp-switch > span { display: flex; flex-direction: column; gap: 2px; }
+      .lp-switch input { margin-top: 3px; }
+      .lp-bar i { display: block; height: 100%; border-radius: 4px; background: linear-gradient(90deg, #f5b301, #e08a00); }
+      .lp-log { display: flex; flex-direction: column; gap: 2px; border-top: 1px solid var(--sb-line); padding-top: 6px; }
+      .lp-log-row { display: flex; gap: 8px; align-items: center; font-size: 13px; }
+      .lp-pts { font-weight: 800; width: 52px; font-variant-numeric: tabular-nums; }
+      .lp-pts.plus { color: var(--success-color, #2e7d32); } .lp-pts.minus { color: var(--error-color, #c62828); }
+      .lp-chip { display: inline-flex; align-items: center; gap: 3px; font-size: 11.5px; font-weight: 700; padding: 1px 7px; border-radius: 999px;
+        background: color-mix(in srgb, #f5b301 18%, transparent); color: #8a5a00; margin-left: 6px; }
+      .lp-chip ha-icon { --mdc-icon-size: 13px; }
+      .lp-chip.ready { background: #f5b301; color: #fff; }
+      .lp-rank { all: unset; cursor: pointer; display: grid; grid-template-columns: minmax(0, 1fr) minmax(80px, 2fr) auto; gap: 10px; align-items: center;
+        padding: 7px 4px; border-top: 1px solid var(--sb-line); }
+      .lp-rank:focus-visible { outline: 2px solid var(--primary-color); }
+      .lp-rank-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .lp-rank-pts { font-weight: 800; font-size: 13px; white-space: nowrap; }
+      .lp-rank-pts.ready { color: #c77d00; }
+
+      /* 2.4.0: the appointment record — beside the agenda on a computer, a sheet from the bottom on a phone */
+      .ag-main.detail-open { grid-template-columns: minmax(0, 1fr) 380px; }
+      .ag-side .detail-sheet.inline { max-height: calc(100vh - 140px); overflow-y: auto; }
+      .ag-ev.sel { box-shadow: 0 0 0 2px var(--primary-color), 0 4px 12px rgba(0,0,0,.15); z-index: 2; }
+      .detail-sheet.dt { padding: 0; overflow-x: hidden; display: flex; flex-direction: column; }
+      .detail-sheet.dt.inline { position: static; width: 100%; max-width: none; box-shadow: var(--sb-shadow); border: 1px solid var(--sb-line); border-radius: 14px;
+        background: var(--sb-card, var(--card-background-color, #fff)); }
+      .dt-hero { padding: 14px 16px 16px; color: #fff; position: relative;
+        background: linear-gradient(135deg, var(--primary-color), color-mix(in srgb, var(--primary-color) 70%, #22c1d6)); }
+      .dt-hero.wait { background: linear-gradient(135deg, #d98a06, #f0b43c); }
+      .dt-hero.in { background: linear-gradient(135deg, #1f8f4e, #3cc27a); }
+      .dt-hero.done { background: linear-gradient(135deg, #5f6b7a, #8a96a5); }
+      .dt-hero.off { background: linear-gradient(135deg, #8a3b46, #c25563); }
+      .dt-grip { width: 40px; height: 4px; border-radius: 2px; background: rgba(255,255,255,.55); margin: -4px auto 10px; display: none; }
+      .dt-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+      .dt-state { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: rgba(255,255,255,.22);
+        font-size: 12px; font-weight: 700; }
+      .dt-state ha-icon { --mdc-icon-size: 16px; }
+      .dt-seg { display: inline-flex; gap: 2px; padding: 2px; border-radius: 999px; background: rgba(0,0,0,.18); }
+      .dt-seg button { all: unset; cursor: pointer; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; color: rgba(255,255,255,.9); }
+      .dt-seg button.on { background: #fff; color: var(--primary-color); }
+      .dt-close { all: unset; cursor: pointer; margin-left: auto; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center;
+        background: rgba(255,255,255,.2); color: #fff; }
+      .dt-close:hover { background: rgba(255,255,255,.32); }
+      .dt-seg button:focus-visible, .dt-close:focus-visible { outline: 2px solid #fff; }
+      .dt-name { font-size: 21px; font-weight: 800; margin-top: 10px; line-height: 1.2; overflow-wrap: anywhere; }
+      .dt-sub { font-size: 13px; opacity: .92; margin-top: 2px; overflow-wrap: anywhere; }
+      .dt-time { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; padding: 6px 12px; border-radius: 10px;
+        background: rgba(255,255,255,.18); font-weight: 700; font-size: 15px; font-variant-numeric: tabular-nums; }
+      .dt-time span { font-weight: 500; opacity: .9; font-size: 13px; }
+      .dt-time ha-icon { --mdc-icon-size: 18px; }
+      .dt-tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 14px 16px 4px; }
+      .dt-tile { display: grid; grid-template-columns: auto 1fr; column-gap: 8px; align-items: center; padding: 8px 10px; border-radius: 12px;
+        background: var(--sb-soft); min-width: 0; }
+      .dt-tile ha-icon { grid-row: span 2; --mdc-icon-size: 20px; color: var(--primary-color); }
+      .dt-tile-label { font-size: 11px; color: var(--secondary-text-color); text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
+      .dt-tile-value { font-size: 13.5px; font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .dt-tile.due .dt-tile-value { color: var(--error-color, #e53953); }
+      .dt-tile.ok .dt-tile-value { color: var(--success-color, #2e7d32); }
+      .dt-actions { display: flex; flex-direction: column; gap: 10px; padding: 12px 16px 6px; }
+      .dt-main { justify-content: center; padding: 12px; font-size: 15px; border-radius: 12px; font-weight: 700; }
+      .dt-main.in { background: #22a35a; border-color: #22a35a; color: #fff; }
+      .dt-rounds { display: flex; gap: 6px; justify-content: space-around; flex-wrap: wrap; }
+      .dt-round { all: unset; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 64px; text-decoration: none; }
+      .dt-round[disabled] { opacity: .45; cursor: default; }
+      .dt-round-icon { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; border: 1px solid var(--sb-line);
+        background: var(--sb-card, var(--card-background-color, #fff)); color: var(--primary-color); }
+      .dt-round-icon ha-icon { --mdc-icon-size: 21px; }
+      .dt-round.tel .dt-round-icon { background: var(--primary-color); border-color: var(--primary-color); color: #fff; }
+      .dt-round.wa .dt-round-icon { background: #25d366; border-color: #25d366; color: #fff; }
+      .dt-round.star .dt-round-icon { color: #e0a800; }
+      .dt-round-label { font-size: 11.5px; color: var(--secondary-text-color); font-weight: 600; text-align: center; }
+      .dt-round:focus-visible .dt-round-icon { outline: 2px solid var(--primary-color); outline-offset: 2px; }
+      .detail-sheet.dt .detail-section { margin: 10px 16px 0; padding: 10px 12px; border: 1px solid var(--sb-line); border-radius: 12px; }
+      .detail-sheet.dt .detail-section h4 { margin-bottom: 8px; }
+      .detail-sheet.dt .detail-line { padding: 3px 0; }
+      .dt-footer { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; padding: 14px 16px 16px; }
+      @media (max-width: 720px) {
+        .detail-backdrop:has(.dt) { align-items: flex-end; padding: 0; }
+        .detail-sheet.dt:not(.inline) { max-width: none; border-radius: 20px 20px 0 0; max-height: 92vh;
+          padding-bottom: env(safe-area-inset-bottom); animation: dt-up .22s ease-out; }
+        .detail-sheet.dt:not(.inline) .dt-grip { display: block; }
+        .detail-sheet.dt .dt-round-label { font-size: 11px; }
+      }
+      @keyframes dt-up { from { transform: translateY(40px); opacity: .4; } to { transform: none; opacity: 1; } }
+      @media (prefers-reduced-motion: reduce) { .detail-sheet.dt { animation: none !important; } }
+
       /* 2.3.12: Agenda with week strip, timeline and phone cards */
       .ag-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
       .ag-nav { display: flex; align-items: center; gap: 6px; min-width: 0; }
@@ -19284,6 +19527,7 @@ _renderClients() {
       }
       @container (max-width: 1080px) and (min-width: 761px) {
         .ag-main { grid-template-columns: minmax(0, 1fr); }
+        .ag-main.detail-open { grid-template-columns: minmax(0, 1fr) 340px; }
         .ag-side { position: static; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
         .ag-hours, .ag-lane { grid-template-columns: 130px minmax(0, 1fr); }
       }

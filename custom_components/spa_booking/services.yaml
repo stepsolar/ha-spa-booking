@@ -1599,6 +1599,94 @@ redeem_promo_voucher:
       selector:
         text:
 
+loyalty_reward:
+  name: Premio punti fedelta
+  description: Crea il buono premio per un cliente che ha raggiunto la soglia di punti e lo invia su WhatsApp.
+  fields:
+    client_id:
+      name: ID cliente
+      required: true
+      selector:
+        text:
+    send:
+      name: Invia su WhatsApp
+      default: true
+      selector:
+        boolean:
+
+loyalty_adjust:
+  name: Rettifica punti fedelta
+  description: Aggiunge (numero positivo) o toglie (negativo) punti a un cliente, con il motivo.
+  fields:
+    client_id:
+      name: ID cliente
+      required: true
+      selector:
+        text:
+    points:
+      name: Punti
+      required: true
+      selector:
+        number:
+          min: -100000
+          max: 100000
+          mode: box
+    note:
+      name: Motivo
+      selector:
+        text:
+
+save_partner:
+  name: Salva partner
+  description: Aggiunge o modifica un partner (chi promuove la spa).
+  fields:
+    id:
+      name: ID partner (vuoto = nuovo)
+      selector:
+        text:
+    first_name:
+      name: Nome
+      selector:
+        text:
+    last_name:
+      name: Cognome
+      selector:
+        text:
+    company:
+      name: Attivita
+      selector:
+        text:
+    phone:
+      name: Telefono
+      selector:
+        text:
+    email:
+      name: Email
+      selector:
+        text:
+    code:
+      name: Codice partner (vuoto = automatico)
+      selector:
+        text:
+    notes:
+      name: Note
+      selector:
+        text:
+    active:
+      name: Attivo
+      selector:
+        boolean:
+
+delete_partner:
+  name: Elimina partner
+  description: Elimina un partner dall'elenco.
+  fields:
+    partner_id:
+      name: ID partner
+      required: true
+      selector:
+        text:
+
 delete_promo_voucher:
   name: Elimina voucher fedelta
   description: Elimina un voucher fedelta dalla lista.
