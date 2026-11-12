@@ -56,7 +56,9 @@ qualcosa che non esiste in Spa Booking, scrivilo nella nota «altro incluso».
 Se manca un trattamento o un accessorio, crealo con «Nuovo trattamento» /
 «Nuovo accessorio» e torna: l'abbinamento non salvato resta lì. Puoi rifare
 l'abbinamento quando vuoi: al salvataggio i voucher non ancora usati si
-aggiornano. Un voucher di un prodotto non abbinato si può comunque usare:
+aggiornano. Per le **gift card** scegli «Valore fisso» (con l'importo in €) oppure
+«Prezzo pagato», per quelle a importo libero: il credito compare sul voucher.
+Un voucher di un prodotto non abbinato si può comunque usare:
 prenoti quello che il cliente ha acquistato.
 
 **Come funziona** – ogni 15 minuti (e subito quando il sito avvisa di un
@@ -71,6 +73,7 @@ online trovi i voucher «da segnare sul sito» con **Riprova**.
 | | |
 |---|---|
 | ![Shop online](anteprime/59-shop-online.png) | ![Voucher dal sito](anteprime/60-voucher-sito.png) |
+| ![Gift card](anteprime/61-shop-giftcard.png) | |
 
 ## Importa partner e disiscrizione (2.6.0)
 

@@ -45,3 +45,11 @@ const key = Object.keys(card._shopDraft.wp_product_map).find((k) => (card._shopD
 assert(key, "accessory paired");
 page = card._renderShop();
 assert(page.textContent.includes("Nuovo accessorio") && page.textContent.includes("rifare l'abbinamento"), "links to add what is missing");
+
+// 2.7.2: the gift card value in the pairing.
+card._shopDraft = null;
+page = card._renderShop();
+const fixed = all(page).find((n) => n.tagName === "BUTTON" && n.textContent === "Valore fisso");
+fixed.listeners.click[0]();
+const giftKey = Object.keys(card._shopDraft.wp_product_map).find((k) => card._shopDraft.wp_product_map[k].gift_card_mode === "fixed");
+assert(giftKey && card._shopDraft.wp_product_map[giftKey].gift_card_amount === 80, "fixed value starts from the product price");

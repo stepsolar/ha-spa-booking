@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.7.1";
+const CARD_VERSION = "2.7.2";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -15121,7 +15121,7 @@ class SpaBookingCard extends HTMLElement {
     } else {
       const isPaired = (key) => {
         const entry = draft.wp_product_map[key] || {};
-        return Boolean((entry.treatment_ids || []).length || (entry.extras || []).length || entry.note);
+        return Boolean((entry.treatment_ids || []).length || (entry.extras || []).length || entry.note || entry.gift_card_mode);
       };
       const paired = products.filter((p) => isPaired(p.key)).length;
       const search = el("input", { class: "input grow shop-search", type: "search", value: this._shopQuery || "", placeholder: "Cerca prodotto o codice (SKU)" });
@@ -15142,10 +15142,11 @@ class SpaBookingCard extends HTMLElement {
         return !query || [p.name, p.parent_name, p.sku].join(" ").toLowerCase().includes(query);
       });
       shown.forEach((product) => {
-        const entry = draft.wp_product_map[product.key] || { people: 1, treatment_ids: [], extras: [], note: "" };
+        const entry = draft.wp_product_map[product.key] || { people: 1, treatment_ids: [], extras: [], note: "", gift_card_mode: "", gift_card_amount: null };
         const set = (patch, redraw = true) => {
-          const next = { people: entry.people || 1, treatment_ids: [...(entry.treatment_ids || [])], extras: [...(entry.extras || [])], note: entry.note || "", ...patch };
-          if (!next.treatment_ids.length && !next.extras.length && !next.note) delete draft.wp_product_map[product.key];
+          const next = { people: entry.people || 1, treatment_ids: [...(entry.treatment_ids || [])], extras: [...(entry.extras || [])], note: entry.note || "",
+            gift_card_mode: entry.gift_card_mode || "", gift_card_amount: entry.gift_card_amount ?? null, ...patch };
+          if (!next.treatment_ids.length && !next.extras.length && !next.note && !next.gift_card_mode) delete draft.wp_product_map[product.key];
           else draft.wp_product_map[product.key] = next;
           Object.assign(entry, next);
           changed();
@@ -15154,6 +15155,7 @@ class SpaBookingCard extends HTMLElement {
         const chosen = new Set(entry.treatment_ids || []);
         const chosenExtras = new Set(entry.extras || []);
         const any = chosen.size || chosenExtras.size;
+        const giftMode = entry.gift_card_mode || "";
         step2.push(el("div", { class: `shop-prod${any || entry.note ? " on" : ""}` },
           el("div", { class: "shop-prod-head" },
             el("div", { class: "shop-prod-name" }, el("b", {}, product.name || product.parent_name),
@@ -15172,6 +15174,17 @@ class SpaBookingCard extends HTMLElement {
             type: "button", class: `shop-chip acc${chosenExtras.has(a.id) ? " on" : ""}`,
             on: { click: () => set({ extras: chosenExtras.has(a.id) ? [...chosenExtras].filter((id) => id !== a.id) : [...chosenExtras, a.id] }) },
           }, el("ha-icon", { icon: chosenExtras.has(a.id) ? "mdi:check" : (a.icon || "mdi:gift-outline") }), a.label))) : null,
+          el("div", { class: "shop-label" }, "Gift card (valore in €)"),
+          el("div", { class: "shop-gift" },
+            el("div", { class: "pg-seg", role: "radiogroup" },
+              [["", "Nessuna"], ["paid", "Prezzo pagato"], ["fixed", "Valore fisso"]].map(([id, label]) => el("button", {
+                type: "button", class: giftMode === id ? "on" : "", role: "radio", "aria-checked": giftMode === id ? "true" : "false",
+                on: { click: () => set({ gift_card_mode: id, gift_card_amount: id === "fixed" ? (entry.gift_card_amount ?? product.price ?? null) : entry.gift_card_amount ?? null }) },
+              }, label))),
+            giftMode === "fixed" ? el("label", { class: "shop-gift-amount" }, el("span", {}, "€"),
+              el("input", { class: "input", type: "number", min: "0", step: "1", value: entry.gift_card_amount ?? "",
+                on: { input: (event) => set({ gift_card_amount: event.target.value === "" ? null : Number(event.target.value) }, false) } })) : null,
+            giftMode === "paid" ? el("span", { class: "dim small" }, "Il credito è quanto il cliente ha pagato sul sito (utile per le gift card a importo libero).") : null),
           el("input", { class: "input shop-note", value: entry.note || "", placeholder: "Altro incluso nel pacchetto (es. calice di prosecco, frutta) — facoltativo",
             on: { input: (event) => set({ note: event.target.value }, false), change: () => this._render() } })));
       });
@@ -20659,6 +20672,9 @@ class SpaBookingCard extends HTMLElement {
       .shop-chip.acc.on { background: color-mix(in srgb, #b26b00 12%, transparent); border-color: #b26b00; color: #8a5300; }
       .shop-label { font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--secondary-text-color); margin-bottom: -4px; }
       .shop-note { font-size: 13px; }
+      .shop-gift { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+      .shop-gift-amount { display: inline-flex; align-items: center; gap: 6px; }
+      .shop-gift-amount .input { width: 110px; }
       .ticket-top .pill ha-icon { --mdc-icon-size: 13px; margin-right: 3px; }
       /* 2.5.5: the month, with the chosen day beside it */
       .ag-pill.static { cursor: default; }

@@ -133,6 +133,11 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v2.7.2** — Shop online: nell'abbinamento il campo **gift card (valore
+  in €)**: nessuna, valore fisso o «prezzo pagato» (per le gift card a
+  importo libero). Il credito va sul voucher (prima persona) e si aggiorna
+  anche sui voucher già ricevuti non usati (serve il riavvio di Home
+  Assistant).
 - **v2.7.1** — Shop online: nell'abbinamento dei prodotti anche gli
   **accessori inclusi** (per persona) e una nota «altro incluso» per ciò che
   non è in Spa Booking; tasti rapidi «Nuovo trattamento» / «Nuovo accessorio»
