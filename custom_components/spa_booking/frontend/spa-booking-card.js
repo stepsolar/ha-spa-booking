@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.5.0";
+const CARD_VERSION = "2.5.1";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -367,6 +367,17 @@ const CFG_TABS = [
   { id: "impostazioni", label: "Impostazioni", icon: "mdi:cog" },
 ];
 
+
+// VAT (2.5.1): the Italian rates; prices are always VAT included.
+const VAT_RATES = [22, 10, 5, 4, 0];
+const vatLabel = (rate) => (Number(rate) === 0 ? "0% (esente)" : `${String(rate).replace(".", ",")}%`);
+/** Taxable amount and VAT inside a VAT-included price. */
+const vatSplit = (gross, rate) => {
+  const g = Number(gross) || 0;
+  const r = Number(rate) || 0;
+  const taxable = r ? Math.round((g / (1 + r / 100)) * 100) / 100 : Math.round(g * 100) / 100;
+  return { taxable, vat: Math.round((g - taxable) * 100) / 100 };
+};
 
 // The mailboxes Configurazione › Email knows (2.4.1); same as email_sender.py.
 const EMAIL_PROVIDERS = [
@@ -4521,6 +4532,12 @@ class SpaBookingCard extends HTMLElement {
         this._detailLine("Categoria", category ? category.name : "—"),
         this._detailLine("Prezzo", price || "—"),
         (() => {
+          const rate = this._vatOfAppointment(appointment);
+          const gross = Number(this._lineBreakdown(appointment).price) || 0;
+          const split = vatSplit(gross, rate);
+          return this._detailLine("IVA", gross ? `${vatLabel(rate)} · ${euro(split.vat)} (imponibile ${euro(split.taxable)})` : vatLabel(rate));
+        })(),
+        (() => {
           const op = this._lookup.operator.get(appointment.operator_id);
           if (!op) return null;
           const role = roleOf(op);
@@ -5755,6 +5772,12 @@ class SpaBookingCard extends HTMLElement {
     if (count) {
       body.appendChild(el("div", { class: "nv-sum-line" }));
       body.appendChild(el("div", { class: "nv-sum-tot big" }, el("span", {}, "Totale"), el("span", {}, euro(total))));
+      const vatItems = [];
+      states.forEach((person) => this._treatmentsOf(person).filter((treat) => treat.treatment_id).forEach((treat) => {
+        vatItems.push([this._treatPrices(treat).price, this._vatOfTreatment(this._lookup.treatment.get(treat.treatment_id))]);
+      }));
+      this._vatLines(vatItems).forEach(([rate, taxable, vat]) => body.appendChild(el("div", { class: "nv-sum-tot vat" },
+        el("span", {}, `di cui IVA ${vatLabel(rate)}`), el("span", { title: `Imponibile ${euro(taxable)}` }, euro(vat)))));
       if (this._nvKind === "richiesta") {
         const pref = { F: "massaggiatrice", M: "massaggiatore" }[form.therapist_preference || ""];
         if (pref) body.appendChild(el("div", { class: "nv-sum-tot" }, el("span", {}, "Preferisce"), el("span", {}, pref)));
@@ -10220,6 +10243,30 @@ class SpaBookingCard extends HTMLElement {
     return wrap;
   }
 
+  /** The VAT rate of a treatment: its own, else the default (2.5.1). */
+  _vatOfTreatment(treatment) {
+    if (treatment && treatment.vat_rate != null) return Number(treatment.vat_rate);
+    return Number(((this._data && this._data.settings) || {}).vat_default ?? 22);
+  }
+
+  /** The VAT rate of a booking: frozen at booking time, else the treatment's. */
+  _vatOfAppointment(appointment) {
+    if (appointment && appointment.vat_rate != null) return Number(appointment.vat_rate);
+    return this._vatOfTreatment(this._lookup.treatment.get(appointment && appointment.treatment_id));
+  }
+
+  /** «di cui IVA» lines, grouped by rate: [[rate, taxable, vat], …]. */
+  _vatLines(items) {
+    const byRate = new Map();
+    items.forEach(([gross, rate]) => {
+      const split = vatSplit(gross, rate);
+      const row = byRate.get(rate) || [0, 0];
+      byRate.set(rate, [row[0] + split.taxable, row[1] + split.vat]);
+    });
+    return [...byRate.entries()].sort((a, b) => b[0] - a[0])
+      .map(([rate, [taxable, vat]]) => [rate, Math.round(taxable * 100) / 100, Math.round(vat * 100) / 100]);
+  }
+
   /** A partner's display name. */
   _partnerName(id) {
     const partner = (this._data.partners || []).find((p) => p.id === id);
@@ -11026,6 +11073,7 @@ class SpaBookingCard extends HTMLElement {
             try {
               await this._call("update_settings", {
                 card_title: (draft.card_title || "").trim(),
+        vat_default: Number(draft.vat_default),
               });
               this._appearanceDraft = null;
               this._message = { kind: "ok", text: "Titolo salvato." };
@@ -11385,6 +11433,7 @@ class SpaBookingCard extends HTMLElement {
       this._setDraft = {
         appearance: APPEARANCE_MODES.includes(String(settings.appearance || "")) ? settings.appearance : "auto",
         card_title: settings.card_title || "",
+        vat_default: settings.vat_default != null ? settings.vat_default : 22,
         web_open_time: settings.web_open_time || "09:00",
         web_break_start: settings.web_break_start || "",
         web_break_end: settings.web_break_end || "",
@@ -11454,7 +11503,11 @@ class SpaBookingCard extends HTMLElement {
           el("input", { class: "input", type: "text", maxlength: "60", value: draft.card_title,
             placeholder: this._config.title || "Gestione SPA",
             on: { input: (event) => { draft.card_title = event.target.value; changed(); } } })),
-        el("div", { class: "dim small" }, "In testata, su tutti i dispositivi. Vuoto = il titolo della configurazione della card.")),
+        el("div", { class: "dim small" }, "In testata, su tutti i dispositivi. Vuoto = il titolo della configurazione della card."),
+        el("label", { class: "field" }, el("span", {}, "Aliquota IVA predefinita dei trattamenti"),
+          el("select", { class: "input", on: { change: (event) => { draft.vat_default = Number(event.target.value); changed(); } } },
+            VAT_RATES.map((rate) => el("option", { value: String(rate), selected: Number(draft.vat_default) === rate }, vatLabel(rate))))),
+        el("div", { class: "dim small" }, "I prezzi sono IVA inclusa. Ogni trattamento può avere la sua aliquota (Configurazione › Trattamenti).")),
       el("div", { class: "cfg-box nt-panel" },
         el("div", { class: "pg-step-head" }, el("span", { class: "nt-icon" }, el("ha-icon", { icon: "mdi:information-outline" })),
           el("span", { class: "pg-step-title" }, "Versione del programma")),
@@ -16390,10 +16443,20 @@ class SpaBookingCard extends HTMLElement {
           el("label", { class: "field" }, el("span", {}, "Durata (minuti)"),
             el("input", { class: "input", type: "number", min: "5", max: "600", step: "5", value: draft.duration_min,
               on: { input: (event) => { draft.duration_min = parseInt(event.target.value, 10) || 90; } } })),
-          el("label", { class: "field" }, el("span", {}, "Prezzo €"),
+          el("label", { class: "field" }, el("span", {}, "Prezzo € (IVA inclusa)"),
             el("input", { class: "input", type: "number", min: "0", step: "0.01", value: draft.price ?? "",
-              on: { input: (event) => { draft.price = event.target.value === "" ? null : Number(event.target.value); } } })))
+              on: { input: (event) => { draft.price = event.target.value === "" ? null : Number(event.target.value); this._render(); } } })),
+          el("label", { class: "field" }, el("span", {}, "IVA"),
+            el("select", { class: "input", on: { change: (event) => { draft.vat_rate = Number(event.target.value); this._render(); } } },
+              el("option", { value: "-1", selected: draft.vat_rate == null || Number(draft.vat_rate) < 0 },
+                `Predefinita (${vatLabel((this._data.settings || {}).vat_default ?? 22)})`),
+              ...VAT_RATES.map((rate) => el("option", { value: String(rate), selected: draft.vat_rate != null && Number(draft.vat_rate) === rate }, vatLabel(rate))))))
       );
+      if (draft.price) {
+        const rate = draft.vat_rate != null && Number(draft.vat_rate) >= 0 ? Number(draft.vat_rate) : Number((this._data.settings || {}).vat_default ?? 22);
+        const split = vatSplit(draft.price, rate);
+        wrap.appendChild(el("div", { class: "hint" }, `${euro(draft.price)} = imponibile ${euro(split.taxable)} + IVA ${vatLabel(rate)} ${euro(split.vat)}.`));
+      }
 
       wrap.appendChild(
         el("div", { class: "row" },
@@ -16474,6 +16537,7 @@ class SpaBookingCard extends HTMLElement {
                 web_visible: true,
                 min_parallel: 0,
                 max_parallel: 0,
+                vat_rate: -1,
               },
             };
             this._render();
@@ -16880,6 +16944,7 @@ class SpaBookingCard extends HTMLElement {
           web_visible: treatment.web_visible !== false,
           min_parallel: treatment.min_parallel || 0,
           max_parallel: treatment.max_parallel || 0,
+          vat_rate: treatment.vat_rate != null ? treatment.vat_rate : -1,
           operator_ids: [...(treatment.operator_ids || [])],
         },
       };
@@ -16900,6 +16965,8 @@ class SpaBookingCard extends HTMLElement {
         el("span", { class: "trt2-fact" }, el("ha-icon", { icon: "mdi:clock-outline" }), minutesLabel(treatment.duration_min)),
         el("span", { class: "trt2-fact price" }, el("ha-icon", { icon: "mdi:cash" }),
           treatment.price ? euro(treatment.price) : "prezzo libero"),
+        el("span", { class: "trt2-fact", title: treatment.vat_rate != null ? "Aliquota del trattamento" : "Aliquota predefinita" },
+          el("ha-icon", { icon: "mdi:percent-outline" }), `IVA ${vatLabel(this._vatOfTreatment(treatment))}`),
         people ? el("span", { class: "trt2-fact" }, el("ha-icon", { icon: "mdi:account-group-outline" }), people) : null),
       el("div", { class: "trt2-foot" },
         needsOperator
@@ -20115,6 +20182,7 @@ class SpaBookingCard extends HTMLElement {
       .nv-sum-actions .nv-go { justify-content: center; padding: 12px; font-size: 15px; border-radius: 12px; }
       .nv-sum-actions .nv-cancel { justify-content: center; border: none; background: none; color: var(--secondary-text-color); }
       .nv-bar { display: none; }
+      .nv-sum-tot.vat { font-size: 12px; }
       .nv-when { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
       .nv-stepper { display: inline-flex; align-items: center; gap: 2px; border: 1px solid var(--sb-line); border-radius: 10px; padding: 2px; background: var(--sb-card, transparent); }
       .nv-link { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; color: var(--primary-color); font-weight: 600; font-size: 13px; align-self: flex-start; }

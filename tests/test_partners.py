@@ -94,3 +94,26 @@ def test_campaign_email(coordinator, monkeypatch, freeze) -> None:
     assert len(mails) == 2  # once only
     stored = coordinator._data["settings"]["partner_campaigns"][0]
     assert stored["sent_count"] == 1 and stored["sent_at"]
+
+
+def test_vat_rates(coordinator, sent, freeze) -> None:
+    """VAT (2.5.1): default 22%, own rate per treatment, frozen on the booking."""
+    freeze("2026-11-10 08:00")
+    assert coordinator._data["settings"]["vat_default"] == 22.0
+    massage = next(t for t in coordinator.treatments if t["id"] == "trt_massaggio_relax_90")
+    assert coordinator.vat_rate_of(massage) == 22.0
+    run(coordinator.async_update_treatment(massage["id"], vat_rate=10))
+    assert coordinator.vat_rate_of(massage) == 10.0
+    maria = coordinator.operators[0]["id"]
+    booked = run(coordinator.async_create_appointment(
+        treatment_id=massage["id"], start="2026-11-11 09:00", first_name="Anna",
+        phone="333 1234567", operator_ids=[maria]))
+    stored = next(a for a in coordinator.appointments if a["id"] == booked["id"])
+    assert stored["vat_rate"] == 10.0
+    # Back to the default: the booking keeps its rate.
+    run(coordinator.async_update_treatment(massage["id"], vat_rate=-1))
+    assert massage["vat_rate"] is None and coordinator.vat_rate_of(massage) == 22.0
+    assert next(a for a in coordinator.appointments if a["id"] == booked["id"])["vat_rate"] == 10.0
+    assert coordinator.vat_split(61.0, 22) == (50.0, 11.0)
+    run(coordinator.async_update_settings(vat_default=10))
+    assert coordinator.vat_rate_of(massage) == 10.0

@@ -63,3 +63,12 @@ const request = card._renderRichiestaForm();
 assert(byClass(request, "pg-num").length === 4, "four steps in the request form");
 assert(byClass(request, "nv-chip").length === 0, "no masseuse for a request");
 assert(byClass(request, "nv-side")[0].textContent.includes("Salva richiesta"), "save in the summary");
+
+// 2.5.1: VAT in the summary, «di cui IVA».
+card._data.settings.vat_default = 22;
+card._resetForm();
+card._form.date = day;
+card._treatmentsOf(card._form)[0].treatment_id = "t1";
+const withVat = card._renderNuovoForm();
+assert(byClass(withVat, "nv-side")[0].textContent.includes("di cui IVA 22%"), "VAT line in the summary");
+assert(JSON.stringify(card._vatLines([[61, 22], [11, 10]])) === JSON.stringify([[22, 50, 11], [10, 10, 1]]), "VAT split by rate");

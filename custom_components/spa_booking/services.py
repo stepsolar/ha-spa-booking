@@ -596,6 +596,8 @@ ADD_TREATMENT_SCHEMA = vol.Schema(
         vol.Optional("web_visible", default=True): cv.boolean,
         vol.Optional("min_parallel", default=0): _PARALLEL,
         vol.Optional("max_parallel", default=0): _PARALLEL,
+        #: VAT rate in percent (2.5.1); absent = the default rate.
+        vol.Optional("vat_rate"): vol.Any(vol.Coerce(float), None),
         #: Which operators may perform it, like in the update: synced onto
         #: each operator card so the two never disagree.
         vol.Optional("operator_ids"): vol.All(cv.ensure_list, [cv.string]),
@@ -613,6 +615,8 @@ UPDATE_TREATMENT_SCHEMA = vol.Schema(
         vol.Optional("web_visible"): vol.Any(cv.boolean, None),
         vol.Optional("min_parallel"): vol.Any(_PARALLEL, None),
         vol.Optional("max_parallel"): vol.Any(_PARALLEL, None),
+        #: VAT rate in percent (2.5.1); -1 = back to the default rate.
+        vol.Optional("vat_rate"): vol.Any(vol.Coerce(float), None),
         #: Which operators may perform this treatment, selectable right from the
         #: treatment form. An empty list clears every operator.
         vol.Optional("operator_ids"): vol.All(cv.ensure_list, [cv.string]),
@@ -728,6 +732,7 @@ ACCESSORY_SCHEMA = vol.Schema(
         # string (comma or dot) or a blank; the coordinator keeps only a number.
         vol.Optional("price"): vol.Any(None, vol.Coerce(float), cv.string),
         vol.Optional("description"): vol.Any(cv.string, None),
+        vol.Optional("vat_rate"): vol.Any(None, vol.Coerce(float), cv.string),
     },
     extra=vol.PREVENT_EXTRA,
 )
@@ -884,6 +889,8 @@ UPDATE_SETTINGS_SCHEMA = vol.Schema(
         vol.Optional("google_client_id"): vol.Any(cv.string, None),
         vol.Optional("google_client_secret"): vol.Any(cv.string, None),
         vol.Optional("email_aliases"): vol.Any(vol.All(cv.ensure_list, [cv.string]), None),
+        # VAT (2.5.1).
+        vol.Optional("vat_default"): vol.Any(vol.Coerce(float), None),
         # Partners (2.5.0).
         vol.Optional("partner_points_per_euro"): vol.Any(vol.Coerce(float), None),
         vol.Optional("partner_booking_url"): vol.Any(cv.string, None),
@@ -2222,6 +2229,7 @@ async def _async_add_treatment(call: ServiceCall) -> ServiceResponse:
         web_visible=data["web_visible"],
         min_parallel=data["min_parallel"],
         max_parallel=data["max_parallel"],
+        vat_rate=data.get("vat_rate"),
         operator_ids=data.get("operator_ids"),
     )
     return {"treatment": treatment}
@@ -2240,6 +2248,7 @@ async def _async_update_treatment(call: ServiceCall) -> ServiceResponse:
         web_visible=data.get("web_visible"),
         min_parallel=data.get("min_parallel"),
         max_parallel=data.get("max_parallel"),
+        vat_rate=data.get("vat_rate"),
         operator_ids=data.get("operator_ids"),
     )
     return {"treatment": treatment}

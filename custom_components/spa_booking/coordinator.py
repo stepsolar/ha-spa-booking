@@ -156,6 +156,7 @@ from .normalize import (
     _norm_count,
     _norm_partner,
     _norm_signed,
+    _norm_vat,
     _norm_date,
     _norm_extras,
     _norm_guest_type,
@@ -1862,6 +1863,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "extras": _norm_extras(extras, known=self._accessory_ids()),
                 "list_price": _norm_price_opt(list_price),
                 "price": _norm_price_opt(price),
+                "vat_rate": self.vat_rate_of(treatment),
                 # Which person of the party this is: 0 when nobody said, which
                 # is both the leader of a party and the only person of a
                 # booking made for one.
@@ -2987,6 +2989,19 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.partners.append(record)
             await self._async_save()
         return {"partner": record}
+
+    def vat_rate_of(self, treatment: dict[str, Any] | None) -> float:
+        """The VAT rate of a treatment: its own, else the default (2.5.1)."""
+        own = (treatment or {}).get("vat_rate")
+        if own is not None:
+            return float(own)
+        return float(self._data.get(KEY_SETTINGS, {}).get("vat_default", 22.0))
+
+    @staticmethod
+    def vat_split(gross: float, rate: float) -> tuple[float, float]:
+        """Taxable amount and VAT inside a VAT-included price."""
+        taxable = round(gross / (1 + rate / 100), 2) if rate else round(gross, 2)
+        return taxable, round(gross - taxable, 2)
 
     def _partner_id_of(self, value: Any) -> str:
         """A partner's id from her id or her code (any case); "" if unknown."""
@@ -6437,6 +6452,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         web_visible: bool = True,
         min_parallel: int = 0,
         max_parallel: int = 0,
+        vat_rate: float | None = None,
         operator_ids: list[str] | None = None,
     ) -> dict[str, Any]:
         """Create a treatment.
@@ -6467,6 +6483,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "web_visible": web_visible,
                     "min_parallel": min_parallel,
                     "max_parallel": max_parallel,
+                    "vat_rate": vat_rate,
                 }
             )
             self.treatments.append(treatment)
@@ -6495,6 +6512,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         web_visible: bool | None = None,
         min_parallel: int | None = None,
         max_parallel: int | None = None,
+        vat_rate: float | None = None,
         operator_ids: list[str] | None = None,
     ) -> dict[str, Any]:
         """Update a treatment.
@@ -6524,6 +6542,9 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 treatment["min_parallel"] = _norm_parallel(min_parallel)
             if max_parallel is not None:
                 treatment["max_parallel"] = _norm_parallel(max_parallel)
+            if vat_rate is not None:
+                # A negative rate from the card means «use the default».
+                treatment["vat_rate"] = _norm_vat(vat_rate)
             if operator_ids is not None:
                 # Sync both sides: the treatment lists its operators, and each
                 # operator lists her treatments. Update every operator card so

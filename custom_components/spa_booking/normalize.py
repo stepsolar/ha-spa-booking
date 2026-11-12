@@ -441,7 +441,26 @@ def _norm_treatment(raw: dict[str, Any]) -> dict[str, Any]:
         # without an operator: a masseuse always works 1:1.
         "min_parallel": _norm_parallel(raw.get("min_parallel")),
         "max_parallel": _norm_parallel(raw.get("max_parallel")),
+        # VAT rate in percent (2.5.1); None = the default of the settings.
+        "vat_rate": _norm_vat(raw.get("vat_rate")),
     }
+
+
+#: The Italian VAT rates the card offers (0 = esente / non imponibile).
+VAT_RATES: tuple[float, ...] = (22.0, 10.0, 5.0, 4.0, 0.0)
+
+
+def _norm_vat(raw: Any) -> float | None:
+    """A VAT rate in percent, or None (use the default). Negative = None."""
+    if raw is None or raw == "":
+        return None
+    try:
+        value = float(str(raw).replace(",", ".").replace("%", ""))
+    except (TypeError, ValueError):
+        return None
+    if value < 0:
+        return None
+    return round(min(value, 100.0), 2)
 
 
 def _norm_operator(raw: dict[str, Any]) -> dict[str, Any]:
@@ -971,6 +990,8 @@ def _norm_settings(raw: dict[str, Any]) -> dict[str, Any]:
         "email_aliases": [
             str(a).strip() for a in (raw.get("email_aliases") or []) if isinstance(a, str) and "@" in a
         ][:20],
+        # VAT (2.5.1): the default rate; prices are always VAT included.
+        "vat_default": _norm_vat(raw.get("vat_default")) if _norm_vat(raw.get("vat_default")) is not None else 22.0,
         # Partners (2.5.0): points per euro they bring, and their campaigns.
         "partner_points_per_euro": _norm_rate(raw.get("partner_points_per_euro")),
         # The page of the hotel website with the booking form: the partners'
@@ -1475,6 +1496,7 @@ def _norm_accessory(raw: Any) -> dict[str, Any] | None:
         ),
         "price": price,
         "description": str(raw.get("description") or "").strip(),
+        "vat_rate": _norm_vat(raw.get("vat_rate")),
     }
 
 
@@ -1605,6 +1627,10 @@ def _norm_appointment(raw: dict[str, Any]) -> dict[str, Any]:
         # keep their meaning untouched.
         "list_price": _norm_price_opt(raw.get("list_price")),
         "price": _norm_price_opt(raw.get("price")),
+        # The VAT rate when it was booked (2.5.1): a later change of the
+        # treatment's rate does not rewrite past bookings. None = not known
+        # (bookings older than 2.5.1): the treatment's rate of today applies.
+        "vat_rate": _norm_vat(raw.get("vat_rate")),
         # Which person of the party she is: 0 is the one written on the card,
         # 1.. are her guests. Two appointments of one card may share an hour
         # only when they are different persons, so this is what tells a party
