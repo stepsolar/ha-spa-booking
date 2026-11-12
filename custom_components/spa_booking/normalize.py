@@ -1030,6 +1030,10 @@ def _norm_settings(raw: dict[str, Any]) -> dict[str, Any]:
                 # The accessories in the package (2.7.1), given to each person.
                 "extras": [str(e) for e in (entry or {}).get("extras") or [] if e][:20],
                 "note": str((entry or {}).get("note") or "").strip()[:300],
+                # A gift card in euro (2.7.2): a fixed value, or what was paid.
+                "gift_card_mode": str((entry or {}).get("gift_card_mode") or "")
+                if str((entry or {}).get("gift_card_mode") or "") in ("fixed", "paid") else "",
+                "gift_card_amount": _norm_price_opt((entry or {}).get("gift_card_amount")),
             }
             for key, entry in (raw.get("wp_product_map") or {}).items()
             if isinstance(entry, dict) and re.fullmatch(r"\d+:\d+", str(key))

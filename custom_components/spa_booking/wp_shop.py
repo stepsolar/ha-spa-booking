@@ -41,19 +41,39 @@ def mapping_for(mapping: dict[str, Any], product_id: Any, variation_id: Any) -> 
     """The pairing of a variation, else of its whole product."""
     for key in (product_key(product_id, variation_id), product_key(product_id, 0)):
         entry = mapping.get(key)
-        if isinstance(entry, dict) and (entry.get("treatment_ids") or entry.get("extras") or entry.get("note")):
+        if isinstance(entry, dict) and (entry.get("treatment_ids") or entry.get("extras") or entry.get("note")
+                                        or entry.get("gift_card_mode")):
             return entry
     return None
 
 
-def people_of(entry: dict[str, Any] | None) -> list[dict[str, Any]]:
-    """The voucher's people: each one gets every paired treatment and accessory."""
-    if not entry or not (entry.get("treatment_ids") or entry.get("extras")):
+def gift_card_of(entry: dict[str, Any] | None, paid: Any = None) -> float | None:
+    """The gift card in euro a product carries (2.7.2), or None."""
+    mode = str((entry or {}).get("gift_card_mode") or "")
+    try:
+        if mode == "paid":
+            return round(float(paid), 2) if paid not in (None, "") and float(paid) > 0 else None
+        if mode == "fixed":
+            amount = float((entry or {}).get("gift_card_amount") or 0)
+            return round(amount, 2) if amount > 0 else None
+    except (TypeError, ValueError):
+        return None
+    return None
+
+
+def people_of(entry: dict[str, Any] | None, paid: Any = None) -> list[dict[str, Any]]:
+    """The voucher's people: each one gets every paired treatment and accessory.
+
+    A gift card goes once, on the first person: it is the voucher's credit.
+    """
+    gift = gift_card_of(entry, paid)
+    if not entry or not (entry.get("treatment_ids") or entry.get("extras") or gift):
         return []
     count = max(1, min(10, int(entry.get("people") or 1)))
     treatments = [str(t) for t in entry.get("treatment_ids") or [] if t]
     extras = [str(e) for e in entry.get("extras") or [] if e]
-    return [{"name": "", "treatment_ids": list(treatments), "extras": list(extras), "gift_card_amount": None} for _ in range(count)]
+    return [{"name": "", "treatment_ids": list(treatments), "extras": list(extras),
+             "gift_card_amount": gift if index == 0 else None} for index in range(count)]
 
 
 def note_of(entry: dict[str, Any] | None) -> str:

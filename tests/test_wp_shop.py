@@ -117,3 +117,18 @@ def test_pairing_again_updates_unused_vouchers(coordinator, shop) -> None:
     # Accessories only: the voucher records them but does not force treatments.
     run(coordinator.async_update_settings(wp_product_map={"4097:0": {"people": 1, "extras": ["kit"]}}))
     assert voucher["people"][0]["treatment_ids"] == [] and voucher["people"][0]["extras"] == ["kit"]
+
+
+def test_gift_card_value(coordinator, shop) -> None:
+    """2.7.2: a gift card product: a fixed value, or what the guest paid."""
+    shop["items"] = [_item("gift-GC-1", product_id=5000, variation_id=0, product_name="Gift card", value=150)]
+    run(coordinator.async_update_settings(wp_product_map={"5000:0": {"gift_card_mode": "paid"}}))
+    run(coordinator.async_wp_sync())
+    voucher = next(v for v in coordinator.vouchers if v["code"] == "GIFT-GC-1")
+    assert voucher["people"] == [{"name": "", "treatment_ids": [], "extras": [], "gift_card_amount": 150.0}]
+    run(coordinator.async_update_settings(wp_product_map={"5000:0": {"gift_card_mode": "fixed", "gift_card_amount": 100}}))
+    assert voucher["people"][0]["gift_card_amount"] == 100.0
+    # A package for two with a gift card: the credit goes once, on the first person.
+    run(coordinator.async_update_settings(wp_product_map={"5000:0": {
+        "people": 2, "treatment_ids": ["trt_ingresso_90"], "gift_card_mode": "fixed", "gift_card_amount": 30}}))
+    assert [p["gift_card_amount"] for p in voucher["people"]] == [30.0, None]

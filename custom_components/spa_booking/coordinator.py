@@ -3320,9 +3320,9 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return {"ok": True, "buoni_pdf": bool(info.get("buoni_pdf")), "version": info.get("version"),
                 "site": info.get("site"), "products": len(items)}
 
-    def _wp_people(self, product_id: Any, variation_id: Any) -> list[dict[str, Any]]:
+    def _wp_people(self, product_id: Any, variation_id: Any, paid: Any = None) -> list[dict[str, Any]]:
         mapping = self._data.get(KEY_SETTINGS, {}).get("wp_product_map") or {}
-        return wp_shop.people_of(wp_shop.mapping_for(mapping, product_id, variation_id))
+        return wp_shop.people_of(wp_shop.mapping_for(mapping, product_id, variation_id), paid)
 
     def _wp_apply_pairing(self) -> int:
         """Bring every unused voucher from the shop in line with the pairing.
@@ -3339,7 +3339,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 continue
             product_id, _, variation_id = str(voucher.get("wp_product_key") or "0:0").partition(":")
             entry = wp_shop.mapping_for(mapping, product_id, variation_id or 0)
-            people = wp_shop.people_of(entry)
+            people = wp_shop.people_of(entry, voucher.get("value"))
             note = wp_shop.note_of(entry)
             if people != voucher["people"] or note != voucher.get("package_note", ""):
                 voucher["people"] = people
@@ -3375,7 +3375,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 key = code.upper()
                 order_ok = str(item.get("order_status") or "") in ("processing", "completed")
                 expires = wp_shop.expiry_of(item)
-                people = self._wp_people(item.get("product_id"), item.get("variation_id"))
+                people = self._wp_people(item.get("product_id"), item.get("variation_id"), item.get("value"))
                 voucher = by_code.get(key)
                 if voucher is None:
                     if item.get("used") or not order_ok or (expires and expires < today):
