@@ -17,6 +17,7 @@ from datetime import date, datetime, time, timedelta
 import hmac
 import logging
 import math
+import time as time_module
 import re
 import secrets
 from pathlib import Path
@@ -130,7 +131,7 @@ from .exceptions import (
     SpaBookingError,
     ValidationError,
 )
-from . import access, email_sender, messaging
+from . import access, email_sender, google_auth, messaging
 from .waha import WahaAuthenticationError, WahaClient, WahaError
 from .waha_inbound import WahaInbound
 from .wa_bridge import WaBridge
@@ -2640,27 +2641,141 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         settings = self._data.get(KEY_SETTINGS, {})
         if not settings.get("email_enabled"):
             raise ValidationError("L'invio email è spento: attivalo in Configurazione › Email")
-        result = await email_sender.async_send_email(self.hass, settings, to, subject, body, html)
+        result = await self._async_deliver_email(to, subject, body, html)
         if not result.get("sent"):
             _LOGGER.warning("Email non inviata: %s", result.get("error"))
         return result
 
+    async def _async_deliver_email(
+        self, to: list[str] | str, subject: str, body: str, html: str | None = None
+    ) -> dict[str, Any]:
+        """Through Gmail («Accedi con Google», 2.4.2) or through SMTP."""
+        settings = self._data.get(KEY_SETTINGS, {})
+        if settings.get("email_method") != "google":
+            return await email_sender.async_send_email(self.hass, settings, to, subject, body, html)
+        recipients = [to] if isinstance(to, str) else list(to)
+        recipients = [r.strip() for r in recipients if r and "@" in r]
+        if not recipients:
+            return {"sent": False, "error": "Nessun indirizzo email valido a cui inviare."}
+        account = str(settings.get("google_account") or "")
+        if not settings.get("google_refresh_token") or not account:
+            return {"sent": False, "error": "Nessun account Google collegato: premi «Accedi con Google»."}
+        config = {
+            **email_sender.email_config(settings),
+            "from_address": str(settings.get("email_from") or "").strip() or account,
+        }
+        message = email_sender.build_message(config, recipients, subject, body, html)
+        try:
+            token = await self._async_google_token()
+            await google_auth.gmail_send(self._http_session(), token, message.as_bytes())
+        except google_auth.GoogleAuthError as err:
+            return {"sent": False, "error": str(err)}
+        return {"sent": True, "to": recipients}
+
     async def async_test_email(self, to: str = "") -> dict[str, Any]:
         """A test email, by default to the sender's own mailbox."""
         settings = self._data.get(KEY_SETTINGS, {})
+        google = settings.get("email_method") == "google"
         config = email_sender.email_config(settings)
-        target = (to or "").strip() or config["from_address"]
+        sender = (str(settings.get("email_from") or "").strip() or str(settings.get("google_account") or "")) if google else config["from_address"]
+        target = (to or "").strip() or sender
+        how = f"Gmail ({settings.get('google_account')})" if google else f"{config['host']}:{config['port']} ({config['security']})"
         body = "\n".join([
             "Ciao!",
             "",
-            "Questa è un'email di prova di Spa Booking: se la leggi, la casella",
-            f"{config['from_address']} è configurata bene.",
+            "Questa è un'email di prova di Spa Booking: se la leggi, l'invio da",
+            f"{sender} funziona.",
             "",
-            f"Server: {config['host']}:{config['port']} ({config['security']})",
+            f"Inviata con: {how}",
         ])
-        return await email_sender.async_send_email(
-            self.hass, settings, target, "Prova email Spa Booking", body
+        return await self._async_deliver_email(target, "Prova email Spa Booking", body)
+
+    # ---------------------------------------------------- «Accedi con Google»
+
+    def _http_session(self) -> Any:
+        from homeassistant.helpers.aiohttp_client import async_get_clientsession
+
+        return async_get_clientsession(self.hass)
+
+    def _google_pending(self) -> dict[str, Any]:
+        if not hasattr(self, "_google_logins"):
+            self._google_logins: dict[str, Any] = {}
+        return self._google_logins
+
+    async def async_google_auth_url(self, redirect_uri: str) -> dict[str, Any]:
+        """Start «Accedi con Google»: the page to open, for this redirect address."""
+        settings = self._data.get(KEY_SETTINGS, {})
+        client_id = str(settings.get("google_client_id") or "")
+        if not client_id or not settings.get("google_client_secret"):
+            raise ValidationError("Inserisci e salva Client ID e Client secret del progetto Google")
+        redirect_uri = str(redirect_uri or "").strip()
+        if not redirect_uri.endswith(google_auth.CALLBACK_PATH):
+            raise ValidationError("Indirizzo di ritorno non valido")
+        if not (redirect_uri.startswith("https://") or redirect_uri.startswith("http://localhost")
+                or redirect_uri.startswith("http://127.0.0.1")):
+            raise ValidationError(
+                "Google accetta solo indirizzi https: apri Home Assistant dal suo indirizzo esterno "
+                "(es. Nabu Casa o il tuo dominio) e riprova"
+            )
+        state = google_auth.new_state(self._google_pending(), redirect_uri)
+        return {
+            "url": google_auth.auth_url(client_id, redirect_uri, state, str(settings.get("google_account") or "")),
+            "redirect_uri": redirect_uri,
+        }
+
+    async def async_google_callback(self, state: str, code: str) -> str:
+        """Google came back: keep the refresh token and the account. Returns the address."""
+        pending = self._google_pending().pop(state, None) if state else None
+        if pending is None or pending.expires < time_module.time():
+            raise google_auth.GoogleAuthError("Accesso scaduto o non riconosciuto: riprova da Spa Booking.")
+        if not code:
+            raise google_auth.GoogleAuthError("Google non ha mandato il codice di accesso: riprova.")
+        settings = self._data.get(KEY_SETTINGS, {})
+        tokens = await google_auth.exchange_code(
+            self._http_session(), str(settings.get("google_client_id") or ""),
+            str(settings.get("google_client_secret") or ""), code, pending.redirect_uri,
         )
+        refresh = str(tokens.get("refresh_token") or "")
+        if not refresh:
+            raise google_auth.GoogleAuthError("Google non ha dato l'accesso permanente: riprova e accetta tutti i permessi.")
+        if "gmail.send" not in str(tokens.get("scope") or "gmail.send"):
+            raise google_auth.GoogleAuthError("Non hai spuntato il permesso «Inviare email per tuo conto»: riprova e spuntalo.")
+        account = google_auth.email_of_id_token(str(tokens.get("id_token") or ""))
+        async with self._lock:
+            current = self._data[KEY_SETTINGS]
+            current["google_refresh_token"] = refresh
+            current["google_account"] = account
+            current["email_method"] = "google"
+            await self._async_save()
+        self._google_access = (str(tokens.get("access_token") or ""), time_module.time() + float(tokens.get("expires_in") or 3600) - 60)
+        return account or "il tuo account Google"
+
+    async def _async_google_token(self) -> str:
+        """A valid access token, refreshed when needed."""
+        cached = getattr(self, "_google_access", None)
+        if cached and cached[0] and cached[1] > time_module.time():
+            return cached[0]
+        settings = self._data.get(KEY_SETTINGS, {})
+        token, expires = await google_auth.refresh_access(
+            self._http_session(), str(settings.get("google_client_id") or ""),
+            str(settings.get("google_client_secret") or ""), str(settings.get("google_refresh_token") or ""),
+        )
+        self._google_access = (token, expires)
+        return token
+
+    async def async_google_disconnect(self) -> dict[str, Any]:
+        """Forget the Google account and withdraw the permission on Google."""
+        settings = self._data.get(KEY_SETTINGS, {})
+        refresh = str(settings.get("google_refresh_token") or "")
+        if refresh:
+            await google_auth.revoke(self._http_session(), refresh)
+        async with self._lock:
+            current = self._data[KEY_SETTINGS]
+            current["google_refresh_token"] = ""
+            current["google_account"] = ""
+            await self._async_save()
+        self._google_access = None
+        return {"disconnected": True}
 
     # ------------------------------------------------------- loyalty points
 
@@ -6835,8 +6950,9 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     kept.append(item)
                 changes["promos"] = kept
             # The card never sees the mailbox password: empty means «keep it».
-            if changes.get("smtp_password") == "":
-                changes.pop("smtp_password")
+            for secret in ("smtp_password", "google_client_secret"):
+                if changes.get(secret) == "":
+                    changes.pop(secret)
             for key, value in changes.items():
                 if key in settings and value is not None:
                     settings[key] = value

@@ -76,6 +76,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.http.register_view(SpaBookingPublicFormView)
         hass.data[f"{DOMAIN}_public_views"] = True
 
+    # Where Google sends the browser back after «Accedi con Google» (2.4.2).
+    if not hass.data.get(f"{DOMAIN}_google_view"):
+        from .google_auth import GoogleCallbackView
+
+        hass.http.register_view(GoogleCallbackView())
+        hass.data[f"{DOMAIN}_google_view"] = True
+
     add_extra_js_url(hass, coordinator.card_js_url())
     await coordinator._async_sync_card_resource()
 

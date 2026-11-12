@@ -55,3 +55,17 @@ const mail = card._renderEmail();
 assert(mail.textContent.includes("smtps.aruba.it:465") && mail.textContent.includes("SSL"), "Aruba preset shown");
 assert(mail.textContent.includes("lascia vuoto per non cambiarla"), "saved password never shown");
 assert(card._emailDraft.smtp_password === "", "password field starts empty");
+
+// 2.4.2: «Accedi con Google» by default, with the guide and the redirect address.
+const vm2 = require("vm");
+vm2.runInContext('window.location = { origin: "https://casa.example", protocol: "https:", hostname: "casa.example" };', require("./card_harness").sandbox);
+card._data.settings = { email_method: "smtp", smtp_username: "" };
+card._emailDraft = null;
+const gpage = card._renderEmail();
+assert(card._emailDraft.email_method === "google", "Google by default when no mailbox is set");
+assert(gpage.textContent.includes("Accedi con Google") && gpage.textContent.includes("https://casa.example/api/spa_booking/google/callback"), "button and redirect to paste");
+card._data.settings = { email_method: "google", google_connected: true, google_account: "spa@gmail.com", google_client_id: "x", google_secret_set: true, email_aliases: ["prenotazioni@hotel.it"] };
+card._emailDraft = null;
+const connected = card._renderEmail();
+assert(connected.textContent.includes("Collegato a Google") && connected.textContent.includes("spa@gmail.com"), "connected account shown");
+assert(connected.textContent.includes("prenotazioni@hotel.it"), "aliases to send from");

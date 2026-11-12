@@ -133,6 +133,15 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v2.4.2** — **Accedi con Google** per le email (serve il riavvio di Home
+  Assistant): Spa Booking si collega da solo a Gmail (OAuth, senza
+  l'integrazione Google di Home Assistant e senza password), chiedendo solo il
+  permesso di inviare email (`gmail.send`, non legge la posta). Le email
+  partono con la Gmail API. Mittente scelto fra l'account e gli indirizzi
+  «Invia messaggi come» di Gmail. Guida passo passo per le chiavi Google (una
+  volta), indirizzo di ritorno da copiare, «Cambia account» e «Scollega» (revoca
+  il permesso). Resta disponibile l'accesso con password (SMTP).
+
 - **v2.4.1** — Configurazione › **Email** (serve il riavvio di Home Assistant):
   la casella da cui inviare le email. Provider pronti (Gmail, Outlook /
   Microsoft 365, Aruba, Libero) o «Altro» con server, porta e sicurezza;
