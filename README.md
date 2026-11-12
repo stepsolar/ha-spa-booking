@@ -133,6 +133,14 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v2.4.1** — Configurazione › **Email** (serve il riavvio di Home Assistant):
+  la casella da cui inviare le email. Provider pronti (Gmail, Outlook /
+  Microsoft 365, Aruba, Libero) o «Altro» con server, porta e sicurezza;
+  utente e password (mai rimandata alla card: si vede solo che è salvata);
+  nome mittente, indirizzo e «rispondi a»; «Invia email di prova» con errori
+  spiegati (es. Gmail senza password per le app). Nuovi servizi `send_email` e
+  `test_email`.
+
 - **v2.4.0** — Dettaglio a lato, punti fedeltà e partner (serve il riavvio di
   Home Assistant):
   - **Dettaglio appuntamento**: su computer non è più un popup, si apre a

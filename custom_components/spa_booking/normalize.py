@@ -948,6 +948,19 @@ def _norm_settings(raw: dict[str, Any]) -> dict[str, Any]:
             raw.get("promo_voucher_after_hours"), 0, 8760,
             DEFAULT_PROMO_VOUCHER_AFTER_HOURS,
         ),
+        # Email sending (2.4.1): the mailbox, Gmail or any SMTP.
+        "email_enabled": bool(raw.get("email_enabled", False)),
+        "smtp_provider": str(raw.get("smtp_provider") or "gmail")
+        if str(raw.get("smtp_provider") or "gmail") in ("gmail", "outlook", "aruba", "libero", "altro") else "altro",
+        "smtp_host": str(raw.get("smtp_host") or "").strip(),
+        "smtp_port": _norm_count(raw.get("smtp_port"), 0, 65535, 0),
+        "smtp_security": str(raw.get("smtp_security") or "")
+        if str(raw.get("smtp_security") or "") in ("", "starttls", "ssl", "none") else "",
+        "smtp_username": str(raw.get("smtp_username") or "").strip(),
+        "smtp_password": str(raw.get("smtp_password") or ""),
+        "email_from": str(raw.get("email_from") or "").strip(),
+        "email_from_name": str(raw.get("email_from_name") or "").strip(),
+        "email_reply_to": str(raw.get("email_reply_to") or "").strip(),
         # Loyalty points (2.4.0).
         "loyalty_enabled": bool(raw.get("loyalty_enabled", False)),
         "loyalty_points_per_euro": _norm_rate(raw.get("loyalty_points_per_euro")),

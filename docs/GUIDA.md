@@ -1,6 +1,6 @@
 # Spa Booking — guida alle schede (2.2)
 
-Aggiornata alla 2.4.0: [dettaglio, punti e partner](#dettaglio-punti-fedelta-e-partner-240); [Agenda](#agenda-2312); [Nuovo appuntamento a passi](#nuovo-appuntamento-a-passi-2310); [promo salvate e modelli](#promo-salvate-e-modelli-239); [Promo e Impostazioni](#promo-e-impostazioni-238); [Notifiche](#notifiche-236); [messaggi e chat](#messaggi-e-chat-235); [preferenza massaggiatrice/massaggiatore](#preferenza-massaggiatrice-o-massaggiatore); [promo e fedeltà del cliente](#promo-e-fedeltà-del-cliente); [conferme e promemoria WhatsApp](#conferme-e-promemoria-whatsapp); [firme e storico](#firme-e-storico); [chiusure con giorni esclusi](#chiusure-con-giorni-esclusi); [Proponi data](#proponi-data) nelle richieste, con trattamenti alternativi e prezzo; [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
+Aggiornata alla 2.4.1: [Email](#email-241); [dettaglio, punti e partner](#dettaglio-punti-fedelta-e-partner-240); [Agenda](#agenda-2312); [Nuovo appuntamento a passi](#nuovo-appuntamento-a-passi-2310); [promo salvate e modelli](#promo-salvate-e-modelli-239); [Promo e Impostazioni](#promo-e-impostazioni-238); [Notifiche](#notifiche-236); [messaggi e chat](#messaggi-e-chat-235); [preferenza massaggiatrice/massaggiatore](#preferenza-massaggiatrice-o-massaggiatore); [promo e fedeltà del cliente](#promo-e-fedeltà-del-cliente); [conferme e promemoria WhatsApp](#conferme-e-promemoria-whatsapp); [firme e storico](#firme-e-storico); [chiusure con giorni esclusi](#chiusure-con-giorni-esclusi); [Proponi data](#proponi-data) nelle richieste, con trattamenti alternativi e prezzo; [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
 
 Questa guida mostra ogni scheda della dashboard **Spa Booking** e spiega a
 cosa serve ogni funzione. Le immagini sono state fatte con dati di prova.
@@ -32,6 +32,33 @@ in Impostazioni › Aspetto).
 
 
 
+
+## Email (2.4.1)
+
+Configurazione › **Email** imposta la casella da cui partono le email.
+
+1. **Invio email**: attivalo.
+2. **La casella**: scegli Gmail, Outlook / Microsoft 365, Aruba, Libero o Altro,
+   poi indirizzo e password.
+   - **Gmail** vuole una *password per le app*: Account Google › Sicurezza ›
+     Verifica in due passaggi (deve essere attiva) › Password per le app; crea
+     una password (es. «Spa Booking») e incolla le 16 lettere.
+   - **Outlook / Microsoft 365**: con la verifica in due passaggi serve una
+     password per le app; su Microsoft 365 l'amministratore deve consentire lo
+     «SMTP autenticato» per la casella.
+   - **Aruba / Libero**: indirizzo completo e password della casella.
+   - **Altro**: server, porta e sicurezza (di solito 587 + STARTTLS o 465 + SSL).
+   La password salvata non viene mai rimostrata: lascia il campo vuoto per
+   tenerla.
+3. **Il mittente**: nome (es. «Il Marchese Hotel & Spa»), indirizzo (vuoto =
+   la casella) e, se vuoi, un indirizzo per le risposte.
+4. **Prova**: «Invia email di prova» (alla casella stessa o a un indirizzo che
+   scrivi). Se non parte, il messaggio dice cosa correggere.
+
+Dalle automazioni si può usare il servizio `spa_booking.send_email` (a, oggetto,
+testo).
+
+![Email](anteprime/47-email.png)
 
 ## Dettaglio, punti fedeltà e partner (2.4.0)
 

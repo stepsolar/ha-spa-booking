@@ -163,6 +163,8 @@ SERVICE_CONFIRM_REQUEST = "confirm_request"
 SERVICE_SEND_REQUEST_MESSAGE = "send_request_message"
 SERVICE_PROPOSE_REQUEST_DATE = "propose_request_date"
 SERVICE_TEST_WEB_NOTICE = "test_web_notice"
+SERVICE_SEND_EMAIL = "send_email"
+SERVICE_TEST_EMAIL = "test_email"
 SERVICE_WHATSAPP_CHATS = "whatsapp_chats"
 SERVICE_DELETE_WHATSAPP_CHATS = "delete_whatsapp_chats"
 SERVICE_ADD_PAYMENT = "add_payment"
@@ -262,6 +264,8 @@ ALL_SERVICES = (
     SERVICE_SEND_REQUEST_MESSAGE,
     SERVICE_PROPOSE_REQUEST_DATE,
     SERVICE_TEST_WEB_NOTICE,
+    SERVICE_SEND_EMAIL,
+    SERVICE_TEST_EMAIL,
     SERVICE_WHATSAPP_CHATS,
     SERVICE_DELETE_WHATSAPP_CHATS,
     SERVICE_ADD_PAYMENT,
@@ -853,6 +857,17 @@ UPDATE_SETTINGS_SCHEMA = vol.Schema(
         vol.Optional("promo_voucher_max_spend"): vol.Any(vol.All(vol.Coerce(int), vol.Range(min=0, max=100000)), None),
         vol.Optional("promo_voucher_after_hours"): vol.Any(vol.All(vol.Coerce(int), vol.Range(min=0, max=8760)), None),
         vol.Optional("promo_voucher_auto"): vol.Any(cv.boolean, None),
+        # Email sending (2.4.1). An empty password keeps the saved one.
+        vol.Optional("email_enabled"): vol.Any(cv.boolean, None),
+        vol.Optional("smtp_provider"): vol.Any(vol.In(["gmail", "outlook", "aruba", "libero", "altro"]), None),
+        vol.Optional("smtp_host"): vol.Any(cv.string, None),
+        vol.Optional("smtp_port"): vol.Any(vol.Coerce(int), None),
+        vol.Optional("smtp_security"): vol.Any(vol.In(["", "starttls", "ssl", "none"]), None),
+        vol.Optional("smtp_username"): vol.Any(cv.string, None),
+        vol.Optional("smtp_password"): vol.Any(cv.string, None),
+        vol.Optional("email_from"): vol.Any(cv.string, None),
+        vol.Optional("email_from_name"): vol.Any(cv.string, None),
+        vol.Optional("email_reply_to"): vol.Any(cv.string, None),
         # Loyalty points (2.4.0).
         vol.Optional("loyalty_enabled"): vol.Any(cv.boolean, None),
         vol.Optional("loyalty_points_per_euro"): vol.Any(vol.Coerce(float), None),
@@ -1400,7 +1415,7 @@ async def _require_admin(call: ServiceCall, coordinator: SpaBookingCoordinator) 
 
 
 #: Secrets that only an administrator may read back from the dataset.
-_SECRET_SETTINGS = ("waha_api_key", "waha_webhook_secret", "waha_webhook_id", "web_token")
+_SECRET_SETTINGS = ("waha_api_key", "waha_webhook_secret", "waha_webhook_id", "web_token", "smtp_password")
 
 
 def _without_secrets(settings: dict[str, Any]) -> dict[str, Any]:
@@ -1788,6 +1803,33 @@ async def _async_delete_whatsapp_chats(call: ServiceCall) -> ServiceResponse:
         raise ValidationError("Indica la chat da eliminare, oppure all: true per tutte")
     removed = await _coordinator(call).async_delete_chats(None if call.data.get("all") else chat_id)
     return {"removed": removed}
+
+
+SEND_EMAIL_SCHEMA = vol.Schema(
+    {
+        vol.Required("to"): vol.All(cv.ensure_list, [cv.string]),
+        vol.Required("subject"): cv.string,
+        vol.Required("message"): cv.string,
+        vol.Optional("html"): vol.Any(cv.string, None),
+    },
+    extra=vol.PREVENT_EXTRA,
+)
+
+TEST_EMAIL_SCHEMA = vol.Schema(
+    {vol.Optional("to"): vol.Any(cv.string, None)}, extra=vol.PREVENT_EXTRA
+)
+
+
+async def _async_send_email(call: ServiceCall) -> ServiceResponse:
+    """Send an email with the mailbox set in Configurazione › Email."""
+    return await _coordinator(call).async_send_email(
+        call.data["to"], call.data["subject"], call.data["message"], call.data.get("html")
+    )
+
+
+async def _async_test_email(call: ServiceCall) -> ServiceResponse:
+    """A test email, to the sender itself unless told otherwise."""
+    return await _coordinator(call).async_test_email(call.data.get("to") or "")
 
 
 async def _async_test_web_notice(call: ServiceCall) -> ServiceResponse:
@@ -2194,8 +2236,14 @@ async def _async_export_data(call: ServiceCall) -> ServiceResponse:
                 for item in data.get("appointments") or []
             ],
         }
-    # The card never needs the PIN hashes (the full backup keeps them).
-    settings = {**settings, KEY_PROFILES: access.public_profiles(settings.get(KEY_PROFILES) or {})}
+    # The card never needs the PIN hashes (the full backup keeps them), nor
+    # the mailbox password: it only learns whether one is saved (2.4.1).
+    settings = {
+        **settings,
+        KEY_PROFILES: access.public_profiles(settings.get(KEY_PROFILES) or {}),
+        "smtp_password": "",
+        "smtp_password_set": bool(((coordinator.data or {}).get("settings") or {}).get("smtp_password")),
+    }
     # The points of each client (2.4.0), worked out here once for the card.
     data = {**data, "settings": settings, "loyalty": coordinator.loyalty_summary()}
     return {
@@ -2901,6 +2949,12 @@ _HANDLERS: dict[str, tuple[Any, Any, SupportsResponse]] = {
     SERVICE_TEST_WEB_NOTICE: (
         _async_test_web_notice, vol.Schema({}), SupportsResponse.ONLY,
     ),
+    SERVICE_SEND_EMAIL: (
+        _async_send_email, SEND_EMAIL_SCHEMA, SupportsResponse.ONLY,
+    ),
+    SERVICE_TEST_EMAIL: (
+        _async_test_email, TEST_EMAIL_SCHEMA, SupportsResponse.ONLY,
+    ),
     SERVICE_WHATSAPP_CHATS: (
         _async_whatsapp_chats, vol.Schema({}), SupportsResponse.ONLY,
     ),
@@ -3067,6 +3121,8 @@ SERVICE_LEVELS: dict[str, str] = {
     SERVICE_DELETE_VOUCHER: "manager",
     SERVICE_REDEEM_PROMO_VOUCHER: "manager",
     SERVICE_DELETE_PROMO_VOUCHER: "manager",
+    SERVICE_SEND_EMAIL: "manager",
+    SERVICE_TEST_EMAIL: "admin",
     SERVICE_LOYALTY_REWARD: "operator",
     SERVICE_LOYALTY_ADJUST: "manager",
     SERVICE_SAVE_PARTNER: "operator",

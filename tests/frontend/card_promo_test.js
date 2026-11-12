@@ -47,3 +47,11 @@ assert(byClass(page, "pm-theme").length === PROMO_THEMES.length, "every theme in
 card._promoNew(theme("natale"));
 assert(card._promoDraft.promos.length === 3 && card._promoEditId === card._promoDraft.promos[0].id, "new promo opened");
 assert(card._promoDraft.promos[0].theme === "natale", "from the theme");
+
+// 2.4.1: Configurazione › Email.
+card._data.settings = { smtp_provider: "aruba", smtp_username: "info@hotel.it", smtp_password_set: true };
+card._emailDraft = null;
+const mail = card._renderEmail();
+assert(mail.textContent.includes("smtps.aruba.it:465") && mail.textContent.includes("SSL"), "Aruba preset shown");
+assert(mail.textContent.includes("lascia vuoto per non cambiarla"), "saved password never shown");
+assert(card._emailDraft.smtp_password === "", "password field starts empty");
