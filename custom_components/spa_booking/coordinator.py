@@ -130,7 +130,7 @@ from .exceptions import (
     SpaBookingError,
     ValidationError,
 )
-from . import access, messaging
+from . import access, email_sender, messaging
 from .waha import WahaAuthenticationError, WahaClient, WahaError
 from .waha_inbound import WahaInbound
 from .wa_bridge import WaBridge
@@ -2630,6 +2630,37 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._data[KEY_VOUCHERS] = [v for v in self.vouchers if v["id"] != voucher_id]
             await self._async_save()
         return {"id": voucher_id}
+
+    # ---------------------------------------------------------------- email
+
+    async def async_send_email(
+        self, to: list[str] | str, subject: str, body: str, html: str | None = None
+    ) -> dict[str, Any]:
+        """Send an email with the mailbox of Configurazione › Email (2.4.1)."""
+        settings = self._data.get(KEY_SETTINGS, {})
+        if not settings.get("email_enabled"):
+            raise ValidationError("L'invio email è spento: attivalo in Configurazione › Email")
+        result = await email_sender.async_send_email(self.hass, settings, to, subject, body, html)
+        if not result.get("sent"):
+            _LOGGER.warning("Email non inviata: %s", result.get("error"))
+        return result
+
+    async def async_test_email(self, to: str = "") -> dict[str, Any]:
+        """A test email, by default to the sender's own mailbox."""
+        settings = self._data.get(KEY_SETTINGS, {})
+        config = email_sender.email_config(settings)
+        target = (to or "").strip() or config["from_address"]
+        body = "\n".join([
+            "Ciao!",
+            "",
+            "Questa è un'email di prova di Spa Booking: se la leggi, la casella",
+            f"{config['from_address']} è configurata bene.",
+            "",
+            f"Server: {config['host']}:{config['port']} ({config['security']})",
+        ])
+        return await email_sender.async_send_email(
+            self.hass, settings, target, "Prova email Spa Booking", body
+        )
 
     # ------------------------------------------------------- loyalty points
 
@@ -6803,6 +6834,9 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             item["last_sent_on"] = ""
                     kept.append(item)
                 changes["promos"] = kept
+            # The card never sees the mailbox password: empty means «keep it».
+            if changes.get("smtp_password") == "":
+                changes.pop("smtp_password")
             for key, value in changes.items():
                 if key in settings and value is not None:
                     settings[key] = value

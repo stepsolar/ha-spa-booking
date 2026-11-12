@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.4.0";
+const CARD_VERSION = "2.4.1";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -362,10 +362,25 @@ const CFG_TABS = [
   { id: "blocchi", label: "Fasce bloccate", icon: "mdi:lock-outline" },
   { id: "notifiche", label: "Notifiche", icon: "mdi:bell-outline" },
   { id: "promo", label: "Promo", icon: "mdi:bullhorn-outline" },
+  { id: "email", label: "Email", icon: "mdi:email-outline" },
   { id: "accessi", label: "Accessi", icon: "mdi:shield-account-outline" },
   { id: "impostazioni", label: "Impostazioni", icon: "mdi:cog" },
 ];
 
+
+// The mailboxes Configurazione › Email knows (2.4.1); same as email_sender.py.
+const EMAIL_PROVIDERS = [
+  { id: "gmail", label: "Gmail", host: "smtp.gmail.com", port: 587, security: "starttls", example: "nome@gmail.com",
+    hint: "Gmail chiede una «password per le app»: Account Google › Sicurezza › Verifica in due passaggi (attiva) › Password per le app. Incolla qui le 16 lettere, non la password normale." },
+  { id: "outlook", label: "Outlook / Microsoft 365", host: "smtp.office365.com", port: 587, security: "starttls", example: "nome@outlook.it",
+    hint: "Con la verifica in due passaggi serve una password per le app. Su Microsoft 365 l'amministratore deve consentire «SMTP autenticato» per la casella." },
+  { id: "aruba", label: "Aruba", host: "smtps.aruba.it", port: 465, security: "ssl", example: "info@tuodominio.it",
+    hint: "Usa l'indirizzo completo e la password della casella Aruba (la stessa della webmail)." },
+  { id: "libero", label: "Libero", host: "smtp.libero.it", port: 465, security: "ssl", example: "nome@libero.it",
+    hint: "Usa l'indirizzo completo e la password della casella Libero." },
+  { id: "altro", label: "Altro", host: "", port: 587, security: "starttls", example: "info@tuodominio.it",
+    hint: "Indica server, porta e sicurezza che ti ha dato il fornitore della casella (di solito 587 con STARTTLS o 465 con SSL)." },
+];
 
 // -----------------------------------------------------------------------------
 // small helpers
@@ -13713,6 +13728,7 @@ class SpaBookingCard extends HTMLElement {
     if (this._cfgTab === "blocchi") add(page, this._renderBlocks());
     if (this._cfgTab === "notifiche") add(page, this._renderNotify());
     if (this._cfgTab === "promo") add(page, this._renderPromo());
+    if (this._cfgTab === "email") add(page, this._renderEmail());
     if (this._cfgTab === "accessi") add(page, this._renderAccessi());
     if (this._cfgTab === "impostazioni") add(page, this._renderSettings());
     wrap.appendChild(page);
@@ -14553,8 +14569,120 @@ class SpaBookingCard extends HTMLElement {
     if (!bar) return;
     const dirty = page === "promo"
       ? JSON.stringify(this._promoDraft) !== this._promoBase
-      : JSON.stringify(this._setDraft) !== this._setBase;
+      : page === "email"
+        ? JSON.stringify(this._emailDraft) !== this._emailBase
+        : JSON.stringify(this._setDraft) !== this._setBase;
     bar.classList.toggle("show", Boolean(dirty));
+  }
+
+  /** Configurazione › Email (2.4.1): the mailbox the spa sends from. */
+  _renderEmail() {
+    const settings = (this._data && this._data.settings) || {};
+    if (!this._emailDraft) {
+      this._emailDraft = {
+        email_enabled: settings.email_enabled === true,
+        smtp_provider: settings.smtp_provider || "gmail",
+        smtp_host: settings.smtp_host || "",
+        smtp_port: settings.smtp_port || "",
+        smtp_security: settings.smtp_security || "",
+        smtp_username: settings.smtp_username || "",
+        smtp_password: "",
+        email_from: settings.email_from || "",
+        email_from_name: settings.email_from_name || "",
+        email_reply_to: settings.email_reply_to || "",
+      };
+      this._emailBase = JSON.stringify(this._emailDraft);
+    }
+    const draft = this._emailDraft;
+    const changed = () => this._pageSyncSave("email");
+    const provider = EMAIL_PROVIDERS.find((p) => p.id === draft.smtp_provider) || EMAIL_PROVIDERS[EMAIL_PROVIDERS.length - 1];
+    const host = draft.smtp_host || provider.host;
+    const port = Number(draft.smtp_port) || provider.port;
+    const security = draft.smtp_security || provider.security;
+    const sender = draft.email_from || draft.smtp_username;
+    const wrap = el("div", { class: "stack nt" });
+    wrap.appendChild(this._sectionHead("mdi:email-outline", "Email",
+      "La casella da cui Spa Booking invia le email: Gmail, Outlook, Aruba o un'altra."));
+    const input = (key, label, extra = {}) => el("label", { class: "field" }, el("span", {}, label),
+      el("input", { class: "input", value: draft[key] ?? "", ...extra,
+        on: { input: (event) => { draft[key] = event.target.value; changed(); if (extra.rerender) this._render(); } } }));
+
+    wrap.appendChild(this._pageStep(1, "Invio email",
+      el("label", { class: "pg-switch-row lp-switch" },
+        el("input", { type: "checkbox", checked: !!draft.email_enabled, on: { change: (event) => { draft.email_enabled = event.target.checked; changed(); } } }),
+        el("span", {}, el("b", {}, "Attiva l'invio email"),
+          el("span", { class: "dim small" }, "Spento: nessuna email parte, nemmeno dalle automazioni (servizio spa_booking.send_email).")))));
+
+    wrap.appendChild(this._pageStep(2, "La casella",
+      el("div", { class: "pg-seg", role: "radiogroup" }, EMAIL_PROVIDERS.map((p) => el("button", {
+        type: "button", class: draft.smtp_provider === p.id ? "on" : "", role: "radio", "aria-checked": draft.smtp_provider === p.id ? "true" : "false",
+        on: { click: () => { draft.smtp_provider = p.id; draft.smtp_host = ""; draft.smtp_port = ""; draft.smtp_security = ""; changed(); this._render(); } },
+      }, p.label))),
+      el("div", { class: "pg-sum" }, el("ha-icon", { icon: "mdi:information-outline" }), el("span", {}, provider.hint)),
+      el("div", { class: "nt-options" },
+        input("smtp_username", "Indirizzo email (utente)", { type: "email", placeholder: provider.example, autocomplete: "off" }),
+        el("label", { class: "field" }, el("span", {}, settings.smtp_password_set ? "Password (salvata: lascia vuoto per non cambiarla)" : "Password"),
+          el("input", { class: "input", type: "password", value: draft.smtp_password, autocomplete: "new-password",
+            placeholder: settings.smtp_password_set ? "••••••••••" : (draft.smtp_provider === "gmail" ? "password per le app (16 lettere)" : ""),
+            on: { input: (event) => { draft.smtp_password = event.target.value; changed(); } } }))),
+      el("details", { class: "pg-adv", ...(draft.smtp_provider === "altro" ? { open: true } : {}) },
+        el("summary", {}, host
+          ? `Server: ${host}:${port} · ${{ starttls: "STARTTLS", ssl: "SSL", none: "senza cifratura" }[security]}`
+          : "Server: da indicare"),
+        el("div", { class: "nt-options" },
+          input("smtp_host", "Server SMTP", { placeholder: provider.host || "smtp.esempio.it", rerender: true }),
+          input("smtp_port", "Porta", { type: "number", min: "1", max: "65535", placeholder: String(provider.port), rerender: true }),
+          el("label", { class: "field" }, el("span", {}, "Sicurezza"),
+            el("select", { class: "input", on: { change: (event) => { draft.smtp_security = event.target.value; changed(); this._render(); } } },
+              [["", `Predefinita (${{ starttls: "STARTTLS", ssl: "SSL" }[provider.security]})`], ["starttls", "STARTTLS (porta 587)"], ["ssl", "SSL (porta 465)"], ["none", "Nessuna (sconsigliato)"]]
+                .map(([value, label]) => el("option", { value, selected: draft.smtp_security === value }, label))))))));
+
+    wrap.appendChild(this._pageStep(3, "Il mittente",
+      el("div", { class: "nt-options" },
+        input("email_from_name", "Nome mittente", { placeholder: "es. Il Marchese Hotel & Spa", rerender: false }),
+        input("email_from", "Indirizzo mittente (vuoto = la casella)", { type: "email", placeholder: draft.smtp_username || "" }),
+        input("email_reply_to", "Rispondi a (facoltativo)", { type: "email", placeholder: "es. spa@hotel.it" })),
+      el("div", { class: "pg-sum" }, el("ha-icon", { icon: "mdi:email-fast-outline" }),
+        el("span", {}, "I clienti vedranno: ", el("b", {}, draft.email_from_name ? `${draft.email_from_name} <${sender || "…"}>` : (sender || "…")),
+          draft.email_reply_to ? ` · le risposte vanno a ${draft.email_reply_to}` : ""))));
+
+    const dirty = () => JSON.stringify(this._emailDraft) !== this._emailBase;
+    wrap.appendChild(this._pageStep(4, "Prova",
+      el("div", { class: "row wrap-row" },
+        el("input", { class: "input grow", type: "email", value: this._emailTestTo || "", placeholder: `a chi (vuoto = ${sender || "la casella"})`,
+          on: { input: (event) => { this._emailTestTo = event.target.value; } } }),
+        el("button", { class: "btn primary", disabled: this._busy, on: { click: async () => {
+          if (dirty() && !(await this._saveEmail())) return;
+          try {
+            this._busy = true; this._render();
+            const result = await this._service("test_email", this._emailTestTo ? { to: this._emailTestTo } : {});
+            const res = result || {};
+            this._message = res.sent
+              ? { kind: "ok", text: `Email di prova inviata a ${(res.to || []).join(", ")}. Controlla la posta (anche lo spam).` }
+              : { kind: "error", text: res.error || "Email non inviata." };
+          } catch (error) {
+            this._message = { kind: "error", text: String(error && error.message || error) };
+          } finally { this._busy = false; this._render(); }
+        } } }, el("ha-icon", { icon: "mdi:email-send-outline" }), "Invia email di prova")),
+      el("div", { class: "hint" }, "La prova salva prima le modifiche. Se qualcosa non va, il messaggio dice cosa correggere.")));
+
+    wrap.appendChild(this._pageSaveBar("email", () => this._saveEmail(), () => { this._emailDraft = null; this._render(); }));
+    return wrap;
+  }
+
+  async _saveEmail() {
+    const draft = this._emailDraft;
+    const payload = { ...draft, smtp_port: Number(draft.smtp_port) || 0 };
+    if (!payload.smtp_password) delete payload.smtp_password;
+    try {
+      await this._call("update_settings", payload);
+      this._emailDraft = null;
+      this._message = { kind: "ok", text: "Impostazioni email salvate." };
+      this._render();
+      return true;
+    } catch (error) {
+      return false;
+    }
   }
 
   async _savePromo() {
@@ -19319,7 +19447,7 @@ class SpaBookingCard extends HTMLElement {
       .lp-bar { display: block; height: 8px; border-radius: 4px; background: var(--sb-line); overflow: hidden; flex: 1; min-width: 60px; }
       .lp-box .lp-bar { flex: none; }
       .lp-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
-      .lp-switch { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
+      .lp-switch { display: flex !important; flex-direction: row !important; align-items: flex-start; gap: 10px; cursor: pointer; }
       .lp-switch > span { display: flex; flex-direction: column; gap: 2px; }
       .lp-switch input { margin-top: 3px; }
       .lp-bar i { display: block; height: 100%; border-radius: 4px; background: linear-gradient(90deg, #f5b301, #e08a00); }

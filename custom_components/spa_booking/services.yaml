@@ -2249,3 +2249,40 @@ propose_request_date:
       name: Solo anteprima
       selector:
         boolean:
+
+send_email:
+  name: Invia email
+  description: Invia un'email con la casella impostata in Configurazione › Email.
+  fields:
+    to:
+      name: Destinatari
+      required: true
+      example: "cliente@example.com"
+      selector:
+        text:
+          multiple: true
+    subject:
+      name: Oggetto
+      required: true
+      selector:
+        text:
+    message:
+      name: Testo
+      required: true
+      selector:
+        text:
+          multiline: true
+    html:
+      name: Versione HTML (facoltativa)
+      selector:
+        text:
+          multiline: true
+
+test_email:
+  name: Prova email
+  description: Invia un'email di prova con la casella impostata (al mittente stesso se non indichi un indirizzo).
+  fields:
+    to:
+      name: Destinatario (facoltativo)
+      selector:
+        text:
