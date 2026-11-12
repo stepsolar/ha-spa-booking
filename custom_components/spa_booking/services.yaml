@@ -2286,3 +2286,17 @@ test_email:
       name: Destinatario (facoltativo)
       selector:
         text:
+
+google_auth_url:
+  name: Accedi con Google (indirizzo)
+  description: Restituisce la pagina Google per collegare l'account Gmail da cui inviare le email. Usato dalla card.
+  fields:
+    redirect_uri:
+      name: Indirizzo di ritorno
+      required: true
+      selector:
+        text:
+
+google_disconnect:
+  name: Scollega account Google
+  description: Dimentica l'account Google usato per le email e revoca il permesso.

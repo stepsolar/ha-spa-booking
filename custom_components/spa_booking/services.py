@@ -164,6 +164,8 @@ SERVICE_SEND_REQUEST_MESSAGE = "send_request_message"
 SERVICE_PROPOSE_REQUEST_DATE = "propose_request_date"
 SERVICE_TEST_WEB_NOTICE = "test_web_notice"
 SERVICE_SEND_EMAIL = "send_email"
+SERVICE_GOOGLE_AUTH_URL = "google_auth_url"
+SERVICE_GOOGLE_DISCONNECT = "google_disconnect"
 SERVICE_TEST_EMAIL = "test_email"
 SERVICE_WHATSAPP_CHATS = "whatsapp_chats"
 SERVICE_DELETE_WHATSAPP_CHATS = "delete_whatsapp_chats"
@@ -265,6 +267,8 @@ ALL_SERVICES = (
     SERVICE_PROPOSE_REQUEST_DATE,
     SERVICE_TEST_WEB_NOTICE,
     SERVICE_SEND_EMAIL,
+    SERVICE_GOOGLE_AUTH_URL,
+    SERVICE_GOOGLE_DISCONNECT,
     SERVICE_TEST_EMAIL,
     SERVICE_WHATSAPP_CHATS,
     SERVICE_DELETE_WHATSAPP_CHATS,
@@ -868,6 +872,10 @@ UPDATE_SETTINGS_SCHEMA = vol.Schema(
         vol.Optional("email_from"): vol.Any(cv.string, None),
         vol.Optional("email_from_name"): vol.Any(cv.string, None),
         vol.Optional("email_reply_to"): vol.Any(cv.string, None),
+        vol.Optional("email_method"): vol.Any(vol.In(["smtp", "google"]), None),
+        vol.Optional("google_client_id"): vol.Any(cv.string, None),
+        vol.Optional("google_client_secret"): vol.Any(cv.string, None),
+        vol.Optional("email_aliases"): vol.Any(vol.All(cv.ensure_list, [cv.string]), None),
         # Loyalty points (2.4.0).
         vol.Optional("loyalty_enabled"): vol.Any(cv.boolean, None),
         vol.Optional("loyalty_points_per_euro"): vol.Any(vol.Coerce(float), None),
@@ -1415,7 +1423,10 @@ async def _require_admin(call: ServiceCall, coordinator: SpaBookingCoordinator) 
 
 
 #: Secrets that only an administrator may read back from the dataset.
-_SECRET_SETTINGS = ("waha_api_key", "waha_webhook_secret", "waha_webhook_id", "web_token", "smtp_password")
+_SECRET_SETTINGS = (
+    "waha_api_key", "waha_webhook_secret", "waha_webhook_id", "web_token", "smtp_password",
+    "google_client_secret", "google_refresh_token",
+)
 
 
 def _without_secrets(settings: dict[str, Any]) -> dict[str, Any]:
@@ -1818,6 +1829,21 @@ SEND_EMAIL_SCHEMA = vol.Schema(
 TEST_EMAIL_SCHEMA = vol.Schema(
     {vol.Optional("to"): vol.Any(cv.string, None)}, extra=vol.PREVENT_EXTRA
 )
+
+
+GOOGLE_AUTH_URL_SCHEMA = vol.Schema(
+    {vol.Required("redirect_uri"): cv.string}, extra=vol.PREVENT_EXTRA
+)
+
+
+async def _async_google_auth_url(call: ServiceCall) -> ServiceResponse:
+    """The Google page for «Accedi con Google», for this card's address."""
+    return await _coordinator(call).async_google_auth_url(call.data["redirect_uri"])
+
+
+async def _async_google_disconnect(call: ServiceCall) -> ServiceResponse:
+    """Forget the Google account (and withdraw the permission on Google)."""
+    return await _coordinator(call).async_google_disconnect()
 
 
 async def _async_send_email(call: ServiceCall) -> ServiceResponse:
@@ -2243,6 +2269,10 @@ async def _async_export_data(call: ServiceCall) -> ServiceResponse:
         KEY_PROFILES: access.public_profiles(settings.get(KEY_PROFILES) or {}),
         "smtp_password": "",
         "smtp_password_set": bool(((coordinator.data or {}).get("settings") or {}).get("smtp_password")),
+        "google_client_secret": "",
+        "google_refresh_token": "",
+        "google_secret_set": bool(((coordinator.data or {}).get("settings") or {}).get("google_client_secret")),
+        "google_connected": bool(((coordinator.data or {}).get("settings") or {}).get("google_refresh_token")),
     }
     # The points of each client (2.4.0), worked out here once for the card.
     data = {**data, "settings": settings, "loyalty": coordinator.loyalty_summary()}
@@ -2949,6 +2979,12 @@ _HANDLERS: dict[str, tuple[Any, Any, SupportsResponse]] = {
     SERVICE_TEST_WEB_NOTICE: (
         _async_test_web_notice, vol.Schema({}), SupportsResponse.ONLY,
     ),
+    SERVICE_GOOGLE_AUTH_URL: (
+        _async_google_auth_url, GOOGLE_AUTH_URL_SCHEMA, SupportsResponse.ONLY,
+    ),
+    SERVICE_GOOGLE_DISCONNECT: (
+        _async_google_disconnect, vol.Schema({}), SupportsResponse.ONLY,
+    ),
     SERVICE_SEND_EMAIL: (
         _async_send_email, SEND_EMAIL_SCHEMA, SupportsResponse.ONLY,
     ),
@@ -3122,6 +3158,8 @@ SERVICE_LEVELS: dict[str, str] = {
     SERVICE_REDEEM_PROMO_VOUCHER: "manager",
     SERVICE_DELETE_PROMO_VOUCHER: "manager",
     SERVICE_SEND_EMAIL: "manager",
+    SERVICE_GOOGLE_AUTH_URL: "admin",
+    SERVICE_GOOGLE_DISCONNECT: "admin",
     SERVICE_TEST_EMAIL: "admin",
     SERVICE_LOYALTY_REWARD: "operator",
     SERVICE_LOYALTY_ADJUST: "manager",

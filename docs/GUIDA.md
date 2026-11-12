@@ -1,6 +1,6 @@
 # Spa Booking — guida alle schede (2.2)
 
-Aggiornata alla 2.4.1: [Email](#email-241); [dettaglio, punti e partner](#dettaglio-punti-fedelta-e-partner-240); [Agenda](#agenda-2312); [Nuovo appuntamento a passi](#nuovo-appuntamento-a-passi-2310); [promo salvate e modelli](#promo-salvate-e-modelli-239); [Promo e Impostazioni](#promo-e-impostazioni-238); [Notifiche](#notifiche-236); [messaggi e chat](#messaggi-e-chat-235); [preferenza massaggiatrice/massaggiatore](#preferenza-massaggiatrice-o-massaggiatore); [promo e fedeltà del cliente](#promo-e-fedeltà-del-cliente); [conferme e promemoria WhatsApp](#conferme-e-promemoria-whatsapp); [firme e storico](#firme-e-storico); [chiusure con giorni esclusi](#chiusure-con-giorni-esclusi); [Proponi data](#proponi-data) nelle richieste, con trattamenti alternativi e prezzo; [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
+Aggiornata alla 2.4.2: [Email e Accedi con Google](#email-241); [dettaglio, punti e partner](#dettaglio-punti-fedelta-e-partner-240); [Agenda](#agenda-2312); [Nuovo appuntamento a passi](#nuovo-appuntamento-a-passi-2310); [promo salvate e modelli](#promo-salvate-e-modelli-239); [Promo e Impostazioni](#promo-e-impostazioni-238); [Notifiche](#notifiche-236); [messaggi e chat](#messaggi-e-chat-235); [preferenza massaggiatrice/massaggiatore](#preferenza-massaggiatrice-o-massaggiatore); [promo e fedeltà del cliente](#promo-e-fedeltà-del-cliente); [conferme e promemoria WhatsApp](#conferme-e-promemoria-whatsapp); [firme e storico](#firme-e-storico); [chiusure con giorni esclusi](#chiusure-con-giorni-esclusi); [Proponi data](#proponi-data) nelle richieste, con trattamenti alternativi e prezzo; [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
 
 Questa guida mostra ogni scheda della dashboard **Spa Booking** e spiega a
 cosa serve ogni funzione. Le immagini sono state fatte con dati di prova.
@@ -34,6 +34,32 @@ in Impostazioni › Aspetto).
 
 
 ## Email (2.4.1)
+
+**Dalla 2.4.2: «Accedi con Google».** In «La casella» scegli **Accedi con
+Google**: niente password, accetti su Google e Spa Booking riceve solo il
+permesso di inviare email (non può leggere la posta).
+
+La prima volta servono le chiavi del vostro progetto Google (circa 10 minuti,
+una volta sola; la card mostra i passi con i link):
+1. Google Cloud: crea un progetto (es. «Spa Booking») con l'account della spa.
+2. API e servizi › Libreria › **Gmail API** › Abilita.
+3. Google Auth Platform: Branding (nome e email), Pubblico «Esterno», poi
+   **Pubblica app** (se resta «In test» l'accesso scade ogni 7 giorni).
+4. Client › Crea client › Applicazione web; in «URI di reindirizzamento
+   autorizzati» incolla l'indirizzo che la card mostra (pulsante «Copia»).
+5. Copia Client ID e Client secret nella card e premi **Accedi con Google**.
+   Google avvisa «app non verificata»: è la vostra, premi «Avanzate › Vai a Spa
+   Booking» e spunta «Inviare email per tuo conto».
+Home Assistant va aperto dal suo indirizzo **https** esterno (Nabu Casa o il
+vostro dominio): Google non accetta indirizzi locali http.
+
+**Mittente:** in «Invia da» scegli l'account o uno degli **altri indirizzi**
+(prima aggiungili in Gmail › Impostazioni › Account e importazione › «Invia
+messaggi come» e confermali, poi scrivili in «Altri indirizzi della casella»).
+
+![Accedi con Google](anteprime/48-email-google.png)
+
+**Con password (SMTP)**, come nella 2.4.1:
 
 Configurazione › **Email** imposta la casella da cui partono le email.
 

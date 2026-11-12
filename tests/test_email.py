@@ -79,3 +79,70 @@ def test_errors_in_words(coordinator, smtp) -> None:
 def test_off_by_default(coordinator, smtp) -> None:
     with pytest.raises(ValidationError):
         run(coordinator.async_send_email("a@b.it", "x", "y"))
+
+
+def test_google_login_and_send(coordinator, monkeypatch) -> None:
+    import base64
+    import json
+    from urllib.parse import parse_qs, urlparse
+
+    from custom_components.spa_booking import google_auth
+
+    calls = {}
+    id_token = "x." + base64.urlsafe_b64encode(json.dumps({"email": "spa.marchese@gmail.com"}).encode()).decode().rstrip("=") + ".y"
+
+    async def fake_exchange(session, cid, secret, code, redirect):
+        calls["exchange"] = (cid, secret, code, redirect)
+        return {"refresh_token": "R1", "access_token": "A1", "expires_in": 3600, "id_token": id_token,
+                "scope": "openid email https://www.googleapis.com/auth/gmail.send"}
+
+    async def fake_send(session, token, raw):
+        calls.setdefault("sent", []).append((token, raw))
+        return {"id": "m1"}
+
+    async def fake_refresh(session, cid, secret, refresh):
+        calls["refresh"] = refresh
+        return "A2", 9e12
+
+    async def fake_revoke(session, token):
+        calls["revoked"] = token
+
+    monkeypatch.setattr(google_auth, "exchange_code", fake_exchange)
+    monkeypatch.setattr(google_auth, "gmail_send", fake_send)
+    monkeypatch.setattr(google_auth, "refresh_access", fake_refresh)
+    monkeypatch.setattr(google_auth, "revoke", fake_revoke)
+    coordinator._http_session = lambda: None
+
+    with pytest.raises(ValidationError):  # no client yet
+        run(coordinator.async_google_auth_url("https://casa.example/api/spa_booking/google/callback"))
+    run(coordinator.async_update_settings(email_enabled=True, google_client_id="CID.apps.googleusercontent.com",
+                                          google_client_secret="SEC", email_aliases=["prenotazioni@ilmarchese.it"]))
+    with pytest.raises(ValidationError):  # Google wants https
+        run(coordinator.async_google_auth_url("http://192.168.1.5:8123/api/spa_booking/google/callback"))
+    started = run(coordinator.async_google_auth_url("https://casa.example/api/spa_booking/google/callback"))
+    query = parse_qs(urlparse(started["url"]).query)
+    assert "gmail.send" in query["scope"][0] and query["access_type"] == ["offline"]
+    # A forged state is refused; the real one links the account.
+    with pytest.raises(google_auth.GoogleAuthError):
+        run(coordinator.async_google_callback("forged", "C"))
+    assert run(coordinator.async_google_callback(query["state"][0], "CODE")) == "spa.marchese@gmail.com"
+    assert calls["exchange"][2:] == ("CODE", "https://casa.example/api/spa_booking/google/callback")
+    settings = coordinator._data["settings"]
+    assert settings["email_method"] == "google" and settings["google_refresh_token"] == "R1"
+    # The state works once only.
+    with pytest.raises(google_auth.GoogleAuthError):
+        run(coordinator.async_google_callback(query["state"][0], "CODE"))
+    # Sending from an «Invia messaggi come» address.
+    run(coordinator.async_update_settings(email_from="prenotazioni@ilmarchese.it", email_from_name="Il Marchese Spa", google_client_secret=""))
+    assert coordinator._data["settings"]["google_client_secret"] == "SEC"  # empty keeps it
+    assert run(coordinator.async_send_email(["cliente@example.com"], "Conferma", "Ciao"))["sent"]
+    token, raw = calls["sent"][-1]
+    assert token == "A1" and b"From: Il Marchese Spa <prenotazioni@ilmarchese.it>" in raw
+    assert run(coordinator.async_test_email())["to"] == ["prenotazioni@ilmarchese.it"]
+    # An expired access token is refreshed.
+    coordinator._google_access = ("old", 0)
+    run(coordinator.async_send_email("cliente@example.com", "x", "y"))
+    assert calls["refresh"] == "R1" and calls["sent"][-1][0] == "A2"
+    run(coordinator.async_google_disconnect())
+    assert calls["revoked"] == "R1" and coordinator._data["settings"]["google_refresh_token"] == ""
+    assert not run(coordinator.async_send_email("cliente@example.com", "x", "y"))["sent"]

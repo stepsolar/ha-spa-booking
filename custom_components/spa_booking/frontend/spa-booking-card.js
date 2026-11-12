@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.4.1";
+const CARD_VERSION = "2.4.2";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -14590,6 +14590,12 @@ class SpaBookingCard extends HTMLElement {
         email_from: settings.email_from || "",
         email_from_name: settings.email_from_name || "",
         email_reply_to: settings.email_reply_to || "",
+        // «Accedi con Google» (2.4.2).
+        // Google by default, unless a password mailbox is already set up.
+        email_method: settings.email_method === "google" || !settings.smtp_username ? "google" : "smtp",
+        google_client_id: settings.google_client_id || "",
+        google_client_secret: "",
+        email_aliases: [...(settings.email_aliases || [])],
       };
       this._emailBase = JSON.stringify(this._emailDraft);
     }
@@ -14613,7 +14619,15 @@ class SpaBookingCard extends HTMLElement {
         el("span", {}, el("b", {}, "Attiva l'invio email"),
           el("span", { class: "dim small" }, "Spento: nessuna email parte, nemmeno dalle automazioni (servizio spa_booking.send_email).")))));
 
-    wrap.appendChild(this._pageStep(2, "La casella",
+    const google = draft.email_method === "google";
+    const methodSeg = el("div", { class: "pg-seg", role: "radiogroup" },
+      [["google", "Accedi con Google"], ["smtp", "Con password (Gmail, Outlook, Aruba…)"]].map(([id, label]) => el("button", {
+        type: "button", class: draft.email_method === id ? "on" : "", role: "radio", "aria-checked": draft.email_method === id ? "true" : "false",
+        on: { click: () => { draft.email_method = id; changed(); this._render(); } },
+      }, label)));
+    wrap.appendChild(google
+      ? this._pageStep(2, "La casella", methodSeg, this._emailGoogleBox(draft, changed))
+      : this._pageStep(2, "La casella", methodSeg,
       el("div", { class: "pg-seg", role: "radiogroup" }, EMAIL_PROVIDERS.map((p) => el("button", {
         type: "button", class: draft.smtp_provider === p.id ? "on" : "", role: "radio", "aria-checked": draft.smtp_provider === p.id ? "true" : "false",
         on: { click: () => { draft.smtp_provider = p.id; draft.smtp_host = ""; draft.smtp_port = ""; draft.smtp_security = ""; changed(); this._render(); } },
@@ -14637,13 +14651,25 @@ class SpaBookingCard extends HTMLElement {
               [["", `Predefinita (${{ starttls: "STARTTLS", ssl: "SSL" }[provider.security]})`], ["starttls", "STARTTLS (porta 587)"], ["ssl", "SSL (porta 465)"], ["none", "Nessuna (sconsigliato)"]]
                 .map(([value, label]) => el("option", { value, selected: draft.smtp_security === value }, label))))))));
 
+    const account = settings.google_account || "";
+    const senders = [...new Set([account, ...draft.email_aliases].filter(Boolean))];
+    const googleSender = google ? (draft.email_from || account) : "";
     wrap.appendChild(this._pageStep(3, "Il mittente",
       el("div", { class: "nt-options" },
-        input("email_from_name", "Nome mittente", { placeholder: "es. Il Marchese Hotel & Spa", rerender: false }),
-        input("email_from", "Indirizzo mittente (vuoto = la casella)", { type: "email", placeholder: draft.smtp_username || "" }),
+        input("email_from_name", "Nome mittente", { placeholder: "es. Il Marchese Hotel & Spa" }),
+        google
+          ? el("label", { class: "field" }, el("span", {}, "Invia da"),
+              el("select", { class: "input", on: { change: (event) => { draft.email_from = event.target.value === account ? "" : event.target.value; changed(); this._render(); } } },
+                senders.length ? senders.map((address) => el("option", { value: address, selected: address === googleSender }, address === account ? `${address} (account)` : address))
+                  : [el("option", { value: "" }, "collega prima l'account")]))
+          : input("email_from", "Indirizzo mittente (vuoto = la casella)", { type: "email", placeholder: draft.smtp_username || "" }),
         input("email_reply_to", "Rispondi a (facoltativo)", { type: "email", placeholder: "es. spa@hotel.it" })),
+      google ? this._emailAliasesBox(draft, changed) : null,
       el("div", { class: "pg-sum" }, el("ha-icon", { icon: "mdi:email-fast-outline" }),
-        el("span", {}, "I clienti vedranno: ", el("b", {}, draft.email_from_name ? `${draft.email_from_name} <${sender || "…"}>` : (sender || "…")),
+        el("span", {}, "I clienti vedranno: ", el("b", {}, (() => {
+          const address = google ? googleSender : sender;
+          return draft.email_from_name ? `${draft.email_from_name} <${address || "…"}>` : (address || "…");
+        })()),
           draft.email_reply_to ? ` · le risposte vanno a ${draft.email_reply_to}` : ""))));
 
     const dirty = () => JSON.stringify(this._emailDraft) !== this._emailBase;
@@ -14670,10 +14696,120 @@ class SpaBookingCard extends HTMLElement {
     return wrap;
   }
 
+  /** The address Google sends the browser back to; pasted once in the Google project. */
+  _googleRedirect() {
+    return `${window.location.origin}/api/spa_booking/google/callback`;
+  }
+
+  /** «Accedi con Google»: save, ask the server for Google's page, open it in a window. */
+  async _googleLogin() {
+    if (JSON.stringify(this._emailDraft) !== this._emailBase && !(await this._saveEmail())) return;
+    let popup = null;
+    try {
+      // Opened at once (inside the click), filled when the address arrives: a
+      // window opened later would be blocked by the browser.
+      popup = window.open("", "spa_booking_google", "width=520,height=700");
+      const result = await this._service("google_auth_url", { redirect_uri: this._googleRedirect() });
+      if (popup && !popup.closed) popup.location.href = result.url;
+      else window.location.assign(result.url);
+    } catch (error) {
+      if (popup) popup.close();
+      this._message = { kind: "error", text: String((error && error.message) || error) };
+      this._render();
+      return;
+    }
+    const done = () => {
+      window.removeEventListener("message", onMessage);
+      clearInterval(timer);
+      this._emailDraft = null;
+      this._loadData();
+    };
+    const onMessage = (event) => { if (event.data && "spaBookingGoogle" in event.data) done(); };
+    window.addEventListener("message", onMessage);
+    const timer = setInterval(() => { if (!popup || popup.closed) done(); }, 1000);
+  }
+
+  /** Step 2 with Google: connected account, or the button and the one-time guide. */
+  _emailGoogleBox(draft, changed) {
+    const settings = this._data.settings || {};
+    const box = el("div", { class: "stack" });
+    const https = window.location.protocol === "https:" || ["localhost", "127.0.0.1"].includes(window.location.hostname);
+    const ready = !!(settings.google_client_id && settings.google_secret_set);
+    if (settings.google_connected) {
+      box.appendChild(el("div", { class: "gm-connected" },
+        el("span", { class: "gm-logo" }, "G"),
+        el("span", { class: "grow" }, el("b", {}, "Collegato a Google"), el("span", { class: "dim small" }, settings.google_account || "")),
+        el("button", { class: "btn small", disabled: this._busy, on: { click: () => this._googleLogin() } }, "Cambia account"),
+        el("button", { class: "btn small danger", disabled: this._busy, on: { click: async () => {
+          if (!window.confirm("Scollegare l'account Google? Le email non partiranno finché non lo ricolleghi.")) return;
+          try { await this._call("google_disconnect", {}); this._emailDraft = null; } catch (error) { /* shown */ }
+        } } }, "Scollega")));
+    } else {
+      box.appendChild(el("button", { class: "gm-btn", disabled: this._busy || !(ready || (draft.google_client_id && draft.google_client_secret)) || !https,
+        on: { click: () => this._googleLogin() } },
+        el("span", { class: "gm-logo" }, "G"), "Accedi con Google"));
+      if (!https) {
+        box.appendChild(el("div", { class: "pg-sum warn" }, el("ha-icon", { icon: "mdi:alert-outline" }),
+          el("span", {}, "Google accetta solo indirizzi https: apri Home Assistant dal suo indirizzo esterno (Nabu Casa o il tuo dominio) e torna qui.")));
+      }
+      box.appendChild(el("div", { class: "hint" }, "Nessuna password: accetti su Google e Spa Booking riceve solo il permesso di inviare email (non può leggere la posta). Puoi revocarlo quando vuoi."));
+    }
+    const redirect = this._googleRedirect();
+    const guide = el("details", { class: "pg-adv", ...(ready ? {} : { open: true }) },
+      el("summary", {}, ready ? "Chiavi del progetto Google (fatto una volta)" : "Prima volta: le chiavi Google (una sola volta, circa 10 minuti)"),
+      el("ol", { class: "gm-steps" },
+        el("li", {}, "Apri ", el("a", { href: "https://console.cloud.google.com/projectcreate", target: "_blank", rel: "noopener" }, "Google Cloud"), " con l'account Gmail della spa e crea un progetto, per esempio «Spa Booking»."),
+        el("li", {}, "In ", el("a", { href: "https://console.cloud.google.com/apis/library/gmail.googleapis.com", target: "_blank", rel: "noopener" }, "API e servizi › Libreria › Gmail API"), " premi «Abilita»."),
+        el("li", {}, "In ", el("a", { href: "https://console.cloud.google.com/auth/branding", target: "_blank", rel: "noopener" }, "Google Auth Platform"), ": Branding (nome «Spa Booking» e la tua email), Pubblico «Esterno», poi «Pubblica app». Se resta «In test», l'accesso scade ogni 7 giorni."),
+        el("li", {}, "In ", el("a", { href: "https://console.cloud.google.com/auth/clients", target: "_blank", rel: "noopener" }, "Client"), " › Crea client › «Applicazione web». In «URI di reindirizzamento autorizzati» incolla:",
+          el("div", { class: "gm-copy" }, el("code", {}, redirect),
+            el("button", { class: "btn small", on: { click: async () => {
+              try { await navigator.clipboard.writeText(redirect); this._message = { kind: "ok", text: "Indirizzo copiato." }; } catch (error) { this._message = { kind: "error", text: "Copia non riuscita: selezionalo e copialo a mano." }; }
+              this._render();
+            } } }, el("ha-icon", { icon: "mdi:content-copy" }), "Copia"))),
+        el("li", {}, "Copia qui sotto Client ID e Client secret, poi «Accedi con Google». Google mostrerà «app non verificata»: è la tua, premi «Avanzate › Vai a Spa Booking» e spunta «Inviare email per tuo conto».")),
+      el("div", { class: "nt-options" },
+        el("label", { class: "field" }, el("span", {}, "Client ID"),
+          el("input", { class: "input", value: draft.google_client_id, placeholder: "…apps.googleusercontent.com", autocomplete: "off",
+            on: { input: (event) => { draft.google_client_id = event.target.value; changed(); } } })),
+        el("label", { class: "field" }, el("span", {}, settings.google_secret_set ? "Client secret (salvato: lascia vuoto per non cambiarlo)" : "Client secret"),
+          el("input", { class: "input", type: "password", value: draft.google_client_secret, autocomplete: "new-password",
+            placeholder: settings.google_secret_set ? "••••••••••" : "GOCSPX-…",
+            on: { input: (event) => { draft.google_client_secret = event.target.value; changed(); } } }))));
+    box.appendChild(guide);
+    return box;
+  }
+
+  /** The «Invia messaggi come» addresses of the Gmail account, to send from. */
+  _emailAliasesBox(draft, changed) {
+    const box = el("details", { class: "pg-adv", ...(draft.email_aliases.length ? {} : {}) },
+      el("summary", {}, `Altri indirizzi della casella (${draft.email_aliases.length})`),
+      el("div", { class: "hint" }, "Per inviare da un altro indirizzo (es. prenotazioni@…), aggiungilo prima in Gmail › Impostazioni › Account e importazione › «Invia messaggi come» e confermalo; poi scrivilo qui."));
+    draft.email_aliases.forEach((address, index) => box.appendChild(el("div", { class: "gm-alias" },
+      el("ha-icon", { icon: "mdi:email-outline" }), el("span", { class: "grow" }, address),
+      el("button", { class: "icon-btn", title: "Togli", on: { click: () => {
+        draft.email_aliases.splice(index, 1);
+        if (draft.email_from === address) draft.email_from = "";
+        changed(); this._render();
+      } } }, el("ha-icon", { icon: "mdi:close" })))));
+    const field = el("input", { class: "input grow", type: "email", placeholder: "nuovo indirizzo, es. prenotazioni@ilmarchese.it" });
+    box.appendChild(el("div", { class: "row" }, field,
+      el("button", { class: "btn small", on: { click: () => {
+        const value = field.value.trim().toLowerCase();
+        if (!value.includes("@") || draft.email_aliases.includes(value)) return;
+        draft.email_aliases.push(value);
+        changed(); this._render();
+      } } }, el("ha-icon", { icon: "mdi:plus" }), "Aggiungi")));
+    if (draft.email_aliases.length || this._emailAliasesOpen) box.open = true;
+    return box;
+  }
+
   async _saveEmail() {
     const draft = this._emailDraft;
     const payload = { ...draft, smtp_port: Number(draft.smtp_port) || 0 };
     if (!payload.smtp_password) delete payload.smtp_password;
+    if (!payload.google_client_secret) delete payload.google_client_secret;
+    payload.google_client_id = (payload.google_client_id || "").trim();
     try {
       await this._call("update_settings", payload);
       this._emailDraft = null;
@@ -19438,6 +19574,25 @@ class SpaBookingCard extends HTMLElement {
       .operators-column:only-child { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 10px; align-items: start; }
       .operators-column:only-child > .column-header { grid-column: 1 / -1; }
       .icon-btn.danger-icon { color: var(--sb-danger-fg, #c62828); }
+      /* 2.4.2: «Accedi con Google» */
+      .gm-btn { all: unset; cursor: pointer; align-self: flex-start; display: inline-flex; align-items: center; gap: 12px; padding: 10px 18px 10px 10px;
+        border-radius: 999px; border: 1px solid #dadce0; background: #fff; color: #3c4043; font-weight: 600; font-size: 14.5px;
+        box-shadow: 0 1px 2px rgba(60,64,67,.15); }
+      .gm-btn:hover { box-shadow: 0 2px 6px rgba(60,64,67,.25); }
+      .gm-btn[disabled] { opacity: .5; cursor: default; }
+      .gm-btn:focus-visible { outline: 2px solid var(--primary-color); }
+      .gm-logo { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; font-size: 16px; color: #fff; flex: none;
+        background: conic-gradient(#ea4335 0 25%, #fbbc05 0 50%, #34a853 0 75%, #4285f4 0); }
+      .gm-connected { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; border-radius: 12px;
+        background: var(--sb-ok-bg); border: 1px solid color-mix(in srgb, #22a35a 30%, transparent); }
+      .gm-connected .grow { display: flex; flex-direction: column; min-width: 160px; }
+      .gm-steps { margin: 8px 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; font-size: 13.5px; line-height: 1.45; }
+      .gm-steps a { color: var(--primary-color); font-weight: 600; }
+      .gm-copy { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+      .gm-copy code { padding: 6px 10px; border-radius: 8px; background: var(--sb-soft); font-size: 12.5px; overflow-wrap: anywhere; }
+      .gm-alias { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid var(--sb-line); }
+      .gm-alias ha-icon { --mdc-icon-size: 18px; color: var(--primary-color); }
+
       /* 2.4.0: loyalty points */
       .lp-box { display: flex; flex-direction: column; gap: 6px; padding: 12px; border-radius: 12px; border: 1px solid var(--sb-line);
         background: linear-gradient(135deg, color-mix(in srgb, #f5b301 10%, transparent), transparent); }

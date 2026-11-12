@@ -961,6 +961,16 @@ def _norm_settings(raw: dict[str, Any]) -> dict[str, Any]:
         "email_from": str(raw.get("email_from") or "").strip(),
         "email_from_name": str(raw.get("email_from_name") or "").strip(),
         "email_reply_to": str(raw.get("email_reply_to") or "").strip(),
+        # «Accedi con Google» (2.4.2): the OAuth client, the token, the account
+        # and the «Invia messaggi come» addresses the desk may send from.
+        "email_method": "google" if raw.get("email_method") == "google" else "smtp",
+        "google_client_id": str(raw.get("google_client_id") or "").strip(),
+        "google_client_secret": str(raw.get("google_client_secret") or "").strip(),
+        "google_refresh_token": str(raw.get("google_refresh_token") or ""),
+        "google_account": str(raw.get("google_account") or "").strip(),
+        "email_aliases": [
+            str(a).strip() for a in (raw.get("email_aliases") or []) if isinstance(a, str) and "@" in a
+        ][:20],
         # Loyalty points (2.4.0).
         "loyalty_enabled": bool(raw.get("loyalty_enabled", False)),
         "loyalty_points_per_euro": _norm_rate(raw.get("loyalty_points_per_euro")),
