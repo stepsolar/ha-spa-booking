@@ -133,6 +133,9 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v2.5.4** — Agenda (basta ricaricare la pagina): il dettaglio aperto a
+  destra si chiude anche passando alla vista Mese (prima ricompariva come
+  popup).
 - **v2.5.3** — Agenda (basta ricaricare la pagina): il dettaglio aperto a
   destra si chiude quando si cambia scheda (prima ricompariva come popup in
   Configurazione o nelle altre schede); la timeline mostra solo gli operatori
