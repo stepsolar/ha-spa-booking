@@ -133,6 +133,11 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v2.6.1** — Importa partner più affidabile: niente finestra di conferma
+  del browser (in alcuni browser e nell'app non compariva e l'import non
+  partiva), anteprima del file con il tasto «Importa N partner», invio a
+  blocchi di 150 con avanzamento, lettura anche dei CSV salvati da Excel su
+  Windows, messaggio chiaro se serve riavviare Home Assistant.
 - **v2.6.0** — **Partner: importa file e newsletter** (serve il riavvio di
   Home Assistant): in Clienti › Partner il tasto «Importa file» carica un CSV
   (Nome struttura, Tipo, Nome, Cognome o Titolare, Città, Telefono, WhatsApp,

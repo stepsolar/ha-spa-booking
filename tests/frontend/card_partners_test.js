@@ -30,3 +30,20 @@ assert(page.textContent.includes("Importa file") && page.textContent.includes("D
 card._partnerFilter = "unsub";
 page = card._renderPartners();
 assert(page.textContent.includes("B&B Sole") && !page.textContent.includes("Hotel Mare"), "filter: unsubscribed only");
+
+// 2.6.1: import in batches from the panel, no browser dialog.
+(async () => {
+  const sent = [];
+  card._service = async (service, data) => { sent.push(data.partners.length); return { added: data.partners.length, updated: 0, skipped: 0 }; };
+  card._loadData = async () => {};
+  card._friendlyError = (e) => String(e);
+  card._partnerImport = { name: "x.csv", partners: Array.from({ length: 320 }, (_, i) => ({ company: `S${i}`, email: `s${i}@x.it` })), withEmail: 320 };
+  assert(card._renderPartners().textContent.includes("Importa 320 partner"), "preview panel with the import button");
+  await card._partnerImportRun();
+  assert(JSON.stringify(sent) === "[150,150,20]", "sent in batches of 150");
+  assert(card._partnerImport === null && card._message.text.includes("Importati 320"), "result shown");
+  card._service = async () => { throw new Error("Unknown service spa_booking.import_partners"); };
+  card._partnerImport = { name: "x.csv", partners: [{ company: "A", email: "a@x.it" }], withEmail: 1 };
+  await card._partnerImportRun();
+  assert(card._partnerImport.error.includes("riavvia Home Assistant"), "missing service: restart hint");
+})();
