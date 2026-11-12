@@ -133,6 +133,25 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v2.5.0** — **Campagne partner e punti ai partner** (serve il riavvio di
+  Home Assistant; aggiornate anche il modulo del sito, che si aggiorna da solo):
+  - Promo › **Campagne partner**: campagne email ai partner per vendere la spa
+    ai loro ospiti. Testo pronto con il **link di prenotazione personale**
+    (`{link_prenotazione}` = pagina del sito + `?partner=CODICE`), codice e
+    punti; anteprima email, **data e ora di inizio invio** (o a mano),
+    **invio di prova**, invio una sola volta a tutti i partner attivi con
+    email.
+  - Il modulo del sito legge `?partner=CODICE` (e lo ricorda 30 giorni): la
+    richiesta e gli appuntamenti che ne nascono portano il partner.
+  - **Punti ai partner**: punti per euro prenotato (impostabili), calcolati
+    sugli appuntamenti non annullati: se un appuntamento si annulla, i suoi
+    punti spariscono. Saldo, prenotazioni portate, email ricevute, link da
+    copiare e rettifica punti in Clienti › Partner.
+  - Partner scelto a mano in Nuovo appuntamento / Nuova richiesta (passo
+    Cliente) e modificabile nel dettaglio dell'appuntamento.
+  - Servizi `send_partner_campaign`, `partner_points_adjust`,
+    `set_appointment_partner`.
+
 - **v2.4.2** — **Accedi con Google** per le email (serve il riavvio di Home
   Assistant): Spa Booking si collega da solo a Gmail (OAuth, senza
   l'integrazione Google di Home Assistant e senza password), chiedendo solo il

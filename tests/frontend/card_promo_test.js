@@ -69,3 +69,20 @@ card._emailDraft = null;
 const connected = card._renderEmail();
 assert(connected.textContent.includes("Collegato a Google") && connected.textContent.includes("spa@gmail.com"), "connected account shown");
 assert(connected.textContent.includes("prenotazioni@hotel.it"), "aliases to send from");
+
+// 2.5.0: partner campaigns and the partner on bookings.
+card._data.settings = { partner_points_per_euro: 2, partner_booking_url: "https://hotel.it/spa", partner_campaigns: [], email_from_name: "Spa" };
+card._data.partners = [{ id: "p1", first_name: "Giulia", company: "B&B Mare", code: "PRT-1A2B", email: "mare@example.com", active: true }];
+card._data.partner_points = { p1: { balance: 30, bookings: 1, booked: 15 } };
+card._promoDraft = null;
+card._promoTab = "partner";
+let page2 = card._renderPromo();
+assert(page2.textContent.includes("Le campagne ai partner") && page2.textContent.includes("120 punti"), "partner tab with the rate sentence");
+card._promoDraft.partner_campaigns.unshift({ id: "pc1", name: "Natale", subject: "Ciao {nome}", message: "Prenota: {link_prenotazione}", mode: "giorno", date: "2030-12-01", time: "10:00" });
+card._pcEditId = "pc1";
+page2 = card._renderPromo();
+assert(page2.textContent.includes("https://hotel.it/spa?partner=PRT-1A2B"), "preview with the partner's own link");
+assert(page2.textContent.includes("Inizio invio automatico") && page2.textContent.includes("Invia prova"), "start day and test send");
+assert(card._partnerLink(card._data.partners[0]) === "https://hotel.it/spa?partner=PRT-1A2B", "link helper");
+const field = card._partnerField({ partner_id: "p1" });
+assert(field && field.textContent.includes("B&B Mare · PRT-1A2B"), "partner choice in the forms");

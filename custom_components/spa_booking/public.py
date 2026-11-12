@@ -435,6 +435,8 @@ class SpaBookingPublicRequestView(_PublicView):
                 therapist_preference=str(data.get("therapist_preference") or "")[:1].upper()
                 if str(data.get("therapist_preference") or "")[:1].upper() in ("F", "M")
                 else "",
+                # The partner's code from the link the guest came with (2.5.0).
+                partner=str(data.get("partner_code") or "").strip()[:20],
             )
             # The payload carries the guest's own card back; the site only
             # needs what it can show as a receipt.

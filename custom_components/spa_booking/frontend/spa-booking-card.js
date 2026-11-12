@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.4.2";
+const CARD_VERSION = "2.5.0";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -766,6 +766,28 @@ const nthWeekday = (year, month, weekday, n) => {
 };
 
 const PROMO_SIGN = "Lo Staff - {hotel}\n📞 +39 0925 992446";
+
+/** The ready text of a new campaign to the partners (2.5.0). */
+const PARTNER_CAMPAIGN_SUBJECT = "{nome}, porta i tuoi ospiti nella nostra spa: per te {punti_per_euro} punti per ogni euro";
+const PARTNER_CAMPAIGN_TEXT = [
+  "Ciao {nome},",
+  "",
+  "grazie per la collaborazione con {hotel}!",
+  "",
+  "Per questa stagione abbiamo preparato un'offerta per i tuoi ospiti: massaggi, rituali viso e percorsi relax nella nostra spa, prenotabili in pochi clic e con la conferma su WhatsApp.",
+  "",
+  "Condividi con loro il tuo link personale:",
+  "{link_prenotazione}",
+  "",
+  "Per ogni prenotazione fatta con il tuo link ricevi {punti_per_euro} punti per ogni euro prenotato. Se una prenotazione viene annullata, i suoi punti vengono tolti.",
+  "",
+  "Il tuo codice partner è {codice_partner}; in questo momento hai {punti} punti.",
+  "",
+  "Per locandine, QR code o qualsiasi domanda rispondi pure a questa email.",
+  "",
+  "A presto,",
+  "Lo Staff - {hotel}",
+].join("\n");
 
 /**
  * The promo themes. `when(year)` gives [start, expiry] for that year's
@@ -2154,6 +2176,8 @@ class SpaBookingCard extends HTMLElement {
         });
       });
     });
+    // The partner who brought the party (2.5.0), on every row.
+    if (this._form.partner_id) rows.forEach((row) => { row.partner_id = this._form.partner_id; });
     return rows;
   }
 
@@ -4464,6 +4488,15 @@ class SpaBookingCard extends HTMLElement {
       section(
         "Prenotazione",
         this._detailLine("Inserito da", this._authorText(appointment)),
+        (this._data.partners || []).length || appointment.partner_id
+          ? this._detailLine("Partner", canBook && !cancelled
+            ? el("select", { class: "input dt-partner", disabled: this._busy, on: { change: async (event) => {
+                try { await this._call("set_appointment_partner", { appointment_id: appointment.id, partner_id: event.target.value }); } catch (error) { /* shown */ }
+              } } },
+              el("option", { value: "", selected: !appointment.partner_id }, "Nessuno"),
+              ...(this._data.partners || []).map((p) => el("option", { value: p.id, selected: appointment.partner_id === p.id }, this._partnerName(p.id))))
+            : (this._partnerName(appointment.partner_id) || "nessuno"))
+          : null,
         appointment.therapist_preference
           ? this._detailLine("Preferisce", appointment.therapist_preference === "F" ? "una massaggiatrice" : "un massaggiatore")
           : null,
@@ -5611,7 +5644,7 @@ class SpaBookingCard extends HTMLElement {
         ? el("div", { class: "hint" }, `Questo trattamento richiede almeno ${this._peopleMin()} persone insieme nella stessa fascia.`)
         : null));
     steps.appendChild(this._pageStep(2, "Trattamenti", this._formBlock("booking", multi)));
-    steps.appendChild(this._pageStep(3, "Cliente", this._formBlock("client", multi), this._formBlock("guest", multi)));
+    steps.appendChild(this._pageStep(3, "Cliente", this._formBlock("client", multi), this._formBlock("guest", multi), this._partnerField(this._form)));
     steps.appendChild(this._pageStep(4, "Prezzo e pagamento", this._formBlock("totali", multi), this._formBlock("incassi", multi)));
     steps.appendChild(this._pageStep(5, "Stato e note", this._formBlock("prenotazione", multi), this._formBlock("notes", multi)));
 
@@ -7576,6 +7609,7 @@ class SpaBookingCard extends HTMLElement {
     this._nvOtherDay = false;
     this._form = {
       ...this._form,
+      partner_id: "",
       treatment_id: "",
       operator_id: "",
       client_id: "",
@@ -8321,6 +8355,7 @@ class SpaBookingCard extends HTMLElement {
       notes: entry.notes || "",
       voucher_code: (entry.voucher_code || "").trim().toUpperCase(),
       therapist_preference: entry.therapist_preference || "",
+      partner: entry.partner_id || "",
     };
     // Opened with "Modifica": rewrite that request instead of adding one.
     if (entry.request_id) payload.request_id = entry.request_id;
@@ -9568,7 +9603,7 @@ class SpaBookingCard extends HTMLElement {
         : null));
     steps.appendChild(this._pageStep(2, "Trattamenti", this._richiestaBlock()));
     steps.appendChild(this._pageStep(3, "Cliente",
-      this._clientSection(this._form), this._guestField(this._form), this._preferenceField(this._form)));
+      this._clientSection(this._form), this._guestField(this._form), this._preferenceField(this._form), this._partnerField(this._form)));
     steps.appendChild(this._pageStep(4, "Note",
       el("label", { class: "field" },
         el("span", {}, "Note per la reception"),
@@ -10035,6 +10070,10 @@ class SpaBookingCard extends HTMLElement {
             el("div", { class: "req-name" }, name, " ",
               el("span", { class: `pill ${tone}` }, el("ha-icon", { icon }), label),
               req.source === "web" && req.seen === false ? el("span", { class: "pill warn" }, "Nuova") : null,
+              req.partner_id && this._partnerName(req.partner_id)
+                ? el("span", { class: "pill ok", title: "Arrivata dal link di un partner" },
+                    el("ha-icon", { icon: "mdi:handshake-outline" }), this._partnerName(req.partner_id))
+                : null,
               req.therapist_preference
                 ? el("span", { class: "pill info" },
                     el("ha-icon", { icon: req.therapist_preference === "F" ? "mdi:face-woman-outline" : "mdi:face-man-outline" }),
@@ -10157,6 +10196,7 @@ class SpaBookingCard extends HTMLElement {
       voucher_code: req.voucher_code || "",
       guest_type: req.guest_type || GUEST_DEFAULT,
       therapist_preference: req.therapist_preference || "",
+      partner_id: req.partner_id || "",
       new_client: false,
     };
     this._tab = "nuovo";
@@ -10178,6 +10218,30 @@ class SpaBookingCard extends HTMLElement {
         }, el("ha-icon", { icon }), el("span", {}, label)))));
     add(wrap, tab === "partner" ? this._renderPartners() : this._renderClientsList());
     return wrap;
+  }
+
+  /** A partner's display name. */
+  _partnerName(id) {
+    const partner = (this._data.partners || []).find((p) => p.id === id);
+    if (!partner) return "";
+    return partner.company || [partner.first_name, partner.last_name].filter(Boolean).join(" ") || partner.code;
+  }
+
+  /** «Portato da un partner» in the booking and request forms (2.5.0). */
+  _partnerField(state) {
+    const partners = (this._data.partners || []).filter((p) => p.active !== false || p.id === state.partner_id);
+    if (!partners.length) return null;
+    return el("label", { class: "field" }, el("span", {}, "Portato da un partner (riceve i punti)"),
+      el("select", { class: "input", on: { change: (event) => { state.partner_id = event.target.value; this._nvSyncSummary && this._nvSyncSummary(); } } },
+        el("option", { value: "", selected: !state.partner_id }, "Nessun partner"),
+        ...partners.map((p) => el("option", { value: p.id, selected: state.partner_id === p.id }, `${this._partnerName(p.id)} · ${p.code}`))));
+  }
+
+  /** The partner's personal booking link (2.5.0). */
+  _partnerLink(partner) {
+    const base = ((this._data.settings || {}).partner_booking_url || "").trim();
+    if (!base) return "";
+    return `${base}${base.includes("?") ? "&" : "?"}partner=${partner.code}`;
   }
 
   /** The partners who promote the spa: list, search, add and change by hand. */
@@ -10242,8 +10306,28 @@ class SpaBookingCard extends HTMLElement {
             el("span", { class: "pm-chip info" }, partner.code),
             partner.active === false ? el("span", { class: "pm-chip" }, "Non attivo") : null),
           el("div", { class: "dim small" }, [partner.company ? name : "", partner.phone, partner.email].filter(Boolean).join(" · ") || "—"),
-          partner.notes ? el("div", { class: "dim small" }, partner.notes) : null),
+          partner.notes ? el("div", { class: "dim small" }, partner.notes) : null,
+          (() => {
+            const info = ((this._data.partner_points || {})[partner.id]) || { balance: 0, bookings: 0, booked: 0 };
+            return el("div", { class: "chips", style: "margin-top:4px" },
+              el("span", { class: "lp-chip", title: "Punti del partner" }, el("ha-icon", { icon: "mdi:star-circle" }), `${info.balance} punti`),
+              el("span", { class: "pm-chip" }, `${info.bookings} ${info.bookings === 1 ? "prenotazione" : "prenotazioni"} · ${euro(info.booked)}`),
+              partner.campaigns_sent ? el("span", { class: "pm-chip" }, `${partner.campaigns_sent} email`) : null);
+          })()),
         el("div", { class: "appt-actions" },
+          this._partnerLink(partner) ? el("button", { class: "btn small", title: `Copia il link: ${this._partnerLink(partner)}`, on: { click: async () => {
+            try { await navigator.clipboard.writeText(this._partnerLink(partner)); this._message = { kind: "ok", text: `Link di ${this._partnerName(partner.id)} copiato.` }; }
+            catch (error) { this._message = { kind: "ok", text: this._partnerLink(partner) }; }
+            this._render();
+          } } }, el("ha-icon", { icon: "mdi:link-variant" })) : null,
+          canEdit ? el("button", { class: "btn small", title: "Rettifica punti", disabled: this._busy, on: { click: async () => {
+            const raw = window.prompt(`Punti da aggiungere o togliere a ${this._partnerName(partner.id)} (es. 50 o -50):`, "");
+            if (raw == null || !raw.trim()) return;
+            const points = Math.round(Number(raw.replace(",", ".")));
+            if (!points) return;
+            const note = window.prompt("Motivo (facoltativo):", "") || "";
+            try { await this._call("partner_points_adjust", { partner_id: partner.id, points, note }); } catch (error) { /* shown */ }
+          } } }, el("ha-icon", { icon: "mdi:plus-minus-variant" })) : null,
           partner.phone ? el("a", { class: "btn small tel", href: telHref(partner.phone), title: partner.phone }, el("ha-icon", { icon: "mdi:phone" })) : null,
           partner.phone && waLink(partner.phone) ? el("a", { class: "btn small wa", href: waLink(partner.phone), target: "_blank", rel: "noopener", title: "WhatsApp" }, el("ha-icon", { icon: "mdi:whatsapp" })) : null,
           canEdit ? el("button", { class: "btn small", title: "Modifica", on: { click: () => { this._partnerDraft = { ...partner }; this._render(); } } }, el("ha-icon", { icon: "mdi:pencil" })) : null,
@@ -14509,6 +14593,10 @@ class SpaBookingCard extends HTMLElement {
         loyalty_reward: settings.loyalty_reward != null ? settings.loyalty_reward : 25,
         loyalty_auto: settings.loyalty_auto !== false,
         loyalty_message: settings.loyalty_message || "",
+        // Partners (2.5.0).
+        partner_points_per_euro: settings.partner_points_per_euro != null ? settings.partner_points_per_euro : 1,
+        partner_booking_url: settings.partner_booking_url || "",
+        partner_campaigns: JSON.parse(JSON.stringify(settings.partner_campaigns || [])),
       };
       this._promoBase = JSON.stringify(this._promoDraft);
     }
@@ -14518,7 +14606,7 @@ class SpaBookingCard extends HTMLElement {
     wrap.appendChild(this._sectionHead("mdi:bullhorn-outline", "Promo",
       "Offerte ai clienti iscritti e voucher fedeltà dopo la visita."));
     wrap.appendChild(el("div", { class: "nt-tabs", role: "tablist" },
-      [["campagna", "mdi:bullhorn-outline", "Campagna promo"], ["fedelta", "mdi:ticket-percent-outline", "Voucher fedeltà"], ["punti", "mdi:star-circle-outline", "Punti fedeltà"]]
+      [["campagna", "mdi:bullhorn-outline", "Campagna promo"], ["fedelta", "mdi:ticket-percent-outline", "Voucher fedeltà"], ["punti", "mdi:star-circle-outline", "Punti fedeltà"], ["partner", "mdi:handshake-outline", "Campagne partner"]]
         .map(([id, icon, label]) => el("button", {
           class: `nt-tab${tab === id ? " on" : ""}`, role: "tab", "aria-selected": tab === id ? "true" : "false",
           on: { click: () => { this._promoTab = id; this._render(); } },
@@ -14539,6 +14627,7 @@ class SpaBookingCard extends HTMLElement {
     const changed = () => this._pageSyncSave("promo");
     if (tab === "campagna") wrap.appendChild(this._promoCampaign(draft, changed));
     else if (tab === "punti") wrap.appendChild(this._promoPoints(draft, changed));
+    else if (tab === "partner") wrap.appendChild(this._promoPartners(draft, changed));
     else wrap.appendChild(this._promoLoyalty(draft, changed));
 
     wrap.appendChild(this._pageSaveBar("promo", () => this._savePromo(), () => {
@@ -14821,6 +14910,174 @@ class SpaBookingCard extends HTMLElement {
     }
   }
 
+  /** Promo › Campagne partner (2.5.0): emails that ask the partners to sell the spa to their guests. */
+  _promoPartners(draft, changed) {
+    const editing = this._pcEditId && draft.partner_campaigns.find((c) => c.id === this._pcEditId);
+    if (editing) return this._partnerCampaignEditor(draft, editing, changed);
+    this._pcEditId = null;
+    const partners = this._data.partners || [];
+    const withEmail = partners.filter((p) => p.active !== false && (p.email || "").includes("@"));
+    const wrap = el("div", { class: "stack" });
+    const rate = Number(String(draft.partner_points_per_euro).replace(",", ".")) || 0;
+    wrap.appendChild(this._pageStep(1, "Punti ai partner",
+      el("div", { class: "nt-options" },
+        el("label", { class: "field" }, el("span", {}, "Punti per ogni euro prenotato dai loro ospiti"),
+          el("input", { class: "input", type: "number", min: "0", step: "0.1", value: draft.partner_points_per_euro ?? "",
+            on: { input: (event) => { draft.partner_points_per_euro = event.target.value; changed(); } } })),
+        el("label", { class: "field" }, el("span", {}, "Pagina del sito con il modulo di prenotazione"),
+          el("input", { class: "input", type: "url", value: draft.partner_booking_url || "", placeholder: "https://www.ilmarchese.it/spa/prenota",
+            on: { input: (event) => { draft.partner_booking_url = event.target.value; changed(); } } }))),
+      el("div", { class: "pg-sum" }, el("ha-icon", { icon: "mdi:handshake-outline" }),
+        el("span", {}, el("b", {}, `Un massaggio da 60 € prenotato col link di un partner gli vale ${Math.floor(60 * rate)} punti.`),
+          " Ogni partner ha il suo link (pagina del sito + ?partner=CODICE): le richieste e gli appuntamenti che arrivano da lì portano il suo nome. Se l'appuntamento viene annullato, i punti si tolgono da soli."))));
+
+    const list = el("div", { class: "cfg-box pg-step" },
+      el("div", { class: "pg-step-head" },
+        el("span", { class: "pg-step-title" }, "Le campagne ai partner"),
+        el("button", { class: "btn small primary", on: { click: () => {
+          const id = `pc${Date.now().toString(36)}`;
+          draft.partner_campaigns.unshift({ id, name: "Nuova campagna partner", subject: PARTNER_CAMPAIGN_SUBJECT,
+            message: PARTNER_CAMPAIGN_TEXT.split("{hotel}").join(this._promoHotel()), mode: "giorno",
+            date: ymd(addDays(new Date(), 1)), time: "10:00", sent_at: "", sent_count: 0 });
+          this._pcEditId = id;
+          changed();
+          this._render();
+        } } }, el("ha-icon", { icon: "mdi:plus" }), "Nuova campagna")));
+    list.appendChild(el("div", { class: "dim small" }, `${withEmail.length} partner attivi con email su ${partners.length}.`));
+    if (!draft.partner_campaigns.length) list.appendChild(el("div", { class: "hint" }, "Nessuna campagna. Premi «Nuova campagna»: il testo è già pronto con il link personale di ogni partner."));
+    draft.partner_campaigns.forEach((campaign) => {
+      const at = campaign.date && campaign.time ? parseLocal(campaign.date, campaign.time) : null;
+      const [label, kind, line] = campaign.sent_at
+        ? ["Inviata", "ok", `Inviata il ${shortDate(campaign.sent_at)} a ${campaign.sent_count || 0} partner${campaign.last_error ? ` · errore: ${campaign.last_error}` : ""}`]
+        : campaign.mode === "giorno"
+          ? (at ? (at.getTime() + 3600000 < Date.now() ? ["Non partita", "warn", `Era per ${longDay(at)} alle ${campaign.time}`] : ["Programmata", "info", `Inizio invio: ${longDay(at)} alle ${campaign.time}`])
+            : ["Da completare", "warn", "Manca il giorno o l'ora"])
+          : ["Bozza", "muted", "Invio a mano"];
+      list.appendChild(el("div", { class: "pm-row" },
+        el("button", { class: "pm-main", on: { click: () => { this._pcEditId = campaign.id; this._render(); } } },
+          el("span", { class: "pm-emoji" }, "🤝"),
+          el("span", { class: "pm-text" },
+            el("span", { class: "pm-name" }, campaign.name, el("span", { class: `pm-chip ${kind}` }, label)),
+            el("span", { class: "pm-line" }, line),
+            el("span", { class: "pm-line" }, campaign.subject || ""))),
+        el("div", { class: "pm-actions" },
+          el("button", { class: "btn small", on: { click: () => { this._pcEditId = campaign.id; this._render(); } } }, el("ha-icon", { icon: "mdi:pencil-outline" }), "Modifica"),
+          el("button", { class: "icon-btn danger", title: "Elimina", on: { click: async () => {
+            if (!window.confirm(`Eliminare la campagna «${campaign.name}»?`)) return;
+            draft.partner_campaigns = draft.partner_campaigns.filter((c) => c.id !== campaign.id);
+            await this._savePromo();
+          } } }, el("ha-icon", { icon: "mdi:trash-can-outline" })))));
+    });
+    wrap.appendChild(list);
+    return wrap;
+  }
+
+  _partnerCampaignEditor(draft, campaign, changed) {
+    const partners = (this._data.partners || []).filter((p) => p.active !== false && (p.email || "").includes("@"));
+    const sample = partners[0] || { first_name: "Giulia", company: "B&B Il Faro", code: "PRT-3F9A" };
+    const rate = Number(String(draft.partner_points_per_euro).replace(",", ".")) || 0;
+    const base = (draft.partner_booking_url || "").trim();
+    const link = base ? `${base}${base.includes("?") ? "&" : "?"}partner=${sample.code}` : "(manca la pagina di prenotazione)";
+    const fill = (text) => String(text || "")
+      .split("{nome}").join(sample.first_name || sample.company || "partner").split("{cognome}").join(sample.last_name || "")
+      .split("{attivita}").join(sample.company || "").split("{codice_partner}").join(sample.code || "")
+      .split("{link_prenotazione}").join(link).split("{punti_per_euro}").join(String(rate).replace(".", ","))
+      .split("{punti}").join(String((((this._data.partner_points || {})[sample.id]) || { balance: 0 }).balance));
+    const saved = ((this._data.settings || {}).partner_campaigns || []).some((c) => c.id === campaign.id);
+    const wrap = el("div", { class: "stack" });
+    wrap.appendChild(el("div", { class: "pm-edit-head" },
+      el("button", { class: "btn small", on: { click: () => { this._pcEditId = null; this._render(); } } }, el("ha-icon", { icon: "mdi:arrow-left" }), "Tutte le campagne"),
+      el("span", { class: "spacer" }),
+      saved ? null : el("button", { class: "btn small danger", on: { click: () => {
+        draft.partner_campaigns = draft.partner_campaigns.filter((c) => c.id !== campaign.id); this._pcEditId = null; changed(); this._render();
+      } } }, "Scarta")));
+    const text = (key, label, extra = {}) => el("label", { class: "field" }, el("span", {}, label),
+      el("input", { class: "input", value: campaign[key] || "", ...extra,
+        on: { input: (event) => { campaign[key] = event.target.value; changed(); if (extra.live) this._pcPreview(); } } }));
+
+    // 1. The email: subject, text with the personal link, preview.
+    const area = el("textarea", { class: "input nt-text", rows: "14",
+      on: { input: (event) => { campaign.message = event.target.value; changed(); this._pcPreview(); } } }, campaign.message || "");
+    const chips = el("div", { class: "nt-chips" },
+      [["{nome}", "Nome"], ["{attivita}", "Attività"], ["{link_prenotazione}", "Link di prenotazione"], ["{codice_partner}", "Codice partner"],
+        ["{punti_per_euro}", "Punti per euro"], ["{punti}", "Punti attuali"]].map(([token, title]) => el("button", {
+        type: "button", class: "nt-chip", title,
+        on: { click: () => {
+          const at = area.selectionStart ?? area.value.length;
+          area.value = area.value.slice(0, at) + token + area.value.slice(area.selectionEnd ?? at);
+          campaign.message = area.value; changed(); this._pcPreview(); area.focus();
+        } },
+      }, token)));
+    const preview = el("div", { class: "pc-mail" });
+    this._pcPreview = () => {
+      preview.textContent = "";
+      add(preview,
+        el("div", { class: "pc-mail-head" },
+          el("div", {}, el("span", { class: "dim" }, "Da: "), (this._data.settings || {}).email_from_name || "Spa"),
+          el("div", {}, el("span", { class: "dim" }, "A: "), sample.email || "partner@esempio.it"),
+          el("div", { class: "pc-mail-subject" }, fill(campaign.subject))),
+        el("div", { class: "pc-mail-body" }, ...fill(campaign.message).split("\n").map((line) => {
+          const parts = line.split(/(https?:\/\/\S+)/);
+          return el("div", {}, ...(line ? parts.map((part) => /^https?:\/\//.test(part) ? el("a", { href: "#", class: "pc-link" }, part) : part) : [" "]));
+        })));
+    };
+    this._pcPreview();
+    wrap.appendChild(this._pageStep(1, "L'email",
+      el("div", { class: "nt-options" }, text("name", "Nome (solo per voi)"), text("subject", "Oggetto", { live: true })),
+      el("div", { class: "pc-editor" },
+        el("div", { class: "stack tight" }, el("span", { class: "dim small" }, "Testo"), area, el("span", { class: "dim small" }, "Tocca per inserire"), chips),
+        el("div", { class: "stack tight" }, el("span", { class: "dim small" }, `Anteprima per ${sample.company || sample.first_name}`), preview)),
+      !campaign.message.includes("{link_prenotazione}")
+        ? el("div", { class: "pg-sum warn" }, el("ha-icon", { icon: "mdi:alert-outline" }), el("span", {}, "Nel testo manca {link_prenotazione}: senza il link personale le prenotazioni non portano punti al partner."))
+        : null));
+
+    wrap.appendChild(this._pageStep(2, "A chi",
+      el("div", { class: "pg-sum" }, el("ha-icon", { icon: "mdi:account-group-outline" }),
+        el("span", {}, "Ai ", el("b", {}, `${partners.length} partner attivi con email`),
+          (this._data.partners || []).length > partners.length ? ` (${(this._data.partners || []).length - partners.length} senza email o non attivi restano esclusi).` : "."))));
+
+    const mode = campaign.mode || "giorno";
+    const at = campaign.date && campaign.time ? parseLocal(campaign.date, campaign.time) : null;
+    const late = mode === "giorno" && at && at.getTime() + 3600000 < Date.now() && !campaign.sent_at;
+    wrap.appendChild(this._pageStep(3, "Quando",
+      el("div", { class: "pg-seg", role: "radiogroup" },
+        [["giorno", "Un giorno preciso"], ["adesso", "A mano"]].map(([id, label]) => el("button", {
+          type: "button", class: mode === id ? "on" : "", role: "radio", "aria-checked": mode === id ? "true" : "false",
+          on: { click: () => { campaign.mode = id; changed(); this._render(); } } }, label))),
+      mode === "giorno" ? el("div", { class: "nt-options" },
+        el("label", { class: "field" }, el("span", {}, "Data inizio invio"),
+          el("input", { class: "input", type: "date", value: campaign.date || "", on: { input: (event) => { campaign.date = event.target.value; changed(); this._render(); } } })),
+        el("label", { class: "field" }, el("span", {}, "Ora inizio invio"),
+          el("input", { class: "input", type: "time", value: campaign.time || "", on: { input: (event) => { campaign.time = event.target.value; changed(); this._render(); } } }))) : null,
+      el("div", { class: `pg-sum${late ? " warn" : ""}` }, el("ha-icon", { icon: "mdi:calendar-clock" }),
+        el("span", {}, el("b", {}, mode === "giorno"
+          ? (at ? `Inizio invio automatico: ${longDay(at)} alle ${campaign.time}.` : "Scegli giorno e ora di inizio invio.")
+          : "Parte quando premi «Invia ora»."),
+          " Un'email al secondo, una volta sola.", late ? " Attenzione: l'orario è già passato." : "")),
+      el("div", { class: "nt-foot" },
+        el("input", { class: "input grow", type: "email", value: this._pcTestTo || "", placeholder: "email per la prova (es. la tua)",
+          on: { input: (event) => { this._pcTestTo = event.target.value; } } }),
+        el("button", { class: "btn", disabled: this._busy, on: { click: async () => {
+          if (!(this._pcTestTo || "").includes("@")) { this._message = { kind: "error", text: "Scrivi l'indirizzo email per la prova." }; this._render(); return; }
+          if (JSON.stringify(this._promoDraft) !== this._promoBase && !(await this._savePromo())) return;
+          try {
+            await this._call("send_partner_campaign", { campaign_id: campaign.id, test_to: this._pcTestTo });
+            this._message = { kind: "ok", text: `Email di prova inviata a ${this._pcTestTo} (con i dati di ${sample.company || sample.first_name}).` };
+            this._render();
+          } catch (error) { /* shown */ }
+        } } }, el("ha-icon", { icon: "mdi:email-check-outline" }), "Invia prova"),
+        el("button", { class: "btn primary", disabled: this._busy || !partners.length, on: { click: async () => {
+          if (!window.confirm(`Inviare «${campaign.name}» adesso a ${partners.length} partner?`)) return;
+          if (JSON.stringify(this._promoDraft) !== this._promoBase && !(await this._savePromo())) return;
+          try {
+            const result = await this._call("send_partner_campaign", { campaign_id: campaign.id });
+            this._message = { kind: result.failed ? "warn" : "ok", text: `Campagna inviata a ${result.sent} partner su ${result.total}${result.failed ? ` (${result.failed} non riuscite: ${(result.errors || [])[0] || ""})` : ""}.` };
+            this._render();
+          } catch (error) { /* shown */ }
+        } } }, el("ha-icon", { icon: "mdi:send" }), "Invia ora"))));
+    return wrap;
+  }
+
   async _savePromo() {
     const draft = this._promoDraft;
     try {
@@ -14828,6 +15085,8 @@ class SpaBookingCard extends HTMLElement {
         ...draft,
         promos: draft.promos.map((p) => ({ ...p, name: (p.name || "").trim() || "Promo", code: (p.code || "").trim() })),
         loyalty_points_per_euro: Number(String(draft.loyalty_points_per_euro).replace(",", ".")) || 0,
+        partner_points_per_euro: Number(String(draft.partner_points_per_euro).replace(",", ".")) || 0,
+        partner_booking_url: (draft.partner_booking_url || "").trim(),
         loyalty_threshold: Math.max(1, Math.round(Number(draft.loyalty_threshold) || 0)),
         loyalty_reward: Math.max(1, Math.round(Number(draft.loyalty_reward) || 0)),
         promo_time: (draft.promo_time || "").trim(),
@@ -19574,6 +19833,17 @@ class SpaBookingCard extends HTMLElement {
       .operators-column:only-child { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 10px; align-items: start; }
       .operators-column:only-child > .column-header { grid-column: 1 / -1; }
       .icon-btn.danger-icon { color: var(--sb-danger-fg, #c62828); }
+      /* 2.5.0: partner campaigns */
+      .pc-editor { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+      .pc-mail { border: 1px solid var(--sb-line); border-radius: 12px; background: var(--sb-card, var(--card-background-color, #fff)); overflow: hidden; }
+      .pc-mail-head { padding: 10px 14px; border-bottom: 1px solid var(--sb-line); background: var(--sb-soft); font-size: 12.5px; display: flex; flex-direction: column; gap: 2px; }
+      .pc-mail-subject { font-weight: 800; font-size: 15px; margin-top: 4px; color: var(--primary-text-color); }
+      .pc-mail-body { padding: 12px 14px; font-size: 13.5px; line-height: 1.55; max-height: 380px; overflow: auto; }
+      .pc-link { color: #1a73e8; text-decoration: underline; overflow-wrap: anywhere; }
+      .dt-partner { padding: 4px 8px; min-height: 30px; font-size: 13px; }
+      @container (max-width: 760px) { .pc-editor { grid-template-columns: 1fr; } }
+      @media (max-width: 760px) { .pc-editor { grid-template-columns: 1fr; } }
+
       /* 2.4.2: «Accedi con Google» */
       .gm-btn { all: unset; cursor: pointer; align-self: flex-start; display: inline-flex; align-items: center; gap: 12px; padding: 10px 18px 10px 10px;
         border-radius: 999px; border: 1px solid #dadce0; background: #fff; color: #3c4043; font-weight: 600; font-size: 14.5px;

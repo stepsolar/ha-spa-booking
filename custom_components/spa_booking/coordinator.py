@@ -264,6 +264,20 @@ def _read_text(path: str) -> str:
         return ""
 
 
+
+def _email_html(text: str) -> str:
+    """A plain text as a simple HTML email: escaped, links clickable, lines kept."""
+    import html as _html
+
+    safe = _html.escape(text)
+    # A link ends before the punctuation that closes the sentence.
+    safe = re.sub(r"(https?://[^\s<]+?)(?=[.,;:!?)]*(?:\s|<|$))", r'<a href="\1">\1</a>', safe)
+    return (
+        '<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#1f2328">'
+        + safe.replace("\n", "<br>")
+        + "</div>"
+    )
+
 class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Store and manage every SPA booking record."""
 
@@ -1900,6 +1914,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         force_new: bool = False,
         batch_id: str | None = None,
         therapist_preference: str = "",
+        partner_id: str = "",
     ) -> dict[str, Any]:
         """Create an appointment, deriving its end time from the treatment.
 
@@ -1936,6 +1951,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 batch_id=batch_id,
                 therapist_preference=therapist_preference,
             )
+            appointment["partner_id"] = self._partner_id_of(partner_id)
             # Appended only after validation, so a refused booking never leaves
             # an empty client card behind.
             if is_new_client:
@@ -2424,6 +2440,8 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             batch_id=batch_id,
                             therapist_preference=str(entry.get("therapist_preference") or ""),
                         )
+                        # The partner who brought the party (2.5.0).
+                        appointment["partner_id"] = self._partner_id_of(row.get("partner_id"))
                         if is_new and not any(
                             staged["id"] == client["id"] for staged in staged_clients
                         ):
@@ -2970,6 +2988,184 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self._async_save()
         return {"partner": record}
 
+    def _partner_id_of(self, value: Any) -> str:
+        """A partner's id from her id or her code (any case); "" if unknown."""
+        key = str(value or "").strip()
+        if not key:
+            return ""
+        for partner in self.partners:
+            if partner["id"] == key or partner.get("code", "").upper() == key.upper():
+                return partner["id"]
+        return ""
+
+    def _booked_value(self, appointment: dict[str, Any]) -> float:
+        """What a booking is worth: the agreed price, else the list price."""
+        for key in ("price", "list_price"):
+            if appointment.get(key) is not None:
+                try:
+                    return float(appointment[key])
+                except (TypeError, ValueError):
+                    pass
+        treatment = next((t for t in self.treatments if t["id"] == appointment.get("treatment_id")), None)
+        return float((treatment or {}).get("price") or 0)
+
+    def partner_points_of(self, partner: dict[str, Any]) -> dict[str, Any]:
+        """A partner's points (2.5.0): euro booked by her guests × the rate.
+
+        Worked out from the appointments every time, so a cancelled booking
+        loses its points by itself.
+        """
+        rate = float(self._data.get(KEY_SETTINGS, {}).get("partner_points_per_euro") or 0)
+        booked = 0.0
+        bookings = 0
+        for appointment in self.appointments:
+            if appointment.get("partner_id") != partner["id"] or appointment.get("status") == "cancelled":
+                continue
+            booked += self._booked_value(appointment)
+            bookings += 1
+        earned = int(math.floor(booked * rate + 1e-9))
+        adjust = int(partner.get("points_adjust") or 0)
+        spent = int(partner.get("points_spent") or 0)
+        return {"earned": earned, "adjust": adjust, "spent": spent, "balance": earned + adjust - spent,
+                "booked": round(booked, 2), "bookings": bookings}
+
+    def partner_points_summary(self) -> dict[str, dict[str, Any]]:
+        """The points of every partner, for the card."""
+        return {partner["id"]: self.partner_points_of(partner) for partner in self.partners}
+
+    async def async_partner_points_adjust(self, partner_id: str, points: int, note: str = "", by: str = "") -> dict[str, Any]:
+        """Add or take points from a partner by hand (a prize given, a correction)."""
+        points = _norm_signed(points)
+        if not points:
+            raise ValidationError("Indica quanti punti aggiungere o togliere")
+        async with self._lock:
+            partner = self._find(self.partners, partner_id, "Partner")
+            partner["points_adjust"] = int(partner.get("points_adjust") or 0) + points
+            partner.setdefault("points_log", []).append(
+                {"at": dt_util.utcnow().isoformat(), "points": points, "note": str(note or "").strip(), "by": by})
+            await self._async_save()
+        return {"points": self.partner_points_of(partner)}
+
+    async def async_set_appointment_partner(self, appointment_id: str, partner_id: str) -> dict[str, Any]:
+        """Name (or clear) the partner of a booking and of its whole party."""
+        async with self._lock:
+            appointment = self._find(self.appointments, appointment_id, "Appuntamento")
+            target = self._partner_id_of(partner_id)
+            if partner_id and not target:
+                raise ValidationError("Partner non trovato")
+            batch = appointment.get("batch_id")
+            changed = 0
+            for item in self.appointments:
+                if item is appointment or (batch and item.get("batch_id") == batch):
+                    item["partner_id"] = target
+                    changed += 1
+            await self._async_save()
+        return {"changed": changed, "partner_id": target}
+
+    # ------------------------------------------------ partner email campaigns
+
+    def partner_link(self, partner: dict[str, Any]) -> str:
+        """The booking page of the site with the partner's code."""
+        base = str(self._data.get(KEY_SETTINGS, {}).get("partner_booking_url") or "").strip()
+        if not base:
+            return ""
+        joiner = "&" if "?" in base else "?"
+        return f"{base}{joiner}partner={partner.get('code', '')}"
+
+    def format_partner_campaign(self, campaign: dict[str, Any], partner: dict[str, Any]) -> tuple[str, str, str]:
+        """Subject, text and HTML of a campaign for one partner."""
+        settings = self._data.get(KEY_SETTINGS, {})
+        rate = float(settings.get("partner_points_per_euro") or 0)
+        rate_text = (f"{rate:.2f}".rstrip("0").rstrip(".")).replace(".", ",")
+        values = {
+            "{nome}": partner.get("first_name") or partner.get("company") or "partner",
+            "{cognome}": partner.get("last_name") or "",
+            "{attivita}": partner.get("company") or "",
+            "{codice_partner}": partner.get("code") or "",
+            "{link_prenotazione}": self.partner_link(partner),
+            "{punti_per_euro}": rate_text,
+            "{punti}": str(self.partner_points_of(partner)["balance"]),
+        }
+
+        def fill(text: str) -> str:
+            for key, value in values.items():
+                text = text.replace(key, str(value))
+            return text
+
+        subject = fill(str(campaign.get("subject") or campaign.get("name") or "Spa"))
+        body = fill(str(campaign.get("message") or ""))
+        return subject, body, _email_html(body)
+
+    async def async_send_partner_campaign(self, campaign_id: str, test_to: str = "") -> dict[str, Any]:
+        """Send a campaign to every active partner with an email, or a test to one address."""
+        settings = self._data.get(KEY_SETTINGS, {})
+        campaign = next((c for c in settings.get("partner_campaigns") or [] if c["id"] == campaign_id), None)
+        if campaign is None:
+            raise ValidationError("Campagna non trovata: forse è stata eliminata")
+        if not settings.get("email_enabled"):
+            raise ValidationError("L'invio email è spento: attivalo in Configurazione › Email")
+        if "{link_prenotazione}" in str(campaign.get("message") or "") and not settings.get("partner_booking_url"):
+            raise ValidationError("Indica la pagina di prenotazione del sito nella campagna (passo «Il link»)")
+        if test_to:
+            sample = next((p for p in self.partners if p.get("active", True)), None) or {
+                "id": "", "first_name": "Giulia", "company": "B&B Esempio", "code": "PRT-TEST"}
+            subject, body, html = self.format_partner_campaign(campaign, sample)
+            result = await self._async_deliver_email(test_to, f"[PROVA] {subject}", body, html)
+            if not result.get("sent"):
+                raise ValidationError(result.get("error") or "Email di prova non inviata")
+            return {"sent": 1, "test": True, "to": result.get("to")}
+        targets = [p for p in self.partners if p.get("active", True) and "@" in str(p.get("email") or "")]
+        if not targets:
+            raise ValidationError("Nessun partner attivo con email")
+        sent = 0
+        errors: list[str] = []
+        for index, partner in enumerate(targets):
+            subject, body, html = self.format_partner_campaign(campaign, partner)
+            result = await self._async_deliver_email(partner["email"], subject, body, html)
+            if result.get("sent"):
+                sent += 1
+                partner["campaigns_sent"] = int(partner.get("campaigns_sent") or 0) + 1
+                partner["campaign_last_at"] = dt_util.utcnow().isoformat()
+            else:
+                errors.append(f"{partner.get('company') or partner.get('first_name')}: {result.get('error')}")
+                if len(errors) >= 3 and not sent:
+                    break  # the mailbox itself is not working: stop here
+            if index + 1 < len(targets):
+                await asyncio.sleep(1)
+        async with self._lock:
+            for stored in self._data[KEY_SETTINGS].get("partner_campaigns") or []:
+                if stored["id"] == campaign_id:
+                    stored["sent_at"] = dt_util.utcnow().isoformat()
+                    stored["sent_count"] = int(stored.get("sent_count") or 0) + sent
+                    stored["last_error"] = errors[0] if errors else ""
+            await self._async_save()
+        return {"sent": sent, "failed": len(errors), "total": len(targets), "errors": errors[:5]}
+
+    async def async_partner_campaign_tick(self) -> dict[str, Any]:
+        """Campaigns with a start day and time go out once, within the hour."""
+        settings = self._data.get(KEY_SETTINGS, {})
+        now_local = dt_util.as_local(dt_util.utcnow())
+        today = now_local.date().isoformat()
+        minutes_now = now_local.hour * 60 + now_local.minute
+        results: dict[str, Any] = {}
+        for campaign in list(settings.get("partner_campaigns") or []):
+            if campaign.get("mode") != "giorno" or campaign.get("sent_at") or campaign.get("date") != today:
+                continue
+            target = self._minutes_of(str(campaign.get("time") or ""))
+            if target < 0 or not 0 <= minutes_now - target < 60:
+                continue
+            async with self._lock:
+                campaign["sent_at"] = dt_util.utcnow().isoformat()  # once, even if it fails
+                await self._async_save()
+            try:
+                results[campaign["id"]] = await self.async_send_partner_campaign(campaign["id"])
+            except ValidationError as err:
+                results[campaign["id"]] = {"sent": 0, "reason": str(err)}
+                async with self._lock:
+                    campaign["last_error"] = str(err)
+                    await self._async_save()
+        return results or {"sent": 0, "reason": "nessuna campagna partner da inviare ora"}
+
     async def async_delete_partner(self, partner_id: str) -> dict[str, Any]:
         """Remove a partner from the list."""
         async with self._lock:
@@ -3306,6 +3502,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     ],
                     "pending": False,
                     "guest_type": request.get("guest_type") or GUEST_TYPE_DEFAULT,
+                    "partner_id": request.get("partner_id") or "",
                 }
             )
         return rows
@@ -3564,6 +3761,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         source: str = REQUEST_SOURCE_DESK,
         request_id: str | None = None,
         therapist_preference: str = "",
+        partner: str | None = None,
     ) -> dict[str, Any]:
         """Take a guest's appointment request and acknowledge it on WhatsApp.
 
@@ -3683,6 +3881,8 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         "voucher_code": code,
                         "guest_type": _norm_guest_type(guest_type),
                         "therapist_preference": therapist_preference,
+                        "partner_id": existing_request.get("partner_id", "")
+                        if partner is None else self._partner_id_of(partner),
                     }
                 )
                 existing_request.clear()
@@ -3702,6 +3902,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "voucher_code": code,
                     "guest_type": _norm_guest_type(guest_type),
                     "therapist_preference": therapist_preference,
+                    "partner_id": self._partner_id_of(partner),
                     "status": REQUEST_PENDING,
                     "source": (
                         REQUEST_SOURCE_WEB
@@ -6949,6 +7150,23 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             item["last_sent_on"] = ""
                     kept.append(item)
                 changes["promos"] = kept
+            if isinstance(changes.get("partner_campaigns"), list):
+                # What the sends wrote stays: the card edits only the text and the day.
+                done_c = {c.get("id"): c for c in settings.get("partner_campaigns") or []}
+                merged = []
+                for item in changes["partner_campaigns"]:
+                    if not isinstance(item, dict):
+                        continue
+                    before = done_c.get(item.get("id"))
+                    item = dict(item)
+                    for key in ("sent_at", "sent_count", "last_error"):
+                        item[key] = (before or {}).get(key, "" if key != "sent_count" else 0)
+                    if before and (item.get("date"), item.get("time"), item.get("mode")) != (
+                        before.get("date"), before.get("time"), before.get("mode")
+                    ):
+                        item["sent_at"] = ""  # a new day: it may go again
+                    merged.append(item)
+                changes["partner_campaigns"] = merged
             # The card never sees the mailbox password: empty means «keep it».
             for secret in ("smtp_password", "google_client_secret"):
                 if changes.get(secret) == "":
