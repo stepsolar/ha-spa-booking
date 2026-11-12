@@ -228,6 +228,19 @@ def _norm_voucher(raw: Any) -> dict[str, Any]:
         # ("punti", 2.4.0), which earns no points itself.
         "source": str(raw.get("source") or ""),
         "client_id": str(raw.get("client_id") or ""),
+        # Sold on the WordPress shop (2.7.0, source "wordpress").
+        "wp_code": str(raw.get("wp_code") or "").strip(),
+        "wp_order_id": str(raw.get("wp_order_id") or ""),
+        "wp_product_key": str(raw.get("wp_product_key") or ""),
+        "wp_product_name": str(raw.get("wp_product_name") or "").strip(),
+        "value": _norm_price_opt(raw.get("value")),
+        "buyer_email": str(raw.get("buyer_email") or "").strip(),
+        "recipient_email": str(raw.get("recipient_email") or "").strip(),
+        "message": str(raw.get("message") or "").strip(),
+        "wp_redeemed": bool(raw.get("wp_redeemed", False)),
+        "wp_redeemed_at": str(raw.get("wp_redeemed_at") or ""),
+        "wp_redeem_error": str(raw.get("wp_redeem_error") or ""),
+        "wp_note": str(raw.get("wp_note") or ""),
     }
 
 
@@ -990,6 +1003,35 @@ def _norm_settings(raw: dict[str, Any]) -> dict[str, Any]:
         "email_aliases": [
             str(a).strip() for a in (raw.get("email_aliases") or []) if isinstance(a, str) and "@" in a
         ][:20],
+        # The WordPress shop (2.7.0): address, shared key, products and pairing.
+        "wp_enabled": bool(raw.get("wp_enabled", False)),
+        "wp_url": str(raw.get("wp_url") or "").strip().rstrip("/"),
+        "wp_secret": str(raw.get("wp_secret") or "").strip(),
+        "wp_products": [
+            {
+                "key": f"{int(p.get('product_id') or 0)}:{int(p.get('variation_id') or 0)}",
+                "product_id": int(p.get("product_id") or 0),
+                "variation_id": int(p.get("variation_id") or 0),
+                "name": str(p.get("name") or "").strip(),
+                "parent_name": str(p.get("parent_name") or "").strip(),
+                "sku": str(p.get("sku") or "").strip(),
+                "price": _norm_price_opt(p.get("price")),
+                "voucher": bool(p.get("voucher", False)),
+            }
+            for p in (raw.get("wp_products") or [])
+            if isinstance(p, dict) and str(p.get("product_id") or "").isdigit()
+        ][:1000],
+        "wp_product_map": {
+            str(key): {
+                "people": _norm_count((entry or {}).get("people"), 1, 10, 1),
+                "treatment_ids": [str(t) for t in (entry or {}).get("treatment_ids") or [] if t][:20],
+            }
+            for key, entry in (raw.get("wp_product_map") or {}).items()
+            if isinstance(entry, dict) and re.fullmatch(r"\d+:\d+", str(key))
+        },
+        "wp_last_sync": str(raw.get("wp_last_sync") or ""),
+        "wp_last_error": str(raw.get("wp_last_error") or ""),
+        "wp_last_result": str(raw.get("wp_last_result") or ""),
         # Billing data (2.5.2): the company printed on receipts.
         "billing_company": str(raw.get("billing_company") or "").strip(),
         "billing_vat_number": str(raw.get("billing_vat_number") or "").strip(),
@@ -1760,7 +1802,7 @@ def _norm_request(raw: dict[str, Any]) -> dict[str, Any]:
         "notes": str(raw.get("notes") or ""),
         # A gift voucher the guest mentioned, or an outside one the desk will
         # check. Old requests carry no key and simply have none.
-        "voucher_code": str(raw.get("voucher_code") or "").strip().upper()[:32],
+        "voucher_code": str(raw.get("voucher_code") or "").strip().upper()[:64],
         "guest_type": _norm_guest_type(raw.get("guest_type")),
         "status": status,
         # Where the request came from, and whether the desk has opened it yet.
