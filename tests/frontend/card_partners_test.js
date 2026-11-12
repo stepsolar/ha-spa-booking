@@ -47,3 +47,23 @@ assert(page.textContent.includes("B&B Sole") && !page.textContent.includes("Hote
   await card._partnerImportRun();
   assert(card._partnerImport.error.includes("riavvia Home Assistant"), "missing service: restart hint");
 })();
+
+// 2.7.3: the partners come with the data (they were never loaded before).
+(async () => {
+  const fresh = Object.create(Card.prototype);
+  fresh._hass = { callWS: async () => ({ response: { data: { partners: [{ id: "p9", company: "Hotel Mare", city: "Menfi", code: "PRT-9" }], loyalty: { c1: { balance: 5 } }, partner_points: { p9: { balance: 3 } }, settings: {} } } }) };
+  fresh._render = () => {};
+  fresh._loadMe = async () => {};
+  fresh._pinNeeded = () => false;
+  fresh._reindex = () => {};
+  fresh._checkUpdates = () => {};
+  try { await fresh._loadData(); } catch (error) { /* the rest of the load is not under test */ }
+  assert(fresh._data && fresh._data.partners && fresh._data.partners.length === 1, "partners loaded with the data");
+  assert(fresh._data.partner_points.p9.balance === 3 && fresh._data.loyalty.c1.balance === 5, "points loaded too");
+  // City filter in the list.
+  card._partnerFilter = "";
+  card._partnerCity = "Menfi";
+  const byCity = card._renderPartners();
+  assert(byCity.textContent.includes("Hotel Mare") && !byCity.textContent.includes("B&B Sole"), "filter by town");
+  card._partnerCity = "";
+})();

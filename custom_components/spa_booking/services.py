@@ -140,6 +140,7 @@ SERVICE_SET_APPOINTMENT_PARTNER = "set_appointment_partner"
 SERVICE_SEND_PARTNER_CAMPAIGN = "send_partner_campaign"
 SERVICE_DELETE_PARTNER = "delete_partner"
 SERVICE_IMPORT_PARTNERS = "import_partners"
+SERVICE_DELETE_ALL_PARTNERS = "delete_all_partners"
 SERVICE_WP_SYNC = "wp_sync"
 SERVICE_WP_TEST = "wp_test"
 SERVICE_WP_NEW_SECRET = "wp_new_secret"
@@ -251,6 +252,7 @@ ALL_SERVICES = (
     SERVICE_SEND_PARTNER_CAMPAIGN,
     SERVICE_DELETE_PARTNER,
     SERVICE_IMPORT_PARTNERS,
+    SERVICE_DELETE_ALL_PARTNERS,
     SERVICE_WP_SYNC,
     SERVICE_WP_TEST,
     SERVICE_WP_NEW_SECRET,
@@ -1765,6 +1767,11 @@ async def _async_send_partner_campaign(call: ServiceCall) -> ServiceResponse:
     )
 
 
+async def _async_delete_all_partners(call: ServiceCall) -> ServiceResponse:
+    """Empty the partner list (2.7.3)."""
+    return await _coordinator(call).async_delete_all_partners()
+
+
 async def _async_wp_sync(call: ServiceCall) -> ServiceResponse:
     """Read the vouchers sold on the WordPress shop now (2.7.0)."""
     return await _coordinator(call).async_wp_sync(reason="a mano")
@@ -3034,6 +3041,7 @@ _HANDLERS: dict[str, tuple[Any, Any, SupportsResponse]] = {
     SERVICE_DELETE_PARTNER: (_async_delete_partner, DELETE_PARTNER_SCHEMA, SupportsResponse.ONLY),
     SERVICE_IMPORT_PARTNERS: (_async_import_partners, IMPORT_PARTNERS_SCHEMA, SupportsResponse.ONLY),
     SERVICE_WP_SYNC: (_async_wp_sync, WP_EMPTY_SCHEMA, SupportsResponse.ONLY),
+    SERVICE_DELETE_ALL_PARTNERS: (_async_delete_all_partners, WP_EMPTY_SCHEMA, SupportsResponse.ONLY),
     SERVICE_WP_TEST: (_async_wp_test, WP_EMPTY_SCHEMA, SupportsResponse.ONLY),
     SERVICE_WP_NEW_SECRET: (_async_wp_new_secret, WP_EMPTY_SCHEMA, SupportsResponse.ONLY),
     SERVICE_WP_REDEEM: (_async_wp_redeem, WP_REDEEM_SCHEMA, SupportsResponse.ONLY),
@@ -3309,6 +3317,7 @@ SERVICE_LEVELS: dict[str, str] = {
     SERVICE_DELETE_PARTNER: "manager",
     SERVICE_IMPORT_PARTNERS: "manager",
     SERVICE_WP_SYNC: "operator",
+    SERVICE_DELETE_ALL_PARTNERS: "manager",
     SERVICE_WP_TEST: "admin",
     SERVICE_WP_NEW_SECRET: "admin",
     SERVICE_WP_REDEEM: "operator",
