@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.5.2";
+const CARD_VERSION = "2.5.3";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -2999,6 +2999,8 @@ class SpaBookingCard extends HTMLElement {
   _render() {
     // An appointment being edited lives in the Agenda: leaving it (any menu,
     // any shortcut) drops the changes, like Annulla (2.5.2).
+    // A detail belongs to the tab it was opened in (2.5.3): another tab closes it.
+    if (this._detailId && this._detailTab && this._detailTab !== this._tab) this._detailId = null;
     if (this._editing && this._editing.kind === "appointment" && this._tab !== "agenda") {
       this._editing = null;
       this._editFormMode = false;
@@ -3307,6 +3309,7 @@ class SpaBookingCard extends HTMLElement {
     this._tab = "agenda";
     this._searchQuery = "";
     this._detailId = appointment.id;
+    this._detailTab = "agenda";
     this._render();
   }
 
@@ -3698,10 +3701,12 @@ class SpaBookingCard extends HTMLElement {
     const pct = (minutes) => `${((minutes - fromHour * 60) / span) * 100}%`;
     const minutesOf = (date) => date.getHours() * 60 + date.getMinutes();
 
-    // Lanes: the masseuses on duty (busy ones first), then the treatments without one.
+    // Lanes (2.5.3): only the operators with at least one appointment that day,
+    // in their order, then the treatments without one.
     const lanes = new Map();
+    const busy = new Set(parties.map((members) => members[0].operator_id).filter(Boolean));
     this._data.operators
-      .filter((operator) => operator.active !== false)
+      .filter((operator) => busy.has(operator.id))
       .sort((a, b) => (Number(a.priority) || 0) - (Number(b.priority) || 0) || a.name.localeCompare(b.name))
       .forEach((operator) => lanes.set(operator.id, []));
     parties.forEach((members) => {
@@ -4770,6 +4775,7 @@ class SpaBookingCard extends HTMLElement {
    */
   _openDetail(appointment) {
     this._detailId = appointment.id;
+    this._detailTab = this._tab;
     this._detailView = "single";
     this._render();
   }

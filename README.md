@@ -133,6 +133,10 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v2.5.3** — Agenda (basta ricaricare la pagina): il dettaglio aperto a
+  destra si chiude quando si cambia scheda (prima ricompariva come popup in
+  Configurazione o nelle altre schede); la timeline mostra solo gli operatori
+  con almeno un appuntamento nel giorno.
 - **v2.5.2** — **Dati fatturazione e nuova Modifica appuntamento** (serve il
   riavvio di Home Assistant): nuova scheda Configurazione › Impostazioni ›
   Dati fatturazione con l'aliquota IVA predefinita (spostata da Generale),
