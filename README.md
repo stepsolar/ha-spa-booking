@@ -133,6 +133,12 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v2.5.5** — **Nuova vista Mese** dell'agenda (basta ricaricare la pagina):
+  intestazione come la giornata (Timeline / Elenco / Mese), pillole del mese,
+  primi appuntamenti dentro ogni giorno coi colori delle categorie, barretta
+  di riempimento, giorni chiusi tratteggiati; a lato il giorno scelto con il
+  carico degli operatori, gli appuntamenti e «Apri la giornata». Sul telefono
+  pallini colorati e il giorno sotto il calendario.
 - **v2.5.4** — Agenda (basta ricaricare la pagina): il dettaglio aperto a
   destra si chiude anche passando alla vista Mese (prima ricompariva come
   popup).
