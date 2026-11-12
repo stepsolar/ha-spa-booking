@@ -1,6 +1,6 @@
 # Spa Booking — guida alle schede (2.2)
 
-Aggiornata alla 2.4.2: [Email e Accedi con Google](#email-241); [dettaglio, punti e partner](#dettaglio-punti-fedelta-e-partner-240); [Agenda](#agenda-2312); [Nuovo appuntamento a passi](#nuovo-appuntamento-a-passi-2310); [promo salvate e modelli](#promo-salvate-e-modelli-239); [Promo e Impostazioni](#promo-e-impostazioni-238); [Notifiche](#notifiche-236); [messaggi e chat](#messaggi-e-chat-235); [preferenza massaggiatrice/massaggiatore](#preferenza-massaggiatrice-o-massaggiatore); [promo e fedeltà del cliente](#promo-e-fedeltà-del-cliente); [conferme e promemoria WhatsApp](#conferme-e-promemoria-whatsapp); [firme e storico](#firme-e-storico); [chiusure con giorni esclusi](#chiusure-con-giorni-esclusi); [Proponi data](#proponi-data) nelle richieste, con trattamenti alternativi e prezzo; [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
+Aggiornata alla 2.5.0: [campagne e punti partner](#campagne-e-punti-partner-250); [Email e Accedi con Google](#email-241); [dettaglio, punti e partner](#dettaglio-punti-fedelta-e-partner-240); [Agenda](#agenda-2312); [Nuovo appuntamento a passi](#nuovo-appuntamento-a-passi-2310); [promo salvate e modelli](#promo-salvate-e-modelli-239); [Promo e Impostazioni](#promo-e-impostazioni-238); [Notifiche](#notifiche-236); [messaggi e chat](#messaggi-e-chat-235); [preferenza massaggiatrice/massaggiatore](#preferenza-massaggiatrice-o-massaggiatore); [promo e fedeltà del cliente](#promo-e-fedeltà-del-cliente); [conferme e promemoria WhatsApp](#conferme-e-promemoria-whatsapp); [firme e storico](#firme-e-storico); [chiusure con giorni esclusi](#chiusure-con-giorni-esclusi); [Proponi data](#proponi-data) nelle richieste, con trattamenti alternativi e prezzo; [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
 
 Questa guida mostra ogni scheda della dashboard **Spa Booking** e spiega a
 cosa serve ogni funzione. Le immagini sono state fatte con dati di prova.
@@ -32,6 +32,37 @@ in Impostazioni › Aspetto).
 
 
 
+
+## Campagne e punti partner (2.5.0)
+
+**Il link del partner.** In Configurazione › Promo › **Campagne partner**
+indica la **pagina del sito con il modulo di prenotazione** (es.
+`https://www.ilmarchese.it/spa/prenota`). Ogni partner ha il suo link: quella
+pagina + `?partner=CODICE` (lo copi anche da Clienti › Partner con il pulsante
+link). Chi prenota da quel link porta il partner nella richiesta e negli
+appuntamenti; il sito lo ricorda per 30 giorni.
+
+**I punti.** Scegli quanti punti per ogni euro prenotato. I punti si calcolano
+sugli appuntamenti non annullati (prezzo concordato o di listino): se un
+appuntamento viene annullato, i suoi punti si tolgono da soli. In Clienti ›
+Partner vedi punti, prenotazioni portate ed email ricevute; «Rettifica punti»
+per aggiungerne o toglierne (es. un premio consegnato). Il partner si può
+anche scegliere a mano in Nuovo appuntamento / Nuova richiesta (passo Cliente)
+o cambiare nel dettaglio dell'appuntamento.
+
+**Le campagne email.** «Nuova campagna» crea l'email già pronta (oggetto e
+testo con {nome}, {attivita}, {link_prenotazione}, {codice_partner},
+{punti_per_euro}, {punti}); a destra l'anteprima per un partner vero. Scegli
+**Un giorno preciso** (data e ora di inizio invio) o **A mano**, fai
+**Invia prova** al tuo indirizzo e salva. Parte una sola volta, un'email al
+secondo, a tutti i partner attivi con email. Serve l'invio email attivo
+(Configurazione › Email).
+
+| | |
+|---|---|
+| ![Campagne partner](anteprime/49-campagne-partner.png) | ![Email della campagna](anteprime/50-campagna-partner-email.png) |
+
+![Partner con i punti](anteprime/51-partner-punti.png)
 
 ## Email (2.4.1)
 

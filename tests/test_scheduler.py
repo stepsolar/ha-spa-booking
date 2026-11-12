@@ -44,7 +44,7 @@ def test_periodic_jobs_only_every_interval(coordinator, sent, freeze) -> None:
     freeze("2026-11-10 10:03")
     scheduler = SpaBookingScheduler(coordinator.hass, coordinator)
     result = run(scheduler.async_run(_at("2026-11-10 10:03")))
-    assert set(result) == {"promo"}
+    assert set(result) == {"promo", "partner_campaigns"}
     result = run(scheduler.async_run(_at("2026-11-10 10:05")))
     assert {"offers", "reminders", "reviews", "promo_vouchers", "voucher_expiry"} <= set(result)
 

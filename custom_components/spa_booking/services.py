@@ -135,6 +135,9 @@ SERVICE_DELETE_PROMO_VOUCHER = "delete_promo_voucher"
 SERVICE_LOYALTY_REWARD = "loyalty_reward"
 SERVICE_LOYALTY_ADJUST = "loyalty_adjust"
 SERVICE_SAVE_PARTNER = "save_partner"
+SERVICE_PARTNER_POINTS_ADJUST = "partner_points_adjust"
+SERVICE_SET_APPOINTMENT_PARTNER = "set_appointment_partner"
+SERVICE_SEND_PARTNER_CAMPAIGN = "send_partner_campaign"
 SERVICE_DELETE_PARTNER = "delete_partner"
 SERVICE_PROMO_VOUCHER_TICK = "promo_voucher_tick"
 SERVICE_SEND_OPERATOR_MESSAGE = "send_operator_message"
@@ -238,6 +241,9 @@ ALL_SERVICES = (
     SERVICE_LOYALTY_REWARD,
     SERVICE_LOYALTY_ADJUST,
     SERVICE_SAVE_PARTNER,
+    SERVICE_PARTNER_POINTS_ADJUST,
+    SERVICE_SET_APPOINTMENT_PARTNER,
+    SERVICE_SEND_PARTNER_CAMPAIGN,
     SERVICE_DELETE_PARTNER,
     SERVICE_PROMO_VOUCHER_TICK,
     SERVICE_SEND_OPERATOR_MESSAGE,
@@ -338,6 +344,8 @@ CREATE_APPOINTMENT_SCHEMA = vol.Schema(
         ),
         #: The guest would like a woman ("F") or a man ("M"); "" = anybody.
         vol.Optional("therapist_preference"): vol.Any(vol.In(("", "F", "M")), None),
+        #: The partner who brought the booking (id or code, 2.5.0).
+        vol.Optional("partner_id"): vol.Any(cv.string, None),
         vol.Optional("notes"): cv.string,
         vol.Optional(ATTR_PAYMENT): vol.Any(PAYMENT_SCHEMA, None),
         #: Take the booking and leave it waiting. Any money on it confirms it
@@ -876,6 +884,10 @@ UPDATE_SETTINGS_SCHEMA = vol.Schema(
         vol.Optional("google_client_id"): vol.Any(cv.string, None),
         vol.Optional("google_client_secret"): vol.Any(cv.string, None),
         vol.Optional("email_aliases"): vol.Any(vol.All(cv.ensure_list, [cv.string]), None),
+        # Partners (2.5.0).
+        vol.Optional("partner_points_per_euro"): vol.Any(vol.Coerce(float), None),
+        vol.Optional("partner_booking_url"): vol.Any(cv.string, None),
+        vol.Optional("partner_campaigns"): vol.Any(vol.All(cv.ensure_list, [dict]), None),
         # Loyalty points (2.4.0).
         vol.Optional("loyalty_enabled"): vol.Any(cv.boolean, None),
         vol.Optional("loyalty_points_per_euro"): vol.Any(vol.Coerce(float), None),
@@ -1013,6 +1025,8 @@ BOOKING_ROW_SCHEMA = vol.Schema(
         vol.Optional(ATTR_GUEST_TYPE, default=GUEST_TYPE_DEFAULT): vol.In(
             GUEST_TYPE_NAMES
         ),
+        #: The partner who brought the party (id or code, 2.5.0).
+        vol.Optional("partner_id"): vol.Any(cv.string, None),
     },
     extra=vol.PREVENT_EXTRA,
 )
@@ -1104,6 +1118,8 @@ CREATE_REQUEST_SCHEMA = vol.Schema(
         vol.Optional(ATTR_REQUEST_ID): vol.Any(cv.string, None),
         #: The guest would like a woman ("F") or a man ("M"); "" = anybody.
         vol.Optional("therapist_preference"): vol.Any(vol.In(("", "F", "M")), None),
+        #: The partner who brought the request (id or code, 2.5.0); None keeps it.
+        vol.Optional("partner"): vol.Any(cv.string, None),
     },
     extra=vol.PREVENT_EXTRA,
 )
@@ -1193,6 +1209,25 @@ SAVE_PARTNER_SCHEMA = vol.Schema(
         vol.Optional("notes"): vol.Any(cv.string, None),
         vol.Optional("active"): vol.Any(cv.boolean, None),
     },
+    extra=vol.PREVENT_EXTRA,
+)
+
+PARTNER_POINTS_ADJUST_SCHEMA = vol.Schema(
+    {
+        vol.Required("partner_id"): cv.string,
+        vol.Required("points"): vol.Coerce(int),
+        vol.Optional("note", default=""): cv.string,
+    },
+    extra=vol.PREVENT_EXTRA,
+)
+
+SET_APPOINTMENT_PARTNER_SCHEMA = vol.Schema(
+    {vol.Required(ATTR_APPOINTMENT_ID): cv.string, vol.Optional("partner_id", default=""): vol.Any(cv.string, None)},
+    extra=vol.PREVENT_EXTRA,
+)
+
+SEND_PARTNER_CAMPAIGN_SCHEMA = vol.Schema(
+    {vol.Required("campaign_id"): cv.string, vol.Optional("test_to"): vol.Any(cv.string, None)},
     extra=vol.PREVENT_EXTRA,
 )
 
@@ -1462,6 +1497,7 @@ async def _async_create_appointment(call: ServiceCall) -> ServiceResponse:
         force_client_overlap=data.get("force_client_overlap", False),
         batch_id=data.get("batch_id"),
         therapist_preference=data.get("therapist_preference") or "",
+        partner_id=data.get("partner_id") or "",
     )
     return {"appointment": appointment}
 
@@ -1493,6 +1529,7 @@ async def _async_create_request(call: ServiceCall) -> ServiceResponse:
         user_id=user_id,
         request_id=data.get(ATTR_REQUEST_ID),
         therapist_preference=data.get("therapist_preference") or "",
+        partner=data.get("partner"),
     )
 
 
@@ -1661,6 +1698,27 @@ async def _async_save_partner(call: ServiceCall) -> ServiceResponse:
     """Add or change a partner."""
     data = {k: v for k, v in call.data.items() if v is not None}
     return await _coordinator(call).async_save_partner(data)
+
+
+async def _async_partner_points_adjust(call: ServiceCall) -> ServiceResponse:
+    """Add or take a partner's points by hand."""
+    return await _coordinator(call).async_partner_points_adjust(
+        call.data["partner_id"], call.data["points"], call.data.get("note", ""), _acting_name()
+    )
+
+
+async def _async_set_appointment_partner(call: ServiceCall) -> ServiceResponse:
+    """Name or clear the partner of a booking (and its party)."""
+    return await _coordinator(call).async_set_appointment_partner(
+        call.data[ATTR_APPOINTMENT_ID], call.data.get("partner_id") or ""
+    )
+
+
+async def _async_send_partner_campaign(call: ServiceCall) -> ServiceResponse:
+    """Send a partner campaign now, or a test to one address."""
+    return await _coordinator(call).async_send_partner_campaign(
+        call.data["campaign_id"], call.data.get("test_to") or ""
+    )
 
 
 async def _async_delete_partner(call: ServiceCall) -> ServiceResponse:
@@ -2275,7 +2333,12 @@ async def _async_export_data(call: ServiceCall) -> ServiceResponse:
         "google_connected": bool(((coordinator.data or {}).get("settings") or {}).get("google_refresh_token")),
     }
     # The points of each client (2.4.0), worked out here once for the card.
-    data = {**data, "settings": settings, "loyalty": coordinator.loyalty_summary()}
+    data = {
+        **data,
+        "settings": settings,
+        "loyalty": coordinator.loyalty_summary(),
+        "partner_points": coordinator.partner_points_summary(),
+    }
     return {
         "data": data,
         "integration_version": INTEGRATION_VERSION,
@@ -2898,6 +2961,9 @@ _HANDLERS: dict[str, tuple[Any, Any, SupportsResponse]] = {
     SERVICE_LOYALTY_ADJUST: (_async_loyalty_adjust, LOYALTY_ADJUST_SCHEMA, SupportsResponse.ONLY),
     SERVICE_SAVE_PARTNER: (_async_save_partner, SAVE_PARTNER_SCHEMA, SupportsResponse.ONLY),
     SERVICE_DELETE_PARTNER: (_async_delete_partner, DELETE_PARTNER_SCHEMA, SupportsResponse.ONLY),
+    SERVICE_PARTNER_POINTS_ADJUST: (_async_partner_points_adjust, PARTNER_POINTS_ADJUST_SCHEMA, SupportsResponse.ONLY),
+    SERVICE_SET_APPOINTMENT_PARTNER: (_async_set_appointment_partner, SET_APPOINTMENT_PARTNER_SCHEMA, SupportsResponse.ONLY),
+    SERVICE_SEND_PARTNER_CAMPAIGN: (_async_send_partner_campaign, SEND_PARTNER_CAMPAIGN_SCHEMA, SupportsResponse.ONLY),
     SERVICE_DELETE_PROMO_VOUCHER: (
         _async_delete_promo_voucher,
         DELETE_PROMO_VOUCHER_SCHEMA,
@@ -3165,6 +3231,9 @@ SERVICE_LEVELS: dict[str, str] = {
     SERVICE_LOYALTY_ADJUST: "manager",
     SERVICE_SAVE_PARTNER: "operator",
     SERVICE_DELETE_PARTNER: "manager",
+    SERVICE_PARTNER_POINTS_ADJUST: "manager",
+    SERVICE_SET_APPOINTMENT_PARTNER: "operator",
+    SERVICE_SEND_PARTNER_CAMPAIGN: "manager",
     SERVICE_MERGE_CLIENTS: "manager",
 }
 

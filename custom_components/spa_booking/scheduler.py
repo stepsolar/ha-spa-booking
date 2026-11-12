@@ -108,6 +108,8 @@ class SpaBookingScheduler:
 
         # The daily promo checks its own time and day; it is cheap to ask.
         await self._job(results, "promo", coordinator.async_scheduled_promo)
+        # The partner campaigns too (2.5.0).
+        await self._job(results, "partner_campaigns", coordinator.async_partner_campaign_tick)
 
         if not force and now_local.minute % SCHEDULER_INTERVAL_MIN:
             return results

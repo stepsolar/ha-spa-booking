@@ -351,6 +351,7 @@
       email: state.email.trim(),
       notes: state.notes.trim(),
       voucher_code: state.voucher ? state.voucher.code : "",
+      partner_code: partnerCode(),
       language: state.lang,
     } }).then(function (data) {
       state.sending = false;
@@ -365,6 +366,23 @@
       render();
     });
   }
+
+  // The partner who sent the guest (2.5.0): ?partner=CODE on the page,
+  // remembered for 30 days in this browser in case she comes back later.
+  function partnerCode() {
+    var code = "";
+    try { code = (new URLSearchParams(window.location.search).get("partner") || "").trim().toUpperCase(); } catch (e) { code = ""; }
+    try {
+      if (code) {
+        window.localStorage.setItem("spaBookingPartner", JSON.stringify({ code: code, at: Date.now() }));
+      } else {
+        var saved = JSON.parse(window.localStorage.getItem("spaBookingPartner") || "null");
+        if (saved && saved.code && Date.now() - saved.at < 30 * 86400000) code = saved.code;
+      }
+    } catch (e) { /* storage blocked: the link alone counts */ }
+    return code.slice(0, 20);
+  }
+  partnerCode();
 
   // ---------------------------------------------------------------- render
 

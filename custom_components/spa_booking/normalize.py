@@ -971,6 +971,12 @@ def _norm_settings(raw: dict[str, Any]) -> dict[str, Any]:
         "email_aliases": [
             str(a).strip() for a in (raw.get("email_aliases") or []) if isinstance(a, str) and "@" in a
         ][:20],
+        # Partners (2.5.0): points per euro they bring, and their campaigns.
+        "partner_points_per_euro": _norm_rate(raw.get("partner_points_per_euro")),
+        # The page of the hotel website with the booking form: the partners'
+        # links point there, with ?partner=CODE.
+        "partner_booking_url": str(raw.get("partner_booking_url") or "").strip(),
+        "partner_campaigns": [c for c in (_norm_partner_campaign(x) for x in raw.get("partner_campaigns") or []) if c],
         # Loyalty points (2.4.0).
         "loyalty_enabled": bool(raw.get("loyalty_enabled", False)),
         "loyalty_points_per_euro": _norm_rate(raw.get("loyalty_points_per_euro")),
@@ -1285,6 +1291,25 @@ def _norm_rate(raw: Any) -> float:
         return DEFAULT_LOYALTY_POINTS_PER_EURO
 
 
+def _norm_partner_campaign(raw: Any) -> dict[str, Any] | None:
+    """An email campaign to the partners (2.5.0)."""
+    if not isinstance(raw, dict):
+        return None
+    mode = str(raw.get("mode") or "adesso")
+    return {
+        "id": str(raw.get("id") or "").strip() or uuid4().hex[:12],
+        "name": str(raw.get("name") or "").strip() or "Campagna partner",
+        "subject": str(raw.get("subject") or "").strip(),
+        "message": str(raw.get("message") or ""),
+        "mode": mode if mode in ("adesso", "giorno") else "adesso",
+        "date": _norm_date(raw.get("date")),
+        "time": _norm_clock(raw.get("time")),
+        "sent_at": str(raw.get("sent_at") or ""),
+        "sent_count": _norm_count(raw.get("sent_count"), 0, 10**6, 0),
+        "last_error": str(raw.get("last_error") or ""),
+    }
+
+
 def _norm_partner(raw: Any) -> dict[str, Any]:
     """A partner who promotes the spa (2.4.0)."""
     raw = raw if isinstance(raw, dict) else {}
@@ -1300,6 +1325,22 @@ def _norm_partner(raw: Any) -> dict[str, Any]:
         "active": bool(raw.get("active", True)),
         "source": str(raw.get("source") or "manuale"),
         "created_at": str(raw.get("created_at") or dt_util.utcnow().isoformat()),
+        # Points (2.5.0): corrections and what was spent, with their log.
+        "points_adjust": _norm_signed(raw.get("points_adjust")),
+        "points_spent": _norm_count(raw.get("points_spent"), 0, 10**9, 0),
+        "points_log": [
+            {
+                "at": str(item.get("at") or ""),
+                "points": _norm_signed(item.get("points")),
+                "note": str(item.get("note") or ""),
+                "by": str(item.get("by") or ""),
+            }
+            for item in raw.get("points_log") or []
+            if isinstance(item, dict)
+        ][-200:],
+        # Campaign emails received (2.5.0).
+        "campaigns_sent": _norm_count(raw.get("campaigns_sent"), 0, 10**6, 0),
+        "campaign_last_at": str(raw.get("campaign_last_at") or ""),
     }
 
 
@@ -1614,6 +1655,8 @@ def _norm_appointment(raw: dict[str, Any]) -> dict[str, Any]:
         "created_by": str(raw.get("created_by") or "") or None,
         "created_by_name": str(raw.get("created_by_name") or ""),
         "therapist_preference": _norm_preference(raw.get("therapist_preference")),
+        # The partner who brought this booking (2.5.0): she earns points.
+        "partner_id": str(raw.get("partner_id") or "").strip(),
         # What changed, when and by whom: only the administrator sees it.
         "history": [dict(item) for item in raw.get("history") or [] if isinstance(item, dict)][-100:],
     }
@@ -1687,6 +1730,8 @@ def _norm_request(raw: dict[str, Any]) -> dict[str, Any]:
         "created_at": str(raw.get("created_at") or dt_util.utcnow().isoformat()),
         # The guest would like a woman ("F") or a man ("M"); "" = anybody.
         "therapist_preference": _norm_preference(raw.get("therapist_preference")),
+        # The partner who brought this booking (2.5.0): she earns points.
+        "partner_id": str(raw.get("partner_id") or "").strip(),
         # Who wrote the request down: a person at the desk, or "Sito web".
         "created_by": str(raw.get("created_by") or ""),
         "created_by_name": str(raw.get("created_by_name") or ""),
