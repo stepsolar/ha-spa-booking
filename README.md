@@ -133,6 +133,12 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v2.7.1** — Shop online: nell'abbinamento dei prodotti anche gli
+  **accessori inclusi** (per persona) e una nota «altro incluso» per ciò che
+  non è in Spa Booking; tasti rapidi «Nuovo trattamento» / «Nuovo accessorio»
+  senza perdere l'abbinamento in corso. L'abbinamento si può rifare quando si
+  vuole: al salvataggio i voucher dal sito non ancora usati si aggiornano
+  subito (serve il riavvio di Home Assistant).
 - **v2.7.0** — **Shop online (WooCommerce · Buoni PDF)** (serve il riavvio di
   Home Assistant e il plugin `wordpress/spa-booking-connector.zip` sul sito):
   i voucher venduti sul sito arrivano da soli in Spa Booking (ogni 15 minuti e

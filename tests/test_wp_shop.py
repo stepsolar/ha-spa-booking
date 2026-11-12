@@ -99,3 +99,21 @@ def test_mapping_helpers() -> None:
     assert wp_shop.mapping_for(mapping, 4097, 9999)["people"] == 2
     assert wp_shop.mapping_for(mapping, 1, 0) is None
     assert len(wp_shop.people_of({"people": 3, "treatment_ids": ["a"]})) == 3
+
+
+def test_pairing_again_updates_unused_vouchers(coordinator, shop) -> None:
+    """2.7.1: a package paired later, with accessories and a note, updates the vouchers received."""
+    run(coordinator.async_update_settings(wp_product_map={}))
+    run(coordinator.async_wp_sync())
+    voucher = next(v for v in coordinator.vouchers if v["source"] == "wordpress")
+    assert voucher["people"] == []
+    run(coordinator.async_update_settings(wp_product_map={"4097:5118": {
+        "people": 2, "treatment_ids": ["trt_ingresso_90"], "extras": ["kit"], "note": "calice di prosecco"}}))
+    assert [p["extras"] for p in voucher["people"]] == [["kit"], ["kit"]]
+    assert voucher["package_note"] == "calice di prosecco"
+    # Unpaired again: back to «book what was bought».
+    run(coordinator.async_update_settings(wp_product_map={}))
+    assert voucher["people"] == [] and voucher["package_note"] == ""
+    # Accessories only: the voucher records them but does not force treatments.
+    run(coordinator.async_update_settings(wp_product_map={"4097:0": {"people": 1, "extras": ["kit"]}}))
+    assert voucher["people"][0]["treatment_ids"] == [] and voucher["people"][0]["extras"] == ["kit"]

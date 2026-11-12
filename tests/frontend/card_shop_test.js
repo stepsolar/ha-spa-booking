@@ -33,3 +33,15 @@ assert(page.textContent.includes("1 di 2 prodotti abbinati"), "count updated");
 const row = card._voucherRow(card._data.vouchers[0], true);
 assert(row.textContent.includes("Sito") && row.textContent.includes("da abbinare"), "site badge and unpaired product");
 assert(card._voucherValue(card._data.vouchers[0]) === 80, "value from the shop");
+
+// 2.7.1: accessories in the package and a note; paired again later.
+card._data.settings.accessories = [{ id: "kit", label: "Wellness Kit", icon: "mdi:bag-personal" }];
+card._shopDraft = null;
+page = card._renderShop();
+const accChip = all(page).find((n) => n.attrs && n.attrs.class && n.attrs.class.startsWith("shop-chip acc") && n.textContent === "Wellness Kit");
+assert(accChip, "accessory chips in the pairing");
+accChip.listeners.click[0]();
+const key = Object.keys(card._shopDraft.wp_product_map).find((k) => (card._shopDraft.wp_product_map[k].extras || []).includes("kit"));
+assert(key, "accessory paired");
+page = card._renderShop();
+assert(page.textContent.includes("Nuovo accessorio") && page.textContent.includes("rifare l'abbinamento"), "links to add what is missing");
