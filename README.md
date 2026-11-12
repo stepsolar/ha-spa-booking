@@ -133,6 +133,13 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v2.5.1** — **IVA sulle tariffe** (serve il riavvio di Home Assistant):
+  aliquota predefinita in Configurazione › Impostazioni › Generale (22%) e
+  aliquota per trattamento (22, 10, 5, 4, 0% esente) in Configurazione ›
+  Trattamenti, con imponibile e IVA calcolati (prezzi IVA inclusa). Ogni
+  appuntamento conserva l'aliquota del momento in cui è stato prenotato. «di
+  cui IVA» nel riepilogo di Nuovo appuntamento e nel dettaglio.
+
 - **v2.5.0** — **Campagne partner e punti ai partner** (serve il riavvio di
   Home Assistant; aggiornate anche il modulo del sito, che si aggiorna da solo):
   - Promo › **Campagne partner**: campagne email ai partner per vendere la spa
