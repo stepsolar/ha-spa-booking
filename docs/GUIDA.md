@@ -1,6 +1,6 @@
 # Spa Booking — guida alle schede (2.2)
 
-Aggiornata alla 2.6.0: [importa partner e disiscrizione](#importa-partner-e-disiscrizione-260); [vista Mese](#vista-mese-255); [Dati fatturazione e Modifica appuntamento](#dati-fatturazione-e-modifica-appuntamento-252); [IVA](#iva-251); [campagne e punti partner](#campagne-e-punti-partner-250); [Email e Accedi con Google](#email-241); [dettaglio, punti e partner](#dettaglio-punti-fedelta-e-partner-240); [Agenda](#agenda-2312); [Nuovo appuntamento a passi](#nuovo-appuntamento-a-passi-2310); [promo salvate e modelli](#promo-salvate-e-modelli-239); [Promo e Impostazioni](#promo-e-impostazioni-238); [Notifiche](#notifiche-236); [messaggi e chat](#messaggi-e-chat-235); [preferenza massaggiatrice/massaggiatore](#preferenza-massaggiatrice-o-massaggiatore); [promo e fedeltà del cliente](#promo-e-fedeltà-del-cliente); [conferme e promemoria WhatsApp](#conferme-e-promemoria-whatsapp); [firme e storico](#firme-e-storico); [chiusure con giorni esclusi](#chiusure-con-giorni-esclusi); [Proponi data](#proponi-data) nelle richieste, con trattamenti alternativi e prezzo; [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
+Aggiornata alla 2.7.0: [Shop online](#shop-online-270); [importa partner e disiscrizione](#importa-partner-e-disiscrizione-260); [vista Mese](#vista-mese-255); [Dati fatturazione e Modifica appuntamento](#dati-fatturazione-e-modifica-appuntamento-252); [IVA](#iva-251); [campagne e punti partner](#campagne-e-punti-partner-250); [Email e Accedi con Google](#email-241); [dettaglio, punti e partner](#dettaglio-punti-fedelta-e-partner-240); [Agenda](#agenda-2312); [Nuovo appuntamento a passi](#nuovo-appuntamento-a-passi-2310); [promo salvate e modelli](#promo-salvate-e-modelli-239); [Promo e Impostazioni](#promo-e-impostazioni-238); [Notifiche](#notifiche-236); [messaggi e chat](#messaggi-e-chat-235); [preferenza massaggiatrice/massaggiatore](#preferenza-massaggiatrice-o-massaggiatore); [promo e fedeltà del cliente](#promo-e-fedeltà-del-cliente); [conferme e promemoria WhatsApp](#conferme-e-promemoria-whatsapp); [firme e storico](#firme-e-storico); [chiusure con giorni esclusi](#chiusure-con-giorni-esclusi); [Proponi data](#proponi-data) nelle richieste, con trattamenti alternativi e prezzo; [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
 
 Questa guida mostra ogni scheda della dashboard **Spa Booking** e spiega a
 cosa serve ogni funzione. Le immagini sono state fatte con dati di prova.
@@ -32,6 +32,40 @@ in Impostazioni › Aspetto).
 
 
 
+
+## Shop online (2.7.0)
+
+I voucher venduti su **benessere.hotelilmarchese.it** (WooCommerce con
+«Buoni PDF») arrivano in Spa Booking da soli.
+
+**Collegamento (una volta sola)**
+
+1. Scarica il plugin `wordpress/spa-booking-connector.zip` (anche dalla
+   pagina Shop online) e caricalo in WordPress › Plugin › Aggiungi nuovo ›
+   Carica plugin; attivalo.
+2. In Spa Booking › Configurazione › Shop online scrivi l'indirizzo del sito,
+   premi **Nuova chiave** e copia chiave e indirizzo di notifica in
+   WordPress › WooCommerce › Spa Booking.
+3. Attiva «Leggi i voucher dal sito», **Salva**, poi **Prova collegamento**:
+   legge i prodotti del sito.
+
+**Abbinare i prodotti** – per ogni prodotto o variante scegli uno o più
+trattamenti (un pacchetto ne ha più di uno) e per quante persone vale (es.
+You&Me = 2). Un voucher di un prodotto non abbinato si può comunque usare:
+prenoti quello che il cliente ha acquistato.
+
+**Come funziona** – ogni 15 minuti (e subito quando il sito avvisa di un
+ordine pagato) i nuovi codici diventano voucher con l'etichetta «Sito»,
+con acquirente, destinatario, dedica, valore e scadenza. Al primo
+collegamento arrivano anche quelli degli ultimi 6 mesi non ancora usati. Si
+prenota con il codice come gli altri voucher; quando registri l'**Entrata**
+del cliente il voucher risulta riscattato anche su WordPress (con una nota
+nell'ordine). Se il sito non risponde, Spa Booking riprova da solo; in Shop
+online trovi i voucher «da segnare sul sito» con **Riprova**.
+
+| | |
+|---|---|
+| ![Shop online](anteprime/59-shop-online.png) | ![Voucher dal sito](anteprime/60-voucher-sito.png) |
 
 ## Importa partner e disiscrizione (2.6.0)
 

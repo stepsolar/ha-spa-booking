@@ -131,7 +131,7 @@ from .exceptions import (
     SpaBookingError,
     ValidationError,
 )
-from . import access, email_sender, google_auth, messaging
+from . import access, email_sender, google_auth, messaging, wp_shop
 from .waha import WahaAuthenticationError, WahaClient, WahaError
 from .waha_inbound import WahaInbound
 from .wa_bridge import WaBridge
@@ -2521,6 +2521,10 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             for entry in row.get("entries") or []:
                 person = int(entry.get("person") or 0)
                 booked.setdefault(person, []).append(str(row.get("treatment_id") or ""))
+        # A voucher from the shop whose product is not paired yet only records
+        # the code (2.7.0): the desk books what the guest bought.
+        if voucher.get("source") == "wordpress" and not any(p["treatment_ids"] for p in voucher["people"]):
+            return
         wanted = [sorted(p["treatment_ids"]) for p in voucher["people"]]
         got = [sorted(ids) for ids in booked.values()]
         if sorted(wanted) != sorted(got):
@@ -3281,6 +3285,174 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 await self._async_save()
         return partner
 
+    # ------------------------------------------------------- WordPress shop
+
+    def _wp_settings(self) -> tuple[str, str]:
+        settings = self._data.get(KEY_SETTINGS, {})
+        url = str(settings.get("wp_url") or "").strip().rstrip("/")
+        secret = str(settings.get("wp_secret") or "")
+        if not url or not secret:
+            raise ValidationError("Indica l'indirizzo del sito e la chiave in Configurazione › Shop online")
+        if not url.startswith(("https://", "http://")):
+            url = "https://" + url
+        return url, secret
+
+    async def async_wp_new_secret(self) -> dict[str, Any]:
+        """A new shared key to paste into the WordPress plugin."""
+        async with self._lock:
+            self._data[KEY_SETTINGS]["wp_secret"] = secrets.token_urlsafe(24)
+            await self._async_save()
+        return {"wp_secret": self._data[KEY_SETTINGS]["wp_secret"]}
+
+    async def async_wp_test(self) -> dict[str, Any]:
+        """Check the plugin answers, and read the products to pair."""
+        url, secret = self._wp_settings()
+        try:
+            info = await wp_shop.status(self._http_session(), url, secret)
+            items = await wp_shop.products(self._http_session(), url, secret)
+        except wp_shop.WpShopError as err:
+            raise ValidationError(str(err)) from err
+        async with self._lock:
+            self._data[KEY_SETTINGS]["wp_products"] = items
+            self._data[KEY_SETTINGS] = _norm_settings(self._data[KEY_SETTINGS])
+            await self._async_save()
+        return {"ok": True, "buoni_pdf": bool(info.get("buoni_pdf")), "version": info.get("version"),
+                "site": info.get("site"), "products": len(items)}
+
+    def _wp_people(self, product_id: Any, variation_id: Any) -> list[dict[str, Any]]:
+        mapping = self._data.get(KEY_SETTINGS, {}).get("wp_product_map") or {}
+        return wp_shop.people_of(wp_shop.mapping_for(mapping, product_id, variation_id))
+
+    async def async_wp_sync(self, reason: str = "") -> dict[str, Any]:
+        """Read the vouchers sold on the shop and bring the list up to date.
+
+        New codes (not expired, not used on the shop) become gift vouchers;
+        a code used on the shop is redeemed here too; a voucher booked and
+        then cancelled before the guest came is usable again; redemptions
+        that could not reach the shop are sent again.
+        """
+        settings = self._data.get(KEY_SETTINGS, {})
+        if not settings.get("wp_enabled"):
+            return {"skipped": "collegamento spento"}
+        try:
+            url, secret = self._wp_settings()
+            items = await wp_shop.vouchers(self._http_session(), url, secret)
+        except (wp_shop.WpShopError, ValidationError) as err:
+            async with self._lock:
+                self._data[KEY_SETTINGS]["wp_last_error"] = str(err)
+                await self._async_save()
+            return {"error": str(err)}
+        today = dt_util.now().date().isoformat()
+        added = updated = used = 0
+        async with self._lock:
+            by_code = {v["code"]: v for v in self.vouchers}
+            for item in items:
+                code = str(item.get("code") or "").strip()
+                key = code.upper()
+                order_ok = str(item.get("order_status") or "") in ("processing", "completed")
+                expires = wp_shop.expiry_of(item)
+                people = self._wp_people(item.get("product_id"), item.get("variation_id"))
+                voucher = by_code.get(key)
+                if voucher is None:
+                    if item.get("used") or not order_ok or (expires and expires < today):
+                        continue
+                    buyer = " ".join(str(item.get(k) or "").strip() for k in ("buyer_first", "buyer_last")).strip()
+                    voucher = _norm_voucher({
+                        "id": _new_id("vou"), "code": key, "wp_code": code, "source": "wordpress",
+                        "buyer_name": buyer, "buyer_phone": item.get("buyer_phone"), "buyer_email": item.get("buyer_email"),
+                        "recipient_name": item.get("recipient_name"), "recipient_email": item.get("recipient_email"),
+                        "message": item.get("message"), "people": people, "value": item.get("value"),
+                        "wp_order_id": item.get("order_id"),
+                        "wp_product_key": wp_shop.product_key(item.get("product_id"), item.get("variation_id")),
+                        "wp_product_name": item.get("product_name"), "expires_on": expires,
+                        "created_at": str(item.get("order_date") or dt_util.utcnow().isoformat()),
+                        "created_by_name": "Shop online",
+                    })
+                    self.vouchers.append(voucher)
+                    by_code[key] = voucher
+                    added += 1
+                    continue
+                if voucher.get("source") != "wordpress":
+                    continue
+                changed = False
+                # The pairing may have changed: an unused voucher follows it.
+                if voucher["status"] == VOUCHER_ACTIVE and people and people != voucher["people"]:
+                    voucher["people"] = people
+                    changed = True
+                if expires and voucher.get("expires_on") != expires:
+                    voucher["expires_on"] = expires
+                    changed = True
+                if item.get("used") and not voucher.get("wp_redeemed"):
+                    voucher["wp_redeemed"] = True
+                    voucher["wp_redeemed_at"] = str(item.get("used_at") or dt_util.utcnow().isoformat())
+                    voucher["wp_redeem_error"] = ""
+                    if voucher["status"] != VOUCHER_REDEEMED:
+                        voucher["status"] = VOUCHER_REDEEMED
+                        voucher["redeemed_at"] = voucher["wp_redeemed_at"]
+                        voucher["wp_note"] = "riscattato sul sito"
+                    used += 1
+                    changed = True
+                if not order_ok and voucher["status"] == VOUCHER_ACTIVE:
+                    voucher["status"] = VOUCHER_REDEEMED
+                    voucher["wp_note"] = "ordine annullato o rimborsato sul sito"
+                    changed = True
+                updated += 1 if changed else 0
+            # Booked, then every booking cancelled before the guest came: usable again.
+            appointments = {a["id"]: a for a in self.appointments}
+            for voucher in self.vouchers:
+                if voucher.get("source") != "wordpress" or voucher["status"] != VOUCHER_REDEEMED or voucher.get("wp_redeemed"):
+                    continue
+                linked = [appointments.get(i) for i in voucher.get("appointment_ids") or []]
+                if linked and all(a is None or a.get("status") == STATUS_CANCELLED for a in linked):
+                    voucher["status"] = VOUCHER_ACTIVE
+                    voucher["redeemed_at"] = ""
+                    voucher["appointment_ids"] = []
+                    updated += 1
+            pending = [v["id"] for v in self.vouchers if v.get("source") == "wordpress" and not v.get("wp_redeemed")
+                       and any(appointments.get(i, {}).get("checked_in") for i in v.get("appointment_ids") or [])]
+            settings = self._data[KEY_SETTINGS]
+            settings["wp_last_sync"] = dt_util.utcnow().isoformat()
+            settings["wp_last_error"] = ""
+            settings["wp_last_result"] = f"{len(items)} codici letti · {added} nuovi · {updated} aggiornati" + (f" ({reason})" if reason else "")
+            await self._async_save()
+        for voucher_id in pending:
+            await self.async_wp_redeem(voucher_id)
+        return {"read": len(items), "added": added, "updated": updated, "used_on_site": used, "retried": len(pending)}
+
+    async def async_wp_tick(self) -> dict[str, Any]:
+        """Every 15 minutes, when the shop is connected."""
+        if not self._data.get(KEY_SETTINGS, {}).get("wp_enabled"):
+            return {"skipped": "collegamento spento"}
+        if dt_util.now().minute % 15 >= 5:
+            return {"skipped": "non ora"}
+        return await self.async_wp_sync()
+
+    async def async_wp_redeem(self, voucher_id: str) -> dict[str, Any]:
+        """Tell the shop the voucher was used at the spa (on the guest's arrival)."""
+        voucher = self._find(self.vouchers, voucher_id, "Voucher")
+        if voucher.get("source") != "wordpress":
+            raise ValidationError("Questo voucher non viene dal sito")
+        if voucher.get("wp_redeemed"):
+            return {"ok": True, "already": True}
+        try:
+            url, secret = self._wp_settings()
+            await wp_shop.redeem(self._http_session(), url, secret, voucher.get("wp_code") or voucher["code"],
+                                 note=", ".join(voucher.get("appointment_ids") or []))
+        except (wp_shop.WpShopError, ValidationError) as err:
+            async with self._lock:
+                voucher["wp_redeem_error"] = str(err)
+                await self._async_save()
+            return {"ok": False, "error": str(err)}
+        async with self._lock:
+            voucher["wp_redeemed"] = True
+            voucher["wp_redeemed_at"] = dt_util.utcnow().isoformat()
+            voucher["wp_redeem_error"] = ""
+            if voucher["status"] != VOUCHER_REDEEMED:
+                voucher["status"] = VOUCHER_REDEEMED
+                voucher["redeemed_at"] = voucher["wp_redeemed_at"]
+            await self._async_save()
+        return {"ok": True}
+
     async def async_delete_partner(self, partner_id: str) -> dict[str, Any]:
         """Remove a partner from the list."""
         async with self._lock:
@@ -3943,7 +4115,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # A voucher the guest typed: if it is one of ours it must still be
         # usable, otherwise the guest would learn only days later, on the
         # phone. An unknown code is kept as typed for the desk to check.
-        code = str(voucher_code or "").strip().upper()[:32]
+        code = str(voucher_code or "").strip().upper()[:64]
         if code:
             voucher = next((v for v in self.vouchers if v["code"] == code), None)
             if voucher is not None:
@@ -4964,12 +5136,21 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     raise ValidationError("L'ingresso e' gia' stato registrato")
                 appointment["checked_in"] = True
                 appointment["checked_in_at"] = dt_util.utcnow().isoformat()
+                arrived = True
             else:
                 if not appointment["checked_in"]:
                     raise ValidationError("L'ingresso non e' registrato")
                 appointment["checked_in"] = False
                 appointment["checked_in_at"] = ""
+                arrived = False
             await self._async_save()
+        # The guest arrived with a voucher bought online: redeem it on the
+        # shop too (2.7.0). Best effort; a failure is retried by the sync.
+        if arrived:
+            voucher = next((v for v in self.vouchers if v.get("source") == "wordpress"
+                            and appointment["id"] in v.get("appointment_ids", []) and not v.get("wp_redeemed")), None)
+            if voucher is not None:
+                await self.async_wp_redeem(voucher["id"])
         return self.appointment_payload(appointment)
 
     async def async_check_out_appointment(self, appointment_id: str) -> dict[str, Any]:

@@ -83,6 +83,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.http.register_view(GoogleCallbackView())
         hass.data[f"{DOMAIN}_google_view"] = True
 
+    # The WordPress shop's ping for a paid order (2.7.0).
+    if not hass.data.get(f"{DOMAIN}_wp_view"):
+        from .wp_shop import WpNotifyView
+
+        hass.http.register_view(WpNotifyView())
+        hass.data[f"{DOMAIN}_wp_view"] = True
+
     # The unsubscribe page of the partner campaigns (2.6.0).
     if not hass.data.get(f"{DOMAIN}_unsub_view"):
         from .partner_unsub import PartnerUnsubscribeView

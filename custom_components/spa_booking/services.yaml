@@ -1636,6 +1636,24 @@ loyalty_adjust:
       selector:
         text:
 
+wp_sync:
+  name: Sincronizza shop online
+  description: Legge subito i voucher venduti sullo shop WordPress («Buoni PDF»).
+wp_test:
+  name: Prova shop online
+  description: Controlla il plugin Spa Booking Connector e legge i prodotti dello shop.
+wp_new_secret:
+  name: Nuova chiave shop online
+  description: Crea una nuova chiave da copiare nel plugin su WordPress.
+wp_redeem:
+  name: Riscatta sul sito
+  description: Segna di nuovo sul sito come riscattato un voucher acquistato online.
+  fields:
+    voucher_id:
+      name: ID voucher
+      required: true
+      selector:
+        text:
 import_partners:
   name: Importa partner
   description: >-

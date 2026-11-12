@@ -117,6 +117,8 @@ class SpaBookingScheduler:
         # Offers to the operators: always, they are part of running the day.
         await self._job(results, "offers", coordinator.async_expire_offers)
         await self._job(results, "monthly_report", coordinator.async_monthly_report_tick)
+        # The WordPress shop's vouchers (2.7.0), every 15 minutes.
+        await self._job(results, "wp_shop", coordinator.async_wp_tick)
 
         settings = self._settings
         if in_quiet_hours(

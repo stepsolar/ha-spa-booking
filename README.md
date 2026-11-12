@@ -133,6 +133,18 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v2.7.0** — **Shop online (WooCommerce · Buoni PDF)** (serve il riavvio di
+  Home Assistant e il plugin `wordpress/spa-booking-connector.zip` sul sito):
+  i voucher venduti sul sito arrivano da soli in Spa Booking (ogni 15 minuti e
+  subito alla notifica dell'ordine pagato), con acquirente, destinatario,
+  dedica, valore e scadenza; al primo collegamento si importano quelli degli
+  ultimi 6 mesi non ancora usati. Nuova scheda Configurazione › Shop online:
+  collegamento (chiave, indirizzo di notifica, prova, sincronizza) e
+  abbinamento di ogni prodotto/variante del sito a uno o più trattamenti, con
+  il numero di persone. All'arrivo del cliente (Entrata) il voucher risulta
+  riscattato anche sul sito; un voucher usato o rimborsato sul sito si
+  aggiorna anche qui. Servizi `wp_sync`, `wp_test`, `wp_new_secret`,
+  `wp_redeem`.
 - **v2.6.1** — Importa partner più affidabile: niente finestra di conferma
   del browser (in alcuni browser e nell'app non compariva e l'import non
   partiva), anteprima del file con il tasto «Importa N partner», invio a

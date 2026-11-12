@@ -140,6 +140,10 @@ SERVICE_SET_APPOINTMENT_PARTNER = "set_appointment_partner"
 SERVICE_SEND_PARTNER_CAMPAIGN = "send_partner_campaign"
 SERVICE_DELETE_PARTNER = "delete_partner"
 SERVICE_IMPORT_PARTNERS = "import_partners"
+SERVICE_WP_SYNC = "wp_sync"
+SERVICE_WP_TEST = "wp_test"
+SERVICE_WP_NEW_SECRET = "wp_new_secret"
+SERVICE_WP_REDEEM = "wp_redeem"
 SERVICE_PROMO_VOUCHER_TICK = "promo_voucher_tick"
 SERVICE_SEND_OPERATOR_MESSAGE = "send_operator_message"
 SERVICE_SEND_GUEST_SUMMARY = "send_guest_summary"
@@ -247,6 +251,10 @@ ALL_SERVICES = (
     SERVICE_SEND_PARTNER_CAMPAIGN,
     SERVICE_DELETE_PARTNER,
     SERVICE_IMPORT_PARTNERS,
+    SERVICE_WP_SYNC,
+    SERVICE_WP_TEST,
+    SERVICE_WP_NEW_SECRET,
+    SERVICE_WP_REDEEM,
     SERVICE_PROMO_VOUCHER_TICK,
     SERVICE_SEND_OPERATOR_MESSAGE,
     SERVICE_SEND_GUEST_SUMMARY,
@@ -893,6 +901,9 @@ UPDATE_SETTINGS_SCHEMA = vol.Schema(
         vol.Optional("email_aliases"): vol.Any(vol.All(cv.ensure_list, [cv.string]), None),
         # VAT (2.5.1).
         vol.Optional("vat_default"): vol.Any(vol.Coerce(float), None),
+        vol.Optional("wp_enabled"): vol.Any(cv.boolean, None),
+        vol.Optional("wp_url"): vol.Any(cv.string, None),
+        vol.Optional("wp_product_map"): vol.Any(dict, None),
         vol.Optional("billing_company"): vol.Any(cv.string, None),
         vol.Optional("billing_vat_number"): vol.Any(cv.string, None),
         vol.Optional("billing_tax_code"): vol.Any(cv.string, None),
@@ -1238,6 +1249,9 @@ SAVE_PARTNER_SCHEMA = vol.Schema(
     extra=vol.PREVENT_EXTRA,
 )
 
+WP_EMPTY_SCHEMA = vol.Schema({}, extra=vol.PREVENT_EXTRA)
+WP_REDEEM_SCHEMA = vol.Schema({vol.Required("voucher_id"): cv.string}, extra=vol.PREVENT_EXTRA)
+
 IMPORT_PARTNERS_SCHEMA = vol.Schema(
     {vol.Required("partners"): vol.All(cv.ensure_list, [dict])}, extra=vol.PREVENT_EXTRA
 )
@@ -1490,7 +1504,7 @@ async def _require_admin(call: ServiceCall, coordinator: SpaBookingCoordinator) 
 #: Secrets that only an administrator may read back from the dataset.
 _SECRET_SETTINGS = (
     "waha_api_key", "waha_webhook_secret", "waha_webhook_id", "web_token", "smtp_password",
-    "google_client_secret", "google_refresh_token",
+    "google_client_secret", "google_refresh_token", "wp_secret",
 )
 
 
@@ -1749,6 +1763,26 @@ async def _async_send_partner_campaign(call: ServiceCall) -> ServiceResponse:
     return await _coordinator(call).async_send_partner_campaign(
         call.data["campaign_id"], call.data.get("test_to") or ""
     )
+
+
+async def _async_wp_sync(call: ServiceCall) -> ServiceResponse:
+    """Read the vouchers sold on the WordPress shop now (2.7.0)."""
+    return await _coordinator(call).async_wp_sync(reason="a mano")
+
+
+async def _async_wp_test(call: ServiceCall) -> ServiceResponse:
+    """Check the shop's plugin and read its products."""
+    return await _coordinator(call).async_wp_test()
+
+
+async def _async_wp_new_secret(call: ServiceCall) -> ServiceResponse:
+    """A new key for the shop's plugin."""
+    return await _coordinator(call).async_wp_new_secret()
+
+
+async def _async_wp_redeem(call: ServiceCall) -> ServiceResponse:
+    """Send a voucher's redemption to the shop again."""
+    return await _coordinator(call).async_wp_redeem(call.data["voucher_id"])
 
 
 async def _async_import_partners(call: ServiceCall) -> ServiceResponse:
@@ -2999,6 +3033,10 @@ _HANDLERS: dict[str, tuple[Any, Any, SupportsResponse]] = {
     SERVICE_SAVE_PARTNER: (_async_save_partner, SAVE_PARTNER_SCHEMA, SupportsResponse.ONLY),
     SERVICE_DELETE_PARTNER: (_async_delete_partner, DELETE_PARTNER_SCHEMA, SupportsResponse.ONLY),
     SERVICE_IMPORT_PARTNERS: (_async_import_partners, IMPORT_PARTNERS_SCHEMA, SupportsResponse.ONLY),
+    SERVICE_WP_SYNC: (_async_wp_sync, WP_EMPTY_SCHEMA, SupportsResponse.ONLY),
+    SERVICE_WP_TEST: (_async_wp_test, WP_EMPTY_SCHEMA, SupportsResponse.ONLY),
+    SERVICE_WP_NEW_SECRET: (_async_wp_new_secret, WP_EMPTY_SCHEMA, SupportsResponse.ONLY),
+    SERVICE_WP_REDEEM: (_async_wp_redeem, WP_REDEEM_SCHEMA, SupportsResponse.ONLY),
     SERVICE_PARTNER_POINTS_ADJUST: (_async_partner_points_adjust, PARTNER_POINTS_ADJUST_SCHEMA, SupportsResponse.ONLY),
     SERVICE_SET_APPOINTMENT_PARTNER: (_async_set_appointment_partner, SET_APPOINTMENT_PARTNER_SCHEMA, SupportsResponse.ONLY),
     SERVICE_SEND_PARTNER_CAMPAIGN: (_async_send_partner_campaign, SEND_PARTNER_CAMPAIGN_SCHEMA, SupportsResponse.ONLY),
@@ -3270,6 +3308,10 @@ SERVICE_LEVELS: dict[str, str] = {
     SERVICE_SAVE_PARTNER: "operator",
     SERVICE_DELETE_PARTNER: "manager",
     SERVICE_IMPORT_PARTNERS: "manager",
+    SERVICE_WP_SYNC: "operator",
+    SERVICE_WP_TEST: "admin",
+    SERVICE_WP_NEW_SECRET: "admin",
+    SERVICE_WP_REDEEM: "operator",
     SERVICE_PARTNER_POINTS_ADJUST: "manager",
     SERVICE_SET_APPOINTMENT_PARTNER: "operator",
     SERVICE_SEND_PARTNER_CAMPAIGN: "manager",
