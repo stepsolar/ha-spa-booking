@@ -117,3 +117,13 @@ def test_vat_rates(coordinator, sent, freeze) -> None:
     assert coordinator.vat_split(61.0, 22) == (50.0, 11.0)
     run(coordinator.async_update_settings(vat_default=10))
     assert coordinator.vat_rate_of(massage) == 10.0
+
+
+def test_billing_data(coordinator) -> None:
+    """Dati fatturazione (2.5.2): stored trimmed, empty by default."""
+    assert coordinator._data["settings"]["billing_company"] == ""
+    run(coordinator.async_update_settings(billing_company="  Il Marchese S.r.l. ", billing_vat_number="01234567890",
+                                          billing_province="AG"))
+    settings = coordinator._data["settings"]
+    assert settings["billing_company"] == "Il Marchese S.r.l."
+    assert settings["billing_vat_number"] == "01234567890" and settings["billing_province"] == "AG"

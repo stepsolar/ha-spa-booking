@@ -133,6 +133,14 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v2.5.2** — **Dati fatturazione e nuova Modifica appuntamento** (serve il
+  riavvio di Home Assistant): nuova scheda Configurazione › Impostazioni ›
+  Dati fatturazione con l'aliquota IVA predefinita (spostata da Generale),
+  ragione sociale, partita IVA, codice fiscale, SDI, sede, contatti e nota
+  della ricevuta. Aliquota IVA anche per gli accessori («Predefinita» o
+  22/10/5/4/0%). Modifica appuntamento ridisegnata come Nuovo appuntamento
+  (passi, riepilogo a lato, barra sul telefono) e chiusa senza salvare quando
+  si cambia scheda.
 - **v2.5.1** — **IVA sulle tariffe** (serve il riavvio di Home Assistant):
   aliquota predefinita in Configurazione › Impostazioni › Generale (22%) e
   aliquota per trattamento (22, 10, 5, 4, 0% esente) in Configurazione ›

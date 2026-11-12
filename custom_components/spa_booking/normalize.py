@@ -990,6 +990,20 @@ def _norm_settings(raw: dict[str, Any]) -> dict[str, Any]:
         "email_aliases": [
             str(a).strip() for a in (raw.get("email_aliases") or []) if isinstance(a, str) and "@" in a
         ][:20],
+        # Billing data (2.5.2): the company printed on receipts.
+        "billing_company": str(raw.get("billing_company") or "").strip(),
+        "billing_vat_number": str(raw.get("billing_vat_number") or "").strip(),
+        "billing_tax_code": str(raw.get("billing_tax_code") or "").strip(),
+        "billing_address": str(raw.get("billing_address") or "").strip(),
+        "billing_zip": str(raw.get("billing_zip") or "").strip(),
+        "billing_city": str(raw.get("billing_city") or "").strip(),
+        "billing_province": str(raw.get("billing_province") or "").strip(),
+        "billing_country": str(raw.get("billing_country") or "").strip(),
+        "billing_phone": str(raw.get("billing_phone") or "").strip(),
+        "billing_email": str(raw.get("billing_email") or "").strip(),
+        "billing_pec": str(raw.get("billing_pec") or "").strip(),
+        "billing_sdi": str(raw.get("billing_sdi") or "").strip(),
+        "billing_receipt_note": str(raw.get("billing_receipt_note") or "").strip(),
         # VAT (2.5.1): the default rate; prices are always VAT included.
         "vat_default": _norm_vat(raw.get("vat_default")) if _norm_vat(raw.get("vat_default")) is not None else 22.0,
         # Partners (2.5.0): points per euro they bring, and their campaigns.

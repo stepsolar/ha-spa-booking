@@ -72,3 +72,18 @@ card._treatmentsOf(card._form)[0].treatment_id = "t1";
 const withVat = card._renderNuovoForm();
 assert(byClass(withVat, "nv-side")[0].textContent.includes("di cui IVA 22%"), "VAT line in the summary");
 assert(JSON.stringify(card._vatLines([[61, 22], [11, 10]])) === JSON.stringify([[22, 50, 11], [10, 10, 1]]), "VAT split by rate");
+
+// 2.5.2: Impostazioni › Dati fatturazione holds the VAT, not Generale.
+card._config = {};
+const draft = { vat_default: 22, billing_company: "", appearance: "auto" };
+const general = card._settingsGeneral({ ...draft }, () => {});
+assert(!general.textContent.includes("Aliquota IVA"), "no VAT in Generale");
+const billing = card._settingsBilling(draft, () => {});
+assert(billing.textContent.includes("Aliquota IVA predefinita") && billing.textContent.includes("Ragione sociale"), "billing tab");
+assert(byClass(billing, "pg-num").length === 4, "four billing steps");
+// Accessories have their VAT.
+card._data.accessories = [{ id: "x1", label: "Accappatoio", price: 5, vat_rate: 10 }];
+card._accOpen("__new__");
+assert(card._accDraft.vat_rate === -1, "new accessory uses the default VAT");
+// The edit form closes when the tab changes.
+assert(Card.prototype._render.toString().includes('this._editing.kind === "appointment" && this._tab !== "agenda"'), "edit closed off the agenda");

@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.5.1";
+const CARD_VERSION = "2.5.2";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -2997,6 +2997,12 @@ class SpaBookingCard extends HTMLElement {
    * reason instead is the only thing that lets anybody act on it.
    */
   _render() {
+    // An appointment being edited lives in the Agenda: leaving it (any menu,
+    // any shortcut) drops the changes, like Annulla (2.5.2).
+    if (this._editing && this._editing.kind === "appointment" && this._tab !== "agenda") {
+      this._editing = null;
+      this._editFormMode = false;
+    }
     try {
       this._renderInner();
     } catch (error) {
@@ -3426,6 +3432,11 @@ class SpaBookingCard extends HTMLElement {
                   this._batchRows = [];
                   this._batchAnchorId = null;
                   this._batchAnchorBatchId = null;
+                }
+                // Leaving an appointment being edited drops the changes.
+                if (this._editing && this._editing.kind === "appointment") {
+                  this._editing = null;
+                  this._editFormMode = false;
                 }
                 // Leaving the new-booking tab without saving empties the form.
                 if (this._tab === "nuovo" && tab.id !== "nuovo") this._resetForm();
@@ -4285,7 +4296,7 @@ class SpaBookingCard extends HTMLElement {
     });
     return el("div", { class: "field" },
       el("span", {}, "Accessori"),
-      el("div", { class: "role-choice" },
+      el("div", { class: "role-choice extras-choice" },
         entries.map((entry) =>
           el("button", {
             type: "button",
@@ -5882,9 +5893,10 @@ class SpaBookingCard extends HTMLElement {
   _nvBusyOperators(treat, treatment) {
     const busy = new Map();
     if (!treatment || !treat.time) return busy;
-    const start = parseLocal(this._form.date, treat.time);
+    const start = parseLocal(treat.date || this._form.date, treat.time);
     const end = new Date(start.getTime() + (treatment.duration_min || 0) * 60000);
     const skip = new Set((this._batchRows || []).map((row) => row.id).filter(Boolean));
+    if (treat.skip_id) skip.add(treat.skip_id);
     this._appointmentsOfDay(ymd(start)).forEach((appointment) => {
       if (!appointment.operator_id || skip.has(appointment.id)) return;
       if (["cancelled", "no_show"].includes(appointment.status)) return;
@@ -11073,6 +11085,7 @@ class SpaBookingCard extends HTMLElement {
             try {
               await this._call("update_settings", {
                 card_title: (draft.card_title || "").trim(),
+        billing_province: String(draft.billing_province || "").trim().toUpperCase(),
         vat_default: Number(draft.vat_default),
               });
               this._appearanceDraft = null;
@@ -11434,6 +11447,19 @@ class SpaBookingCard extends HTMLElement {
         appearance: APPEARANCE_MODES.includes(String(settings.appearance || "")) ? settings.appearance : "auto",
         card_title: settings.card_title || "",
         vat_default: settings.vat_default != null ? settings.vat_default : 22,
+        billing_company: settings.billing_company || "",
+        billing_vat_number: settings.billing_vat_number || "",
+        billing_tax_code: settings.billing_tax_code || "",
+        billing_address: settings.billing_address || "",
+        billing_zip: settings.billing_zip || "",
+        billing_city: settings.billing_city || "",
+        billing_province: settings.billing_province || "",
+        billing_country: settings.billing_country || "",
+        billing_phone: settings.billing_phone || "",
+        billing_email: settings.billing_email || "",
+        billing_pec: settings.billing_pec || "",
+        billing_sdi: settings.billing_sdi || "",
+        billing_receipt_note: settings.billing_receipt_note || "",
         web_open_time: settings.web_open_time || "09:00",
         web_break_start: settings.web_break_start || "",
         web_break_end: settings.web_break_end || "",
@@ -11452,14 +11478,15 @@ class SpaBookingCard extends HTMLElement {
     const changed = () => this._pageSyncSave("set");
     const tab = this._setTab || "generale";
     const wrap = el("div", { class: "stack nt" });
-    wrap.appendChild(this._sectionHead("mdi:cog-outline", "Impostazioni", "Aspetto della card, sito web, dati e backup."));
+    wrap.appendChild(this._sectionHead("mdi:cog-outline", "Impostazioni", "Aspetto della card, dati di fatturazione, sito web, dati e backup."));
     wrap.appendChild(el("div", { class: "nt-tabs", role: "tablist" },
-      [["generale", "mdi:palette-outline", "Generale"], ["sito", "mdi:web", "Sito web"], ["dati", "mdi:database-outline", "Dati e backup"]]
+      [["generale", "mdi:palette-outline", "Generale"], ["fatturazione", "mdi:receipt-text-outline", "Dati fatturazione"], ["sito", "mdi:web", "Sito web"], ["dati", "mdi:database-outline", "Dati e backup"]]
         .map(([id, icon, label]) => el("button", {
           class: `nt-tab${tab === id ? " on" : ""}`, role: "tab", "aria-selected": tab === id ? "true" : "false",
           on: { click: () => { this._setTab = id; this._render(); } },
         }, el("ha-icon", { icon }), el("span", {}, label)))));
     if (tab === "generale") wrap.appendChild(this._settingsGeneral(draft, changed));
+    if (tab === "fatturazione") wrap.appendChild(this._settingsBilling(draft, changed));
     if (tab === "sito") wrap.appendChild(this._settingsWeb(draft, changed));
     if (tab === "dati") wrap.appendChild(this._settingsData());
     wrap.appendChild(this._pageSaveBar("set", () => this._saveSettingsPage(), () => { this._setDraft = null; this._render(); }));
@@ -11484,6 +11511,48 @@ class SpaBookingCard extends HTMLElement {
     } catch (error) { return false; }
   }
 
+  /** Impostazioni › Dati fatturazione (2.5.2): VAT and the company's fiscal data. */
+  _settingsBilling(draft, changed) {
+    const fields = [
+      ["billing_company", "Ragione sociale", "es. Il Marchese S.r.l."],
+      ["billing_vat_number", "Partita IVA", "es. 01234567890"],
+      ["billing_tax_code", "Codice fiscale", "se diverso dalla partita IVA"],
+      ["billing_address", "Indirizzo", "es. Via Roma 1"],
+      ["billing_zip", "CAP", "92019"],
+      ["billing_city", "Comune", "es. Sciacca"],
+      ["billing_province", "Provincia", "AG"],
+      ["billing_country", "Nazione", "Italia"],
+      ["billing_phone", "Telefono", ""],
+      ["billing_email", "Email", ""],
+      ["billing_pec", "PEC", ""],
+      ["billing_sdi", "Codice destinatario (SDI)", "7 caratteri"],
+      ["billing_receipt_note", "Nota in fondo alla ricevuta", "es. Grazie e a presto!"],
+    ];
+    const input = ([key, label, placeholder]) => el("label", { class: "field" }, el("span", {}, label),
+      el("input", { class: "input", value: draft[key] || "", placeholder,
+        ...(key === "billing_province" ? { maxlength: "2", style: "text-transform: uppercase" } : {}),
+        on: { input: (event) => { draft[key] = event.target.value; changed(); } } }));
+    const pick = (keys) => fields.filter(([key]) => keys.includes(key)).map(input);
+    const rate = Number(draft.vat_default);
+    const sample = vatSplit(61, rate);
+    return el("div", { class: "stack" },
+      this._pageStep(1, "IVA",
+        el("div", { class: "nt-options" },
+          el("label", { class: "field" }, el("span", {}, "Aliquota IVA predefinita"),
+            el("select", { class: "input", on: { change: (event) => { draft.vat_default = Number(event.target.value); changed(); this._render(); } } },
+              VAT_RATES.map((value) => el("option", { value: String(value), selected: rate === value }, vatLabel(value)))))),
+        el("div", { class: "pg-sum" }, el("ha-icon", { icon: "mdi:percent-outline" }),
+          el("span", {}, el("b", {}, `I prezzi sono IVA inclusa: 61,00 € = imponibile ${euro(sample.taxable)} + IVA ${euro(sample.vat)}.`),
+            " Vale per i trattamenti e gli accessori con «Predefinita»; ognuno può avere la sua aliquota (Configurazione › Trattamenti e Accessori)."))),
+      this._pageStep(2, "L'azienda",
+        el("div", { class: "nt-options" }, ...pick(["billing_company", "billing_vat_number", "billing_tax_code", "billing_sdi"]))),
+      this._pageStep(3, "Sede",
+        el("div", { class: "nt-options" }, ...pick(["billing_address", "billing_zip", "billing_city", "billing_province", "billing_country"]))),
+      this._pageStep(4, "Contatti e ricevuta",
+        el("div", { class: "nt-options" }, ...pick(["billing_phone", "billing_email", "billing_pec", "billing_receipt_note"])),
+        el("div", { class: "dim small" }, "Questi dati compariranno sulle ricevute e sui documenti che Spa Booking stampa o invia.")));
+  }
+
   _settingsGeneral(draft, changed) {
     const line = (label, value) => el("div", { class: "detail-line" },
       el("span", { class: "detail-label" }, label), el("span", { class: "detail-value" }, value));
@@ -11503,11 +11572,7 @@ class SpaBookingCard extends HTMLElement {
           el("input", { class: "input", type: "text", maxlength: "60", value: draft.card_title,
             placeholder: this._config.title || "Gestione SPA",
             on: { input: (event) => { draft.card_title = event.target.value; changed(); } } })),
-        el("div", { class: "dim small" }, "In testata, su tutti i dispositivi. Vuoto = il titolo della configurazione della card."),
-        el("label", { class: "field" }, el("span", {}, "Aliquota IVA predefinita dei trattamenti"),
-          el("select", { class: "input", on: { change: (event) => { draft.vat_default = Number(event.target.value); changed(); } } },
-            VAT_RATES.map((rate) => el("option", { value: String(rate), selected: Number(draft.vat_default) === rate }, vatLabel(rate))))),
-        el("div", { class: "dim small" }, "I prezzi sono IVA inclusa. Ogni trattamento può avere la sua aliquota (Configurazione › Trattamenti).")),
+        el("div", { class: "dim small" }, "In testata, su tutti i dispositivi. Vuoto = il titolo della configurazione della card.")),
       el("div", { class: "cfg-box nt-panel" },
         el("div", { class: "pg-step-head" }, el("span", { class: "nt-icon" }, el("ha-icon", { icon: "mdi:information-outline" })),
           el("span", { class: "pg-step-title" }, "Versione del programma")),
@@ -16148,6 +16213,7 @@ class SpaBookingCard extends HTMLElement {
     row.appendChild(el("div", { class: "acc2-side" },
       el("span", { class: `acc2-price${item.price === null || item.price === undefined ? " none" : ""}` },
         item.price === null || item.price === undefined ? "senza prezzo" : euro(item.price)),
+      el("span", { class: "acc2-used" }, `IVA ${vatLabel(item.vat_rate != null ? item.vat_rate : ((this._data.settings || {}).vat_default ?? 22))}`),
       used ? el("span", { class: "acc2-used" }, `${used} prenotat${used === 1 ? "o" : "i"}`) : null));
     return row;
   }
@@ -16157,8 +16223,9 @@ class SpaBookingCard extends HTMLElement {
     this._accDlg = id;
     const current = this._accessories().find((item) => item.id === id);
     this._accDraft = id === "__new__"
-      ? { id: "", label: "", icon: ACC_DEFAULT_ICON, price: null, description: "" }
-      : { ...(current || this._accessory(id)) };
+      ? { id: "", label: "", icon: ACC_DEFAULT_ICON, price: null, description: "", vat_rate: -1 }
+      : { vat_rate: -1, ...(current || this._accessory(id)) };
+    if (this._accDraft.vat_rate == null) this._accDraft.vat_rate = -1;
     if (!this._accDraft.id && id !== "__new__") this._accDraft.id = id;
     this._render();
   }
@@ -16254,8 +16321,14 @@ class SpaBookingCard extends HTMLElement {
       const text = priceInput.value.replace(",", ".").trim();
       draft.price = text === "" ? null : Number(text);
     });
+    const vatSelect = el("select", { class: "input", on: { change: (event) => { draft.vat_rate = Number(event.target.value); } } },
+      el("option", { value: "-1", selected: draft.vat_rate == null || Number(draft.vat_rate) < 0 },
+        `Predefinita (${vatLabel((this._data.settings || {}).vat_default ?? 22)})`),
+      ...VAT_RATES.map((rate) => el("option", { value: String(rate), selected: draft.vat_rate != null && Number(draft.vat_rate) === rate }, vatLabel(rate))));
     sheet.appendChild(el("div", { class: "detail-section" },
-      el("h4", {}, "Prezzo €"), priceInput,
+      el("h4", {}, "IVA"), vatSelect));
+    sheet.appendChild(el("div", { class: "detail-section" },
+      el("h4", {}, "Prezzo € (IVA inclusa)"), priceInput,
       el("div", { class: "hint" },
         "Solo informativo: non entra nei totali né nella caparra. Lascia vuoto se non ha un prezzo.")));
 
@@ -16299,6 +16372,7 @@ class SpaBookingCard extends HTMLElement {
       icon: String(draft.icon || "").trim() || ACC_DEFAULT_ICON,
       price: this._accPrice(draft.price),
       description: String(draft.description || "").trim(),
+      vat_rate: draft.vat_rate != null && Number(draft.vat_rate) >= 0 ? Number(draft.vat_rate) : null,
     };
     const index = items.findIndex((item) => item.id === id);
     if (index < 0) items.push(entry);
@@ -17927,98 +18001,65 @@ class SpaBookingCard extends HTMLElement {
       operatorSelect.appendChild(el("option", { value: operator.id, selected: draft.operator_id === operator.id }, operator.name))
     );
 
-    const wrap = el("div", {
-      class: "stack form-compact" + (this._editFormMode ? " form-edit" : ""),
-    });
-    const head = el("div", { class: "row" },
-      el("h3", {}, this._editFormMode ? "Modifica scheda" : "Modifica appuntamento"),
-      el("div", { class: "spacer" }));
-    if (this._editFormMode) {
-      head.appendChild(el("button", {
-        class: "btn primary small",
-        title: "Fine modifica",
-        on: { click: () => { this._editFormMode = false; this._editDrag = null; this._render(); } },
-      }, el("ha-icon", { icon: "mdi:check" })));
-    } else {
-      head.appendChild(el("button", {
-        class: "icon-btn",
-        title: "Modifica scheda",
-        on: { click: () => { this._editFormMode = true; this._render(); } },
-      }, el("ha-icon", { icon: "mdi:pencil" })));
-    }
-    head.appendChild(el("button", {
-      class: "icon-btn",
-      title: "Chiudi",
-      on: { click: () => { this._editing = null; this._editFormMode = false; this._render(); } },
-    }, el("ha-icon", { icon: "mdi:close" })));
-    wrap.appendChild(head);
-    if (this._editFormMode) {
-      wrap.appendChild(el("div", { class: "hint" },
-        "Trascina i box con la maniglia per spostarli fra le due colonne e " +
-        "verso l'alto o il basso. L'ordine resta salvato."));
-    }
-    // Two columns driven by the saved layout, like the Nuovo form: in edit
-    // mode the blocks cross columns and move up and down, then keep the
-    // order. The old pagamento block is gone: Totali and Incassi replace it.
-    const columns = el("div", { class: "two-col" });
-    const left = el("div", { class: "stack tight form-col", "data-col": "left" });
-    const right = el("div", { class: "stack tight form-col", "data-col": "right" });
-    const current = this._data.appointments.find(
-      (item) => item.id === this._editing.id
-    );
+    // 2.5.2: the same look as Nuovo appuntamento — numbered steps on the
+    // left, the summary with the save buttons on the right (a bar on a phone).
+    const wrap = el("div", { class: "stack nv" });
+    const current = this._data.appointments.find((item) => item.id === this._editing.id);
     const editTotals = this._editTotaliBlock(draft);
-    const blocks = {
-      trattamento: el("label", { class: "field" }, el("span", {}, "Trattamento"), treatmentSelect),
-      quando: (() => {
-        const startDay = (draft.start || "").split("T")[0] || todayStr();
-        // A tiny proxy: the time control writes "HH:MM" through this object,
-        // and the setter keeps the day the date field chose.
-        const timeState = {
-          get time() { return ((draft.start || "").split("T")[1] || "10:00").slice(0, 5); },
-          set time(value) {
-            const day = (draft.start || "").split("T")[0] || todayStr();
-            draft.start = `${day}T${value}`;
-          },
-        };
-        const box = el("div", { class: "stack tight" });
-        box.appendChild(
-          el("label", { class: "field" }, el("span", {}, "Data"),
-            el("input", { class: "input", type: "date", value: startDay,
-              on: { change: (event) => {
-                const day = event.target.value || todayStr();
-                const time = ((draft.start || "").split("T")[1] || "10:00").slice(0, 5);
-                draft.start = `${day}T${time}`;
-                this._render();
-              } } }))
-        );
-        box.appendChild(this._timeField(timeState, "Ora"));
-        return box;
-      })(),
-      operatore: (() => {
-        const box = el("div", { class: "stack tight" });
-        box.appendChild(el("label", { class: "field" }, el("span", {}, "Operatore"), operatorSelect));
-        add(box, this._groupStepper());
-        return box;
-      })(),
-      note: el("label", { class: "field" }, el("span", {}, "Note"),
-        el("textarea", { class: "input", rows: "2", value: draft.notes || "",
-          on: { input: (event) => { draft.notes = event.target.value; } } })),
-      totali: editTotals.box,
-      incassi: current && this._can("payments") ? this._editIncassiBlock(current, editTotals.total) : null,
-      cliente: el("label", { class: "field" }, el("span", {}, "Cliente"), clientSelect),
-      ospite: this._guestField(draft),
-      accessori: this._extrasField(draft),
-    };
-    this._editFormOrder("left").forEach((id) => {
-      if (blocks[id]) add(left, this._editFormSection(id, blocks[id]));
-    });
-    this._editFormOrder("right").forEach((id) => {
-      if (blocks[id]) add(right, this._editFormSection(id, blocks[id]));
-    });
+    const startDay = (draft.start || "").split("T")[0] || todayStr();
+    const startTime = ((draft.start || "").split("T")[1] || "10:00").slice(0, 5);
+    const close = () => { this._editing = null; this._editFormMode = false; this._render(); };
+    wrap.appendChild(this._sectionHead("mdi:calendar-edit", "Modifica appuntamento",
+      current ? `${this._clientName(current)} · codice ${current.code || "—"}` : ""));
 
-    columns.appendChild(left);
-    columns.appendChild(right);
-    wrap.appendChild(columns);
+    const timeState = {
+      get time() { return ((draft.start || "").split("T")[1] || "10:00").slice(0, 5); },
+      set time(value) {
+        const day = (draft.start || "").split("T")[0] || todayStr();
+        draft.start = `${day}T${value}`;
+        this._nvSyncEdit && this._nvSyncEdit();
+      },
+    };
+    const steps = el("div", { class: "nv-steps", on: { input: () => this._nvSyncEdit && this._nvSyncEdit() } });
+    steps.appendChild(this._pageStep(1, "Quando",
+      el("div", { class: "nv-when" },
+        el("label", { class: "field" }, el("span", {}, "Data"),
+          el("input", { class: "input", type: "date", value: startDay,
+            on: { change: (event) => {
+              const day = event.target.value || todayStr();
+              draft.start = `${day}T${((draft.start || "").split("T")[1] || "10:00").slice(0, 5)}`;
+              this._render();
+            } } })),
+        this._timeField(timeState, "Ora")),
+      el("div", { class: "pg-sum" }, el("ha-icon", { icon: "mdi:calendar" }),
+        el("b", {}, `${longDay(parseLocal(startDay, startTime))} alle ${startTime}`))));
+
+    const treatment = draft.treatment_id ? this._lookup.treatment.get(draft.treatment_id) : null;
+    // The chips write draft.operator_id; busy is worked out on the draft's day and hour.
+    const operatorState = {
+      get operator_id() { return draft.operator_id || ""; },
+      set operator_id(value) { draft.operator_id = value; },
+      get time() { return ((draft.start || "").split("T")[1] || "10:00").slice(0, 5); },
+      get date() { return (draft.start || "").split("T")[0] || todayStr(); },
+      skip_id: this._editing.id,
+    };
+    steps.appendChild(this._pageStep(2, "Trattamento",
+      el("label", { class: "field" }, el("span", {}, "Trattamento"), treatmentSelect),
+      treatment && this._treatmentRequiresOperator(treatment)
+        ? this._masseuseChips(operatorState, treatment)
+        : el("label", { class: "field" }, el("span", {}, "Operatore"), operatorSelect),
+      this._groupStepper(),
+      this._extrasField(draft)));
+
+    steps.appendChild(this._pageStep(3, "Cliente",
+      el("label", { class: "field" }, el("span", {}, "Cliente"), clientSelect),
+      this._guestField(draft)));
+    steps.appendChild(this._pageStep(4, "Prezzo e pagamento",
+      editTotals.box,
+      current && this._can("payments") ? this._editIncassiBlock(current, editTotals.total) : null));
+    steps.appendChild(this._pageStep(5, "Note",
+      el("textarea", { class: "input", rows: "3", placeholder: "Note dell'appuntamento",
+        on: { input: (event) => { draft.notes = event.target.value; } } }, draft.notes || "")));
 
     const groupSize = current ? this._groupSize(current) : 1;
     const save = async (pending, wholeGroup, force = false, forceRules = false) => {
@@ -18077,38 +18118,57 @@ class SpaBookingCard extends HTMLElement {
         }
       }
     };
-    wrap.appendChild(
-      el("div", { class: "row edit-actions" },
-        el("button", {
-          class: "btn primary",
-          disabled: this._busy,
-          title: "Salva le modifiche di questo appuntamento",
-          on: { click: () => save(false, false) },
-        }, el("ha-icon", { icon: "mdi:account" }),
-           el("span", { class: "btn-label" }, "Salva")),
-        groupSize > 1
-          ? el("button", {
-              class: "btn primary",
-              disabled: this._busy,
-              title: "Salva le modifiche su tutti gli appuntamenti del gruppo",
-              on: { click: () => save(false, true) },
-            }, el("ha-icon", { icon: "mdi:account-group" }),
-               el("span", { class: "btn-label" }, "Salva gruppo"))
-          : null,
-        el("button", {
-          class: "btn warn",
-          disabled: this._busy,
-          title: "Salva mettendo la prenotazione in attesa di conferma",
-          on: { click: () => save(true, false) },
-        }, el("ha-icon", { icon: "mdi:clock-outline" }),
-           el("span", { class: "btn-label" }, "In attesa")),
-        el("button", {
-          class: "btn",
-          on: { click: () => { this._editing = null; this._render(); } },
-        }, el("ha-icon", { icon: "mdi:close" }),
-           el("span", { class: "btn-label" }, "Annulla"))
-      )
-    );
+    // The summary with the buttons (and the phone bar), rebuilt while typing.
+    const side = el("div", { class: "nv-side" });
+    const bar = el("div", { class: "nv-bar" });
+    this._nvSyncEdit = () => {
+      if (this._editing == null) return;
+      const day = (draft.start || "").split("T")[0] || todayStr();
+      const time = ((draft.start || "").split("T")[1] || "10:00").slice(0, 5);
+      const trt = draft.treatment_id ? this._lookup.treatment.get(draft.treatment_id) : null;
+      const startAt = parseLocal(day, time);
+      const endAt = new Date(startAt.getTime() + ((trt && trt.duration_min) || 0) * 60000);
+      const client = draft.client_id ? this._lookup.client.get(draft.client_id) : null;
+      const name = client ? [client.first_name, client.last_name].filter(Boolean).join(" ") || client.phone : (current ? this._clientName(current) : "—");
+      const price = draft.price != null ? Number(draft.price) : 0;
+      const rate = this._vatOfTreatment(trt);
+      const split = vatSplit(price, rate);
+      const extras = (draft.extras || []).map((id) => (this._accessory(id) || {}).label || id);
+      const liveTotal = this._editTotaliBlock(draft).total;
+      const button = (label, icon, cls, title, run) => el("button", { class: `btn ${cls}`, disabled: this._busy, title, on: { click: run } },
+        el("ha-icon", { icon }), label);
+      side.textContent = "";
+      side.appendChild(el("div", { class: "nv-sum" },
+        el("div", { class: "nv-sum-head" },
+          el("div", { class: "nv-sum-kicker" }, "Modifica"),
+          el("div", { class: "nv-sum-client" }, name),
+          el("div", { class: "nv-sum-day" }, longDay(startAt))),
+        el("div", { class: "nv-sum-body" },
+          el("div", { class: "nv-sum-item" },
+            el("span", { class: "nv-sum-time" }, `${timeOf(startAt)}–${timeOf(endAt)}`),
+            el("span", { class: "nv-sum-what" },
+              el("span", { class: "nv-sum-name" }, trt ? trt.name : "—"),
+              el("span", { class: "nv-sum-op" }, [trt && this._treatmentRequiresOperator(trt) ? this._nvOperatorLabel(draft.operator_id) : null, extras.join(", ") || null].filter(Boolean).join(" · "))),
+            el("span", { class: "nv-sum-price" }, euro(price))),
+          el("div", { class: "nv-sum-line" }),
+          el("div", { class: "nv-sum-tot big" }, el("span", {}, groupSize > 1 ? "Totale gruppo" : "Totale"), el("span", {}, euro(liveTotal))),
+          el("div", { class: "nv-sum-tot vat" }, el("span", {}, `di cui IVA ${vatLabel(rate)}`), el("span", {}, euro(split.vat)))),
+        el("div", { class: "nv-sum-actions" },
+          button("Salva", "mdi:check", "primary nv-go", "Salva le modifiche di questo appuntamento", () => save(false, false)),
+          groupSize > 1 ? button(`Salva tutto il gruppo (${groupSize})`, "mdi:account-group", "", "Salva le modifiche su tutti gli appuntamenti del gruppo", () => save(false, true)) : null,
+          button("Salva in attesa", "mdi:clock-outline", "warn", "Salva mettendo la prenotazione in attesa di conferma", () => save(true, false)),
+          el("button", { class: "btn nv-cancel", on: { click: close } }, "Annulla"))));
+      bar.textContent = "";
+      add(bar,
+        el("div", { class: "nv-bar-text" },
+          el("span", { class: "nv-bar-sub" }, `${trt ? trt.name : "—"} · ${time}`),
+          el("span", { class: "nv-bar-total" }, euro(liveTotal))),
+        el("button", { class: "icon-btn", title: "Annulla", on: { click: close } }, el("ha-icon", { icon: "mdi:close" })),
+        el("button", { class: "btn primary nv-go", disabled: this._busy, on: { click: () => save(false, false) } }, el("ha-icon", { icon: "mdi:check" }), "Salva"));
+    };
+    this._nvSyncEdit();
+    steps.appendChild(bar);
+    wrap.appendChild(el("div", { class: "nv-layout" }, steps, side));
     return wrap;
   }
 
@@ -20209,9 +20269,9 @@ class SpaBookingCard extends HTMLElement {
       .nv .role-opt { border: none; background: transparent; box-shadow: none; }
       .nv .role-opt.on { background: var(--sb-card, var(--card-background-color, #fff)); color: var(--primary-color); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
       .nv .pg-step .cfg-box { box-shadow: none; }
-      .nv .bk-person .role-choice { display: flex; flex-wrap: wrap; gap: 6px; padding: 0; background: none; width: auto; }
-      .nv .bk-person .role-opt { border: 1px solid var(--sb-line); border-radius: 999px; background: var(--sb-card, var(--card-background-color, #fff)); }
-      .nv .bk-person .role-opt.on { border-color: var(--primary-color); background: color-mix(in srgb, var(--primary-color) 10%, transparent); box-shadow: none; }
+      .nv .extras-choice, .nv .bk-person .role-choice { display: flex; flex-wrap: wrap; gap: 6px; padding: 0; background: none; width: auto; }
+      .nv .extras-choice .role-opt, .nv .bk-person .role-opt { border: 1px solid var(--sb-line); border-radius: 999px; background: var(--sb-card, var(--card-background-color, #fff)); }
+      .nv .extras-choice .role-opt.on, .nv .bk-person .role-opt.on { border-color: var(--primary-color); background: color-mix(in srgb, var(--primary-color) 10%, transparent); box-shadow: none; }
       .nv .stack > .btn.small { align-self: flex-start; }
       .nv .preview-time { flex-wrap: wrap; }
       .nv .preview-time > * { white-space: nowrap; }
