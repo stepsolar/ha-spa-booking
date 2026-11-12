@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.5.3";
+const CARD_VERSION = "2.5.4";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -3000,7 +3000,8 @@ class SpaBookingCard extends HTMLElement {
     // An appointment being edited lives in the Agenda: leaving it (any menu,
     // any shortcut) drops the changes, like Annulla (2.5.2).
     // A detail belongs to the tab it was opened in (2.5.3): another tab closes it.
-    if (this._detailId && this._detailTab && this._detailTab !== this._tab) this._detailId = null;
+    // The month view of the agenda counts as its own page (2.5.4).
+    if (this._detailId && this._detailTab && this._detailTab !== this._viewKey()) this._detailId = null;
     if (this._editing && this._editing.kind === "appointment" && this._tab !== "agenda") {
       this._editing = null;
       this._editFormMode = false;
@@ -3309,6 +3310,7 @@ class SpaBookingCard extends HTMLElement {
     this._tab = "agenda";
     this._searchQuery = "";
     this._detailId = appointment.id;
+    this._agendaTab = "agenda";
     this._detailTab = "agenda";
     this._render();
   }
@@ -4773,9 +4775,14 @@ class SpaBookingCard extends HTMLElement {
    * facts live, including the payment figures the icons deliberately leave out.
    * Reachable from the keyboard too, because a desk tablet often is.
    */
+  /** The page on screen: the tab, with the agenda's month apart (2.5.4). */
+  _viewKey() {
+    return this._tab === "agenda" && this._agendaTab === "calendario" ? "mese" : this._tab;
+  }
+
   _openDetail(appointment) {
     this._detailId = appointment.id;
-    this._detailTab = this._tab;
+    this._detailTab = this._viewKey();
     this._detailView = "single";
     this._render();
   }

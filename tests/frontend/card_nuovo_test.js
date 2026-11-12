@@ -89,7 +89,7 @@ assert(card._accDraft.vat_rate === -1, "new accessory uses the default VAT");
 assert(Card.prototype._render.toString().includes('this._editing.kind === "appointment" && this._tab !== "agenda"'), "edit closed off the agenda");
 
 // 2.5.3: the agenda detail closes on another tab; lanes only for busy operators.
-assert(Card.prototype._render.toString().includes("this._detailTab !== this._tab"), "detail closed off its tab");
+assert(Card.prototype._render.toString().includes("this._detailTab !== this._viewKey()"), "detail closed off its tab and the month");
 card._lookup.appointment = new Map(card._data.appointments.map((a) => [a.id, a]));
 card._agParties = (list) => list.map((a) => [a]);
 card._pauseOfAppointment = () => 0;
