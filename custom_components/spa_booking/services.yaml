@@ -1636,6 +1636,21 @@ loyalty_adjust:
       selector:
         text:
 
+import_partners:
+  name: Importa partner
+  description: >-
+    Aggiunge molti partner in una volta (dal file letto dalla card). Chi ha la
+    stessa email di un partner esistente non viene duplicato: si completano
+    solo i dati mancanti.
+  fields:
+    partners:
+      name: Partner
+      description: >-
+        Elenco di voci con company, first_name, last_name, city,
+        structure_type, phone, whatsapp, email.
+      required: true
+      selector:
+        object:
 save_partner:
   name: Salva partner
   description: Aggiunge o modifica un partner (chi promuove la spa).

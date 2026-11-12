@@ -1,6 +1,6 @@
 # Spa Booking — guida alle schede (2.2)
 
-Aggiornata alla 2.5.5: [vista Mese](#vista-mese-255); [Dati fatturazione e Modifica appuntamento](#dati-fatturazione-e-modifica-appuntamento-252); [IVA](#iva-251); [campagne e punti partner](#campagne-e-punti-partner-250); [Email e Accedi con Google](#email-241); [dettaglio, punti e partner](#dettaglio-punti-fedelta-e-partner-240); [Agenda](#agenda-2312); [Nuovo appuntamento a passi](#nuovo-appuntamento-a-passi-2310); [promo salvate e modelli](#promo-salvate-e-modelli-239); [Promo e Impostazioni](#promo-e-impostazioni-238); [Notifiche](#notifiche-236); [messaggi e chat](#messaggi-e-chat-235); [preferenza massaggiatrice/massaggiatore](#preferenza-massaggiatrice-o-massaggiatore); [promo e fedeltà del cliente](#promo-e-fedeltà-del-cliente); [conferme e promemoria WhatsApp](#conferme-e-promemoria-whatsapp); [firme e storico](#firme-e-storico); [chiusure con giorni esclusi](#chiusure-con-giorni-esclusi); [Proponi data](#proponi-data) nelle richieste, con trattamenti alternativi e prezzo; [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
+Aggiornata alla 2.6.0: [importa partner e disiscrizione](#importa-partner-e-disiscrizione-260); [vista Mese](#vista-mese-255); [Dati fatturazione e Modifica appuntamento](#dati-fatturazione-e-modifica-appuntamento-252); [IVA](#iva-251); [campagne e punti partner](#campagne-e-punti-partner-250); [Email e Accedi con Google](#email-241); [dettaglio, punti e partner](#dettaglio-punti-fedelta-e-partner-240); [Agenda](#agenda-2312); [Nuovo appuntamento a passi](#nuovo-appuntamento-a-passi-2310); [promo salvate e modelli](#promo-salvate-e-modelli-239); [Promo e Impostazioni](#promo-e-impostazioni-238); [Notifiche](#notifiche-236); [messaggi e chat](#messaggi-e-chat-235); [preferenza massaggiatrice/massaggiatore](#preferenza-massaggiatrice-o-massaggiatore); [promo e fedeltà del cliente](#promo-e-fedeltà-del-cliente); [conferme e promemoria WhatsApp](#conferme-e-promemoria-whatsapp); [firme e storico](#firme-e-storico); [chiusure con giorni esclusi](#chiusure-con-giorni-esclusi); [Proponi data](#proponi-data) nelle richieste, con trattamenti alternativi e prezzo; [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
 
 Questa guida mostra ogni scheda della dashboard **Spa Booking** e spiega a
 cosa serve ogni funzione. Le immagini sono state fatte con dati di prova.
@@ -32,6 +32,29 @@ in Impostazioni › Aspetto).
 
 
 
+
+## Importa partner e disiscrizione (2.6.0)
+
+In **Clienti › Partner** premi **Importa file** e scegli un file CSV (da
+Excel: File › Salva con nome › CSV). Le colonne riconosciute sono Nome
+struttura, Tipo, Nome, Cognome (oppure Titolare), Città, Telefono, WhatsApp
+(sì/no), Email; **Modello** scarica un file d'esempio. Chi ha la stessa email
+di un partner già presente non viene duplicato: si completano solo i dati
+mancanti.
+
+Ogni partner è **iscritto** a email e promo, salvo che tolga l'iscrizione.
+In fondo a ogni email delle campagne c'è il link «Cancella l'iscrizione»
+(serve l'indirizzo pubblico di Home Assistant, Configurazione › Impostazioni
+› Sito web): chi conferma non riceve più nulla. Puoi anche togliere o
+rimettere l'iscrizione dalla scheda del partner. Ogni scheda si può
+eliminare con il cestino.
+
+![Partner con importa e iscrizione](anteprime/58-partner-import.png)
+
+> Attenzione: in Italia le email promozionali richiedono il consenso
+> preventivo del destinatario (art. 130 Codice Privacy), anche verso le
+> aziende. Usa il primo contatto per presentarti e chiedere se vogliono
+> ricevere le promo.
 
 ## Vista Mese (2.5.5)
 

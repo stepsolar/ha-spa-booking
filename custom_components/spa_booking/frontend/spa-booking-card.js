@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.5.5";
+const CARD_VERSION = "2.6.0";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -524,6 +524,76 @@ const waLink = (phone) => {
 };
 
 const telHref = (phone) => `tel:+${normalizePhone(phone)}`;
+
+/**
+ * Partner file (2.6.0): CSV or TSV, separator guessed from the header, quotes
+ * handled. Headers are matched loosely (Italian or English, any case).
+ */
+const PARTNER_TYPES = ["Hotel", "B&B", "Casa vacanze", "Agriturismo", "Affittacamere", "Residence", "Altro"];
+const PARTNER_COLUMNS = {
+  company: ["nome struttura", "struttura", "nome attività", "attività", "ragione sociale", "company", "nome della struttura"],
+  first_name: ["nome", "nome titolare", "nome responsabile", "first_name", "first name"],
+  last_name: ["cognome", "cognome titolare", "cognome responsabile", "last_name", "last name"],
+  owner: ["titolare", "proprietario", "responsabile", "titolare/responsabile", "proprietario o responsabile", "referente"],
+  city: ["città", "citta", "comune", "località", "localita", "city"],
+  structure_type: ["tipo", "tipologia", "tipo struttura", "categoria", "type"],
+  phone: ["telefono", "cellulare", "tel", "tel.", "phone", "numero di telefono"],
+  whatsapp: ["whatsapp", "ha whatsapp", "telefono whatsapp", "wa"],
+  email: ["email", "e-mail", "mail", "posta elettronica"],
+  notes: ["note", "notes", "sito", "sito web", "website"],
+};
+
+function parseDelimited(text) {
+  const clean = String(text || "").replace(/^﻿/, "");
+  const firstLine = clean.split(/\r?\n/, 1)[0] || "";
+  const sep = [";", "\t", ","].map((c) => [c, firstLine.split(c).length]).sort((a, b) => b[1] - a[1])[0][0];
+  const rows = [];
+  let row = [];
+  let field = "";
+  let quoted = false;
+  for (let i = 0; i < clean.length; i += 1) {
+    const ch = clean[i];
+    if (quoted) {
+      if (ch === '"' && clean[i + 1] === '"') { field += '"'; i += 1; }
+      else if (ch === '"') quoted = false;
+      else field += ch;
+    } else if (ch === '"' && !field) quoted = true;
+    else if (ch === sep) { row.push(field); field = ""; }
+    else if (ch === "\n" || ch === "\r") {
+      if (ch === "\r" && clean[i + 1] === "\n") i += 1;
+      row.push(field); field = "";
+      if (row.some((cell) => cell.trim())) rows.push(row);
+      row = [];
+    } else field += ch;
+  }
+  row.push(field);
+  if (row.some((cell) => cell.trim())) rows.push(row);
+  return rows;
+}
+
+/** The partners in a CSV file, keyed for the import_partners service. */
+function partnersFromCsv(text) {
+  const rows = parseDelimited(text);
+  if (rows.length < 2) return [];
+  const header = rows[0].map((cell) => cell.trim().toLowerCase());
+  const index = {};
+  Object.entries(PARTNER_COLUMNS).forEach(([key, names]) => {
+    const at = header.findIndex((name) => names.includes(name));
+    if (at >= 0) index[key] = at;
+  });
+  return rows.slice(1).map((cells) => {
+    const get = (key) => (index[key] != null ? String(cells[index[key]] || "").trim() : "");
+    const entry = {};
+    ["company", "first_name", "last_name", "city", "structure_type", "phone", "whatsapp", "email", "notes"].forEach((key) => { entry[key] = get(key); });
+    const owner = get("owner");
+    if (owner && !entry.first_name && !entry.last_name) {
+      const parts = owner.split(/\s+/);
+      entry.first_name = parts.shift() || "";
+      entry.last_name = parts.join(" ");
+    }
+    return entry;
+  }).filter((entry) => entry.company || entry.first_name);
+}
 
 /**
  * Tiny DOM builder. Accepts `el("div", {class: "x"}, child, ...)`.
@@ -10359,11 +10429,20 @@ class SpaBookingCard extends HTMLElement {
     this._searchInputRedraw(search, ".partner-search", (value) => { this._partnerQuery = value; });
     wrap.appendChild(el("div", { class: "row" }, search,
       canEdit ? el("button", { class: "btn small primary", on: { click: () => {
-        this._partnerDraft = { first_name: "", last_name: "", company: "", phone: "", email: "", code: "", notes: "", active: true };
+        this._partnerDraft = { first_name: "", last_name: "", company: "", city: "", structure_type: "", phone: "", whatsapp: false, email: "", code: "", notes: "", active: true, subscribed: true };
         this._render();
-      } } }, el("ha-icon", { icon: "mdi:plus" }), "Nuovo partner") : null));
+      } } }, el("ha-icon", { icon: "mdi:plus" }), "Nuovo partner") : null,
+      canEdit && this._can("config") ? el("button", { class: "btn small", title: "Importa un file CSV (Excel › Salva con nome › CSV)", disabled: this._busy,
+        on: { click: () => this._partnerImportPick() } }, el("ha-icon", { icon: "mdi:file-upload-outline" }), "Importa file") : null,
+      canEdit && this._can("config") ? el("button", { class: "btn small ghost", title: "Scarica un file d'esempio con le colonne giuste",
+        on: { click: () => this._partnerTemplate() } }, el("ha-icon", { icon: "mdi:file-download-outline" }), "Modello") : null));
+    const subscribed = partners.filter((p) => p.subscribed !== false).length;
     wrap.appendChild(el("div", { class: "pg-sum" }, el("ha-icon", { icon: "mdi:information-outline" }),
-      el("span", {}, "I partner promuovono i vostri trattamenti e voucher. Per ora si aggiungono a mano; la registrazione dal sito arriverà dopo.")));
+      el("span", {}, el("b", {}, `${partners.length} partner · ${subscribed} iscritti a email e promo. `),
+        "Le campagne vanno solo agli iscritti; ogni email ha in fondo il link per cancellarsi. Importa un file CSV con le colonne Nome struttura, Nome, Cognome, Città, Tipo, Telefono, WhatsApp, Email.")));
+    const filter = this._partnerFilter || "";
+    wrap.appendChild(el("div", { class: "row chips" }, [["", "Tutti"], ["sub", "Iscritti"], ["unsub", "Disiscritti"], ["noemail", "Senza email"]].map(([id, text]) =>
+      el("button", { class: `pm-chip${filter === id ? " info" : ""}`, style: "cursor:pointer;border:0", on: { click: () => { this._partnerFilter = id; this._render(); } } }, text))));
 
     if (this._partnerDraft) {
       const draft = this._partnerDraft;
@@ -10377,15 +10456,27 @@ class SpaBookingCard extends HTMLElement {
         el("div", { class: "field-grid" }, field("first_name", "Nome"), field("last_name", "Cognome")),
         el("div", { class: "field-grid" }, field("company", "Attività (es. B&B, agenzia, palestra)"),
           field("code", "Codice partner", "text", { placeholder: "automatico (PRT-XXXX)", style: "text-transform: uppercase" })),
+        el("div", { class: "field-grid" }, field("city", "Città"),
+          el("label", { class: "field" }, el("span", {}, "Tipo di struttura"),
+            el("select", { class: "input", on: { change: (event) => { draft.structure_type = event.target.value; } } },
+              el("option", { value: "" }, "—"),
+              ...[...new Set([...PARTNER_TYPES, draft.structure_type].filter(Boolean))].map((type) =>
+                el("option", { value: type, selected: draft.structure_type === type }, type))))),
         el("div", { class: "field-grid" }, field("phone", "Telefono"), field("email", "Email", "email")),
         field("notes", "Note", "textarea"),
+        el("label", { class: "check" }, el("input", { type: "checkbox", checked: !!draft.whatsapp,
+          on: { change: (event) => { draft.whatsapp = event.target.checked; } } }), "Il numero ha WhatsApp"),
+        el("label", { class: "check" }, el("input", { type: "checkbox", checked: draft.subscribed !== false,
+          on: { change: (event) => { draft.subscribed = event.target.checked; } } }), "Iscritto a email e promo"),
         el("label", { class: "check" }, el("input", { type: "checkbox", checked: draft.active !== false,
           on: { change: (event) => { draft.active = event.target.checked; } } }), "Attivo"),
         el("div", { class: "row" }, el("span", { class: "spacer" }),
           el("button", { class: "btn", on: { click: () => { this._partnerDraft = null; this._render(); } } }, "Annulla"),
           el("button", { class: "btn primary", disabled: this._busy, on: { click: async () => {
             try {
-              await this._call("save_partner", { ...draft, code: (draft.code || "").trim().toUpperCase() });
+              const keep = ["id", "first_name", "last_name", "company", "phone", "email", "code", "notes", "active", "city", "structure_type", "whatsapp", "subscribed"];
+              const payload = Object.fromEntries(keep.filter((key) => draft[key] !== undefined).map((key) => [key, draft[key]]));
+              await this._call("save_partner", { ...payload, code: (draft.code || "").trim().toUpperCase() });
               this._partnerDraft = null;
               this._message = { kind: "ok", text: "Partner salvato." };
               this._render();
@@ -10393,8 +10484,10 @@ class SpaBookingCard extends HTMLElement {
           } } }, el("ha-icon", { icon: "mdi:content-save" }), "Salva"))));
     }
 
-    const shown = partners.filter((p) => !query || [p.first_name, p.last_name, p.company, p.phone, p.email, p.code, p.notes]
-      .join(" ").toLowerCase().includes(query));
+    const shown = partners.filter((p) => (!query || [p.first_name, p.last_name, p.company, p.city, p.structure_type, p.phone, p.email, p.code, p.notes]
+      .join(" ").toLowerCase().includes(query))
+      && (filter !== "sub" || p.subscribed !== false) && (filter !== "unsub" || p.subscribed === false)
+      && (filter !== "noemail" || !p.email));
     if (!shown.length) {
       wrap.appendChild(el("div", { class: "empty" }, query ? "Nessun partner trovato." : "Nessun partner ancora. Aggiungine uno con «Nuovo partner»."));
       return wrap;
@@ -10407,8 +10500,10 @@ class SpaBookingCard extends HTMLElement {
         el("div", { class: "client-main" },
           el("div", { class: "client-name" }, partner.company || name || "Partner",
             el("span", { class: "pm-chip info" }, partner.code),
-            partner.active === false ? el("span", { class: "pm-chip" }, "Non attivo") : null),
-          el("div", { class: "dim small" }, [partner.company ? name : "", partner.phone, partner.email].filter(Boolean).join(" · ") || "—"),
+            partner.active === false ? el("span", { class: "pm-chip" }, "Non attivo") : null,
+            partner.subscribed === false ? el("span", { class: "pm-chip warn", title: partner.unsubscribed_at ? `Dal ${new Date(partner.unsubscribed_at).toLocaleDateString("it-IT")}` : "" }, "Disiscritto") : null),
+          el("div", { class: "dim small" }, [partner.structure_type, partner.city].filter(Boolean).join(" · ") || null),
+          el("div", { class: "dim small" }, [partner.company ? name : "", partner.phone ? `${partner.phone}${partner.whatsapp ? " (WhatsApp)" : ""}` : "", partner.email].filter(Boolean).join(" · ") || "—"),
           partner.notes ? el("div", { class: "dim small" }, partner.notes) : null,
           (() => {
             const info = ((this._data.partner_points || {})[partner.id]) || { balance: 0, bookings: 0, booked: 0 };
@@ -10441,6 +10536,48 @@ class SpaBookingCard extends HTMLElement {
     });
     wrap.appendChild(list);
     return wrap;
+  }
+
+  /** Pick a CSV of partners and import it (2.6.0). */
+  _partnerImportPick() {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".csv,.txt,.tsv,text/csv,text/plain";
+    input.addEventListener("change", async () => {
+      const file = input.files && input.files[0];
+      if (!file) return;
+      const text = await file.text();
+      const partners = partnersFromCsv(text);
+      if (!partners.length) {
+        this._message = { kind: "error", text: "Nel file non ho trovato partner: serve una riga di intestazione con almeno Nome struttura (o Nome) e Email o Telefono." };
+        this._render();
+        return;
+      }
+      const withEmail = partners.filter((p) => p.email).length;
+      if (!window.confirm(`Importare ${partners.length} partner da «${file.name}» (${withEmail} con email)?\nChi ha già la stessa email non viene duplicato.`)) return;
+      try {
+        const result = await this._call("import_partners", { partners });
+        const r = (result && result.response) || result || {};
+        this._message = { kind: "ok", text: `Importati ${r.added || 0} partner nuovi, ${r.updated || 0} completati, ${r.skipped || 0} saltati (doppi o senza contatti).` };
+        this._render();
+      } catch (error) { /* shown */ }
+    });
+    input.click();
+  }
+
+  /** A CSV with the right columns, to fill in Excel. */
+  _partnerTemplate() {
+    const text = "\uFEFFNome struttura;Tipo;Nome;Cognome;Città;Telefono;WhatsApp;Email;Note\r\n"
+      + "B&B Esempio;B&B;Giulia;Rossi;Sciacca;333 1234567;sì;info@bbesempio.it;\r\n";
+    const blob = new Blob([text], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "partner-modello.csv";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   }
 
   /** The points of a client as the server worked them out (2.4.0). */

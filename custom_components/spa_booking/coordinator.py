@@ -2980,6 +2980,8 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         break
             elif code in codes:
                 raise ValidationError(f"Il codice {code} è già di un altro partner")
+            if current is not None and "subscribed" in data and bool(data.get("subscribed")) != current.get("subscribed", True):
+                data = {**data, "unsubscribed_at": "" if data.get("subscribed") else dt_util.utcnow().isoformat()}
             record = _norm_partner({**(current or {}), **data, "code": code,
                                     **({"id": current["id"], "created_at": current["created_at"]} if current else {})})
             if current is not None:
@@ -3109,6 +3111,11 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         subject = fill(str(campaign.get("subject") or campaign.get("name") or "Spa"))
         body = fill(str(campaign.get("message") or ""))
+        # Every campaign says how to stop them (2.6.0).
+        link = self.partner_unsubscribe_url(partner) if partner.get("id") else ""
+        footer = ("Non vuoi più ricevere queste email? Cancella l'iscrizione: " + link) if link else \
+            "Non vuoi più ricevere queste email? Rispondi «CANCELLAMI» e ti togliamo dall'elenco."
+        body = f"{body.rstrip()}\n\n—\n{footer}"
         return subject, body, _email_html(body)
 
     async def async_send_partner_campaign(self, campaign_id: str, test_to: str = "") -> dict[str, Any]:
@@ -3129,9 +3136,11 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if not result.get("sent"):
                 raise ValidationError(result.get("error") or "Email di prova non inviata")
             return {"sent": 1, "test": True, "to": result.get("to")}
-        targets = [p for p in self.partners if p.get("active", True) and "@" in str(p.get("email") or "")]
+        # Unsubscribed partners (2.6.0) receive nothing at all.
+        targets = [p for p in self.partners
+                   if p.get("active", True) and p.get("subscribed", True) and "@" in str(p.get("email") or "")]
         if not targets:
-            raise ValidationError("Nessun partner attivo con email")
+            raise ValidationError("Nessun partner attivo e iscritto con email")
         sent = 0
         errors: list[str] = []
         for index, partner in enumerate(targets):
@@ -3180,6 +3189,97 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     campaign["last_error"] = str(err)
                     await self._async_save()
         return results or {"sent": 0, "reason": "nessuna campagna partner da inviare ora"}
+
+    async def async_import_partners(self, rows: list[dict[str, Any]]) -> dict[str, Any]:
+        """Add many partners at once (2.6.0).
+
+        The same email (or, without one, the same structure in the same town)
+        is the same partner: nothing is duplicated, and an existing partner
+        only gets the fields it was missing, so an unsubscribed one stays so.
+        """
+        allowed = ("company", "first_name", "last_name", "city", "structure_type", "phone", "email", "notes")
+        added = updated = skipped = 0
+        async with self._lock:
+            codes = {p["code"] for p in self.partners}
+            by_email = {str(p.get("email") or "").strip().lower(): p for p in self.partners if p.get("email")}
+            by_name = {(str(p.get("company") or "").strip().lower(), str(p.get("city") or "").strip().lower()): p
+                       for p in self.partners if p.get("company")}
+            for raw in rows[:5000]:
+                if not isinstance(raw, dict):
+                    skipped += 1
+                    continue
+                row = {key: str(raw.get(key) or "").strip() for key in allowed}
+                row["email"] = row["email"].lower()
+                if row["email"] and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", row["email"]):
+                    row["email"] = ""
+                if not (row["company"] or row["first_name"]) or not (row["email"] or row["phone"]):
+                    skipped += 1
+                    continue
+                whatsapp = str(raw.get("whatsapp") or "").strip().lower() in ("1", "si", "sì", "yes", "true", "x", "whatsapp")
+                current = by_email.get(row["email"]) if row["email"] else None
+                current = current or by_name.get((row["company"].lower(), row["city"].lower())) if row["company"] else current
+                if current is not None:
+                    changed = False
+                    for key, value in row.items():
+                        if value and not str(current.get(key) or "").strip():
+                            current[key] = value
+                            changed = True
+                    if whatsapp and not current.get("whatsapp"):
+                        current["whatsapp"] = True
+                        changed = True
+                    updated += 1 if changed else 0
+                    skipped += 0 if changed else 1
+                    continue
+                while True:
+                    code = "PRT-" + secrets.token_hex(2).upper()
+                    if code not in codes:
+                        codes.add(code)
+                        break
+                record = _norm_partner({**row, "whatsapp": whatsapp, "code": code, "source": "import", "subscribed": True})
+                self.partners.append(record)
+                if record["email"]:
+                    by_email[record["email"]] = record
+                if record["company"]:
+                    by_name[(record["company"].lower(), record["city"].lower())] = record
+                added += 1
+            await self._async_save()
+        return {"added": added, "updated": updated, "skipped": skipped}
+
+    def partner_unsubscribe_url(self, partner: dict[str, Any]) -> str:
+        """The page where a partner stops the emails (2.6.0); "" without a public address."""
+        base = str(self._data.get(KEY_SETTINGS, {}).get("web_public_url") or "").strip().rstrip("/")
+        if not base:
+            try:
+                from homeassistant.helpers.network import NoURLAvailableError, get_url
+
+                try:
+                    base = get_url(self.hass, allow_internal=False, prefer_external=True).rstrip("/")
+                except NoURLAvailableError:
+                    base = ""
+            except ImportError:  # pragma: no cover - old cores
+                base = ""
+        if not base or not partner.get("unsub_token"):
+            return ""
+        return f"{base}/api/spa_booking/partner/unsubscribe?t={partner['unsub_token']}"
+
+    def partner_by_unsub_token(self, token: str) -> dict[str, Any] | None:
+        """The partner of an unsubscribe link, if the token is one of ours."""
+        token = str(token or "")
+        if len(token) < 16:
+            return None
+        return next((p for p in self.partners if secrets.compare_digest(str(p.get("unsub_token") or ""), token)), None)
+
+    async def async_partner_unsubscribe(self, token: str) -> dict[str, Any] | None:
+        """Stop every email and promo to the partner of this link."""
+        async with self._lock:
+            partner = self.partner_by_unsub_token(token)
+            if partner is None:
+                return None
+            if partner.get("subscribed", True):
+                partner["subscribed"] = False
+                partner["unsubscribed_at"] = dt_util.utcnow().isoformat()
+                await self._async_save()
+        return partner
 
     async def async_delete_partner(self, partner_id: str) -> dict[str, Any]:
         """Remove a partner from the list."""
