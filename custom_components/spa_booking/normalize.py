@@ -22,6 +22,11 @@ from .const import (
     DEFAULT_QUIET_HOURS_START,
     KEY_VOUCHERS,
     KEY_PROMO_VOUCHERS,
+    KEY_PARTNERS,
+    DEFAULT_LOYALTY_POINTS_PER_EURO,
+    DEFAULT_LOYALTY_THRESHOLD,
+    DEFAULT_LOYALTY_REWARD,
+    DEFAULT_LOYALTY_MESSAGE,
     PROMO_VOUCHER_CODE_PREFIX,
     PROMO_VOUCHER_PENDING,
     PROMO_VOUCHER_REDEEMED,
@@ -219,6 +224,10 @@ def _norm_voucher(raw: Any) -> dict[str, Any]:
         # Kept through normalisation: without it every restart forgot that
         # the expiry reminder had already gone out.
         "expiry_reminder_sent": bool(raw.get("expiry_reminder_sent", False)),
+        # Where it came from: sold at the desk (""), or a loyalty reward
+        # ("punti", 2.4.0), which earns no points itself.
+        "source": str(raw.get("source") or ""),
+        "client_id": str(raw.get("client_id") or ""),
     }
 
 
@@ -939,6 +948,13 @@ def _norm_settings(raw: dict[str, Any]) -> dict[str, Any]:
             raw.get("promo_voucher_after_hours"), 0, 8760,
             DEFAULT_PROMO_VOUCHER_AFTER_HOURS,
         ),
+        # Loyalty points (2.4.0).
+        "loyalty_enabled": bool(raw.get("loyalty_enabled", False)),
+        "loyalty_points_per_euro": _norm_rate(raw.get("loyalty_points_per_euro")),
+        "loyalty_threshold": _norm_count(raw.get("loyalty_threshold"), 1, 1_000_000, DEFAULT_LOYALTY_THRESHOLD),
+        "loyalty_reward": _norm_count(raw.get("loyalty_reward"), 1, 100_000, DEFAULT_LOYALTY_REWARD),
+        "loyalty_auto": bool(raw.get("loyalty_auto", True)),
+        "loyalty_message": str(raw.get("loyalty_message") or DEFAULT_LOYALTY_MESSAGE),
         "promo_voucher_auto": bool(
             raw.get("promo_voucher_auto", DEFAULT_PROMO_VOUCHER_AUTO)
         ),
@@ -1208,6 +1224,59 @@ def _norm_client(raw: dict[str, Any]) -> dict[str, Any]:
         # How many promo messages reached her, and the last one (2.3.2).
         "promo_sent_count": _norm_count(raw.get("promo_sent_count"), 0, 1_000_000, 0),
         "promo_last_sent_at": str(raw.get("promo_last_sent_at") or ""),
+        # Loyalty points (2.4.0): what was spent on rewards, the desk's
+        # corrections, and the log of both. What was earned is worked out
+        # from the takings and the vouchers bought, never stored.
+        "loyalty_spent": _norm_count(raw.get("loyalty_spent"), 0, 10**9, 0),
+        "loyalty_adjust": _norm_signed(raw.get("loyalty_adjust")),
+        "loyalty_log": [
+            {
+                "at": str(item.get("at") or ""),
+                "kind": str(item.get("kind") or ""),
+                "points": _norm_signed(item.get("points")),
+                "note": str(item.get("note") or ""),
+                "code": str(item.get("code") or ""),
+                "by": str(item.get("by") or ""),
+            }
+            for item in raw.get("loyalty_log") or []
+            if isinstance(item, dict)
+        ][-200:],
+    }
+
+
+def _norm_signed(raw: Any) -> int:
+    """A whole number that may be negative (a correction of points)."""
+    try:
+        return int(round(float(raw)))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _norm_rate(raw: Any) -> float:
+    """Points per euro: zero or more, two decimals; 1 when unset."""
+    if raw is None or raw == "":
+        return DEFAULT_LOYALTY_POINTS_PER_EURO
+    try:
+        return max(0.0, round(float(str(raw).replace(",", ".")), 2))
+    except (TypeError, ValueError):
+        return DEFAULT_LOYALTY_POINTS_PER_EURO
+
+
+def _norm_partner(raw: Any) -> dict[str, Any]:
+    """A partner who promotes the spa (2.4.0)."""
+    raw = raw if isinstance(raw, dict) else {}
+    return {
+        "id": str(raw.get("id") or _new_id("prt")),
+        "first_name": str(raw.get("first_name") or "").strip(),
+        "last_name": str(raw.get("last_name") or "").strip(),
+        "company": str(raw.get("company") or "").strip(),
+        "phone": str(raw.get("phone") or "").strip(),
+        "email": str(raw.get("email") or "").strip(),
+        "code": str(raw.get("code") or "").strip().upper(),
+        "notes": str(raw.get("notes") or ""),
+        "active": bool(raw.get("active", True)),
+        "source": str(raw.get("source") or "manuale"),
+        "created_at": str(raw.get("created_at") or dt_util.utcnow().isoformat()),
     }
 
 
@@ -1772,6 +1841,7 @@ def _normalise(raw: dict[str, Any]) -> dict[str, Any]:
             _norm_promo_voucher(v) for v in raw.get(KEY_PROMO_VOUCHERS) or []
         ],
         KEY_REQUESTS: [_norm_request(r) for r in raw.get(KEY_REQUESTS) or []],
+        KEY_PARTNERS: [_norm_partner(p) for p in raw.get(KEY_PARTNERS) or []],
         KEY_SETTINGS: _norm_settings(raw.get(KEY_SETTINGS) or {}),
     }
 
@@ -1839,6 +1909,7 @@ def default_data(operator_names: list[str] | None = None) -> dict[str, Any]:
         # (KeyError) until the first restart normalised the stored file.
         KEY_VOUCHERS: [],
         KEY_PROMO_VOUCHERS: [],
+        KEY_PARTNERS: [],
         KEY_SETTINGS: default_settings(),
     }
 

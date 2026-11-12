@@ -133,6 +133,25 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v2.4.0** — Dettaglio a lato, punti fedeltà e partner (serve il riavvio di
+  Home Assistant):
+  - **Dettaglio appuntamento**: su computer non è più un popup, si apre a
+    destra dell'Agenda (Timeline ed Elenco, anche per i gruppi con «Singolo /
+    Gruppo»). Nuova grafica: testata colorata per stato, orario grande, riquadri
+    con operatrice, ospite, codice, accessori, totale e da incassare, un grande
+    pulsante per l'azione del momento (Conferma, Entrata, Uscita) e pulsanti
+    tondi (Modifica, Chiama, WhatsApp, Recensione). Sul telefono sale dal basso.
+  - **Punti fedeltà** (Configurazione › Promo › Punti fedeltà): punti per euro
+    impostabili, calcolati sugli incassi delle prenotazioni (non su quelli
+    pagati con voucher o gift card) e sui voucher acquistati; un appuntamento
+    annullato perde i suoi punti. Alla soglia il cliente riceve un buono in euro
+    su WhatsApp (automatico o dalla scheda cliente), i punti si scalano.
+    Saldo, barra verso il premio, rettifiche e storico nella scheda cliente;
+    classifica in Promo. Servizi `loyalty_reward` e `loyalty_adjust`.
+  - **Partner** (Clienti › Partner): elenco con codice PRT-XXXX, aggiunta,
+    modifica ed eliminazione a mano. Servizi `save_partner` e `delete_partner`.
+    La registrazione dal sito arriverà più avanti.
+
 - **v2.3.12** — Agenda rinnovata (cambia solo la card):
   - In alto il giorno per esteso («Sabato 14 novembre, fra 3 giorni») con le
     frecce, «Oggi» e le viste **Timeline**, **Elenco** e **Mese**.

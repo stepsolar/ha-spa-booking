@@ -62,6 +62,8 @@ VOUCHER_VALID_MONTHS: Final = 6
 #: from the sold gift vouchers, because they carry a percentage discount on a
 #: spend range instead of named treatments.
 KEY_PROMO_VOUCHERS: Final = "promo_vouchers"
+#: The partners who promote the spa (2.4.0), kept apart from the clients.
+KEY_PARTNERS: Final = "partners"
 #: Created at check-out, waiting for its message to be sent.
 PROMO_VOUCHER_PENDING: Final = "pending"
 #: The thank-you message has gone out; the code is usable until it expires.
@@ -658,3 +660,24 @@ EVENT_ANSWER_REQUEST: Final = f"{DOMAIN}_answer_request"
 #: Fired when a WhatsApp message arrives from a number that is not a client
 #: or an operator, so the desk can read and answer the request.
 EVENT_EXTERNAL_MESSAGE: Final = f"{DOMAIN}_external_message"
+
+# --------------------------------------------------------------- 2.4.0 points
+#: Loyalty points: how many per euro paid (appointments and vouchers bought).
+DEFAULT_LOYALTY_POINTS_PER_EURO: Final = 1.0
+#: Points needed for the reward voucher, and its value in euro.
+DEFAULT_LOYALTY_THRESHOLD: Final = 500
+DEFAULT_LOYALTY_REWARD: Final = 25
+#: The WhatsApp message with the reward voucher. Placeholders: {nome},
+#: {cognome}, {codice}, {valore}, {punti}, {scadenza}.
+DEFAULT_LOYALTY_MESSAGE: Final = "\n".join(
+    [
+        "Gentile {nome}, grazie per la Sua fedeltà! 💆‍♀️✨",
+        "",
+        "Ha raggiunto {punti} punti e per Lei c'è un buono da {valore} da usare nella nostra spa:",
+        "🎟️ Codice: {codice}",
+        "📅 Valido fino al: {scadenza}",
+        "",
+        "Basta indicare il codice quando prenota.",
+        "Lo Staff - Il Marchese Hotel & Spa",
+    ]
+)

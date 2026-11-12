@@ -132,6 +132,10 @@ SERVICE_EXTEND_VOUCHER = "extend_voucher"
 SERVICE_DELETE_VOUCHER = "delete_voucher"
 SERVICE_REDEEM_PROMO_VOUCHER = "redeem_promo_voucher"
 SERVICE_DELETE_PROMO_VOUCHER = "delete_promo_voucher"
+SERVICE_LOYALTY_REWARD = "loyalty_reward"
+SERVICE_LOYALTY_ADJUST = "loyalty_adjust"
+SERVICE_SAVE_PARTNER = "save_partner"
+SERVICE_DELETE_PARTNER = "delete_partner"
 SERVICE_PROMO_VOUCHER_TICK = "promo_voucher_tick"
 SERVICE_SEND_OPERATOR_MESSAGE = "send_operator_message"
 SERVICE_SEND_GUEST_SUMMARY = "send_guest_summary"
@@ -227,6 +231,10 @@ ALL_SERVICES = (
     SERVICE_DELETE_VOUCHER,
     SERVICE_REDEEM_PROMO_VOUCHER,
     SERVICE_DELETE_PROMO_VOUCHER,
+    SERVICE_LOYALTY_REWARD,
+    SERVICE_LOYALTY_ADJUST,
+    SERVICE_SAVE_PARTNER,
+    SERVICE_DELETE_PARTNER,
     SERVICE_PROMO_VOUCHER_TICK,
     SERVICE_SEND_OPERATOR_MESSAGE,
     SERVICE_SEND_GUEST_SUMMARY,
@@ -845,6 +853,13 @@ UPDATE_SETTINGS_SCHEMA = vol.Schema(
         vol.Optional("promo_voucher_max_spend"): vol.Any(vol.All(vol.Coerce(int), vol.Range(min=0, max=100000)), None),
         vol.Optional("promo_voucher_after_hours"): vol.Any(vol.All(vol.Coerce(int), vol.Range(min=0, max=8760)), None),
         vol.Optional("promo_voucher_auto"): vol.Any(cv.boolean, None),
+        # Loyalty points (2.4.0).
+        vol.Optional("loyalty_enabled"): vol.Any(cv.boolean, None),
+        vol.Optional("loyalty_points_per_euro"): vol.Any(vol.Coerce(float), None),
+        vol.Optional("loyalty_threshold"): vol.Any(vol.Coerce(int), None),
+        vol.Optional("loyalty_reward"): vol.Any(vol.Coerce(int), None),
+        vol.Optional("loyalty_auto"): vol.Any(cv.boolean, None),
+        vol.Optional("loyalty_message"): vol.Any(cv.string, None),
         vol.Optional("promo_order"): vol.Any(
             {
                 vol.Optional("left"): vol.All(cv.ensure_list, [cv.string]),
@@ -1127,6 +1142,39 @@ DELETE_VOUCHER_SCHEMA = vol.Schema(
 REDEEM_PROMO_VOUCHER_SCHEMA = vol.Schema(
     {vol.Required("voucher_id"): cv.string},
     extra=vol.PREVENT_EXTRA,
+)
+
+LOYALTY_REWARD_SCHEMA = vol.Schema(
+    {vol.Required("client_id"): cv.string, vol.Optional("send", default=True): cv.boolean},
+    extra=vol.PREVENT_EXTRA,
+)
+
+LOYALTY_ADJUST_SCHEMA = vol.Schema(
+    {
+        vol.Required("client_id"): cv.string,
+        vol.Required("points"): vol.Coerce(int),
+        vol.Optional("note", default=""): cv.string,
+    },
+    extra=vol.PREVENT_EXTRA,
+)
+
+SAVE_PARTNER_SCHEMA = vol.Schema(
+    {
+        vol.Optional("id"): vol.Any(cv.string, None),
+        vol.Optional("first_name"): vol.Any(cv.string, None),
+        vol.Optional("last_name"): vol.Any(cv.string, None),
+        vol.Optional("company"): vol.Any(cv.string, None),
+        vol.Optional("phone"): vol.Any(cv.string, None),
+        vol.Optional("email"): vol.Any(cv.string, None),
+        vol.Optional("code"): vol.Any(cv.string, None),
+        vol.Optional("notes"): vol.Any(cv.string, None),
+        vol.Optional("active"): vol.Any(cv.boolean, None),
+    },
+    extra=vol.PREVENT_EXTRA,
+)
+
+DELETE_PARTNER_SCHEMA = vol.Schema(
+    {vol.Required("partner_id"): cv.string}, extra=vol.PREVENT_EXTRA
 )
 
 DELETE_PROMO_VOUCHER_SCHEMA = vol.Schema(
@@ -1561,6 +1609,37 @@ async def _async_redeem_promo_voucher(call: ServiceCall) -> ServiceResponse:
         call.data["voucher_id"]
     )
     return {"voucher": voucher}
+
+
+def _acting_name() -> str:
+    """Who is acting, for the logs of points (2.4.0)."""
+    acting = _ACTING.get()
+    return acting.name if acting is not None else ""
+
+
+async def _async_loyalty_reward(call: ServiceCall) -> ServiceResponse:
+    """Give a client her reward voucher for the points, and send it on WhatsApp."""
+    return await _coordinator(call).async_loyalty_reward(
+        call.data["client_id"], _acting_name(), call.data.get("send", True)
+    )
+
+
+async def _async_loyalty_adjust(call: ServiceCall) -> ServiceResponse:
+    """Add or take points by hand, with a reason."""
+    return await _coordinator(call).async_loyalty_adjust(
+        call.data["client_id"], call.data["points"], call.data.get("note", ""), _acting_name()
+    )
+
+
+async def _async_save_partner(call: ServiceCall) -> ServiceResponse:
+    """Add or change a partner."""
+    data = {k: v for k, v in call.data.items() if v is not None}
+    return await _coordinator(call).async_save_partner(data)
+
+
+async def _async_delete_partner(call: ServiceCall) -> ServiceResponse:
+    """Remove a partner."""
+    return await _coordinator(call).async_delete_partner(call.data["partner_id"])
 
 
 async def _async_delete_promo_voucher(call: ServiceCall) -> ServiceResponse:
@@ -2117,7 +2196,8 @@ async def _async_export_data(call: ServiceCall) -> ServiceResponse:
         }
     # The card never needs the PIN hashes (the full backup keeps them).
     settings = {**settings, KEY_PROFILES: access.public_profiles(settings.get(KEY_PROFILES) or {})}
-    data = {**data, "settings": settings}
+    # The points of each client (2.4.0), worked out here once for the card.
+    data = {**data, "settings": settings, "loyalty": coordinator.loyalty_summary()}
     return {
         "data": data,
         "integration_version": INTEGRATION_VERSION,
@@ -2736,6 +2816,10 @@ _HANDLERS: dict[str, tuple[Any, Any, SupportsResponse]] = {
         REDEEM_PROMO_VOUCHER_SCHEMA,
         SupportsResponse.ONLY,
     ),
+    SERVICE_LOYALTY_REWARD: (_async_loyalty_reward, LOYALTY_REWARD_SCHEMA, SupportsResponse.ONLY),
+    SERVICE_LOYALTY_ADJUST: (_async_loyalty_adjust, LOYALTY_ADJUST_SCHEMA, SupportsResponse.ONLY),
+    SERVICE_SAVE_PARTNER: (_async_save_partner, SAVE_PARTNER_SCHEMA, SupportsResponse.ONLY),
+    SERVICE_DELETE_PARTNER: (_async_delete_partner, DELETE_PARTNER_SCHEMA, SupportsResponse.ONLY),
     SERVICE_DELETE_PROMO_VOUCHER: (
         _async_delete_promo_voucher,
         DELETE_PROMO_VOUCHER_SCHEMA,
@@ -2983,6 +3067,10 @@ SERVICE_LEVELS: dict[str, str] = {
     SERVICE_DELETE_VOUCHER: "manager",
     SERVICE_REDEEM_PROMO_VOUCHER: "manager",
     SERVICE_DELETE_PROMO_VOUCHER: "manager",
+    SERVICE_LOYALTY_REWARD: "operator",
+    SERVICE_LOYALTY_ADJUST: "manager",
+    SERVICE_SAVE_PARTNER: "operator",
+    SERVICE_DELETE_PARTNER: "manager",
     SERVICE_MERGE_CLIENTS: "manager",
 }
 
