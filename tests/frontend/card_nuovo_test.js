@@ -87,3 +87,12 @@ card._accOpen("__new__");
 assert(card._accDraft.vat_rate === -1, "new accessory uses the default VAT");
 // The edit form closes when the tab changes.
 assert(Card.prototype._render.toString().includes('this._editing.kind === "appointment" && this._tab !== "agenda"'), "edit closed off the agenda");
+
+// 2.5.3: the agenda detail closes on another tab; lanes only for busy operators.
+assert(Card.prototype._render.toString().includes("this._detailTab !== this._tab"), "detail closed off its tab");
+card._lookup.appointment = new Map(card._data.appointments.map((a) => [a.id, a]));
+card._agParties = (list) => list.map((a) => [a]);
+card._pauseOfAppointment = () => 0;
+card._day = day;
+const lanesText = card._agTimeline(card._data.appointments).textContent;
+assert(lanesText.includes("Marco") && !lanesText.includes("Maria"), "only operators with appointments");
