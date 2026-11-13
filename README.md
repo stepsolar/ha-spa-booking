@@ -133,6 +133,14 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v2.8.7** — **Annullamento con messaggio all'ospite e sconto nella
+  conferma** (serve il riavvio di Home Assistant). «Annulla appuntamento» apre
+  un popup: per una prenotazione di più persone chiede se annullare solo
+  quella o **tutto il gruppo**, e se **inviare all'ospite il messaggio di
+  annullamento** su WhatsApp (testo in Notifiche › Annullamento, un solo
+  messaggio per il gruppo). La conferma all'ospite mostra lo **sconto**:
+  prezzo pieno barrato accanto a quello scontato e la riga «🎁 Sconto partner
+  10%: −16,00 €» (`{sconto}`, che sparisce se non c'è sconto).
 - **v2.8.6** — **Programma partner** (serve il riavvio di Home Assistant).
   Nuova scheda Promo › Programma partner: link del modulo, **sconto agli
   ospiti** che prenotano col link di un partner (generale o per partner), punti

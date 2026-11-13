@@ -79,3 +79,67 @@ def test_partner_reward_voucher_is_sent(coordinator, freeze, monkeypatch) -> Non
     from custom_components.spa_booking.exceptions import ValidationError
     with pytest.raises(ValidationError):
         run(coordinator.async_partner_reward(partner["id"]))
+
+
+def test_confirmation_shows_the_discount(coordinator, freeze, monkeypatch) -> None:
+    freeze("2026-11-13 10:00")
+    partner = _setup(coordinator)
+    sent = []
+
+    async def fake(hass, chat_id, message, blocking=True, waha=None):
+        sent.append(message)
+        return {"sent": True}
+
+    monkeypatch.setattr(messaging, "async_send_whatsapp", fake)
+    booked = run(coordinator.async_create_bookings([{
+        "treatment_id": MASSAGE, "partner_id": partner["id"],
+        "entries": [{"start": "2026-11-14T10:00:00", "first_name": "Anna", "phone": "347 1234567", "person": i,
+                     "operator_ids": OPS} for i in range(2)]}]))["appointments"]
+    run(coordinator.async_send_guest_summary(booked[0]["id"]))
+    text = sent[-1]
+    assert "~80,00 €~ 72,00 €" in text
+    assert "🎁 Sconto partner 10%: −16,00 €" in text
+    assert "Totale 144,00 €" in text
+    # A booking without discount has no discount line, and no empty line for it.
+    plain = coordinator.format_summary_group([coordinator.appointment_payload(a) for a in coordinator.appointments[:0]] or [
+        {**coordinator.appointment_payload(next(a for a in coordinator.appointments if a["id"] == booked[0]["id"])),
+         "price": None, "partner_discount_pct": 0}])
+    assert "Sconto" not in plain and "{sconto}" not in plain and "\n\n\n" not in plain
+
+
+def test_cancel_whole_group_and_tell_the_guest(coordinator, freeze, monkeypatch) -> None:
+    freeze("2026-11-13 10:00")
+    _setup(coordinator)
+    sent = []
+
+    async def fake(hass, chat_id, message, blocking=True, waha=None):
+        sent.append((chat_id, message))
+        return {"sent": True}
+
+    monkeypatch.setattr(messaging, "async_send_whatsapp", fake)
+    booked = run(coordinator.async_create_bookings([{
+        "treatment_id": MASSAGE,
+        "entries": [{"start": "2026-11-14T10:00:00", "first_name": "Anna", "phone": "347 1234567", "person": i,
+                     "operator_ids": OPS} for i in range(2)]}]))["appointments"]
+    sent.clear()
+    result = run(coordinator.async_cancel_appointment(booked[0]["id"], "Maltempo", whole_group=True))
+    assert len(result["cancelled_ids"]) == 2
+    assert all(a["status"] == "cancelled" for a in coordinator.appointments if a["id"] in result["cancelled_ids"])
+    operator_msgs = len(sent)
+    guest = run(coordinator.async_send_cancel_message(result["cancelled_ids"]))
+    assert guest == {"sent": 1, "failed": 0, "error": ""}
+    chat, text = sent[operator_msgs]
+    assert chat == "393471234567@c.us" and "annullamento" in text and "Persona 2" in text
+
+
+def test_cancel_one_person_only(coordinator, freeze) -> None:
+    freeze("2026-11-13 10:00")
+    _setup(coordinator)
+    booked = run(coordinator.async_create_bookings([{
+        "treatment_id": MASSAGE,
+        "entries": [{"start": "2026-11-14T10:00:00", "first_name": "Anna", "phone": "347 1234567", "person": i,
+                     "operator_ids": OPS} for i in range(2)]}]))["appointments"]
+    result = run(coordinator.async_cancel_appointment(booked[0]["id"]))
+    assert result["cancelled_ids"] == [booked[0]["id"]]
+    other = next(a for a in coordinator.appointments if a["id"] == booked[1]["id"])
+    assert other["status"] != "cancelled"

@@ -492,11 +492,32 @@ DEFAULT_SUMMARY_MESSAGE: Final = "\n".join(
         "{appuntamenti}",
         "",
         "Codice: {codice}",
+        "{sconto}",
         "💶 Totale {totale} · Versato {versato} · Da saldare {residuo}",
         "",
         "Le consigliamo di arrivare 10 minuti prima. Per modifiche o domande "
         "ci risponda pure a questo messaggio.",
         "A presto! 🧖‍♀️",
+    ]
+)
+
+#: The 2.3.5 text, without the discount line: upgraded to the one above.
+PREVIOUS_SUMMARY_MESSAGE: Final = DEFAULT_SUMMARY_MESSAGE.replace("{sconto}\n", "")
+
+#: The message to the guest when a booking is cancelled (2.8.7), sent only if
+#: the reception says yes in the popup.
+DEFAULT_CANCEL_MESSAGE: Final = "\n".join(
+    [
+        "Gentile {nome}, Le confermiamo l'annullamento della Sua prenotazione ❌",
+        "",
+        "{hotel}",
+        "🗓️ {data}",
+        "{appuntamenti}",
+        "",
+        "Codice: {codice}",
+        "",
+        "Se desidera fissare un nuovo appuntamento ci risponda pure a questo messaggio.",
+        "A presto!",
     ]
 )
 

@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.8.6";
+const CARD_VERSION = "2.8.7";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -167,10 +167,18 @@ const NOTIFY_MESSAGES = [
     description: "Il riepilogo che l'ospite riceve quando la prenotazione è confermata. Per più persone parte un solo messaggio.",
     chips: [["{nome}", "Nome"], ["{cognome}", "Cognome"], ["{data}", "Giorno"], ["{appuntamenti}", "Un appuntamento per riga"],
       ["{codice}", "Codice prenotazione"], ["{hotel}", "Intestazione"], ["{ora}", "Primo inizio"], ["{fine}", "Ultima fine"],
-      ["{totale}", "Prezzo"], ["{acconto}", "Acconto"], ["{versato}", "Incassato"], ["{residuo}", "Da saldare"], ["{pagamenti}", "Versamenti"]],
+      ["{totale}", "Prezzo"], ["{sconto}", "Sconto (la riga sparisce se non c'è)"], ["{acconto}", "Acconto"], ["{versato}", "Incassato"], ["{residuo}", "Da saldare"], ["{pagamenti}", "Versamenti"]],
     options: (draft, changed) => [
       NOTIFY_FIELD("Intestazione ({hotel})", NOTIFY_TEXT(draft, "guest_header", changed, "Il Marchese Hotel & Spa")),
     ],
+  },
+  {
+    id: "cancel", group: "Prima della visita", icon: "mdi:calendar-remove",
+    title: "Annullamento", key: "cancel_message",
+    when: () => "Quando si annulla, se scegli «Sì»", auto: () => false,
+    description: "All'annullamento un popup chiede se avvisare l'ospite e, per un gruppo, se annullare tutti. Per più persone parte un solo messaggio.",
+    chips: [["{nome}", "Nome"], ["{cognome}", "Cognome"], ["{data}", "Giorno"], ["{appuntamenti}", "Un appuntamento per riga"],
+      ["{codice}", "Codice prenotazione"], ["{motivo}", "Motivo (la riga sparisce se vuoto)"], ["{hotel}", "Intestazione"]],
   },
   {
     id: "reminder", group: "Prima della visita", icon: "mdi:alarm",
@@ -199,6 +207,7 @@ const NOTIFY_SAVE_KEYS = [
   "request_message", "request_propose_message", "request_propose_alt_intro", "request_propose_alt_line",
   "deposit_message", "deposit_intestatario", "deposit_iban", "summary_message", "guest_header",
   "appointment_reminder_message", "appointment_reminder_auto", "appointment_reminder_hours",
+  "cancel_message",
   "review_request_message", "review_request_auto", "review_request_after_hours",
   "offer_timeout_hours", "offer_reminder_hours",
   "report_telegram_chats", "report_whatsapp_chat", "report_per_operator", "telegram_config_entry_id",
@@ -1195,7 +1204,8 @@ class SpaBookingCard extends HTMLElement {
     if (!this._escapeBound) {
       this._escapeBound = (event) => {
         if (event.key !== "Escape") return;
-        if (this._overlapPopup) { this._overlapPopup = null; this._render(); }
+        if (this._cancelPopup) { this._cancelPopup = null; this._render(); }
+        else if (this._overlapPopup) { this._overlapPopup = null; this._render(); }
         else if (this._proposePopup) { this._proposePopup = null; this._render(); }
         else if (this._payPopup) this._closePayPopup();
         else if (this._detailId) this._closeDetail();
@@ -3283,6 +3293,7 @@ class SpaBookingCard extends HTMLElement {
     if (this._detailId && !this._detailInline) add(root, this._renderDetail());
     this._detailInline = false;
     if (this._payPopup) add(root, this._renderPayPopup());
+    if (this._cancelPopup) add(root, this._renderCancelPopup());
     if (this._overlapPopup) add(root, this._renderOverlapPopup());
     if (this._proposePopup) add(root, this._renderProposePopup());
     if (this._voucherPin) add(root, this._renderVoucherPinPopup());
@@ -5350,17 +5361,89 @@ class SpaBookingCard extends HTMLElement {
     return row;
   }
 
-  async _confirmCancel(appointment) {
-    const label = `${this._clientName(appointment)} — ${this._treatmentName(appointment)}`;
-    if (!window.confirm(`Annullare l'appuntamento di ${label}?\n\nL'annullamento resta nello storico.`)) {
+  /**
+   * «Annulla appuntamento» (2.8.7): a popup that asks, for a booking of
+   * several people, whether the whole group goes, and whether the guest gets
+   * the cancellation message on WhatsApp.
+   */
+  _confirmCancel(appointment) {
+    const batch = appointment.batch_id;
+    const group = batch
+      ? (this._data.appointments || []).filter((a) => a.batch_id === batch && a.status !== "cancelled")
+      : [appointment];
+    const phone = ((appointment.client || {}).phone) || ((this._lookup.client.get(appointment.client_id) || {}).phone) || "";
+    this._cancelPopup = {
+      appointment, group, reason: "",
+      whole: group.length > 1 ? null : false,
+      notify: phone ? null : false,
+      phone,
+    };
+    this._render();
+  }
+
+  async _doCancel() {
+    const draft = this._cancelPopup;
+    if (!draft) return;
+    if (draft.whole === null || draft.notify === null) {
+      this._message = { kind: "error", text: "Rispondi alle domande del popup." };
+      this._render();
       return;
     }
-    const reason = window.prompt("Motivo dell'annullamento (facoltativo):", "") || "";
+    this._cancelPopup = null;
     try {
-      await this._call("cancel_appointment", { appointment_id: appointment.id, reason });
+      const result = await this._call("cancel_appointment", {
+        appointment_id: draft.appointment.id, reason: draft.reason || "",
+        whole_group: !!draft.whole, notify_guest: !!draft.notify,
+      });
+      const count = ((result && result.cancelled_ids) || []).length || 1;
+      const guest = result && result.guest;
+      this._message = guest
+        ? (guest.sent ? { kind: "ok", text: `${count === 1 ? "Appuntamento annullato" : `${count} appuntamenti annullati`}: messaggio inviato all'ospite.` }
+          : { kind: "error", text: `${count === 1 ? "Appuntamento annullato" : `${count} appuntamenti annullati`}, ma il messaggio non è partito: ${guest.error || "errore"}.` })
+        : { kind: "ok", text: count === 1 ? "Appuntamento annullato." : `${count} appuntamenti annullati.` };
+      this._render();
     } catch (error) {
       /* message already shown */
     }
+  }
+
+  _renderCancelPopup() {
+    const draft = this._cancelPopup;
+    const close = () => { this._cancelPopup = null; this._render(); };
+    const appt = draft.appointment;
+    const start = parseDate(appt.start);
+    const choice = (key, options) => el("div", { class: "cx-choice" }, options.map(([value, title, sub]) => el("button", {
+      type: "button", class: `cx-opt${draft[key] === value ? " on" : ""}`,
+      on: { click: () => { draft[key] = value; this._render(); } },
+    }, el("span", { class: "cx-dot" }), el("span", { class: "cx-text" }, el("b", {}, title), sub ? el("span", { class: "dim small" }, sub) : null))));
+    const others = draft.group.filter((a) => a.id !== appt.id);
+    const sheet = el("div", { class: "detail-sheet cx-sheet" },
+      el("h3", {}, el("ha-icon", { icon: "mdi:calendar-remove", style: "color:var(--error-color,#c62828)" }), " Annulla appuntamento"),
+      el("div", { class: "cx-what" },
+        el("b", {}, this._clientName(appt)), ` · ${this._treatmentName(appt)}`,
+        start ? el("div", { class: "dim small" }, `${longDay(start)} alle ${timeOf(start)}${appt.code ? ` · ${appt.code}` : ""}`) : null),
+      draft.group.length > 1 ? el("div", { class: "field" }, el("span", {}, `La prenotazione è per ${draft.group.length} persone. Cosa annulli?`),
+        choice("whole", [
+          [false, "Solo questo appuntamento", others.length === 1 ? "L'altro resta prenotato" : `Gli altri ${others.length} restano prenotati`],
+          [true, `Tutto il gruppo (${draft.group.length})`, draft.group.map((a) => this._treatmentName(a)).join(", ")],
+        ])) : null,
+      el("div", { class: "field" }, el("span", {}, "Avvisare l'ospite?"),
+        draft.phone ? choice("notify", [
+          [true, "Sì, invia il messaggio di annullamento", `Su WhatsApp a ${draft.phone}`],
+          [false, "No, non inviare nulla", ""],
+        ]) : el("div", { class: "dim small" }, "Il cliente non ha un numero: nessun messaggio.")),
+      el("label", { class: "field" }, el("span", {}, "Motivo (facoltativo, resta nello storico)"),
+        el("input", { class: "input", value: draft.reason || "", placeholder: "es. maltempo, malessere…",
+          on: { input: (event) => { draft.reason = event.target.value; }, keydown: (event) => event.stopPropagation() } })),
+      el("div", { class: "row" },
+        el("span", { class: "spacer" }),
+        el("button", { class: "btn", on: { click: close } }, "Indietro"),
+        el("button", {
+          class: "btn cx-go", disabled: this._busy || draft.whole === null || draft.notify === null,
+          on: { click: () => this._doCancel() },
+        }, el("ha-icon", { icon: "mdi:calendar-remove" }),
+          draft.whole ? `Annulla ${draft.group.length} appuntamenti` : "Annulla appuntamento")));
+    return el("div", { class: "detail-backdrop", on: { click: (event) => { if (event.target === event.currentTarget) close(); } } }, sheet);
   }
 
   async _confirmDeleteAppointment(appointment) {
@@ -16898,6 +16981,8 @@ class SpaBookingCard extends HTMLElement {
       versato: euro(50),
       residuo: euro(30),
       pagamenti: `- 12/10/2026 · Bonifico · ${euro(50)}`,
+      sconto: `🎁 Sconto partner 10%: −${euro(16)}`,
+      motivo: "Motivo: maltempo",
       ...extra,
     };
     let out = String(text || "");
@@ -21743,6 +21828,18 @@ class SpaBookingCard extends HTMLElement {
       .pt-booking.off { opacity: .55; }
       .pt-when { display: flex; flex-direction: column; font-weight: 600; font-size: 12px; text-transform: capitalize; }
       .pt-when span { font-weight: 400; color: var(--secondary-text-color); }
+      .cx-sheet h3 { display: flex; align-items: center; gap: 6px; }
+      .cx-sheet { display: flex; flex-direction: column; gap: 14px; }
+      .cx-go { background: var(--error-color, #c62828); border-color: var(--error-color, #c62828); color: #fff; }
+      .cx-go ha-icon { color: #fff; }
+      .cx-go[disabled] { opacity: .5; }
+      .cx-what { padding: 10px 12px; border-radius: 10px; background: var(--sb-card); }
+      .cx-choice { display: flex; flex-direction: column; gap: 6px; }
+      .cx-opt { display: flex; align-items: center; gap: 10px; text-align: left; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--sb-line); background: var(--card-background-color); color: var(--primary-text-color); font: inherit; cursor: pointer; }
+      .cx-opt.on { border-color: var(--primary-color); background: color-mix(in srgb, var(--primary-color) 8%, transparent); }
+      .cx-dot { width: 16px; height: 16px; flex: none; border-radius: 50%; border: 2px solid var(--sb-line); }
+      .cx-opt.on .cx-dot { border-color: var(--primary-color); box-shadow: inset 0 0 0 3px var(--card-background-color); background: var(--primary-color); }
+      .cx-text { display: flex; flex-direction: column; gap: 2px; }
       .pt-amount { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
       .profile-head { display: flex; gap: 14px; align-items: center; }
       .user-avatar.big { width: 56px; height: 56px; font-size: 18px; }

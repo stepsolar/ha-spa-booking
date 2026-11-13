@@ -397,6 +397,9 @@ CANCEL_APPOINTMENT_SCHEMA = vol.Schema(
     {
         vol.Required(ATTR_APPOINTMENT_ID): cv.string,
         vol.Optional(ATTR_REASON): cv.string,
+        # 2.8.7: the whole party at once, and the message to the guest.
+        vol.Optional("whole_group", default=False): cv.boolean,
+        vol.Optional("notify_guest", default=False): cv.boolean,
     }
 )
 
@@ -843,6 +846,7 @@ UPDATE_SETTINGS_SCHEMA = vol.Schema(
         # keeps only the tabs with a valid number and drops the rest.
         vol.Optional("tab_cols"): vol.Any(dict, None),
         vol.Optional("review_request_message"): vol.Any(cv.string, None),
+        vol.Optional("cancel_message"): vol.Any(cv.string, None),
         vol.Optional("review_request_test_phone"): vol.Any(cv.string, None),
         # Appointment reminder: the text, automatic or not, and how many hours
         # before (2.3.7: the card always sent them, the schema refused them).
@@ -2091,10 +2095,16 @@ async def _async_expire_offers(call: ServiceCall) -> ServiceResponse:
 
 async def _async_cancel_appointment(call: ServiceCall) -> ServiceResponse:
     """Cancel an appointment."""
-    appointment = await _coordinator(call).async_cancel_appointment(
-        call.data[ATTR_APPOINTMENT_ID], call.data.get(ATTR_REASON, "")
+    coordinator = _coordinator(call)
+    appointment = await coordinator.async_cancel_appointment(
+        call.data[ATTR_APPOINTMENT_ID], call.data.get(ATTR_REASON, ""),
+        whole_group=call.data.get("whole_group", False),
     )
-    return {"appointment": appointment}
+    ids = appointment.get("cancelled_ids") or [appointment["id"]]
+    guest = None
+    if call.data.get("notify_guest"):
+        guest = await coordinator.async_send_cancel_message(ids)
+    return {"appointment": appointment, "cancelled_ids": ids, "guest": guest}
 
 
 async def _async_save_client(call: ServiceCall) -> ServiceResponse:

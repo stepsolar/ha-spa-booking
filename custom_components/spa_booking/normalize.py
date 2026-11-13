@@ -72,6 +72,8 @@ from .const import (
     LEGACY_SUMMARY_MESSAGE,
     DEFAULT_REQUEST_MESSAGE,
     DEFAULT_SUMMARY_MESSAGE,
+    PREVIOUS_SUMMARY_MESSAGE,
+    DEFAULT_CANCEL_MESSAGE,
     DEFAULT_APPOINTMENT_REMINDER_MESSAGE,
     DEFAULT_APPOINTMENT_REMINDER_AUTO,
     DEFAULT_APPOINTMENT_REMINDER_HOURS,
@@ -907,7 +909,11 @@ def _norm_settings(raw: dict[str, Any]) -> dict[str, Any]:
         # notifications tab, and the number a test send goes to. An empty
         # message falls back to the built-in one, so a cleared field never
         # leaves the guest without a summary.
-        "summary_message": _upgraded(raw.get("summary_message"), DEFAULT_SUMMARY_MESSAGE, LEGACY_SUMMARY_MESSAGE),
+        "summary_message": _upgraded(
+            _upgraded(raw.get("summary_message"), DEFAULT_SUMMARY_MESSAGE, LEGACY_SUMMARY_MESSAGE),
+            DEFAULT_SUMMARY_MESSAGE, PREVIOUS_SUMMARY_MESSAGE),
+        # The cancellation message to the guest (2.8.7).
+        "cancel_message": str(raw.get("cancel_message") or "").strip() or DEFAULT_CANCEL_MESSAGE,
         "summary_test_phone": str(raw.get("summary_test_phone") or "").strip(),
         # The message a guest receives when the desk takes her appointment
         # request: it says the request was received and is waiting for the
