@@ -133,6 +133,17 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v2.8.3** — **Conferma richiesta modificabile e operatori sempre avvisati**
+  (serve il riavvio di Home Assistant). «Conferma» su una richiesta (dal banco
+  o dal sito) ora la apre in Nuovo appuntamento già compilata: si possono
+  cambiare giorno, orari, trattamenti e persone e scegliere chi fa ogni
+  massaggio (Automatica, massaggiatrice, massaggiatore o per nome); salvando
+  diventa appuntamento e la richiesta risulta confermata. Corretti tre bug:
+  la conferma di una richiesta creava i massaggi **senza operatore** e senza
+  avvisare nessuno; cambiando operatore in Modifica la scelta poteva essere
+  **ignorata** (restava quella di prima); e il nuovo operatore **non riceveva
+  la richiesta**. Ora il nuovo operatore riceve la richiesta da accettare e
+  quello di prima è avvisato che l'appuntamento non è più suo.
 - **v2.8.2** — **Conferma WhatsApp di gruppo completa** (serve il riavvio di
   Home Assistant). «Invia conferma» su un appuntamento di una coppia o di un
   gruppo manda un solo messaggio con tutte le persone prenotate insieme: ogni

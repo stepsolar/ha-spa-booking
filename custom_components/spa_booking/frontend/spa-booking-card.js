@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.8.2";
+const CARD_VERSION = "2.8.3";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -5786,9 +5786,21 @@ class SpaBookingCard extends HTMLElement {
     const multi = Array.isArray(this._form.persons);
     this._nvKind = "booking";
     const wrap = el("div", { class: "stack nv" });
-    wrap.appendChild(this._sectionHead("mdi:calendar-plus",
-      this._batchEditing ? "Modifica gruppo" : "Nuovo appuntamento",
-      "Compila i passi: il riepilogo si aggiorna mentre scrivi."));
+    const fromRequest = !this._batchEditing && this._form.confirm_request_id;
+    wrap.appendChild(this._sectionHead(fromRequest ? "mdi:clipboard-check-outline" : "mdi:calendar-plus",
+      this._batchEditing ? "Modifica gruppo" : fromRequest ? "Conferma richiesta" : "Nuovo appuntamento",
+      fromRequest
+        ? "Controlla e modifica la richiesta, scegli chi fa ogni massaggio, poi conferma: l'operatore riceve subito la richiesta."
+        : "Compila i passi: il riepilogo si aggiorna mentre scrivi."));
+    if (fromRequest) {
+      wrap.appendChild(el("div", { class: "nv-from-request" },
+        el("ha-icon", { icon: "mdi:clipboard-text-clock-outline" }),
+        el("span", {}, `Richiesta ${this._form.confirm_request_code || ""}: salvando diventa appuntamento e la richiesta risulta confermata.`),
+        el("button", {
+          class: "btn small", disabled: this._busy,
+          on: { click: () => { this._clearForm(); this._tab = "nuovo"; this._nuovoTab = "lista"; this._render(); } },
+        }, "Torna alle richieste")));
+    }
 
     // Typing a name or a price does not re-render (the cursor would jump):
     // the summary alone is rebuilt.
@@ -5841,7 +5853,9 @@ class SpaBookingCard extends HTMLElement {
       on: { click: () => editing ? this._saveBatchEdit() : this._createBookings() },
     }, el("ha-icon", { icon: "mdi:check" }), editing
       ? (compact ? `Salva (${count})` : `Salva modifiche al gruppo (${count})`)
-      : compact ? "Crea" : (count <= 1 ? "Crea appuntamento" : `Crea ${count} appuntamenti`));
+      : this._form.confirm_request_id
+        ? (compact ? "Conferma" : (count <= 1 ? "Conferma e crea appuntamento" : `Conferma e crea ${count} appuntamenti`))
+        : compact ? "Crea" : (count <= 1 ? "Crea appuntamento" : `Crea ${count} appuntamenti`));
     const cancel = el("button", {
       class: compact ? "icon-btn" : "btn nv-cancel", disabled: this._busy, title: "Annulla",
       on: { click: () => editing
@@ -7792,6 +7806,8 @@ class SpaBookingCard extends HTMLElement {
       persons: null,
       new_client: false,
       request_id: "",
+      confirm_request_id: "",
+      confirm_request_code: "",
       pending: false,
       guest_type: GUEST_DEFAULT,
       therapist_preference: "",
@@ -8029,6 +8045,7 @@ class SpaBookingCard extends HTMLElement {
       const response = await this._call("create_bookings", {
         rows,
         ...(forceRules ? { force_rules: true } : {}),
+        ...(this._form.confirm_request_id ? { request_id: this._form.confirm_request_id } : {}),
       });
       const appointments = (response && response.appointments) || [];
       const first = appointments[0];
@@ -8071,6 +8088,8 @@ class SpaBookingCard extends HTMLElement {
         // «Una scheda cliente per ogni persona»: off unless ticked (2.3.10).
         new_client: false,
         stagedPayments: [],
+        confirm_request_id: "",
+        confirm_request_code: "",
       };
       this._payPopup = null;
       this._resetPayment();
@@ -10251,7 +10270,7 @@ class SpaBookingCard extends HTMLElement {
     const done = list.filter((req) => req.is_confirmed);
     const fromWeb = waiting.filter((req) => req.source === "web").length;
     wrap.appendChild(this._sectionHead("mdi:clipboard-check-outline", "Richieste",
-      "Le richieste non occupano ancora l'agenda: «Conferma» crea gli appuntamenti, «Modifica» apre la richiesta nel modulo."));
+      "Le richieste non occupano ancora l'agenda: «Conferma» la apre in Nuovo appuntamento per controllarla, scegliere l'operatore e salvarla; «Modifica» cambia la richiesta."));
     wrap.appendChild(el("div", { class: "stats" },
       el("div", { class: "stat warn" }, el("span", { class: "stat-label" }, "Da confermare"), el("span", { class: "stat-value" }, String(waiting.length))),
       el("div", { class: "stat" }, el("span", { class: "stat-label" }, "Dal sito"), el("span", { class: "stat-value" }, String(fromWeb))),
@@ -10322,9 +10341,8 @@ class SpaBookingCard extends HTMLElement {
           !req.is_confirmed
             ? el("button", {
                 class: "btn primary small", disabled: this._busy,
-                on: { click: async () => {
-                  try { await this._call("confirm_request", { request_id: req.id }); } catch (error) { /* shown */ }
-                } },
+                title: "Apre la richiesta in Nuovo appuntamento: controlli, modifichi e scegli l'operatore prima di salvare",
+                on: { click: () => this._confirmRequestInForm(req) },
               }, el("ha-icon", { icon: "mdi:check" }), "Conferma")
             : el("span", { class: "pill ok" }, el("ha-icon", { icon: "mdi:check" }), "Confermata"),
           !req.is_confirmed ? el("button", {
@@ -10368,6 +10386,42 @@ class SpaBookingCard extends HTMLElement {
         done.map((req, index) => card(req, index))));
     }
     return wrap;
+  }
+
+  /**
+   * «Conferma» (2.8.3): the request opens in Nuovo appuntamento, already
+   * filled in, so the desk can change day, times, treatments and people and
+   * choose who does each massage (Automatica, a woman, a man or by name)
+   * before saving. Saving books it like any booking — the masseuse is asked
+   * at once — and marks the request confirmed.
+   */
+  _confirmRequestInForm(req) {
+    this._editRequest(req);
+    const wish = (treat, fallback) => {
+      const treatment = this._lookup.treatment.get(treat.treatment_id);
+      if (!treatment || !this._treatmentRequiresOperator(treatment)) return treat;
+      const pref = treat.therapist_preference || fallback || "";
+      return { ...treat, operator_id: pref === "F" ? "@F" : pref === "M" ? "@M" : "" };
+    };
+    const general = req.therapist_preference || "";
+    const form = this._form;
+    if (Array.isArray(form.persons)) {
+      form.persons = form.persons.map((person) => ({
+        ...person, treatments: (person.treatments || []).map((t) => wish(t, general)),
+      }));
+    } else {
+      form.treatments = (form.treatments || []).map((t) => wish(t, general));
+    }
+    this._form = {
+      ...form,
+      request_id: "",
+      confirm_request_id: req.id,
+      confirm_request_code: req.code || "",
+      pending: false,
+    };
+    this._tab = "nuovo";
+    this._nuovoTab = "appuntamento";
+    this._render();
   }
 
     /** Load a request into the form for editing. */
@@ -21038,6 +21092,9 @@ class SpaBookingCard extends HTMLElement {
       .nv-badge.wait { background: var(--sb-warn-bg); color: var(--sb-warn-fg); }
       .nv-badge ha-icon { --mdc-icon-size: 16px; }
       .nv-sum-actions { padding: 0 16px 16px; display: flex; flex-direction: column; gap: 6px; }
+      .nv-from-request { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 14px; border-radius: 12px; background: color-mix(in srgb, var(--info-color, #2b7de9) 12%, transparent); color: var(--primary-text-color); font-size: 13px; }
+      .nv-from-request > span { flex: 1; min-width: 200px; }
+      .nv-from-request ha-icon { --mdc-icon-size: 20px; color: var(--info-color, #2b7de9); }
       .nv-sum-actions .nv-go { justify-content: center; padding: 12px; font-size: 15px; border-radius: 12px; }
       .nv-sum-actions .nv-cancel { justify-content: center; border: none; background: none; color: var(--secondary-text-color); }
       .nv-bar { display: none; }

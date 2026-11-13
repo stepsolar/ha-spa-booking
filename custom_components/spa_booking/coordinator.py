@@ -2013,6 +2013,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 raise ValidationError(
                     "Non puoi modificare un appuntamento annullato"
                 )
+            previous_operator = appointment.get("operator_id") or ""
 
             # Memoria dell'offerta: viene conservata intatta se la modifica non
             # tocca fattori che la rendono inutile (trattamento, operatore o
@@ -2040,6 +2041,11 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # it": the card sends an empty string when the picker is left
                 # on the automatic option, which still needs the resolved
                 # masseuse.
+                # A masseuse named by the desk wins over the old candidate
+                # list (2.8.3): before, the old list was kept and the change
+                # of operator was silently ignored.
+                if not operator_ids and operator_id and not str(operator_id).startswith("@") and str(operator_id) != str(appointment.get("operator_id") or ""):
+                    operator_ids = [str(operator_id)]
                 operator_id = operator_id or appointment.get("operator_id")
                 operator_ids = operator_ids or appointment.get("offer_candidates")
             else:
@@ -2184,7 +2190,34 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         # The deposit request is never sent on its own: the desk decides after
         # the edit, from the confirmation prompt or the appointment popup.
-        return self.appointment_payload(rebuilt)
+        payload = self.appointment_payload(rebuilt)
+        if not preserve_offer:
+            await self._async_notify_reassigned(payload, previous_operator)
+        return payload
+
+    async def _async_notify_reassigned(
+        self, payload: dict[str, Any], previous_operator: str
+    ) -> None:
+        """Tell the operators when an edit changed who does the treatment (2.8.3).
+
+        The new masseuse gets the request to accept, exactly as for a new
+        booking; the one who had it is told it is no longer hers. Before, a
+        change of operator (or of time) rebuilt the offer silently and nobody
+        was asked.
+        """
+        current = (payload.get("operator") or {}).get("id") or ""
+        if payload.get("offer_state") == OFFER_PENDING and current:
+            await self._async_notify_operator(payload, offer=True)
+        elif current and current != previous_operator:
+            await self._async_notify_operator(payload, "Appuntamento assegnato")
+        if previous_operator and previous_operator != current:
+            record = self._operator(previous_operator)
+            if record:
+                await self._async_notify_operator(
+                    {**payload, "operator": {"id": previous_operator, "name": record.get("name", "")}},
+                    "Appuntamento non più assegnato a te",
+                    show_operator=False,
+                )
 
     async def async_update_appointment_group(
         self, appointment_id: str, **fields: Any
@@ -2200,8 +2233,12 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             *(item["id"] for item in self._group_siblings(anchor)),
         ]
         updated = []
+        # The masseuse picked in the edit is the anchor's: each person of the
+        # party keeps her own (two people cannot share one masseuse).
+        others = {key: value for key, value in fields.items() if key not in ("operator_id", "operator_ids")}
         for member_id in member_ids:
-            updated.append(await self.async_update_appointment(member_id, **fields))
+            updated.append(await self.async_update_appointment(
+                member_id, **(fields if member_id == anchor["id"] else others)))
         return {"appointments": updated, "count": len(updated)}
 
     def _group_siblings(
@@ -3998,6 +4035,13 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         day = str(request.get("date") or "")
         rows: list[dict[str, Any]] = []
         for entry in request.get("entries") or []:
+            treatment = next((t for t in self.treatments if t["id"] == entry.get("treatment_id")), None)
+            # «Automatica»: every able, active masseuse, asked in order.
+            able = (
+                [o["id"] for o in self.operators_for_treatment(treatment["id"]) if o.get("active", True)]
+                if treatment is not None and self._treatment_requires_operator(treatment)
+                else []
+            )
             clock = str(entry.get("time") or "00:00")
             # A website entry names its person: one appointment for her. A
             # desk entry does not: one appointment for each of the people.
@@ -4015,6 +4059,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             "client_id": request["client_id"],
                             "person": person,
                             "extras": entry.get("extras") or [],
+                            **({"operator_ids": able} if able else {}),
                             # The person's own wish wins over the request's.
                             "therapist_preference": entry.get("therapist_preference")
                             or request.get("therapist_preference")
@@ -4055,6 +4100,8 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             batch_id = anchor.get("batch_id") or _new_id("batch")
             existing = [a for a in self.appointments if a.get("batch_id") == batch_id]
             id_map = {a["id"]: a for a in existing}
+            # Appointments whose masseuse must hear about the edit (2.8.3).
+            reassigned: list[tuple[dict[str, Any], str]] = []
 
             # Snapshot of the whole data tree, taken before anything is
             # touched, so any failure puts every record back exactly as it was.
@@ -4124,6 +4171,14 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         operator_id = existing_appt.get("operator_id")
 
                     operator_ids = row.get("operator_ids")
+                    if (
+                        operator_ids is None
+                        and row.get("operator_id")
+                        and existing_appt is not None
+                        and row.get("operator_id") != existing_appt.get("operator_id")
+                    ):
+                        # A new masseuse named in the edit (2.8.3).
+                        operator_ids = [row["operator_id"]]
                     if operator_ids is None and existing_appt is not None:
                         operator_ids = existing_appt.get("offer_candidates")
 
@@ -4211,10 +4266,18 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         appointment["checked_out_at"] = existing_appt.get("checked_out_at", "")
                         appointment["confirmed_by"] = existing_appt.get("confirmed_by", "")
                         appointment["confirmed_at"] = existing_appt.get("confirmed_at", "")
-                        appointment["offer_state"] = existing_appt.get("offer_state", OFFER_NONE)
-                        appointment["offer_candidates"] = list(existing_appt.get("offer_candidates") or [])
-                        appointment["offer_index"] = existing_appt.get("offer_index", 0)
-                        appointment["offer_expires_at"] = existing_appt.get("offer_expires_at", "")
+                        # The offer survives an ordinary edit; a new masseuse
+                        # or a new time is a new request to her (2.8.3).
+                        if (
+                            (appointment.get("operator_id") or "") == (existing_appt.get("operator_id") or "")
+                            and _same_slot(existing_appt, treatment_id, start)
+                        ):
+                            appointment["offer_state"] = existing_appt.get("offer_state", OFFER_NONE)
+                            appointment["offer_candidates"] = list(existing_appt.get("offer_candidates") or [])
+                            appointment["offer_index"] = existing_appt.get("offer_index", 0)
+                            appointment["offer_expires_at"] = existing_appt.get("offer_expires_at", "")
+                        else:
+                            reassigned.append((appointment, existing_appt.get("operator_id") or ""))
                         appointment["reminder_sent"] = existing_appt.get("reminder_sent", False)
                         appointment["reminder_sent_at"] = existing_appt.get("reminder_sent_at", "")
                         appointment["confirmation_sent_at"] = existing_appt.get("confirmation_sent_at", "")
@@ -4222,6 +4285,10 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         appointment["review_request_sent"] = existing_appt.get("review_request_sent", False)
                         appointment["deposit_request_sent"] = existing_appt.get("deposit_request_sent", False)
                         kept_ids.add(existing_appt["id"])
+
+                    elif appointment.get("offer_state") == OFFER_PENDING:
+                        # A person added to the group: her masseuse is asked.
+                        reassigned.append((appointment, ""))
 
                     # Clients handled below; no-op placeholder
                     prepared.append((appointment, client, is_new))
@@ -4256,6 +4323,9 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             finally:
                 self._current_user_id = None
 
+        for item, previous in reassigned:
+            if item.get("status") != STATUS_CANCELLED:
+                await self._async_notify_reassigned(self.appointment_payload(item), previous)
         return {
             "batch_id": batch_id,
             "appointments": [self.appointment_payload(item[0]) for item in prepared],
@@ -4992,9 +5062,32 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise ValidationError("La richiesta è incompleta")
         self._find(self.clients, request.get("client_id"), "Cliente")
 
-        result = await self.async_create_bookings(
-            self._request_rows(request), defer_operator=True
-        )
+        # 2.8.3: the masseuse is chosen automatically (the guest's wish for a
+        # woman or a man included) and asked at once, as for a booking taken
+        # at the desk. Before, the massage was booked with nobody and no
+        # operator ever heard of it.
+        result = await self.async_create_bookings(self._request_rows(request))
+        return await self._mark_request_confirmed(request_id, result)
+
+    async def async_confirm_request_with(
+        self, request_id: str, rows: list[dict[str, Any]], user_id: str | None = None
+    ) -> dict[str, Any]:
+        """Confirm a request with the booking the desk reviewed in the form.
+
+        «Conferma» opens the request in Nuovo appuntamento: the desk can change
+        times, treatments, people and the masseuse, then saves. The rows are
+        booked exactly like a new booking (offers included) and the request is
+        marked confirmed with the appointments it became.
+        """
+        request = self._find(self.requests, request_id, "Richiesta")
+        if request.get("status") == REQUEST_CONFIRMED and request.get("appointment_ids"):
+            raise ValidationError("La richiesta è già stata confermata")
+        result = await self.async_create_bookings(rows, user_id)
+        return await self._mark_request_confirmed(request_id, result)
+
+    async def _mark_request_confirmed(
+        self, request_id: str, result: dict[str, Any]
+    ) -> dict[str, Any]:
         appointments = result.get("appointments") or []
         async with self._lock:
             request = self._find(self.requests, request_id, "Richiesta")
