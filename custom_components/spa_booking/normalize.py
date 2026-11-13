@@ -27,6 +27,9 @@ from .const import (
     DEFAULT_LOYALTY_THRESHOLD,
     DEFAULT_LOYALTY_REWARD,
     DEFAULT_LOYALTY_MESSAGE,
+    DEFAULT_PARTNER_REWARD_MESSAGE,
+    DEFAULT_PARTNER_REWARD_POINTS,
+    DEFAULT_PARTNER_REWARD_VALUE,
     PROMO_VOUCHER_CODE_PREFIX,
     PROMO_VOUCHER_PENDING,
     PROMO_VOUCHER_REDEEMED,
@@ -1080,6 +1083,12 @@ def _norm_settings(raw: dict[str, Any]) -> dict[str, Any]:
         # The page of the hotel website with the booking form: the partners'
         # links point there, with ?partner=CODE.
         "partner_booking_url": str(raw.get("partner_booking_url") or "").strip(),
+        # Programma partner (2.8.6): the discount of the guests who book with a
+        # partner's link, and the prize the partner's points turn into.
+        "partner_discount_pct": _norm_pct(raw.get("partner_discount_pct")),
+        "partner_reward_points": _norm_count(raw.get("partner_reward_points"), 1, 1_000_000, DEFAULT_PARTNER_REWARD_POINTS),
+        "partner_reward_value": _norm_count(raw.get("partner_reward_value"), 1, 100_000, DEFAULT_PARTNER_REWARD_VALUE),
+        "partner_reward_message": str(raw.get("partner_reward_message") or DEFAULT_PARTNER_REWARD_MESSAGE),
         "partner_campaigns": [c for c in (_norm_partner_campaign(x) for x in raw.get("partner_campaigns") or []) if c],
         # Loyalty points (2.4.0).
         "loyalty_enabled": bool(raw.get("loyalty_enabled", False)),
@@ -1462,7 +1471,31 @@ def _norm_partner(raw: Any) -> dict[str, Any]:
         "subscribed": bool(raw.get("subscribed", True)),
         "unsubscribed_at": str(raw.get("unsubscribed_at") or ""),
         "unsub_token": str(raw.get("unsub_token") or secrets.token_urlsafe(18)),
+        # Her own discount for her guests (2.8.6); None = the general one.
+        "discount_pct": None if raw.get("discount_pct") in (None, "") else _norm_pct(raw.get("discount_pct")),
+        # The vouchers she received for her points (2.8.6).
+        "rewards": [
+            {
+                "at": str(item.get("at") or ""),
+                "points": _norm_count(item.get("points"), 0, 10**9, 0),
+                "value": _norm_price_opt(item.get("value")) or 0.0,
+                "voucher_id": str(item.get("voucher_id") or ""),
+                "code": str(item.get("code") or ""),
+                "sent": str(item.get("sent") or ""),
+                "by": str(item.get("by") or ""),
+            }
+            for item in raw.get("rewards") or []
+            if isinstance(item, dict)
+        ][-200:],
     }
+
+
+def _norm_pct(raw: Any) -> float:
+    """A percentage from 0 to 100 (two decimals); 0 when not a number."""
+    try:
+        return max(0.0, min(100.0, round(float(str(raw).replace(",", ".")), 2)))
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _norm_payment(raw: dict[str, Any] | None) -> dict[str, Any]:
@@ -1786,6 +1819,8 @@ def _norm_appointment(raw: dict[str, Any]) -> dict[str, Any]:
         "therapist_preference": _norm_preference(raw.get("therapist_preference")),
         # The partner who brought this booking (2.5.0): she earns points.
         "partner_id": str(raw.get("partner_id") or "").strip(),
+        # The discount her guest had (2.8.6), only when there is one.
+        **({"partner_discount_pct": _norm_pct(raw.get("partner_discount_pct"))} if raw.get("partner_discount_pct") else {}),
         # What changed, when and by whom: only the administrator sees it.
         "history": [dict(item) for item in raw.get("history") or [] if isinstance(item, dict)][-100:],
     }

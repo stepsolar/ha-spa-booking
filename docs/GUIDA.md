@@ -1,6 +1,6 @@
 # Spa Booking — guida alle schede (2.2)
 
-Aggiornata alla 2.8.5: [pacchetto nelle promo](#pacchetto-dello-shop-nelle-promo-285); [tutti i messaggi WhatsApp](#tutti-i-messaggi-whatsapp-284); [conferma richiesta](#conferma-di-una-richiesta-283); [conto e voucher come pagamento](#conto-e-voucher-come-pagamento-281); [backup su Google Drive](#backup-su-google-drive-280); [Shop online](#shop-online-270); [importa partner e disiscrizione](#importa-partner-e-disiscrizione-260); [vista Mese](#vista-mese-255); [Dati fatturazione e Modifica appuntamento](#dati-fatturazione-e-modifica-appuntamento-252); [IVA](#iva-251); [campagne e punti partner](#campagne-e-punti-partner-250); [Email e Accedi con Google](#email-241); [dettaglio, punti e partner](#dettaglio-punti-fedelta-e-partner-240); [Agenda](#agenda-2312); [Nuovo appuntamento a passi](#nuovo-appuntamento-a-passi-2310); [promo salvate e modelli](#promo-salvate-e-modelli-239); [Promo e Impostazioni](#promo-e-impostazioni-238); [Notifiche](#notifiche-236); [messaggi e chat](#messaggi-e-chat-235); [preferenza massaggiatrice/massaggiatore](#preferenza-massaggiatrice-o-massaggiatore); [promo e fedeltà del cliente](#promo-e-fedeltà-del-cliente); [conferme e promemoria WhatsApp](#conferme-e-promemoria-whatsapp); [firme e storico](#firme-e-storico); [chiusure con giorni esclusi](#chiusure-con-giorni-esclusi); [Proponi data](#proponi-data) nelle richieste, con trattamenti alternativi e prezzo; [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
+Aggiornata alla 2.8.6: [programma partner](#programma-partner-286); [pacchetto nelle promo](#pacchetto-dello-shop-nelle-promo-285); [tutti i messaggi WhatsApp](#tutti-i-messaggi-whatsapp-284); [conferma richiesta](#conferma-di-una-richiesta-283); [conto e voucher come pagamento](#conto-e-voucher-come-pagamento-281); [backup su Google Drive](#backup-su-google-drive-280); [Shop online](#shop-online-270); [importa partner e disiscrizione](#importa-partner-e-disiscrizione-260); [vista Mese](#vista-mese-255); [Dati fatturazione e Modifica appuntamento](#dati-fatturazione-e-modifica-appuntamento-252); [IVA](#iva-251); [campagne e punti partner](#campagne-e-punti-partner-250); [Email e Accedi con Google](#email-241); [dettaglio, punti e partner](#dettaglio-punti-fedelta-e-partner-240); [Agenda](#agenda-2312); [Nuovo appuntamento a passi](#nuovo-appuntamento-a-passi-2310); [promo salvate e modelli](#promo-salvate-e-modelli-239); [Promo e Impostazioni](#promo-e-impostazioni-238); [Notifiche](#notifiche-236); [messaggi e chat](#messaggi-e-chat-235); [preferenza massaggiatrice/massaggiatore](#preferenza-massaggiatrice-o-massaggiatore); [promo e fedeltà del cliente](#promo-e-fedeltà-del-cliente); [conferme e promemoria WhatsApp](#conferme-e-promemoria-whatsapp); [firme e storico](#firme-e-storico); [chiusure con giorni esclusi](#chiusure-con-giorni-esclusi); [Proponi data](#proponi-data) nelle richieste, con trattamenti alternativi e prezzo; [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
 
 Questa guida mostra ogni scheda della dashboard **Spa Booking** e spiega a
 cosa serve ogni funzione. Le immagini sono state fatte con dati di prova.
@@ -32,6 +32,31 @@ in Impostazioni › Aspetto).
 
 
 
+
+## Programma partner (2.8.6)
+
+**Configurazione › Promo › Programma partner**:
+
+1. **Il link dei partner**: la pagina del sito con il modulo. Ogni partner ha
+   il suo link (pagina + `?partner=CODICE`); il modulo compila da solo il
+   codice, che l'ospite non vede.
+2. **Sconto agli ospiti**: per esempio 10%. Il modulo lo annuncia all'ospite e,
+   se i prezzi sono visibili, mostra il totale scontato. L'appuntamento nasce
+   col prezzo scontato e nella scheda compare «Sconto partner 10% (codice …)».
+   A un partner puoi dare uno sconto diverso dalla sua scheda (Modifica).
+3. **Punti al partner**: per ogni euro pagato dai suoi ospiti, dopo lo sconto.
+4. **Il premio**: quanti punti servono e quanto vale il buono, con il
+   messaggio che riceve.
+
+In **Clienti › Partner** tocca un partner per aprire la sua scheda: link da
+copiare, punti con la barra verso il premio, **Genera voucher e invia** (crea
+una gift card del valore del premio, toglie i punti e la manda su WhatsApp o,
+se non ha WhatsApp, per email), premi e rettifiche, e l'elenco delle
+prenotazioni dei suoi ospiti con importo e punti.
+
+![Scheda partner](anteprime/68-scheda-partner.png)
+
+![Programma partner](anteprime/69-programma-partner.png)
 
 ## Pacchetto dello shop nelle promo (2.8.5)
 

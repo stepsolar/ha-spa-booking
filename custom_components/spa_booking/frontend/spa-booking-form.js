@@ -48,6 +48,7 @@
       first: "Nome", last: "Cognome", phone: "Telefono", phoneHint: "Ti confermiamo l'orario su WhatsApp.",
       email: "Email", notes: "Note", notesPh: "Allergie, preferenze, orario migliore…",
       total: "Totale indicativo", when: "Data", contact: "Contatto",
+      partnerDiscount: "Con questo link hai lo sconto del {p}% sui trattamenti.", discount: "Sconto {p}%",
       notYet: "Non è ancora una prenotazione: la reception ti conferma l'orario su WhatsApp.",
       back: "Indietro", next: "Avanti", send: "Invia richiesta", sending: "Invio in corso…",
       sent: "Richiesta inviata", sentText: "Ti scriviamo su WhatsApp per confermare. Il codice della tua richiesta:",
@@ -71,6 +72,7 @@
       first: "First name", last: "Last name", phone: "Phone", phoneHint: "We confirm the time on WhatsApp.",
       email: "Email", notes: "Notes", notesPh: "Allergies, preferences, best time…",
       total: "Estimated total", when: "Date", contact: "Contact",
+      partnerDiscount: "With this link you get {p}% off the treatments.", discount: "Discount {p}%",
       notYet: "This is not a booking yet: our reception will confirm the time on WhatsApp.",
       back: "Back", next: "Next", send: "Send request", sending: "Sending…",
       sent: "Request sent", sentText: "We will write to you on WhatsApp to confirm. Your request code:",
@@ -93,6 +95,7 @@
       first: "Vorname", last: "Nachname", phone: "Telefon", phoneHint: "Wir bestätigen die Uhrzeit per WhatsApp.",
       email: "E-Mail", notes: "Hinweise", notesPh: "Allergien, Wünsche, beste Uhrzeit…",
       total: "Voraussichtlicher Preis", when: "Datum", contact: "Kontakt",
+      partnerDiscount: "Mit diesem Link erhalten Sie {p}% Rabatt auf die Behandlungen.", discount: "Rabatt {p}%",
       notYet: "Dies ist noch keine Buchung: Die Rezeption bestätigt die Uhrzeit per WhatsApp.",
       back: "Zurück", next: "Weiter", send: "Anfrage senden", sending: "Wird gesendet…",
       sent: "Anfrage gesendet", sentText: "Wir schreiben Ihnen per WhatsApp zur Bestätigung. Ihr Anfragecode:",
@@ -255,6 +258,10 @@
     state.persons.length = state.people;
   }
 
+  function pctText(value) {
+    return String(Math.round(value * 100) / 100).replace(".", state.lang === "en" ? "." : ",");
+  }
+
   function total() {
     var sum = 0;
     state.persons.forEach(function (person) {
@@ -404,6 +411,7 @@
     ".btn{font:inherit;font-weight:600;padding:11px 18px;border-radius:10px;border:1px solid #cfd5db;background:#fff;color:inherit;cursor:pointer}",
     ".btn.pri{background:var(--a);border-color:var(--a);color:#fff}.btn[disabled]{opacity:.6;cursor:default}",
     ".hint{font-size:13px;color:#5f656b;margin:6px 0 0}.ok{color:#2e7d32}.bad{color:#c62828}",
+    ".promo{margin:8px 0 4px;padding:10px 12px;border-radius:10px;background:#fff6e0;color:#6b4a00;font-size:14px}",
     ".person{border:1px solid #e3e6ea;border-radius:14px;padding:14px;margin-bottom:12px}",
     ".phead{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;font-weight:600}",
     ".link{border:0;background:none;color:var(--a);font:inherit;font-size:13px;cursor:pointer;padding:0}",
@@ -461,6 +469,9 @@
         [1, 2, 3, 4].map(function (n) { return h("i", { class: n <= state.step ? "on" : "" }); })),
       langs));
     box.appendChild(h("p", { class: "lbl" }, t("step", { n: state.step })));
+    if (config.partnerDiscount > 0) {
+      box.appendChild(h("p", { class: "promo" }, "🎁 " + t("partnerDiscount", { p: pctText(config.partnerDiscount) })));
+    }
 
     if (!config.treatments.length && config.error) {
       box.appendChild(h("p", { class: "err" }, config.error));
@@ -645,7 +656,15 @@
     });
     var phone = /^(\+|00)/.test(state.phone.trim()) ? state.phone.trim() : "+" + state.cc + " " + state.phone.trim();
     rows.push([t("contact"), [state.first, state.last].join(" ").trim() + " · " + phone]);
-    if (config.showPrices && total() > 0) rows.push([t("total"), money(total())]);
+    if (config.showPrices && total() > 0) {
+      // The partner's guests see their discount (2.8.6).
+      var pct = config.partnerDiscount || 0;
+      if (pct > 0) {
+        var cut = Math.round(total() * pct) / 100;
+        rows.push([t("discount", { p: pctText(pct) }), "−" + money(cut)]);
+        rows.push([t("total"), money(total() - cut)]);
+      } else rows.push([t("total"), money(total())]);
+    }
     box.appendChild(h("div", { class: "sum" }, rows.map(function (row) {
       return h("div", null, h("span", null, row[0]), h("span", null, row[1]));
     })));
@@ -670,12 +689,16 @@
   // ------------------------------------------------------------------ start
 
   render();
-  api("/treatments").then(function (data) {
+  // With a partner's link the site says the guest's discount (2.8.6); the
+  // partner's code itself is sent with the request, never shown.
+  var startPartner = partnerCode();
+  api("/treatments" + (startPartner ? "?partner=" + encodeURIComponent(startPartner) : "")).then(function (data) {
     config.treatments = (data && data.treatments) || [];
     var site = (data && data.site) || {};
     config.showPrices = !!site.show_prices;
     config.accent = site.accent || "";
     config.maxDays = site.max_days_ahead || 60;
+    config.partnerDiscount = Number(site.partner_discount) || 0;
     render();
   }).catch(function () {
     config.error = t("errLoad");

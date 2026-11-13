@@ -141,6 +141,8 @@ SERVICE_SEND_PARTNER_CAMPAIGN = "send_partner_campaign"
 SERVICE_DELETE_PARTNER = "delete_partner"
 SERVICE_IMPORT_PARTNERS = "import_partners"
 SERVICE_DELETE_ALL_PARTNERS = "delete_all_partners"
+SERVICE_PARTNER_DETAIL = "partner_detail"
+SERVICE_PARTNER_REWARD = "partner_reward"
 SERVICE_WP_SYNC = "wp_sync"
 SERVICE_WP_TEST = "wp_test"
 SERVICE_WP_NEW_SECRET = "wp_new_secret"
@@ -256,6 +258,8 @@ ALL_SERVICES = (
     SERVICE_DELETE_PARTNER,
     SERVICE_IMPORT_PARTNERS,
     SERVICE_DELETE_ALL_PARTNERS,
+    SERVICE_PARTNER_DETAIL,
+    SERVICE_PARTNER_REWARD,
     SERVICE_WP_SYNC,
     SERVICE_WP_TEST,
     SERVICE_WP_NEW_SECRET,
@@ -927,6 +931,10 @@ UPDATE_SETTINGS_SCHEMA = vol.Schema(
         # Partners (2.5.0).
         vol.Optional("partner_points_per_euro"): vol.Any(vol.Coerce(float), None),
         vol.Optional("partner_booking_url"): vol.Any(cv.string, None),
+        vol.Optional("partner_discount_pct"): vol.Any(vol.Coerce(float), None),
+        vol.Optional("partner_reward_points"): vol.Any(vol.Coerce(int), None),
+        vol.Optional("partner_reward_value"): vol.Any(vol.Coerce(int), None),
+        vol.Optional("partner_reward_message"): vol.Any(cv.string, None),
         vol.Optional("partner_campaigns"): vol.Any(vol.All(cv.ensure_list, [dict]), None),
         # Loyalty points (2.4.0).
         vol.Optional("loyalty_enabled"): vol.Any(cv.boolean, None),
@@ -1255,6 +1263,8 @@ SAVE_PARTNER_SCHEMA = vol.Schema(
         vol.Optional("structure_type"): vol.Any(cv.string, None),
         vol.Optional("whatsapp"): vol.Any(cv.boolean, None),
         vol.Optional("subscribed"): vol.Any(cv.boolean, None),
+        # Her own discount for her guests (2.8.6); empty = the general one.
+        vol.Optional("discount_pct"): vol.Any(vol.Coerce(float), None, ""),
     },
     extra=vol.PREVENT_EXTRA,
 )
@@ -1272,6 +1282,12 @@ PARTNER_POINTS_ADJUST_SCHEMA = vol.Schema(
         vol.Required("points"): vol.Coerce(int),
         vol.Optional("note", default=""): cv.string,
     },
+    extra=vol.PREVENT_EXTRA,
+)
+
+PARTNER_DETAIL_SCHEMA = vol.Schema({vol.Required("partner_id"): cv.string}, extra=vol.PREVENT_EXTRA)
+PARTNER_REWARD_SCHEMA = vol.Schema(
+    {vol.Required("partner_id"): cv.string, vol.Optional("send", default=True): cv.boolean},
     extra=vol.PREVENT_EXTRA,
 )
 
@@ -1762,6 +1778,18 @@ async def _async_partner_points_adjust(call: ServiceCall) -> ServiceResponse:
     """Add or take a partner's points by hand."""
     return await _coordinator(call).async_partner_points_adjust(
         call.data["partner_id"], call.data["points"], call.data.get("note", ""), _acting_name()
+    )
+
+
+async def _async_partner_detail(call: ServiceCall) -> ServiceResponse:
+    """A partner's bookings, points and prizes (2.8.6)."""
+    return _coordinator(call).partner_detail(call.data["partner_id"])
+
+
+async def _async_partner_reward(call: ServiceCall) -> ServiceResponse:
+    """Turn a partner's points into a voucher and send it (2.8.6)."""
+    return await _coordinator(call).async_partner_reward(
+        call.data["partner_id"], _acting_name(), call.data.get("send", True)
     )
 
 
@@ -3081,6 +3109,8 @@ _HANDLERS: dict[str, tuple[Any, Any, SupportsResponse]] = {
     SERVICE_WP_NEW_SECRET: (_async_wp_new_secret, WP_EMPTY_SCHEMA, SupportsResponse.ONLY),
     SERVICE_WP_REDEEM: (_async_wp_redeem, WP_REDEEM_SCHEMA, SupportsResponse.ONLY),
     SERVICE_PARTNER_POINTS_ADJUST: (_async_partner_points_adjust, PARTNER_POINTS_ADJUST_SCHEMA, SupportsResponse.ONLY),
+    SERVICE_PARTNER_DETAIL: (_async_partner_detail, PARTNER_DETAIL_SCHEMA, SupportsResponse.ONLY),
+    SERVICE_PARTNER_REWARD: (_async_partner_reward, PARTNER_REWARD_SCHEMA, SupportsResponse.ONLY),
     SERVICE_SET_APPOINTMENT_PARTNER: (_async_set_appointment_partner, SET_APPOINTMENT_PARTNER_SCHEMA, SupportsResponse.ONLY),
     SERVICE_SEND_PARTNER_CAMPAIGN: (_async_send_partner_campaign, SEND_PARTNER_CAMPAIGN_SCHEMA, SupportsResponse.ONLY),
     SERVICE_DELETE_PROMO_VOUCHER: (
@@ -3360,6 +3390,8 @@ SERVICE_LEVELS: dict[str, str] = {
     SERVICE_WP_NEW_SECRET: "admin",
     SERVICE_WP_REDEEM: "operator",
     SERVICE_PARTNER_POINTS_ADJUST: "manager",
+    SERVICE_PARTNER_DETAIL: "operator",
+    SERVICE_PARTNER_REWARD: "manager",
     SERVICE_SET_APPOINTMENT_PARTNER: "operator",
     SERVICE_SEND_PARTNER_CAMPAIGN: "manager",
     SERVICE_MERGE_CLIENTS: "manager",

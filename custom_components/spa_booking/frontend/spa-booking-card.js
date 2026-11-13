@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.8.5";
+const CARD_VERSION = "2.8.6";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -850,6 +850,16 @@ const nthWeekday = (year, month, weekday, n) => {
 const PROMO_SIGN = "Lo Staff - {hotel}\n📞 +39 0925 992446";
 
 /** The ready text of a new campaign to the partners (2.5.0). */
+const PARTNER_REWARD_TEXT = [
+  "Gentile {nome}, grazie per averci consigliato ai Suoi ospiti! 🤝",
+  "",
+  "Ha raggiunto {punti} punti: per Lei c'è un buono da {valore} da usare nella nostra spa.",
+  "🎟️ Codice: {codice}",
+  "📅 Valido fino al: {scadenza}",
+  "",
+  "Basta indicare il codice quando prenota.",
+  "Lo Staff - {hotel}",
+].join("\n");
 const PARTNER_CAMPAIGN_SUBJECT = "{nome}, porta i tuoi ospiti nella nostra spa: per te {punti_per_euro} punti per ogni euro";
 const PARTNER_CAMPAIGN_TEXT = [
   "Ciao {nome},",
@@ -1787,8 +1797,20 @@ class SpaBookingCard extends HTMLElement {
     const treatment = (treat && treat.treatment_id && this._lookup.treatment.get(treat.treatment_id)) || null;
     const catalogue = treatment && treatment.price != null ? Number(treatment.price) || 0 : 0;
     const list = treat && treat.list_price != null ? treat.list_price : catalogue;
-    const price = treat && treat.price != null ? treat.price : list;
+    // The guest of a partner pays the discounted price (2.8.6), as the
+    // backend will book it; a price typed by hand stays as it is.
+    const pct = treat && treat.price == null && this._form ? this._partnerDiscount(this._form.partner_id) : 0;
+    const price = treat && treat.price != null ? treat.price : pct ? Math.round(list * (100 - pct)) / 100 : list;
     return { name: treatment ? treatment.name : "—", list, price };
+  }
+
+  /** The discount (%) of a partner's guests: hers, else the general one (2.8.6). */
+  _partnerDiscount(partnerId) {
+    if (!partnerId) return 0;
+    const partner = (this._data.partners || []).find((p) => p.id === partnerId);
+    if (!partner || partner.active === false) return 0;
+    if (partner.discount_pct != null && partner.discount_pct !== "") return Number(partner.discount_pct) || 0;
+    return Number(((this._data.settings || {}).partner_discount_pct) || 0);
   }
 
   /** Per-person breakdown and grand total of the new-booking form. */
@@ -4644,6 +4666,9 @@ class SpaBookingCard extends HTMLElement {
               ...(this._data.partners || []).map((p) => el("option", { value: p.id, selected: appointment.partner_id === p.id }, this._partnerName(p.id))))
             : (this._partnerName(appointment.partner_id) || "nessuno"))
           : null,
+        appointment.partner_id && appointment.partner_discount_pct
+          ? this._detailLine("Sconto partner", `${String(appointment.partner_discount_pct).replace(".", ",")}% (codice ${((this._data.partners || []).find((p) => p.id === appointment.partner_id) || {}).code || ""})`)
+          : null,
         appointment.therapist_preference
           ? this._detailLine("Preferisce", appointment.therapist_preference === "F" ? "una massaggiatrice" : "un massaggiatore")
           : null,
@@ -5925,6 +5950,10 @@ class SpaBookingCard extends HTMLElement {
     if (count) {
       body.appendChild(el("div", { class: "nv-sum-line" }));
       body.appendChild(el("div", { class: "nv-sum-tot big" }, el("span", {}, "Totale"), el("span", {}, euro(total))));
+      const partnerPct = this._partnerDiscount(form.partner_id);
+      if (partnerPct) body.appendChild(el("div", { class: "nv-sum-tot" },
+        el("span", {}, el("ha-icon", { icon: "mdi:handshake-outline", style: "--mdc-icon-size:15px;vertical-align:-2px" }), ` Partner ${this._partnerName(form.partner_id)}`),
+        el("span", {}, `sconto ${String(partnerPct).replace(".", ",")}%`)));
       const vatItems = [];
       states.forEach((person) => this._treatmentsOf(person).filter((treat) => treat.treatment_id).forEach((treat) => {
         vatItems.push([this._treatPrices(treat).price, this._vatOfTreatment(this._lookup.treatment.get(treat.treatment_id))]);
@@ -10595,7 +10624,7 @@ class SpaBookingCard extends HTMLElement {
     const partners = (this._data.partners || []).filter((p) => p.active !== false || p.id === state.partner_id);
     if (!partners.length) return null;
     return el("label", { class: "field" }, el("span", {}, "Portato da un partner (riceve i punti)"),
-      el("select", { class: "input", on: { change: (event) => { state.partner_id = event.target.value; this._nvSyncSummary && this._nvSyncSummary(); } } },
+      el("select", { class: "input", on: { change: (event) => { state.partner_id = event.target.value; this._render(); } } },
         el("option", { value: "", selected: !state.partner_id }, "Nessun partner"),
         ...partners.map((p) => el("option", { value: p.id, selected: state.partner_id === p.id }, `${this._partnerName(p.id)} · ${p.code}`))));
   }
@@ -10609,6 +10638,12 @@ class SpaBookingCard extends HTMLElement {
 
   /** The partners who promote the spa: list, search, add and change by hand. */
   _renderPartners() {
+    // One partner open (2.8.6): her card instead of the list.
+    if (this._partnerSelected && !this._partnerDraft) {
+      const open = (this._data.partners || []).find((p) => p.id === this._partnerSelected);
+      if (open) return this._partnerDetail(open);
+      this._partnerSelected = null;
+    }
     const wrap = el("div", { class: "stack" });
     const canEdit = this._can("manage_clients");
     const label = (p) => p.company || [p.first_name, p.last_name].filter(Boolean).join(" ");
@@ -10682,6 +10717,12 @@ class SpaBookingCard extends HTMLElement {
               ...[...new Set([...PARTNER_TYPES, draft.structure_type].filter(Boolean))].map((type) =>
                 el("option", { value: type, selected: draft.structure_type === type }, type))))),
         el("div", { class: "field-grid" }, field("phone", "Telefono"), field("email", "Email", "email")),
+        el("div", { class: "field-grid" },
+          field("discount_pct", "Sconto ai suoi ospiti (%)", "number", {
+            min: "0", max: "100", step: "0.5",
+            placeholder: `generale: ${String(((this._data.settings || {}).partner_discount_pct) || 0).replace(".", ",")}%`,
+          }),
+          el("div", { class: "hint", style: "align-self:end" }, "Vuoto = lo sconto generale di Promo › Programma partner.")),
         field("notes", "Note", "textarea"),
         el("label", { class: "check" }, el("input", { type: "checkbox", checked: !!draft.whatsapp,
           on: { change: (event) => { draft.whatsapp = event.target.checked; } } }), "Il numero ha WhatsApp"),
@@ -10695,6 +10736,7 @@ class SpaBookingCard extends HTMLElement {
             try {
               const keep = ["id", "first_name", "last_name", "company", "phone", "email", "code", "notes", "active", "city", "structure_type", "whatsapp", "subscribed"];
               const payload = Object.fromEntries(keep.filter((key) => draft[key] !== undefined).map((key) => [key, draft[key]]));
+              payload.discount_pct = draft.discount_pct === "" || draft.discount_pct == null ? null : Number(String(draft.discount_pct).replace(",", "."));
               await this._call("save_partner", { ...payload, code: (draft.code || "").trim().toUpperCase() });
               this._partnerDraft = null;
               this._message = { kind: "ok", text: "Partner salvato." };
@@ -10719,7 +10761,8 @@ class SpaBookingCard extends HTMLElement {
       const name = [partner.first_name, partner.last_name].filter(Boolean).join(" ");
       list.appendChild(el("div", { class: "client-row" },
         el("span", { class: `user-avatar tone-${(index + 3) % 6}` }, this._initials(partner.company || name)),
-        el("div", { class: "client-main" },
+        el("div", { class: "client-main partner-open", role: "button", tabindex: "0", title: "Apri la scheda del partner",
+          on: { click: () => this._partnerOpen(partner.id), keydown: (event) => { if (event.key === "Enter") this._partnerOpen(partner.id); } } },
           el("div", { class: "client-name" }, partner.company || name || "Partner",
             el("span", { class: "pm-chip info" }, partner.code),
             partner.active === false ? el("span", { class: "pm-chip" }, "Non attivo") : null,
@@ -10762,6 +10805,151 @@ class SpaBookingCard extends HTMLElement {
         el("button", { class: "btn small", on: { click: () => { this._partnerLimit = limit + 200; this._render(); } } }, "Mostra altri")));
     }
     return wrap;
+  }
+
+  /** Open a partner's card and load what is behind her points (2.8.6). */
+  async _partnerOpen(id) {
+    this._partnerSelected = id;
+    this._partnerInfo = { id, loading: true };
+    this._render();
+    await this._partnerReload(id);
+  }
+
+  async _partnerReload(id) {
+    try {
+      const data = await this._service("partner_detail", { partner_id: id });
+      if (this._partnerSelected === id) this._partnerInfo = { id, data };
+    } catch (error) {
+      this._partnerInfo = { id, error: (error && error.message) || String(error) };
+    }
+    this._render();
+  }
+
+  /** The partner's card: who she is, her link, her points and how she earned them. */
+  _partnerDetail(partner) {
+    const canEdit = this._can("manage_clients");
+    const info = this._partnerInfo && this._partnerInfo.id === partner.id ? this._partnerInfo : null;
+    if (!info) { this._partnerOpen(partner.id); return el("div", { class: "empty" }, "Caricamento…"); }
+    const data = info.data || {};
+    const points = data.points || ((this._data.partner_points || {})[partner.id]) || { balance: 0, earned: 0, adjust: 0, spent: 0, bookings: 0, booked: 0 };
+    const name = [partner.first_name, partner.last_name].filter(Boolean).join(" ");
+    const title = partner.company || name || "Partner";
+    const link = this._partnerLink(partner);
+    const box = el("div", { class: "stack" });
+
+    box.appendChild(el("div", { class: "row" },
+      el("button", { class: "btn small", on: { click: () => { this._partnerSelected = null; this._partnerInfo = null; this._render(); } } },
+        el("ha-icon", { icon: "mdi:arrow-left" }), "Tutti i partner"),
+      el("span", { class: "spacer" }),
+      partner.phone ? el("a", { class: "btn small tel", href: telHref(partner.phone), title: partner.phone }, el("ha-icon", { icon: "mdi:phone" })) : null,
+      partner.phone && waLink(partner.phone) ? el("a", { class: "btn small wa", href: waLink(partner.phone), target: "_blank", rel: "noopener", title: "WhatsApp" }, el("ha-icon", { icon: "mdi:whatsapp" })) : null,
+      canEdit ? el("button", { class: "btn small", title: "Modifica", on: { click: () => { this._partnerDraft = { ...partner, discount_pct: partner.discount_pct ?? "" }; this._partnerSelected = null; this._render(); } } }, el("ha-icon", { icon: "mdi:pencil" }), "Modifica") : null));
+
+    const columns = el("div", { class: "two-col client-detail" });
+    const left = el("div", { class: "stack tight cfg-box" });
+    const right = el("div", { class: "stack tight cfg-box" });
+
+    left.appendChild(el("div", { class: "profile-head" },
+      el("span", { class: "user-avatar big tone-3" }, this._initials(title)),
+      el("div", {},
+        el("div", { class: "profile-name" }, title),
+        el("div", { class: "chips" },
+          el("span", { class: "pm-chip info" }, partner.code),
+          partner.active === false ? el("span", { class: "pm-chip" }, "Non attivo") : null,
+          partner.subscribed === false ? el("span", { class: "pm-chip warn" }, "Disiscritto") : null,
+          data.discount_pct ? el("span", { class: "pm-chip ok" }, `Sconto ospiti ${String(data.discount_pct).replace(".", ",")}%`) : null))));
+    left.appendChild(el("div", { class: "dim small" }, [partner.structure_type, partner.city].filter(Boolean).join(" · ") || null));
+    left.appendChild(el("div", { class: "dim small" }, [partner.company ? name : "", partner.phone ? `${partner.phone}${partner.whatsapp ? " (WhatsApp)" : ""}` : "", partner.email].filter(Boolean).join(" · ") || "—"));
+    if (partner.notes) left.appendChild(el("div", { class: "dim small" }, partner.notes));
+    left.appendChild(link
+      ? el("div", { class: "pt-link" },
+          el("ha-icon", { icon: "mdi:link-variant" }),
+          el("span", { class: "pt-link-text" }, link),
+          el("button", { class: "btn small", on: { click: async () => {
+            try { await navigator.clipboard.writeText(link); this._message = { kind: "ok", text: "Link copiato." }; }
+            catch (error) { this._message = { kind: "ok", text: link }; }
+            this._render();
+          } } }, el("ha-icon", { icon: "mdi:content-copy" }), "Copia"))
+      : el("div", { class: "hint" }, "Per avere il link imposta la pagina del modulo in Promo › Programma partner."));
+
+    // Points: the balance, how far the prize is, and the button.
+    const need = Number(data.reward_points) || Number((this._data.settings || {}).partner_reward_points) || 0;
+    const value = Number(data.reward_value) || Number((this._data.settings || {}).partner_reward_value) || 0;
+    const ready = need > 0 && points.balance >= need;
+    const share = need ? Math.min(100, Math.round((points.balance / need) * 100)) : 0;
+    left.appendChild(el("div", { class: "pt-points" },
+      el("div", { class: "pt-points-top" },
+        el("span", { class: "pt-balance" }, el("ha-icon", { icon: "mdi:star-circle" }), `${points.balance} punti`),
+        need ? el("span", { class: "dim small" }, ready ? `Premio pronto: buono da ${euro(value)}` : `Mancano ${need - points.balance} punti al buono da ${euro(value)}`) : null),
+      need ? el("div", { class: "pt-bar" }, el("i", { style: `width:${share}%` })) : null,
+      el("div", { class: "pt-split dim small" },
+        `${points.earned} dalle prenotazioni (${points.bookings} · ${euro(points.booked)})`,
+        points.adjust ? ` · ${points.adjust > 0 ? "+" : ""}${points.adjust} a mano` : "",
+        points.spent ? ` · −${points.spent} in premi` : ""),
+      el("div", { class: "row" },
+        canEdit ? el("button", { class: "btn small", disabled: this._busy, on: { click: async () => {
+          const raw = window.prompt(`Punti da aggiungere o togliere a ${title} (es. 50 o -50):`, "");
+          if (raw == null || !raw.trim()) return;
+          const amount = Math.round(Number(raw.replace(",", ".")));
+          if (!amount) return;
+          const note = window.prompt("Motivo (facoltativo):", "") || "";
+          try { await this._call("partner_points_adjust", { partner_id: partner.id, points: amount, note }); await this._partnerReload(partner.id); } catch (error) { /* shown */ }
+        } } }, el("ha-icon", { icon: "mdi:plus-minus-variant" }), "Rettifica punti") : null,
+        el("span", { class: "spacer" }),
+        canEdit ? el("button", {
+          class: "btn primary", disabled: this._busy || !ready,
+          title: ready ? "" : need ? `Servono ${need} punti` : "Imposta il premio in Promo › Programma partner",
+          on: { click: async () => {
+            const where = partner.phone ? "su WhatsApp" : partner.email ? "per email" : "";
+            if (!window.confirm(`Creare un buono da ${euro(value)} per ${title} (−${need} punti)${where ? ` e inviarlo ${where}` : ""}?`)) return;
+            try {
+              const result = await this._call("partner_reward", { partner_id: partner.id });
+              this._message = result.sent
+                ? { kind: "ok", text: `Buono ${result.voucher.code} creato e inviato ${result.sent === "email" ? "per email" : "su WhatsApp"}.` }
+                : { kind: "error", text: `Buono ${result.voucher.code} creato, ma non inviato: ${result.error || "nessun contatto"}. Lo trovi in Voucher.` };
+              await this._partnerReload(partner.id);
+            } catch (error) { /* shown */ }
+          } },
+        }, el("ha-icon", { icon: "mdi:ticket-confirmation-outline" }), "Genera voucher e invia") : null)));
+
+    // Prizes and corrections.
+    const rewards = data.rewards || [];
+    const log = data.log || [];
+    if (rewards.length || log.length) {
+      const hist = el("div", { class: "stack tight" }, el("div", { class: "pt-h" }, "Premi e rettifiche"));
+      rewards.forEach((r) => hist.appendChild(el("div", { class: "pt-line" },
+        el("ha-icon", { icon: "mdi:ticket-confirmation-outline" }),
+        el("span", { class: "grow" }, `Buono ${r.code} da ${euro(r.value)} · −${r.points} punti`,
+          el("span", { class: "dim small" }, ` · ${shortDate(r.at)}${r.sent ? ` · inviato ${r.sent === "email" ? "per email" : "su WhatsApp"}` : " · non inviato"}${r.by ? ` · ${r.by}` : ""}`)))));
+      log.forEach((r) => hist.appendChild(el("div", { class: "pt-line" },
+        el("ha-icon", { icon: "mdi:plus-minus-variant" }),
+        el("span", { class: "grow" }, `${r.points > 0 ? "+" : ""}${r.points} punti${r.note ? ` · ${r.note}` : ""}`,
+          el("span", { class: "dim small" }, ` · ${shortDate(r.at)}${r.by ? ` · ${r.by}` : ""}`)))));
+      left.appendChild(hist);
+    }
+
+    // The bookings her guests made.
+    right.appendChild(el("div", { class: "pt-h" }, `Prenotazioni dei suoi ospiti (${(data.bookings || []).length})`));
+    if (info.loading) right.appendChild(el("div", { class: "empty" }, "Caricamento…"));
+    else if (info.error) right.appendChild(el("div", { class: "empty" }, info.error));
+    else if (!(data.bookings || []).length) right.appendChild(el("div", { class: "empty" }, "Nessuna prenotazione ancora con il suo codice."));
+    else {
+      (data.bookings || []).forEach((b) => {
+        const start = parseDate(b.start);
+        const cancelled = b.status === "cancelled";
+        right.appendChild(el("div", { class: `pt-booking${cancelled ? " off" : ""}` },
+          el("div", { class: "pt-when" }, start ? start.toLocaleDateString("it-IT", { day: "2-digit", month: "short" }) : "", el("span", {}, start ? timeOf(start) : "")),
+          el("div", { class: "grow" },
+            el("div", {}, el("b", {}, b.client || "Ospite"), ` · ${b.treatment}`),
+            el("div", { class: "dim small" }, [b.code, cancelled ? "annullato" : "", b.discount_pct ? `sconto ${String(b.discount_pct).replace(".", ",")}%` : ""].filter(Boolean).join(" · "))),
+          el("div", { class: "pt-amount" }, el("span", {}, cancelled ? "—" : euro(b.value)),
+            el("span", { class: "lp-chip" }, cancelled ? "0 punti" : `+${b.points}`))));
+      });
+    }
+    columns.appendChild(left);
+    columns.appendChild(right);
+    box.appendChild(columns);
+    return box;
   }
 
   /** Pick a CSV of partners and import it (2.6.0). */
@@ -15250,6 +15438,11 @@ class SpaBookingCard extends HTMLElement {
         partner_points_per_euro: settings.partner_points_per_euro != null ? settings.partner_points_per_euro : 1,
         partner_booking_url: settings.partner_booking_url || "",
         partner_campaigns: JSON.parse(JSON.stringify(settings.partner_campaigns || [])),
+        // Programma partner (2.8.6).
+        partner_discount_pct: settings.partner_discount_pct != null ? settings.partner_discount_pct : 0,
+        partner_reward_points: settings.partner_reward_points != null ? settings.partner_reward_points : 300,
+        partner_reward_value: settings.partner_reward_value != null ? settings.partner_reward_value : 30,
+        partner_reward_message: settings.partner_reward_message || PARTNER_REWARD_TEXT,
       };
       this._promoBase = JSON.stringify(this._promoDraft);
     }
@@ -15259,7 +15452,7 @@ class SpaBookingCard extends HTMLElement {
     wrap.appendChild(this._sectionHead("mdi:bullhorn-outline", "Promo",
       "Offerte ai clienti iscritti e voucher fedeltà dopo la visita."));
     wrap.appendChild(el("div", { class: "nt-tabs", role: "tablist" },
-      [["campagna", "mdi:bullhorn-outline", "Campagna promo"], ["fedelta", "mdi:ticket-percent-outline", "Voucher fedeltà"], ["punti", "mdi:star-circle-outline", "Punti fedeltà"], ["partner", "mdi:handshake-outline", "Campagne partner"]]
+      [["campagna", "mdi:bullhorn-outline", "Campagna promo"], ["fedelta", "mdi:ticket-percent-outline", "Voucher fedeltà"], ["punti", "mdi:star-circle-outline", "Punti fedeltà"], ["programma", "mdi:handshake-outline", "Programma partner"], ["partner", "mdi:email-fast-outline", "Campagne partner"]]
         .map(([id, icon, label]) => el("button", {
           class: `nt-tab${tab === id ? " on" : ""}`, role: "tab", "aria-selected": tab === id ? "true" : "false",
           on: { click: () => { this._promoTab = id; this._render(); } },
@@ -15281,6 +15474,7 @@ class SpaBookingCard extends HTMLElement {
     if (tab === "campagna") wrap.appendChild(this._promoCampaign(draft, changed));
     else if (tab === "punti") wrap.appendChild(this._promoPoints(draft, changed));
     else if (tab === "partner") wrap.appendChild(this._promoPartners(draft, changed));
+    else if (tab === "programma") wrap.appendChild(this._promoPartnerProgram(draft, changed));
     else wrap.appendChild(this._promoLoyalty(draft, changed));
 
     wrap.appendChild(this._pageSaveBar("promo", () => this._savePromo(), () => {
@@ -15755,6 +15949,64 @@ class SpaBookingCard extends HTMLElement {
     }
   }
 
+  /**
+   * Promo › Programma partner (2.8.6): the link the partners hand out, the
+   * discount of the guests who book with it, the points the partner earns on
+   * what they pay and the voucher the points turn into.
+   */
+  _promoPartnerProgram(draft, changed) {
+    const wrap = el("div", { class: "stack" });
+    const num = (value) => Number(String(value ?? "").replace(",", ".")) || 0;
+    const input = (key, extra = {}) => el("input", {
+      class: "input", type: "number", min: "0", value: draft[key] ?? "", ...extra,
+      on: { input: (event) => { draft[key] = event.target.value; changed(); refresh(); } },
+    });
+    const example = el("div", { class: "pg-sum" });
+    const refresh = () => {
+      const pct = num(draft.partner_discount_pct);
+      const rate = num(draft.partner_points_per_euro);
+      const paid = Math.round(100 * (1 - pct / 100) * 100) / 100;
+      const points = Math.floor(paid * rate);
+      const need = Math.max(1, Math.round(num(draft.partner_reward_points)));
+      const value = num(draft.partner_reward_value);
+      example.textContent = "";
+      add(example, [el("ha-icon", { icon: "mdi:calculator-variant-outline" }),
+        el("span", {}, el("b", {}, "Esempio: "),
+          `l'ospite prenota trattamenti per 100 € col link del partner${pct ? ` e paga ${euro(paid)} (sconto ${String(pct).replace(".", ",")}%)` : " (nessuno sconto)"}; `,
+          `il partner riceve ${points} punti. Con ${need} punti riceve un buono da ${euro(value)}`,
+          points ? ` (circa ${Math.ceil(need / points)} prenotazioni così).` : ".")]);
+    };
+    refresh();
+    const settings = (this._data && this._data.settings) || {};
+    wrap.appendChild(this._pageStep(1, "Il link dei partner",
+      el("label", { class: "field" }, el("span", {}, "Pagina del sito con il modulo di prenotazione"),
+        el("input", { class: "input", type: "url", value: draft.partner_booking_url || "", placeholder: "https://www.ilmarchese.it/spa/prenota",
+          on: { input: (event) => { draft.partner_booking_url = event.target.value; changed(); } } })),
+      el("div", { class: "hint" }, "Ogni partner ha il suo link: questa pagina + ?partner=CODICE. Il modulo compila da solo il codice, nascosto all'ospite; la richiesta e l'appuntamento mostrano il nome del partner. Il link si copia dalla scheda del partner (Clienti › Partner).")));
+    wrap.appendChild(this._pageStep(2, "Sconto agli ospiti",
+      el("div", { class: "nt-options" },
+        el("label", { class: "field" }, el("span", {}, "Sconto sui trattamenti (%)"), input("partner_discount_pct", { max: "100", step: "0.5" }))),
+      el("div", { class: "hint" }, "Chi prenota con il link di un partner paga i trattamenti scontati: il modulo del sito lo dice all'ospite (con i prezzi visibili mostra anche il totale scontato) e l'appuntamento nasce già col prezzo scontato. Un prezzo scritto a mano dalla reception resta com'è. 0 = nessuno sconto. A un singolo partner puoi dare uno sconto diverso dalla sua scheda.")));
+    wrap.appendChild(this._pageStep(3, "Punti al partner",
+      el("div", { class: "nt-options" },
+        el("label", { class: "field" }, el("span", {}, "Punti per ogni euro pagato dai suoi ospiti"), input("partner_points_per_euro", { step: "0.1" }))),
+      el("div", { class: "hint" }, "Contano sull'importo dopo lo sconto. Se l'appuntamento viene annullato, i punti si tolgono da soli.")));
+    wrap.appendChild(this._pageStep(4, "Il premio",
+      el("div", { class: "nt-options" },
+        el("label", { class: "field" }, el("span", {}, "Punti necessari"), input("partner_reward_points", { min: "1", step: "10" })),
+        el("label", { class: "field" }, el("span", {}, "Valore del buono (€)"), input("partner_reward_value", { min: "1", step: "1" }))),
+      example,
+      el("div", { class: "hint" }, "Dalla scheda del partner, «Genera voucher e invia» crea un buono (gift card) di questo valore, toglie i punti e lo manda su WhatsApp, o per email se non ha WhatsApp."),
+      this._pageEditor(draft, "partner_reward_message",
+        [["{nome}", "Nome"], ["{attivita}", "Attività"], ["{punti}", "Punti"], ["{valore}", "Valore"], ["{codice}", "Codice buono"], ["{scadenza}", "Scadenza"], ["{hotel}", "Hotel"]],
+        (text) => String(text || "").split("{nome}").join("Rosa").split("{attivita}").join("B&B Sole")
+          .split("{punti}").join(String(Math.round(num(draft.partner_reward_points)) || 300))
+          .split("{valore}").join(euro(num(draft.partner_reward_value) || 30)).split("{codice}").join("VCH-7K2M9Q4P")
+          .split("{scadenza}").join("13/11/2027").split("{hotel}").join(settings.guest_header || "Il Marchese Hotel & Spa"),
+        changed)));
+    return wrap;
+  }
+
   /** Promo › Campagne partner (2.5.0): emails that ask the partners to sell the spa to their guests. */
   _promoPartners(draft, changed) {
     const editing = this._pcEditId && draft.partner_campaigns.find((c) => c.id === this._pcEditId);
@@ -15763,18 +16015,9 @@ class SpaBookingCard extends HTMLElement {
     const partners = this._data.partners || [];
     const withEmail = partners.filter((p) => p.active !== false && (p.email || "").includes("@"));
     const wrap = el("div", { class: "stack" });
-    const rate = Number(String(draft.partner_points_per_euro).replace(",", ".")) || 0;
-    wrap.appendChild(this._pageStep(1, "Punti ai partner",
-      el("div", { class: "nt-options" },
-        el("label", { class: "field" }, el("span", {}, "Punti per ogni euro prenotato dai loro ospiti"),
-          el("input", { class: "input", type: "number", min: "0", step: "0.1", value: draft.partner_points_per_euro ?? "",
-            on: { input: (event) => { draft.partner_points_per_euro = event.target.value; changed(); } } })),
-        el("label", { class: "field" }, el("span", {}, "Pagina del sito con il modulo di prenotazione"),
-          el("input", { class: "input", type: "url", value: draft.partner_booking_url || "", placeholder: "https://www.ilmarchese.it/spa/prenota",
-            on: { input: (event) => { draft.partner_booking_url = event.target.value; changed(); } } }))),
-      el("div", { class: "pg-sum" }, el("ha-icon", { icon: "mdi:handshake-outline" }),
-        el("span", {}, el("b", {}, `Un massaggio da 60 € prenotato col link di un partner gli vale ${Math.floor(60 * rate)} punti.`),
-          " Ogni partner ha il suo link (pagina del sito + ?partner=CODICE): le richieste e gli appuntamenti che arrivano da lì portano il suo nome. Se l'appuntamento viene annullato, i punti si tolgono da soli."))));
+    wrap.appendChild(el("div", { class: "pg-sum" }, el("ha-icon", { icon: "mdi:handshake-outline" }),
+      el("span", {}, "Link di prenotazione, sconto agli ospiti, punti e premi dei partner si impostano in ",
+        el("a", { href: "#", on: { click: (event) => { event.preventDefault(); this._promoTab = "programma"; this._render(); } } }, "Programma partner"), ".")));
 
     const list = el("div", { class: "cfg-box pg-step" },
       el("div", { class: "pg-step-head" },
@@ -15957,6 +16200,10 @@ class SpaBookingCard extends HTMLElement {
         loyalty_points_per_euro: Number(String(draft.loyalty_points_per_euro).replace(",", ".")) || 0,
         partner_points_per_euro: Number(String(draft.partner_points_per_euro).replace(",", ".")) || 0,
         partner_booking_url: (draft.partner_booking_url || "").trim(),
+        partner_discount_pct: Number(String(draft.partner_discount_pct).replace(",", ".")) || 0,
+        partner_reward_points: Math.max(1, Math.round(Number(draft.partner_reward_points) || 300)),
+        partner_reward_value: Math.max(1, Math.round(Number(String(draft.partner_reward_value).replace(",", ".")) || 30)),
+        partner_reward_message: draft.partner_reward_message || "",
         loyalty_threshold: Math.max(1, Math.round(Number(draft.loyalty_threshold) || 0)),
         loyalty_reward: Math.max(1, Math.round(Number(draft.loyalty_reward) || 0)),
         promo_time: (draft.promo_time || "").trim(),
@@ -21479,6 +21726,24 @@ class SpaBookingCard extends HTMLElement {
       }
       /* The client card. */
       .client-detail { align-items: start; gap: 14px; }
+      .partner-open { cursor: pointer; }
+      .partner-open:hover .client-name { color: var(--primary-color); }
+      .pt-link { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px dashed var(--sb-line); border-radius: 10px; font-size: 12px; }
+      .pt-link-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--secondary-text-color); }
+      .pt-points { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 12px; background: color-mix(in srgb, var(--primary-color) 7%, transparent); }
+      .pt-points-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+      .pt-balance { display: inline-flex; align-items: center; gap: 6px; font-size: 20px; font-weight: 700; }
+      .pt-balance ha-icon { color: #e0a100; }
+      .pt-bar { height: 8px; border-radius: 999px; background: var(--sb-line); overflow: hidden; }
+      .pt-bar i { display: block; height: 100%; background: linear-gradient(90deg, #e0a100, #f5c542); border-radius: inherit; }
+      .pt-h { font-weight: 600; font-size: 14px; margin-top: 4px; }
+      .pt-line { display: flex; gap: 8px; align-items: center; font-size: 13px; }
+      .pt-line ha-icon { --mdc-icon-size: 18px; color: var(--secondary-text-color); }
+      .pt-booking { display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 8px 0; border-top: 1px solid var(--sb-line); font-size: 13px; }
+      .pt-booking.off { opacity: .55; }
+      .pt-when { display: flex; flex-direction: column; font-weight: 600; font-size: 12px; text-transform: capitalize; }
+      .pt-when span { font-weight: 400; color: var(--secondary-text-color); }
+      .pt-amount { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
       .profile-head { display: flex; gap: 14px; align-items: center; }
       .user-avatar.big { width: 56px; height: 56px; font-size: 18px; }
       .profile-name { font-size: 20px; font-weight: 600; }

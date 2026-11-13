@@ -2352,6 +2352,29 @@ google_disconnect:
   name: Scollega account Google
   description: Dimentica l'account Google usato per le email e revoca il permesso.
 
+partner_detail:
+  name: Dettaglio partner
+  description: Prenotazioni portate dal partner, punti ottenuti, rettifiche e premi.
+  fields:
+    partner_id:
+      name: ID partner
+      required: true
+      selector:
+        text:
+partner_reward:
+  name: Premio partner
+  description: Trasforma i punti del partner in un voucher (Promo › Programma partner) e glielo invia su WhatsApp o per email.
+  fields:
+    partner_id:
+      name: ID partner
+      required: true
+      selector:
+        text:
+    send:
+      name: Invia
+      default: true
+      selector:
+        boolean:
 partner_points_adjust:
   name: Rettifica punti partner
   description: Aggiunge (positivo) o toglie (negativo) punti a un partner, con il motivo.

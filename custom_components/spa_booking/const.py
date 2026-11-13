@@ -669,6 +669,23 @@ DEFAULT_LOYALTY_THRESHOLD: Final = 500
 DEFAULT_LOYALTY_REWARD: Final = 25
 #: The WhatsApp message with the reward voucher. Placeholders: {nome},
 #: {cognome}, {codice}, {valore}, {punti}, {scadenza}.
+#: The prize of a partner (2.8.6): this many points become a voucher worth
+#: this many euro, sent with the text below.
+DEFAULT_PARTNER_REWARD_POINTS: Final = 300
+DEFAULT_PARTNER_REWARD_VALUE: Final = 30
+DEFAULT_PARTNER_REWARD_MESSAGE: Final = "\n".join(
+    [
+        "Gentile {nome}, grazie per averci consigliato ai Suoi ospiti! 🤝",
+        "",
+        "Ha raggiunto {punti} punti: per Lei c'è un buono da {valore} da usare nella nostra spa.",
+        "🎟️ Codice: {codice}",
+        "📅 Valido fino al: {scadenza}",
+        "",
+        "Basta indicare il codice quando prenota.",
+        "Lo Staff - {hotel}",
+    ]
+)
+
 DEFAULT_LOYALTY_MESSAGE: Final = "\n".join(
     [
         "Gentile {nome}, grazie per la Sua fedeltà! 💆‍♀️✨",

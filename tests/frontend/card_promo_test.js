@@ -77,7 +77,16 @@ card._data.partner_points = { p1: { balance: 30, bookings: 1, booked: 15 } };
 card._promoDraft = null;
 card._promoTab = "partner";
 let page2 = card._renderPromo();
-assert(page2.textContent.includes("Le campagne ai partner") && page2.textContent.includes("120 punti"), "partner tab with the rate sentence");
+assert(page2.textContent.includes("Le campagne ai partner") && page2.textContent.includes("Programma partner"), "partner tab points to the programme");
+// 2.8.6: Programma partner, with discount, points and prize.
+card._data.settings.partner_discount_pct = 10;
+card._promoDraft = null;
+card._promoTab = "programma";
+const program = card._renderPromo();
+assert(program.textContent.includes("paga 90,00") && program.textContent.includes("180 punti") && program.textContent.includes("Genera voucher e invia"), "programme with discount, points and prize");
+card._promoTab = "partner";
+card._promoDraft = null;
+page2 = card._renderPromo();
 card._promoDraft.partner_campaigns.unshift({ id: "pc1", name: "Natale", subject: "Ciao {nome}", message: "Prenota: {link_prenotazione}", mode: "giorno", date: "2030-12-01", time: "10:00" });
 card._pcEditId = "pc1";
 page2 = card._renderPromo();
