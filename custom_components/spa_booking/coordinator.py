@@ -131,7 +131,7 @@ from .exceptions import (
     SpaBookingError,
     ValidationError,
 )
-from . import access, email_sender, google_auth, messaging, wp_shop
+from . import access, email_sender, gdrive_backup, google_auth, messaging, wp_shop
 from .waha import WahaAuthenticationError, WahaClient, WahaError
 from .waha_inbound import WahaInbound
 from .wa_bridge import WaBridge
@@ -2727,7 +2727,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._google_logins: dict[str, Any] = {}
         return self._google_logins
 
-    async def async_google_auth_url(self, redirect_uri: str) -> dict[str, Any]:
+    async def async_google_auth_url(self, redirect_uri: str, purpose: str = "email") -> dict[str, Any]:
         """Start «Accedi con Google»: the page to open, for this redirect address."""
         settings = self._data.get(KEY_SETTINGS, {})
         client_id = str(settings.get("google_client_id") or "")
@@ -2742,9 +2742,11 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "Google accetta solo indirizzi https: apri Home Assistant dal suo indirizzo esterno "
                 "(es. Nabu Casa o il tuo dominio) e riprova"
             )
-        state = google_auth.new_state(self._google_pending(), redirect_uri)
+        drive = purpose == "drive"
+        state = google_auth.new_state(self._google_pending(), redirect_uri, "drive" if drive else "email")
         return {
-            "url": google_auth.auth_url(client_id, redirect_uri, state, str(settings.get("google_account") or "")),
+            "url": google_auth.auth_url(client_id, redirect_uri, state, str(settings.get("google_account") or ""),
+                                        google_auth.SCOPES_DRIVE if drive else google_auth.SCOPES),
             "redirect_uri": redirect_uri,
         }
 
@@ -2763,16 +2765,25 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         refresh = str(tokens.get("refresh_token") or "")
         if not refresh:
             raise google_auth.GoogleAuthError("Google non ha dato l'accesso permanente: riprova e accetta tutti i permessi.")
-        if "gmail.send" not in str(tokens.get("scope") or "gmail.send"):
+        scope = str(tokens.get("scope") or "")
+        drive = pending.purpose == "drive"
+        if drive and "drive.file" not in (scope or "drive.file"):
+            raise google_auth.GoogleAuthError("Non hai spuntato il permesso Google Drive: riprova e spuntalo.")
+        if not drive and "gmail.send" not in (scope or "gmail.send"):
             raise google_auth.GoogleAuthError("Non hai spuntato il permesso «Inviare email per tuo conto»: riprova e spuntalo.")
         account = google_auth.email_of_id_token(str(tokens.get("id_token") or ""))
         async with self._lock:
             current = self._data[KEY_SETTINGS]
             current["google_refresh_token"] = refresh
             current["google_account"] = account
-            current["email_method"] = "google"
+            current["google_scopes"] = scope
+            # Connecting Drive does not change how the email goes out (2.8.0).
+            if not drive:
+                current["email_method"] = "google"
             await self._async_save()
         self._google_access = (str(tokens.get("access_token") or ""), time_module.time() + float(tokens.get("expires_in") or 3600) - 60)
+        if drive:
+            return "drive:" + (account or "il tuo account Google")
         return account or "il tuo account Google"
 
     async def _async_google_token(self) -> str:
@@ -2798,9 +2809,105 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             current = self._data[KEY_SETTINGS]
             current["google_refresh_token"] = ""
             current["google_account"] = ""
+            current["google_scopes"] = ""
             await self._async_save()
         self._google_access = None
         return {"disconnected": True}
+
+    # ------------------------------------------------- Google Drive backups
+
+    def _gdrive_ready(self) -> None:
+        settings = self._data.get(KEY_SETTINGS, {})
+        if not settings.get("google_refresh_token"):
+            raise ValidationError("Collega prima Google Drive (Impostazioni › Dati e backup)")
+        if "drive.file" not in str(settings.get("google_scopes") or ""):
+            raise ValidationError("Manca il permesso Google Drive: premi «Collega Google Drive»")
+
+    async def async_gdrive_backup(self, reason: str = "") -> dict[str, Any]:
+        """Write today's backup to Drive and keep the newest three."""
+        self._gdrive_ready()
+        session = self._http_session()
+        today = dt_util.now().date().isoformat()
+        name = f"{gdrive_backup.PREFIX}{today}.json"
+        try:
+            token = await self._async_google_token()
+            settings = self._data.get(KEY_SETTINGS, {})
+            folder = await gdrive_backup.ensure_folder(session, token, str(settings.get("gdrive_folder_id") or ""))
+            files = await gdrive_backup.list_backups(session, token, folder)
+            same_day = next((f for f in files if f.get("name") == name), None)
+            payload = json.dumps(self.export_data(), ensure_ascii=False, indent=1).encode()
+            saved = await gdrive_backup.upload(session, token, folder, name, payload, same_day["id"] if same_day else "")
+            files = await gdrive_backup.list_backups(session, token, folder)
+            removed = []
+            for old in gdrive_backup.to_delete(files):
+                await gdrive_backup.delete(session, token, old["id"])
+                removed.append(old.get("name"))
+        except google_auth.GoogleAuthError as err:
+            async with self._lock:
+                self._data[KEY_SETTINGS]["gdrive_last_error"] = str(err)
+                self._data[KEY_SETTINGS]["gdrive_last_try"] = dt_util.utcnow().isoformat()
+                await self._async_save()
+            raise ValidationError(str(err)) from err
+        async with self._lock:
+            current = self._data[KEY_SETTINGS]
+            current["gdrive_folder_id"] = folder
+            current["gdrive_last_backup"] = dt_util.utcnow().isoformat()
+            current["gdrive_last_file"] = name
+            current["gdrive_last_size"] = len(payload)
+            current["gdrive_last_error"] = ""
+            current["gdrive_last_try"] = current["gdrive_last_backup"]
+            await self._async_save()
+        return {"ok": True, "file": saved.get("name") or name, "size": len(payload), "replaced": bool(same_day),
+                "removed": removed, "reason": reason}
+
+    async def async_gdrive_list(self) -> dict[str, Any]:
+        """The backups on Drive, newest first."""
+        self._gdrive_ready()
+        folder = str(self._data.get(KEY_SETTINGS, {}).get("gdrive_folder_id") or "")
+        if not folder:
+            return {"files": []}
+        try:
+            token = await self._async_google_token()
+            files = await gdrive_backup.list_backups(self._http_session(), token, folder)
+        except google_auth.GoogleAuthError as err:
+            raise ValidationError("La cartella dei backup non c'è più su Drive" if str(err) == "not_found" else str(err)) from err
+        files.sort(key=lambda f: str(f.get("name") or ""), reverse=True)
+        return {"files": files}
+
+    async def async_gdrive_restore(self, file_id: str) -> dict[str, Any]:
+        """Replace the data with a backup from Drive."""
+        self._gdrive_ready()
+        try:
+            token = await self._async_google_token()
+            raw = await gdrive_backup.download(self._http_session(), token, file_id)
+            payload = json.loads(raw.decode("utf-8"))
+        except google_auth.GoogleAuthError as err:
+            raise ValidationError(str(err)) from err
+        except (ValueError, UnicodeDecodeError) as err:
+            raise ValidationError("Il file su Drive non è un backup valido") from err
+        return await self.async_import_data(payload)
+
+    async def async_gdrive_tick(self) -> dict[str, Any]:
+        """Once a day, at the chosen time (or later the same day if the box was off)."""
+        settings = self._data.get(KEY_SETTINGS, {})
+        if not settings.get("gdrive_enabled"):
+            return {"skipped": "spento"}
+        now = dt_util.now()
+        if now.strftime("%H:%M") < str(settings.get("gdrive_time") or "03:30"):
+            return {"skipped": "non ancora"}
+        last = str(settings.get("gdrive_last_backup") or "")
+        if last and dt_util.as_local(dt_util.parse_datetime(last)).date() == now.date():
+            return {"skipped": "già fatto oggi"}
+        # After a failure, try again an hour later, not every five minutes.
+        tried = str(settings.get("gdrive_last_try") or "")
+        if tried and settings.get("gdrive_last_error"):
+            when = dt_util.parse_datetime(tried)
+            if when and (dt_util.utcnow() - when).total_seconds() < 3600:
+                return {"skipped": "riprovo più tardi"}
+        try:
+            return await self.async_gdrive_backup(reason="automatico")
+        except ValidationError as err:
+            return {"error": str(err)}
 
     # ------------------------------------------------------- loyalty points
 

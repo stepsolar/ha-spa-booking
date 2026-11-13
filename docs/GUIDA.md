@@ -1,6 +1,6 @@
 # Spa Booking — guida alle schede (2.2)
 
-Aggiornata alla 2.7.0: [Shop online](#shop-online-270); [importa partner e disiscrizione](#importa-partner-e-disiscrizione-260); [vista Mese](#vista-mese-255); [Dati fatturazione e Modifica appuntamento](#dati-fatturazione-e-modifica-appuntamento-252); [IVA](#iva-251); [campagne e punti partner](#campagne-e-punti-partner-250); [Email e Accedi con Google](#email-241); [dettaglio, punti e partner](#dettaglio-punti-fedelta-e-partner-240); [Agenda](#agenda-2312); [Nuovo appuntamento a passi](#nuovo-appuntamento-a-passi-2310); [promo salvate e modelli](#promo-salvate-e-modelli-239); [Promo e Impostazioni](#promo-e-impostazioni-238); [Notifiche](#notifiche-236); [messaggi e chat](#messaggi-e-chat-235); [preferenza massaggiatrice/massaggiatore](#preferenza-massaggiatrice-o-massaggiatore); [promo e fedeltà del cliente](#promo-e-fedeltà-del-cliente); [conferme e promemoria WhatsApp](#conferme-e-promemoria-whatsapp); [firme e storico](#firme-e-storico); [chiusure con giorni esclusi](#chiusure-con-giorni-esclusi); [Proponi data](#proponi-data) nelle richieste, con trattamenti alternativi e prezzo; [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
+Aggiornata alla 2.8.0: [backup su Google Drive](#backup-su-google-drive-280); [Shop online](#shop-online-270); [importa partner e disiscrizione](#importa-partner-e-disiscrizione-260); [vista Mese](#vista-mese-255); [Dati fatturazione e Modifica appuntamento](#dati-fatturazione-e-modifica-appuntamento-252); [IVA](#iva-251); [campagne e punti partner](#campagne-e-punti-partner-250); [Email e Accedi con Google](#email-241); [dettaglio, punti e partner](#dettaglio-punti-fedelta-e-partner-240); [Agenda](#agenda-2312); [Nuovo appuntamento a passi](#nuovo-appuntamento-a-passi-2310); [promo salvate e modelli](#promo-salvate-e-modelli-239); [Promo e Impostazioni](#promo-e-impostazioni-238); [Notifiche](#notifiche-236); [messaggi e chat](#messaggi-e-chat-235); [preferenza massaggiatrice/massaggiatore](#preferenza-massaggiatrice-o-massaggiatore); [promo e fedeltà del cliente](#promo-e-fedeltà-del-cliente); [conferme e promemoria WhatsApp](#conferme-e-promemoria-whatsapp); [firme e storico](#firme-e-storico); [chiusure con giorni esclusi](#chiusure-con-giorni-esclusi); [Proponi data](#proponi-data) nelle richieste, con trattamenti alternativi e prezzo; [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
 
 Questa guida mostra ogni scheda della dashboard **Spa Booking** e spiega a
 cosa serve ogni funzione. Le immagini sono state fatte con dati di prova.
@@ -32,6 +32,29 @@ in Impostazioni › Aspetto).
 
 
 
+
+## Backup su Google Drive (2.8.0)
+
+In **Configurazione › Impostazioni › Dati e backup**:
+
+1. Una volta sola, nel progetto Google Cloud già usato per l'email: API e
+   servizi › Libreria › **Google Drive API** › Abilita.
+2. Premi **Collega Google Drive** e spunta il permesso. Spa Booking vede solo
+   i file che crea lui, nient'altro del tuo Drive; l'invio delle email non
+   cambia.
+3. Attiva **Backup automatico ogni giorno** e scegli l'ora (03:30 di
+   default).
+
+Ogni giorno il backup completo (lo stesso di «Scarica backup») va nella
+cartella **Spa Booking backup** del Drive, con il nome
+`spa-booking-backup-AAAA-MM-GG.json`. Restano gli ultimi 3: quando arriva il
+nuovo, il più vecchio viene cancellato. Se Home Assistant era spento all'ora
+scelta, il backup parte appena si riaccende, nello stesso giorno; se Google
+non risponde riprova dopo un'ora. **Fai il backup ora** salva subito (lo
+stesso giorno sostituisce il file di oggi); **Backup su Drive** mostra
+l'elenco con **Ripristina**.
+
+![Backup su Google Drive](anteprime/62-backup-google-drive.png)
 
 ## Shop online (2.7.0)
 

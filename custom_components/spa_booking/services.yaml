@@ -1636,6 +1636,21 @@ loyalty_adjust:
       selector:
         text:
 
+gdrive_backup:
+  name: Backup su Google Drive
+  description: Salva subito il backup di oggi su Google Drive (si tengono gli ultimi 3).
+gdrive_list:
+  name: Backup su Google Drive (elenco)
+  description: Elenca i backup salvati su Google Drive.
+gdrive_restore:
+  name: Ripristina da Google Drive
+  description: Sostituisce tutti i dati con un backup salvato su Google Drive.
+  fields:
+    file_id:
+      name: ID file
+      required: true
+      selector:
+        text:
 delete_all_partners:
   name: Svuota lista partner
   description: Elimina tutti i partner, per importarli di nuovo da capo.

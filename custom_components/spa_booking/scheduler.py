@@ -119,6 +119,8 @@ class SpaBookingScheduler:
         await self._job(results, "monthly_report", coordinator.async_monthly_report_tick)
         # The WordPress shop's vouchers (2.7.0), every 15 minutes.
         await self._job(results, "wp_shop", coordinator.async_wp_tick)
+        # The daily backup on Google Drive (2.8.0).
+        await self._job(results, "gdrive_backup", coordinator.async_gdrive_tick)
 
         settings = self._settings
         if in_quiet_hours(
