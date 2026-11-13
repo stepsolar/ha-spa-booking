@@ -1075,6 +1075,9 @@ CREATE_BOOKINGS_SCHEMA = vol.Schema(
     {
         vol.Required(ATTR_ROWS): vol.All(cv.ensure_list, [BOOKING_ROW_SCHEMA]),
         vol.Optional("force_rules", default=False): cv.boolean,
+        # 2.8.3: the request these appointments confirm, marked confirmed
+        # together with the booking.
+        vol.Optional("request_id"): cv.string,
     },
     extra=vol.PREVENT_EXTRA,
 )
@@ -1556,7 +1559,11 @@ async def _async_create_appointment(call: ServiceCall) -> ServiceResponse:
 async def _async_create_bookings(call: ServiceCall) -> ServiceResponse:
     """Create every appointment of a multi-row booking."""
     user_id = _acting_user_id(call)
-    return await _coordinator(call).async_create_bookings(call.data[ATTR_ROWS], user_id)
+    coordinator = _coordinator(call)
+    request_id = call.data.get("request_id")
+    if request_id:
+        return await coordinator.async_confirm_request_with(request_id, call.data[ATTR_ROWS], user_id)
+    return await coordinator.async_create_bookings(call.data[ATTR_ROWS], user_id)
 
 
 async def _async_create_request(call: ServiceCall) -> ServiceResponse:
