@@ -1,6 +1,6 @@
 # Spa Booking — guida alle schede (2.2)
 
-Aggiornata alla 2.8.7: [annullamento](#annullamento-287); [programma partner](#programma-partner-286); [pacchetto nelle promo](#pacchetto-dello-shop-nelle-promo-285); [tutti i messaggi WhatsApp](#tutti-i-messaggi-whatsapp-284); [conferma richiesta](#conferma-di-una-richiesta-283); [conto e voucher come pagamento](#conto-e-voucher-come-pagamento-281); [backup su Google Drive](#backup-su-google-drive-280); [Shop online](#shop-online-270); [importa partner e disiscrizione](#importa-partner-e-disiscrizione-260); [vista Mese](#vista-mese-255); [Dati fatturazione e Modifica appuntamento](#dati-fatturazione-e-modifica-appuntamento-252); [IVA](#iva-251); [campagne e punti partner](#campagne-e-punti-partner-250); [Email e Accedi con Google](#email-241); [dettaglio, punti e partner](#dettaglio-punti-fedelta-e-partner-240); [Agenda](#agenda-2312); [Nuovo appuntamento a passi](#nuovo-appuntamento-a-passi-2310); [promo salvate e modelli](#promo-salvate-e-modelli-239); [Promo e Impostazioni](#promo-e-impostazioni-238); [Notifiche](#notifiche-236); [messaggi e chat](#messaggi-e-chat-235); [preferenza massaggiatrice/massaggiatore](#preferenza-massaggiatrice-o-massaggiatore); [promo e fedeltà del cliente](#promo-e-fedeltà-del-cliente); [conferme e promemoria WhatsApp](#conferme-e-promemoria-whatsapp); [firme e storico](#firme-e-storico); [chiusure con giorni esclusi](#chiusure-con-giorni-esclusi); [Proponi data](#proponi-data) nelle richieste, con trattamenti alternativi e prezzo; [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
+Aggiornata alla 2.8.8: [gruppi e codice](#prenotazioni-di-gruppo-e-codice-288); [annullamento](#annullamento-287); [programma partner](#programma-partner-286); [pacchetto nelle promo](#pacchetto-dello-shop-nelle-promo-285); [tutti i messaggi WhatsApp](#tutti-i-messaggi-whatsapp-284); [conferma richiesta](#conferma-di-una-richiesta-283); [conto e voucher come pagamento](#conto-e-voucher-come-pagamento-281); [backup su Google Drive](#backup-su-google-drive-280); [Shop online](#shop-online-270); [importa partner e disiscrizione](#importa-partner-e-disiscrizione-260); [vista Mese](#vista-mese-255); [Dati fatturazione e Modifica appuntamento](#dati-fatturazione-e-modifica-appuntamento-252); [IVA](#iva-251); [campagne e punti partner](#campagne-e-punti-partner-250); [Email e Accedi con Google](#email-241); [dettaglio, punti e partner](#dettaglio-punti-fedelta-e-partner-240); [Agenda](#agenda-2312); [Nuovo appuntamento a passi](#nuovo-appuntamento-a-passi-2310); [promo salvate e modelli](#promo-salvate-e-modelli-239); [Promo e Impostazioni](#promo-e-impostazioni-238); [Notifiche](#notifiche-236); [messaggi e chat](#messaggi-e-chat-235); [preferenza massaggiatrice/massaggiatore](#preferenza-massaggiatrice-o-massaggiatore); [promo e fedeltà del cliente](#promo-e-fedeltà-del-cliente); [conferme e promemoria WhatsApp](#conferme-e-promemoria-whatsapp); [firme e storico](#firme-e-storico); [chiusure con giorni esclusi](#chiusure-con-giorni-esclusi); [Proponi data](#proponi-data) nelle richieste, con trattamenti alternativi e prezzo; [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
 
 Questa guida mostra ogni scheda della dashboard **Spa Booking** e spiega a
 cosa serve ogni funzione. Le immagini sono state fatte con dati di prova.
@@ -32,6 +32,26 @@ in Impostazioni › Aspetto).
 
 
 
+
+## Prenotazioni di gruppo e codice (2.8.8)
+
+Una prenotazione con più persone (o più trattamenti) ha **un solo codice**.
+Toccando **Modifica** su uno qualsiasi dei suoi appuntamenti si apre la
+modifica di tutto il gruppo.
+
+Nella scheda dell'appuntamento, e in cima a Modifica gruppo, il riquadro
+**Prenotazione CODICE** mostra le persone con i loro trattamenti:
+
+- **Scollega**: la persona, con tutti i suoi trattamenti e incassi, diventa
+  una prenotazione a parte con un nuovo codice e lo stesso cliente; le altre
+  vengono rinumerate (Persona 1, 2, …);
+- **Aggiungi una prenotazione già inserita**: scrivi il codice di un'altra
+  prenotazione e premi Aggiungi; le sue persone entrano nel gruppo dopo
+  quelle presenti e prendono il codice del gruppo.
+
+Le prenotazioni fatte prima della 2.8.8 tengono i codici che avevano.
+
+![Prenotazione di gruppo](anteprime/71-gruppo-codice.png)
 
 ## Annullamento (2.8.7)
 

@@ -142,6 +142,8 @@ SERVICE_DELETE_PARTNER = "delete_partner"
 SERVICE_IMPORT_PARTNERS = "import_partners"
 SERVICE_DELETE_ALL_PARTNERS = "delete_all_partners"
 SERVICE_PARTNER_DETAIL = "partner_detail"
+SERVICE_SPLIT_FROM_GROUP = "split_from_group"
+SERVICE_JOIN_GROUP = "join_group"
 SERVICE_PARTNER_REWARD = "partner_reward"
 SERVICE_WP_SYNC = "wp_sync"
 SERVICE_WP_TEST = "wp_test"
@@ -260,6 +262,8 @@ ALL_SERVICES = (
     SERVICE_DELETE_ALL_PARTNERS,
     SERVICE_PARTNER_DETAIL,
     SERVICE_PARTNER_REWARD,
+    SERVICE_SPLIT_FROM_GROUP,
+    SERVICE_JOIN_GROUP,
     SERVICE_WP_SYNC,
     SERVICE_WP_TEST,
     SERVICE_WP_NEW_SECRET,
@@ -1289,6 +1293,11 @@ PARTNER_POINTS_ADJUST_SCHEMA = vol.Schema(
     extra=vol.PREVENT_EXTRA,
 )
 
+SPLIT_FROM_GROUP_SCHEMA = vol.Schema({vol.Required(ATTR_APPOINTMENT_ID): cv.string}, extra=vol.PREVENT_EXTRA)
+JOIN_GROUP_SCHEMA = vol.Schema(
+    {vol.Required(ATTR_APPOINTMENT_ID): cv.string, vol.Required("code"): cv.string}, extra=vol.PREVENT_EXTRA
+)
+
 PARTNER_DETAIL_SCHEMA = vol.Schema({vol.Required("partner_id"): cv.string}, extra=vol.PREVENT_EXTRA)
 PARTNER_REWARD_SCHEMA = vol.Schema(
     {vol.Required("partner_id"): cv.string, vol.Optional("send", default=True): cv.boolean},
@@ -1783,6 +1792,16 @@ async def _async_partner_points_adjust(call: ServiceCall) -> ServiceResponse:
     return await _coordinator(call).async_partner_points_adjust(
         call.data["partner_id"], call.data["points"], call.data.get("note", ""), _acting_name()
     )
+
+
+async def _async_split_from_group(call: ServiceCall) -> ServiceResponse:
+    """Take a person out of her group: a booking of her own (2.8.8)."""
+    return await _coordinator(call).async_split_from_group(call.data[ATTR_APPOINTMENT_ID])
+
+
+async def _async_join_group(call: ServiceCall) -> ServiceResponse:
+    """Add another booking, by its code, to this group (2.8.8)."""
+    return await _coordinator(call).async_join_group(call.data[ATTR_APPOINTMENT_ID], call.data["code"])
 
 
 async def _async_partner_detail(call: ServiceCall) -> ServiceResponse:
@@ -3120,6 +3139,8 @@ _HANDLERS: dict[str, tuple[Any, Any, SupportsResponse]] = {
     SERVICE_WP_REDEEM: (_async_wp_redeem, WP_REDEEM_SCHEMA, SupportsResponse.ONLY),
     SERVICE_PARTNER_POINTS_ADJUST: (_async_partner_points_adjust, PARTNER_POINTS_ADJUST_SCHEMA, SupportsResponse.ONLY),
     SERVICE_PARTNER_DETAIL: (_async_partner_detail, PARTNER_DETAIL_SCHEMA, SupportsResponse.ONLY),
+    SERVICE_SPLIT_FROM_GROUP: (_async_split_from_group, SPLIT_FROM_GROUP_SCHEMA, SupportsResponse.ONLY),
+    SERVICE_JOIN_GROUP: (_async_join_group, JOIN_GROUP_SCHEMA, SupportsResponse.ONLY),
     SERVICE_PARTNER_REWARD: (_async_partner_reward, PARTNER_REWARD_SCHEMA, SupportsResponse.ONLY),
     SERVICE_SET_APPOINTMENT_PARTNER: (_async_set_appointment_partner, SET_APPOINTMENT_PARTNER_SCHEMA, SupportsResponse.ONLY),
     SERVICE_SEND_PARTNER_CAMPAIGN: (_async_send_partner_campaign, SEND_PARTNER_CAMPAIGN_SCHEMA, SupportsResponse.ONLY),
@@ -3401,6 +3422,8 @@ SERVICE_LEVELS: dict[str, str] = {
     SERVICE_WP_REDEEM: "operator",
     SERVICE_PARTNER_POINTS_ADJUST: "manager",
     SERVICE_PARTNER_DETAIL: "operator",
+    SERVICE_SPLIT_FROM_GROUP: "operator",
+    SERVICE_JOIN_GROUP: "operator",
     SERVICE_PARTNER_REWARD: "manager",
     SERVICE_SET_APPOINTMENT_PARTNER: "operator",
     SERVICE_SEND_PARTNER_CAMPAIGN: "manager",

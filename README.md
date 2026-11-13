@@ -133,6 +133,16 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v2.8.8** — **Un codice per prenotazione di gruppo** (serve il riavvio di
+  Home Assistant). Le nuove prenotazioni con più persone o più trattamenti
+  hanno **un solo codice**, anche le persone aggiunte dopo. «Modifica» su un
+  appuntamento di gruppo apre la modifica del gruppo. Nella scheda (e in
+  Modifica gruppo) il riquadro «Prenotazione CODICE» elenca le persone con i
+  loro trattamenti: **Scollega** toglie una persona dal gruppo e le dà un
+  codice suo (stesso cliente, incassi con lei); **Aggiungi** unisce al gruppo
+  un'altra prenotazione digitandone il codice. Il gruppo è definito dal
+  codice: due prenotazioni separate dello stesso cliente nello stesso giorno
+  non si uniscono più da sole.
 - **v2.8.7** — **Annullamento con messaggio all'ospite e sconto nella
   conferma** (serve il riavvio di Home Assistant). «Annulla appuntamento» apre
   un popup: per una prenotazione di più persone chiede se annullare solo
