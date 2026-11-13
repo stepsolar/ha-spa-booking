@@ -133,6 +133,18 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v2.8.1** — **Voucher e gift card come pagamento, nuovo «Conto»** (serve
+  il riavvio di Home Assistant). Prenotando con un voucher, Spa Booking
+  registra da solo gli incassi: i trattamenti del voucher come «Voucher», poi
+  la gift card come «Gift card» fino al suo valore; il resto è il saldo da
+  incassare. Una gift card più grande del conto lascia il **credito residuo**
+  sul voucher per la volta dopo; annullando l'appuntamento il voucher torna
+  disponibile. Il voucher non deve più coincidere esattamente: persone o
+  trattamenti in più si pagano a parte, una gift card vale per qualsiasi
+  trattamento. Nuovo riquadro Conto (Totale · Pagato · Da saldare, barra,
+  incassi con icona e codice voucher, «Incassa il saldo» con un tocco in
+  Contante/Carta/Bonifico, «Altro importo» con i metodi a pulsanti e «Tutto
+  il saldo»/«Metà») in nuova prenotazione, modifica e scheda appuntamento.
 - **v2.8.0** — **Backup automatico su Google Drive** (serve il riavvio di
   Home Assistant): in Impostazioni › Dati e backup, «Collega Google Drive»
   (stesso progetto Google dell'email, permesso `drive.file`: Spa Booking vede

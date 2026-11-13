@@ -221,6 +221,11 @@ def _norm_voucher(raw: Any) -> dict[str, Any]:
         "status": status if status in (VOUCHER_ACTIVE, VOUCHER_REDEEMED) else VOUCHER_ACTIVE,
         "redeemed_at": str(raw.get("redeemed_at") or ""),
         "appointment_ids": [str(i) for i in raw.get("appointment_ids") or [] if i],
+        # Used as a payment (2.8.1): the treatments are taken at the first
+        # booking, the gift card credit can be spent over several visits.
+        "treatments_redeemed": bool(raw.get("treatments_redeemed", False)),
+        "credit_used": round(max(0.0, float(raw.get("credit_used") or 0)), 2)
+        if str(raw.get("credit_used") or "0").replace(".", "", 1).isdigit() else 0.0,
         # Kept through normalisation: without it every restart forgot that
         # the expiry reminder had already gone out.
         "expiry_reminder_sent": bool(raw.get("expiry_reminder_sent", False)),
@@ -1525,14 +1530,17 @@ def _norm_payment_list(raw: Any) -> list[dict[str, Any]]:
             continue
         if amount <= 0:
             continue
-        out.append(
-            {
-                "id": str(item.get("id") or _new_id("pay")),
-                "method": method,
-                "date": _norm_date(item.get("date")),
-                "amount": amount,
-            }
-        )
+        entry = {
+            "id": str(item.get("id") or _new_id("pay")),
+            "method": method,
+            "date": _norm_date(item.get("date")),
+            "amount": amount,
+        }
+        # A taking that is a voucher or gift card used at booking (2.8.1).
+        if item.get("voucher_id"):
+            entry["voucher_id"] = str(item.get("voucher_id"))
+            entry["voucher_code"] = str(item.get("voucher_code") or "")
+        out.append(entry)
     return out
 
 
