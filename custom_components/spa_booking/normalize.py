@@ -1034,6 +1034,9 @@ def _norm_settings(raw: dict[str, Any]) -> dict[str, Any]:
                 "sku": str(p.get("sku") or "").strip(),
                 "price": _norm_price_opt(p.get("price")),
                 "voucher": bool(p.get("voucher", False)),
+                # The product page and picture (plugin 1.1.0), for promos.
+                "url": str(p.get("url") or "").strip()[:500],
+                "image": str(p.get("image") or "").strip()[:500],
             }
             for p in (raw.get("wp_products") or [])
             if isinstance(p, dict) and str(p.get("product_id") or "").isdigit()
@@ -1222,6 +1225,14 @@ def _norm_promo(raw: Any) -> dict[str, Any] | None:
         "sent_at": str(raw.get("sent_at") or ""),
         "sent_count": _norm_count(raw.get("sent_count"), 0, 10**9, 0),
         "created_at": str(raw.get("created_at") or ""),
+        # The online-shop package on offer (2.8.5): its key in wp_products, a
+        # snapshot of name/price/link in case the product leaves the shop, and
+        # an optional promo price shown instead of the shop's.
+        "product_key": str(raw.get("product_key") or "").strip()[:40],
+        "product_name": str(raw.get("product_name") or "").strip()[:200],
+        "product_url": str(raw.get("product_url") or "").strip()[:500],
+        "product_price": _norm_price_opt(raw.get("product_price")),
+        "product_promo_price": _norm_price_opt(raw.get("product_promo_price")),
     }
 
 

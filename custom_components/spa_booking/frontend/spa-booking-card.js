@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.8.4";
+const CARD_VERSION = "2.8.5";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -16102,7 +16102,8 @@ class SpaBookingCard extends HTMLElement {
             el("span", { class: "pm-name" }, promo.name || "Promo",
               el("span", { class: `pm-chip ${kind}` }, label)),
             el("span", { class: "pm-line" }, line),
-            promo.code ? el("span", { class: "pm-line" }, `Codice ${promo.code}${promo.expiry ? ` · valido fino al ${this._itDate(promo.expiry)}` : ""}`) : null)),
+            promo.code ? el("span", { class: "pm-line" }, `Codice ${promo.code}${promo.expiry ? ` · valido fino al ${this._itDate(promo.expiry)}` : ""}`) : null,
+            promo.product_key ? el("span", { class: "pm-line" }, `🎁 ${(this._promoPackage(promo) || {}).name || "Pacchetto"}`) : null)),
         el("div", { class: "pm-actions" },
           el("button", { class: "btn small", on: { click: () => { this._promoEditId = promo.id; this._render(); } } },
             el("ha-icon", { icon: "mdi:pencil-outline" }), "Modifica"),
@@ -16127,10 +16128,35 @@ class SpaBookingCard extends HTMLElement {
     return wrap;
   }
 
+  /** Name, price and link of the shop package a promo offers (2.8.5). */
+  _promoPackage(promo) {
+    if (!promo || !promo.product_key) return null;
+    const settings = (this._data && this._data.settings) || {};
+    const product = (settings.wp_products || []).find((p) => p.key === promo.product_key) || {};
+    const listed = product.price != null ? product.price : promo.product_price;
+    const offer = promo.product_promo_price !== "" && promo.product_promo_price != null ? Number(promo.product_promo_price) : null;
+    let url = product.url || promo.product_url || "";
+    const base = String(settings.wp_url || "").replace(/\/+$/, "");
+    if (!url && base) url = `${/^https?:\/\//.test(base) ? base : `https://${base}`}/?post_type=product&p=${String(promo.product_key).split(":")[0]}`;
+    return {
+      name: product.name || promo.product_name || "",
+      listed: listed != null ? Number(listed) : null,
+      price: offer != null && !Number.isNaN(offer) ? offer : (listed != null ? Number(listed) : null),
+      url,
+      image: product.image || "",
+      missing: !product.key,
+    };
+  }
+
   _promoEditor(draft, promo, changed) {
     const recipients = this._promoRecipients();
     const saved = ((this._data.settings || {}).promos || []).some((p) => p.id === promo.id);
+    const pkg = this._promoPackage(promo);
     const sample = (text) => String(text || "")
+      .split("{pacchetto}").join(pkg ? pkg.name : "")
+      .split("{prezzo_pacchetto}").join(pkg && pkg.price != null ? euro(pkg.price) : "")
+      .split("{prezzo_listino}").join(pkg && pkg.listed != null ? euro(pkg.listed) : "")
+      .split("{link_pacchetto}").join(pkg ? pkg.url : "")
       .split("{nome}").join("Mario").split("{cognome}").join("Rossi").split("{codice}").join("ABC12")
       .split("{codice_promo}").join(promo.code || "PROMO")
       .split("{scadenza_promo}").join(this._itDate(promo.expiry) || "31/12/2026");
@@ -16178,15 +16204,67 @@ class SpaBookingCard extends HTMLElement {
             ...PROMO_THEMES.map((t) => el("option", { value: t.id, selected: promo.theme === t.id }, `${t.emoji} ${t.name}`)))),
         el("label", { class: "field" }, el("span", {}, "Nome (solo per voi)"), field("name", "text", { placeholder: "es. Natale 2026" })))));
 
-    wrap.appendChild(this._pageStep(2, "Il messaggio",
+    // 2. The shop package on offer (2.8.5).
+    const products = ((this._data.settings || {}).wp_products || []).filter((p) => p.name);
+    const pkgBlock = "\n\n🎁 {pacchetto} a {prezzo_pacchetto}\n👉 Acquistalo qui: {link_pacchetto}";
+    const hasPkgText = (text) => /\{pacchetto\}|\{link_pacchetto\}/.test(String(text || ""));
+    const choose = (key) => {
+      const product = products.find((p) => p.key === key);
+      promo.product_key = product ? product.key : "";
+      promo.product_name = product ? product.name : "";
+      promo.product_url = product ? (product.url || "") : "";
+      promo.product_price = product ? product.price : null;
+      if (!product) promo.product_promo_price = null;
+      if (product && !hasPkgText(promo.message)) promo.message = `${String(promo.message || "").replace(/\s+$/, "")}${pkgBlock}`;
+      changed();
+      this._render();
+    };
+    const pkgBody = [];
+    if (!products.length) {
+      pkgBody.push(el("div", { class: "hint" }, "Nessun prodotto dello shop: collega il sito in Configurazione › Shop online e premi «Prova collegamento»."));
+    } else {
+      pkgBody.push(el("label", { class: "field" }, el("span", {}, "Pacchetto dello shop online"),
+        el("select", { class: "input", on: { change: (event) => choose(event.target.value) } },
+          el("option", { value: "", selected: !promo.product_key }, "— Nessun pacchetto —"),
+          ...products.slice().sort((a, b) => a.name.localeCompare(b.name, "it")).map((p) => el("option", {
+            value: p.key, selected: promo.product_key === p.key,
+          }, `${p.name}${p.price != null ? ` · ${euro(p.price)}` : ""}`)))));
+    }
+    if (pkg) {
+      pkgBody.push(el("div", { class: "pm-pkg" },
+        pkg.image ? el("img", { class: "pm-pkg-img", src: pkg.image, alt: "" }) : el("span", { class: "pm-pkg-img ph" }, el("ha-icon", { icon: "mdi:gift-outline" })),
+        el("div", { class: "pm-pkg-text" },
+          el("b", {}, pkg.name || "Pacchetto"),
+          el("span", { class: "dim small" },
+            pkg.listed != null ? `Prezzo sul sito ${euro(pkg.listed)}` : "Prezzo non indicato",
+            pkg.price != null && pkg.listed != null && pkg.price !== pkg.listed ? ` · in promo ${euro(pkg.price)}` : ""),
+          pkg.missing ? el("span", { class: "warn-text small" }, "Non è più tra i prodotti del sito: si usano i dati salvati.") : null,
+          pkg.url ? el("a", { href: pkg.url, target: "_blank", rel: "noopener", class: "small" }, "Apri la pagina sul sito ↗") : null),
+        el("label", { class: "field pm-pkg-price" }, el("span", {}, "Prezzo in promo (facoltativo)"),
+          el("input", {
+            class: "input", type: "number", min: "0", step: "0.01", placeholder: pkg.listed != null ? String(pkg.listed) : "",
+            value: promo.product_promo_price ?? "",
+            on: { input: (event) => { promo.product_promo_price = event.target.value === "" ? null : Number(event.target.value); changed(); } },
+          }))));
+      pkgBody.push(el("div", { class: "row" },
+        el("div", { class: "hint grow" }, "Nel testo: {pacchetto} = nome, {prezzo_pacchetto} = prezzo (quello in promo se lo indichi), {prezzo_listino} = prezzo del sito, {link_pacchetto} = pagina per acquistarlo."),
+        hasPkgText(promo.message) ? null : el("button", {
+          class: "btn small", on: { click: () => { promo.message = `${String(promo.message || "").replace(/\s+$/, "")}${pkgBlock}`; changed(); this._render(); } },
+        }, el("ha-icon", { icon: "mdi:text-box-plus-outline" }), "Aggiungi al testo")));
+    }
+    wrap.appendChild(this._pageStep(2, "Pacchetto in promozione", ...pkgBody));
+
+    wrap.appendChild(this._pageStep(3, "Il messaggio",
       el("div", { class: "nt-options" },
         el("label", { class: "field" }, el("span", {}, "Codice promo"), field("code", "text", { placeholder: "es. NATALE26" })),
         el("label", { class: "field" }, el("span", {}, "Valido fino al"), field("expiry", "date", { rerender: true }))),
       this._pageEditor(promo, "message",
-        [["{nome}", "Nome"], ["{cognome}", "Cognome"], ["{codice_promo}", "Codice promo"], ["{scadenza_promo}", "Scadenza promo"], ["{codice}", "Codice dell'ultima prenotazione"]],
+        [["{nome}", "Nome"], ["{cognome}", "Cognome"], ["{codice_promo}", "Codice promo"], ["{scadenza_promo}", "Scadenza promo"],
+          ...(pkg ? [["{pacchetto}", "Pacchetto"], ["{prezzo_pacchetto}", "Prezzo pacchetto"], ["{prezzo_listino}", "Prezzo del sito"], ["{link_pacchetto}", "Link acquisto"]] : []),
+          ["{codice}", "Codice dell'ultima prenotazione"]],
         sample, changed)));
 
-    wrap.appendChild(this._pageStep(3, "A chi",
+    wrap.appendChild(this._pageStep(4, "A chi",
       el("div", { class: "pg-sum" }, el("ha-icon", { icon: "mdi:account-group-outline" }),
         el("span", {}, "Tutti i ", el("b", {}, `${recipients} clienti`),
           " con telefono che non hanno chiesto di non ricevere promo (nella scheda cliente: «Riceve promo»)."))));
@@ -16243,7 +16321,7 @@ class SpaBookingCard extends HTMLElement {
         this._message = { kind: "ok", text: `Promo inviata a ${result.sent} clienti (${result.failed} non riusciti).` };
       } catch (error) { /* shown */ } finally { this._busy = false; this._render(); }
     };
-    wrap.appendChild(this._pageStep(4, "Quando",
+    wrap.appendChild(this._pageStep(5, "Quando",
       el("div", { class: "pg-seg", role: "radiogroup" },
         [["adesso", "A mano"], ["giorno", "Un giorno preciso"], ["ogni", "Ogni giorno"]].map(([id, label]) => el("button", {
           type: "button", class: mode === id ? "on" : "", role: "radio", "aria-checked": mode === id ? "true" : "false",
@@ -20370,6 +20448,12 @@ class SpaBookingCard extends HTMLElement {
                   background: var(--sb-card); border: 1px solid var(--sb-line); border-radius: var(--sb-radius);
                   box-shadow: var(--sb-shadow); overflow: hidden; min-height: 420px; }
       .wa-chats { border-right: 1px solid var(--sb-line); overflow-y: auto; max-height: 70vh; }
+      .pm-pkg { display: grid; grid-template-columns: 72px minmax(0, 1fr) minmax(150px, 200px); gap: 12px; align-items: center; padding: 10px; border: 1px solid var(--sb-line); border-radius: 12px; }
+      .pm-pkg-img { width: 72px; height: 72px; border-radius: 10px; object-fit: cover; background: var(--sb-card); display: flex; align-items: center; justify-content: center; }
+      .pm-pkg-img.ph ha-icon { --mdc-icon-size: 32px; color: var(--secondary-text-color); }
+      .pm-pkg-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+      .warn-text { color: var(--warning-color, #b26a00); }
+      @media (max-width: 600px) { .pm-pkg { grid-template-columns: 56px minmax(0, 1fr); } .pm-pkg-img { width: 56px; height: 56px; } .pm-pkg-price { grid-column: 1 / -1; } }
       .wa-filters { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
       .wa-filters .chip { border: 1px solid var(--sb-line); background: var(--card-background-color); border-radius: 999px; padding: 5px 12px; font: inherit; font-size: 13px; cursor: pointer; color: var(--primary-text-color); }
       .wa-filters .chip.on { background: var(--primary-color); border-color: var(--primary-color); color: var(--text-primary-color, #fff); }

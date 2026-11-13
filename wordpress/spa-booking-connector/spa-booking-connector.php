@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Spa Booking Connector
  * Description: Collega lo shop WooCommerce («Buoni PDF») a Spa Booking su Home Assistant: invia i voucher venduti e segna come riscattati quelli usati in spa.
- * Version: 1.0.0
+ * Version: 1.1.0
  * Author: Spa Booking
  * Requires PHP: 7.4
  * Text Domain: spa-booking-connector
@@ -13,7 +13,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Spa_Booking_Connector {
-	const VERSION   = '1.0.0';
+	const VERSION   = '1.1.0';
 	const OPTION    = 'spa_booking_connector';
 	const NAMESPACE = 'spa-booking/v1';
 
@@ -112,7 +112,9 @@ final class Spa_Booking_Connector {
 			if ( ! $p ) {
 				continue;
 			}
-			$base = array( 'product_id' => $p->get_id(), 'parent_name' => $p->get_name(), 'voucher' => 'yes' === get_post_meta( $p->get_id(), self::meta( 'enable' ), true ) );
+			// 1.1.0: page and picture, so Spa Booking can link a package in a promo.
+			$image = $p->get_image_id() ? wp_get_attachment_image_url( $p->get_image_id(), 'large' ) : '';
+			$base  = array( 'product_id' => $p->get_id(), 'parent_name' => $p->get_name(), 'voucher' => 'yes' === get_post_meta( $p->get_id(), self::meta( 'enable' ), true ), 'url' => get_permalink( $p->get_id() ), 'image' => $image ? $image : '' );
 			if ( $p->is_type( 'variable' ) ) {
 				foreach ( $p->get_children() as $vid ) {
 					$v = wc_get_product( $vid );
