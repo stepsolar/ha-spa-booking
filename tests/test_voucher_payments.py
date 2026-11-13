@@ -73,3 +73,31 @@ def test_wrong_treatment_is_refused(coordinator, freeze) -> None:
     other = next(t["id"] for t in coordinator.treatments if t["id"] != "trt_ingresso_90" and t.get("active", True))
     with pytest.raises(ValidationError, match="manca"):
         _book(coordinator, voucher["code"], treatment=other)
+
+
+def test_couple_confirmation_lists_both_prices(coordinator, freeze, monkeypatch) -> None:
+    """2.8.2: «Invia conferma» on one of a couple sends both, each with its price."""
+    from custom_components.spa_booking import messaging
+
+    freeze("2026-11-13 10:00")
+    treatment = next(t for t in coordinator.treatments if t["id"] == "trt_ingresso_90")
+    treatment["price"] = 80.0
+    sent = []
+
+    async def fake(hass, chat_id, message, blocking=True, waha=None):
+        sent.append(message)
+        return {"sent": True}
+
+    monkeypatch.setattr(messaging, "async_send_whatsapp", fake)
+    booked = run(coordinator.async_create_bookings([{
+        "treatment_id": "trt_ingresso_90",
+        "entries": [{"start": "2026-11-14 10:00", "first_name": "Puleo", "phone": "333 7654321", "person": i}
+                    for i in range(2)],
+    }]))["appointments"]
+    result = run(coordinator.async_send_guest_summary(booked[0]["id"]))
+    assert len(result["appointment_ids"]) == 2 and len(sent) == 1
+    text = sent[0]
+    assert "Persona 1" in text and "Persona 2" in text
+    assert text.count("80,00 €") >= 2
+    assert "Totale 160,00 €" in text and "Da saldare 160,00 €" in text
+    assert all(a["confirmation_sent_at"] for a in coordinator.appointments if a["id"] in result["appointment_ids"])

@@ -5968,6 +5968,23 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ids.insert(0, str(appointment_id))
         if not ids:
             raise ValidationError("Indica almeno un appuntamento")
+        # A party is confirmed as a whole (2.8.2): from one appointment the
+        # message reaches every person booked with it (same batch), so a couple
+        # reads both treatments, the total of both and the balance of both.
+        ids = list(dict.fromkeys(ids))
+        for item in list(ids):
+            anchor = next((a for a in self.appointments if a["id"] == item), None)
+            batch = (anchor or {}).get("batch_id")
+            if not batch:
+                continue
+            for other in self.appointments:
+                if (
+                    other.get("batch_id") == batch
+                    and other["id"] not in ids
+                    and other.get("status") != STATUS_CANCELLED
+                    and other.get("client_id") == anchor.get("client_id")
+                ):
+                    ids.append(other["id"])
         payloads = [
             self.appointment_payload(
                 self._find(self.appointments, item, "Appuntamento")
@@ -8240,7 +8257,11 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return text
 
     def _appointment_lines(
-        self, payloads: list[dict[str, Any]], *, with_day: bool | None = None
+        self,
+        payloads: list[dict[str, Any]],
+        *,
+        with_day: bool | None = None,
+        with_price: bool = False,
     ) -> list[str]:
         """"• 10:00–11:30 Massaggio Relax 90 min · Persona 2", one per booking.
 
@@ -8265,6 +8286,12 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             line = f"• {when} {name}".rstrip()
             if len(persons) > 1:
                 line += f" · Persona {(payload.get('person') or 0) + 1}"
+            if with_price:
+                # The price of this person's treatment (with her accessories),
+                # so a party reads what each one costs before the total.
+                price = float(self._payment_totals(payload).get("total") or 0)
+                if price > 0:
+                    line += f" · {_money_text(price)}"
             lines.append(line)
         return lines
 
@@ -8303,9 +8330,17 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "{cliente}": str(client.get("full_name") or "").strip() or "ospite",
             "{hotel}": str(settings.get("guest_header") or "").strip() or DEFAULT_GUEST_HEADER,
             "{codice}": ", ".join(codes) or "—",
-            "{appuntamenti}": "\n".join(self._appointment_lines(ordered)),
+            "{appuntamenti}": "\n".join(self._appointment_lines(ordered, with_price=True)),
+            # An old text without {appuntamenti}: each treatment with its own
+            # price, so a party still reads what every person pays.
             "{trattamento}": " + ".join(
-                str((p.get("treatment") or {}).get("name") or "n/d") for p in ordered
+                str((p.get("treatment") or {}).get("name") or "n/d")
+                + (
+                    f" {_money_text(self._payment_totals(p).get('total'))}"
+                    if len(ordered) > 1 and float(self._payment_totals(p).get("total") or 0) > 0
+                    else ""
+                )
+                for p in ordered
             ),
             "{durata}": str(first.get("duration_min") or ""),
             "{data}": day_text,
