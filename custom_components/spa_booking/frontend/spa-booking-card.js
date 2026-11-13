@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.8.0";
+const CARD_VERSION = "2.8.1";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -1919,39 +1919,125 @@ class SpaBookingCard extends HTMLElement {
   }
 
   /** Box Incassi: staged takings, collected total and amount still owed. */
+  /**
+   * The bill of a booking (2.8.1), the same everywhere: what it costs, what
+   * came in and how, what is left; one tap takes the balance in cash, card or
+   * transfer, «Altro importo» for a part or a gift card. ``rows`` are the
+   * takings ({method, date, amount, voucher_code, remove}); ``voucher`` is
+   * what a voucher will pay when the booking is saved (new bookings only).
+   */
+  _contoView({ total, rows, onPay, onOther, voucher = null, title = "Conto" }) {
+    const paid = Math.round(rows.reduce((sum, row) => sum + (Number(row.amount) || 0), 0) * 100) / 100;
+    const fromVoucher = voucher ? voucher.amount : 0;
+    const due = Math.max(0, Math.round((total - paid - fromVoucher) * 100) / 100);
+    const settled = total > 0 && due <= 0;
+    const share = total > 0 ? Math.min(100, Math.round(((paid + fromVoucher) / total) * 100)) : 0;
+    const box = el("div", { class: `conto${settled ? " ok" : ""}` });
+    box.appendChild(el("div", { class: "conto-head" },
+      el("span", { class: "conto-title" }, title),
+      settled ? el("span", { class: "conto-badge ok" }, el("ha-icon", { icon: "mdi:check-circle" }), "Saldato")
+        : (paid + fromVoucher) > 0 ? el("span", { class: "conto-badge part" }, "Pagato in parte") : null));
+    box.appendChild(el("div", { class: "conto-figs" },
+      el("div", {}, el("span", {}, "Totale"), el("b", {}, euro(total))),
+      el("div", {}, el("span", {}, "Pagato"), el("b", { class: "paid" }, euro(paid + fromVoucher))),
+      el("div", { class: due > 0 ? "due" : "" }, el("span", {}, "Da saldare"), el("b", {}, euro(due)))));
+    box.appendChild(el("div", { class: "conto-bar" }, el("i", { style: `width:${share}%` })));
+    const list = el("div", { class: "conto-rows" });
+    if (voucher) {
+      list.appendChild(el("div", { class: "conto-row voucher" },
+        el("span", { class: "conto-ico" }, el("ha-icon", { icon: "mdi:ticket-confirmation-outline" })),
+        el("span", { class: "grow" }, el("b", {}, `Voucher ${voucher.code}`),
+          el("span", { class: "dim small" }, voucher.text)),
+        el("b", {}, euro(voucher.amount))));
+    }
+    rows.forEach((row) => {
+      const method = PAYMENT_METHODS.find(({ id }) => id === row.method) || {};
+      list.appendChild(el("div", { class: `conto-row m-${row.method}` },
+        el("span", { class: "conto-ico" }, el("ha-icon", { icon: method.icon || "mdi:cash" })),
+        el("span", { class: "grow" }, el("b", {}, method.label || row.method),
+          el("span", { class: "dim small" }, [row.date ? this._dateIt(row.date) : "", row.voucher_code ? `codice ${row.voucher_code}` : ""].filter(Boolean).join(" · "))),
+        el("b", {}, euro(row.amount)),
+        row.remove ? el("button", { class: "icon-btn danger", title: "Togli questo incasso", disabled: this._busy, on: { click: row.remove } },
+          el("ha-icon", { icon: "mdi:close" })) : null));
+    });
+    if (!rows.length && !voucher) list.appendChild(el("div", { class: "dim small conto-empty" }, "Nessun incasso ancora."));
+    box.appendChild(list);
+    if (onPay && due > 0) {
+      box.appendChild(el("div", { class: "conto-pay" },
+        el("span", { class: "conto-pay-label" }, `Incassa il saldo di ${euro(due)}:`),
+        el("div", { class: "conto-quick" },
+          [["cash", "Contante", "mdi:cash"], ["card", "Carta", "mdi:credit-card-outline"], ["bank_transfer", "Bonifico", "mdi:bank-transfer-in"]].map(([id, label, icon]) =>
+            el("button", { class: "btn conto-q", disabled: this._busy, on: { click: () => onPay(id, due) } }, el("ha-icon", { icon }), label)),
+          el("button", { class: "btn ghost conto-q", disabled: this._busy, on: { click: () => onOther(due) } },
+            el("ha-icon", { icon: "mdi:dots-horizontal" }), "Altro importo"))));
+    } else if (onOther && settled) {
+      box.appendChild(el("button", { class: "nv-link", on: { click: () => onOther(0) } }, el("ha-icon", { icon: "mdi:plus" }), "Aggiungi un incasso"));
+    } else if (onOther && total <= 0) {
+      box.appendChild(el("button", { class: "nv-link", on: { click: () => onOther(0) } }, el("ha-icon", { icon: "mdi:plus" }), "Registra un incasso"));
+    }
+    return box;
+  }
+
+  /** What a voucher will pay on the booking being written (2.8.1), as the server will. */
+  _voucherEstimate() {
+    const code = this._form.payment && this._form.payment.voucher && String(this._form.payment.voucher_code || "").toUpperCase();
+    if (!code) return null;
+    const voucher = (this._data.vouchers || []).find((v) => String(v.code).toUpperCase() === code);
+    if (!voucher) return null;
+    const pool = voucher.treatments_redeemed ? [] : (voucher.people || []).flatMap((p) => p.treatment_ids || []);
+    const extrasPool = voucher.treatments_redeemed ? [] : (voucher.people || []).flatMap((p) => p.extras || []);
+    let covered = 0;
+    (this._form.persons || [this._form]).forEach((person) => {
+      this._treatmentsOf(person).forEach((treat) => {
+        const at = pool.indexOf(treat.treatment_id);
+        if (treat.treatment_id && at >= 0) { pool.splice(at, 1); covered += this._treatPrices(treat).price; }
+      });
+      (person.extras || []).forEach((id) => {
+        const at = extrasPool.indexOf(id);
+        if (at >= 0) { extrasPool.splice(at, 1); covered += Number((this._accessory(id) || {}).price) || 0; }
+      });
+    });
+    const { total } = this._bookingTotals();
+    const credit = this._voucherCredit(voucher);
+    const gift = Math.max(0, Math.min(credit, total - covered - this._stagedCollected()));
+    const parts = [covered > 0 ? `trattamenti ${euro(covered)}` : "", gift > 0 ? `gift card ${euro(gift)}` : ""].filter(Boolean);
+    return { code: voucher.code, amount: Math.round((covered + gift) * 100) / 100,
+      text: `${parts.join(" + ") || "nulla da pagare con questo voucher"} · si registra al salvataggio` };
+  }
+
+  /** The gift card credit still on a voucher. */
+  _voucherCredit(voucher) {
+    if (voucher.credit_left != null) return Number(voucher.credit_left) || 0;
+    const total = (voucher.people || []).reduce((sum, p) => sum + (Number(p.gift_card_amount) || 0), 0);
+    return Math.max(0, Math.round((total - (Number(voucher.credit_used) || 0)) * 100) / 100);
+  }
+
+  /** One tap: the balance in this method, on an existing appointment. */
+  async _payNow(appointmentId, method, amount) {
+    if (!this._can("payments") || !(amount > 0)) return;
+    try {
+      await this._call("add_payment", { appointment_id: appointmentId, method, date: todayStr(), amount: Math.round(amount * 100) / 100 });
+      const label = (PAYMENT_METHODS.find(({ id }) => id === method) || {}).label || method;
+      this._message = { kind: "ok", text: `Incassati ${euro(amount)} (${label}).` };
+      this._render();
+    } catch (error) { /* shown */ }
+  }
+
   _incassiBlock() {
     const { total } = this._bookingTotals();
-    const collected = this._stagedCollected();
-    const box = el("div", { class: "stack tight" },
-      el("h3", {}, "Incassi"));
-    box.appendChild(el("button", {
-      class: "btn primary small",
-      disabled: this._busy,
-      on: { click: () => this._openPayPopup() },
-    }, el("ha-icon", { icon: "mdi:cash-plus" }), "Registra un incasso"));
     const staged = this._form.stagedPayments || [];
-    if (!staged.length) {
-      box.appendChild(el("div", { class: "hint" }, "Nessun incasso registrato."));
-    }
-    staged.forEach((item) => {
-      const method = PAYMENT_METHODS.find(({ id }) => id === item.method) || {};
-      box.appendChild(el("div", { class: "row tight" },
-        el("span", { class: "grow" },
-          `${method.label || item.method} · ${item.date || "—"} · ${euro(item.amount)}`),
-        el("button", {
-          class: "icon-btn danger",
-          title: "Rimuovi incasso",
-          disabled: this._busy,
-          on: { click: () => {
-            this._form.stagedPayments = staged.filter((other) => other.uid !== item.uid);
-            this._render();
-          } },
-        }, el("ha-icon", { icon: "mdi:close" }))));
-    });
-    box.appendChild(el("div", {}, `Totale incassato: ${euro(collected)}`));
-    const due = Math.max(0, Math.round((total - collected) * 100) / 100);
-    box.appendChild(el("div", {}, el("strong", {}, `Totale da incassare: ${euro(due)}`)));
-    return box;
+    const rows = staged.map((item) => ({ ...item, remove: () => {
+      this._form.stagedPayments = (this._form.stagedPayments || []).filter((other) => other.uid !== item.uid);
+      this._render();
+    } }));
+    const stage = (method, amount) => {
+      this._form.stagedPayments = [...(this._form.stagedPayments || []), { uid: this._uid(), method, date: (this._form && this._form.date) || todayStr(), amount: Math.round(amount * 100) / 100 }];
+      this._render();
+    };
+    return el("div", { class: "stack tight" },
+      this._contoView({ total, rows, voucher: this._voucherEstimate(), onPay: stage,
+        onOther: (amount) => this._openPayPopup(amount), title: "Incassi" }),
+      el("div", { class: "dim small" }, "Gli incassi si registrano quando salvi la prenotazione."));
   }
 
   /** Effective line total of the appointment being edited (draft prices). */
@@ -2024,78 +2110,43 @@ class SpaBookingCard extends HTMLElement {
     return { box, total };
   }
 
-  /** Box Incassi in the edit form: live takings of the appointment. */
+  /** Box Incassi in the edit form: live takings of the whole party (2.8.1: the bill). */
   _editIncassiBlock(appointment, total) {
     // Takings are summed over the whole party: a deposit often sits on the
-    // first appointment of a group, so reading only this one would show the
-    // booking unpaid while its money is already registered.
+    // first appointment of a group.
     const members = this._groupOf(appointment);
     const live = (members.length ? members : [appointment])
       .map((member) => (this._data.appointments || []).find((item) => item.id === member.id) || member);
-    const rows = live.flatMap((member) => (member.payments || [])
-      .map((item) => ({ member, item })));
-    const collected = Math.round(rows.reduce(
-      (sum, { item }) => sum + (Number(item.amount) || 0), 0) * 100) / 100;
-    const box = el("div", { class: "stack tight" },
-      el("h3", {}, "Incassi"));
-    box.appendChild(el("button", {
-      class: "btn primary small",
-      disabled: this._busy,
-      on: { click: () => this._openPayPopupFor(appointment.id) },
-    }, el("ha-icon", { icon: "mdi:cash-plus" }), "Registra un incasso"));
-    if (!rows.length) {
-      box.appendChild(el("div", { class: "hint" }, "Nessun incasso registrato."));
-    }
-    rows.forEach(({ member, item }) => {
-      const method = PAYMENT_METHODS.find(({ id }) => id === item.method) || {};
-      box.appendChild(el("div", { class: "row tight" },
-        el("span", { class: "grow" },
-          `${method.label || item.method} · ${item.date || "—"} · ${euro(item.amount)}`),
-        el("button", {
-          class: "icon-btn danger",
-          title: "Rimuovi incasso",
-          disabled: this._busy,
-          on: { click: async () => {
-            try {
-              // The taking is removed from the appointment that holds it: on
-              // a group a deposit may sit on a member other than this one,
-              // and the backend only looks inside the record named here.
-              await this._call("delete_payment", {
-                appointment_id: member.id,
-                payment_id: item.id,
-              });
-            } catch (error) {
-              /* message already shown */
-            }
-          } },
-        }, el("ha-icon", { icon: "mdi:close" }))));
-    });
-    box.appendChild(el("div", {}, `Totale incassato: ${euro(collected)}`));
-    const due = Math.max(0, Math.round((total - collected) * 100) / 100);
-    box.appendChild(el("div", {}, el("strong", {}, `Totale da incassare: ${euro(due)}`)));
-    return box;
+    const rows = live.flatMap((member) => (member.payments || []).map((item) => ({ ...item, remove: async () => {
+      try { await this._call("delete_payment", { appointment_id: member.id, payment_id: item.id }); } catch (error) { /* shown */ }
+    } })));
+    return this._contoView({ total, rows, title: "Incassi",
+      onPay: (method, amount) => this._payNow(appointment.id, method, amount),
+      onOther: (amount) => this._openPayPopupFor(appointment.id, amount) });
   }
 
   /** Open the taking popup with today and the first method preselected. */
-  _openPayPopup() {
+  _openPayPopup(due = 0) {
     if (!this._can("payments")) return;
     this._payPopup = {
       target: { kind: "form" },
       method: "cash",
       date: (this._form && this._form.date) || todayStr(),
-      amount: "",
+      amount: due > 0 ? String(due).replace(".", ",") : "",
+      due,
     };
     this._render();
   }
 
   /** Open the taking popup writing straight onto an existing appointment. */
-  _openPayPopupFor(appointmentId) {
+  _openPayPopupFor(appointmentId, due = 0) {
     if (!this._can("payments")) return;
     this._payPopup = {
       target: { kind: "appointment", id: appointmentId },
       method: "cash",
       date: todayStr(),
-      amount: "",
+      amount: due > 0 ? String(due).replace(".", ",") : "",
+      due,
     };
     this._render();
   }
@@ -2143,20 +2194,14 @@ class SpaBookingCard extends HTMLElement {
   /** The taking popup, over a backdrop like the appointment detail. */
   _renderPayPopup() {
     const draft = this._payPopup;
-    const sheet = el("div", { class: "detail-sheet" },
+    const sheet = el("div", { class: "detail-sheet pay-sheet" },
       el("h3", {}, "Registra un incasso"));
-    const methodSelect = el("select", {
-      class: "input",
-      on: {
-        change: (event) => { draft.method = event.target.value; this._render(); },
-      },
-    });
-    PAYMENT_METHODS.forEach(({ id, label }) => {
-      methodSelect.appendChild(el("option", { value: id, selected: draft.method === id }, label));
-    });
-    sheet.appendChild(el("label", { class: "field" },
-      el("span", {}, "Tipo di pagamento"),
-      methodSelect));
+    // 2.8.1: the ways as big buttons instead of a list.
+    sheet.appendChild(el("div", { class: "field" }, el("span", {}, "Come paga"),
+      el("div", { class: "pay-methods" }, PAYMENT_METHODS.map(({ id, label, icon }) => el("button", {
+        type: "button", class: `pay-m${draft.method === id ? " on" : ""}`,
+        on: { click: () => { draft.method = id; this._render(); } },
+      }, el("ha-icon", { icon }), el("span", {}, label))))));
     sheet.appendChild(el("label", { class: "field" },
       el("span", {}, "Data di pagamento"),
       el("input", {
@@ -2164,15 +2209,20 @@ class SpaBookingCard extends HTMLElement {
         on: { input: (event) => { draft.date = event.target.value; } },
       })));
     sheet.appendChild(el("label", { class: "field" },
-      el("span", {}, "Incasso (€)"),
+      el("span", {}, "Importo (€)"),
       el("input", {
-        class: "input", type: "text", inputmode: "decimal",
+        class: "input pay-amount", type: "text", inputmode: "decimal",
         value: draft.amount || "", placeholder: "0,00",
         on: {
           input: (event) => { draft.amount = event.target.value; },
           keydown: (event) => { event.stopPropagation(); },
         },
       })));
+    if (draft.due > 0) {
+      sheet.appendChild(el("div", { class: "row tight" },
+        el("button", { class: "btn small ghost", on: { click: () => { draft.amount = String(draft.due).replace(".", ","); this._render(); } } }, `Tutto il saldo (${euro(draft.due)})`),
+        draft.due >= 2 ? el("button", { class: "btn small ghost", on: { click: () => { draft.amount = String(Math.round(draft.due * 50) / 100).replace(".", ","); this._render(); } } }, "Metà") : null));
+    }
     sheet.appendChild(el("div", { class: "row" },
       el("button", {
         class: "btn primary", disabled: this._busy,
@@ -4733,28 +4783,25 @@ class SpaBookingCard extends HTMLElement {
       ? this._relatedTotals(appointment)
       : (related.length > 1 ? this._appointmentTotals(appointment) : this._singleTotals(appointment));
     const { total, collected, due, persons } = totals;
-    const takingRows = (grouped ? related : (related.length > 1 ? this._groupOf(appointment) : [appointment])).flatMap((member) =>
-      (member.payments || []).map((item) => {
-        const method = PAYMENT_METHODS.find(({ id }) => id === item.method) || {};
-        return this._detailLine(
-          method.label || item.method,
-          `${item.date || "—"} · ${euro(item.amount)}`);
-      }));
-    sheet.appendChild(
-      section(
-        grouped ? "Totali gruppo" : "Totali e incassi",
-        related.length > 1
-          ? this._detailLine("Appuntamenti nel gruppo", String(related.length))
-          : null,
-        persons > 1
-          ? this._detailLine("Persone", String(persons))
-          : null,
-        this._detailLine(grouped ? "Totale gruppo" : "Totale", euro(total), due <= 0 ? "ok" : "due"),
-        ...(takingRows.length ? takingRows : [this._detailLine("Incassi", "nessun incasso")]),
-        this._detailLine("Totale incassato", euro(collected), collected > 0 ? "ok" : null),
-        this._detailLine("Totale da incassare", euro(due), due > 0 ? "due" : "ok")
-      )
-    );
+    // 2.8.1: the bill, the same as in the forms, with one-tap takings.
+    const holders = grouped ? related : (related.length > 1 ? this._groupOf(appointment) : [appointment]);
+    const canPay = this._can("payments") && appointment.status !== "cancelled";
+    const billRows = holders.flatMap((member) => (member.payments || []).map((item) => ({
+      ...item,
+      remove: canPay ? async () => {
+        if (!window.confirm(`Togliere l'incasso di ${euro(item.amount)}?`)) return;
+        try { await this._call("delete_payment", { appointment_id: member.id, payment_id: item.id }); } catch (error) { /* shown */ }
+      } : null,
+    })));
+    if (this._can("totals")) {
+      sheet.appendChild(el("div", { class: "detail-section conto-wrap" },
+        (related.length > 1 || persons > 1) ? el("div", { class: "dim small" },
+          [related.length > 1 ? `${related.length} appuntamenti` : "", persons > 1 ? `${persons} persone` : ""].filter(Boolean).join(" · ")) : null,
+        this._contoView({ total, rows: billRows, title: grouped ? "Conto del gruppo" : "Conto",
+          onPay: canPay ? (method, amount) => this._payNow(appointment.id, method, amount) : null,
+          onOther: canPay ? (amount) => this._openPayPopupFor(appointment.id, amount) : null })));
+    }
+    void collected; void due;
 
     if (grouped && related.length > 1) {
       const listEl = el("div", { class: "detail-group-list" });
@@ -5877,8 +5924,10 @@ class SpaBookingCard extends HTMLElement {
         body.appendChild(el("div", {}, el("span", { class: "nv-badge wait" },
           el("ha-icon", { icon: "mdi:clock-outline" }), "Richiesta da confermare")));
       } else if (this._can("payments")) {
+        const fromVoucher = this._voucherEstimate();
+        if (fromVoucher && fromVoucher.amount > 0) body.appendChild(el("div", { class: "nv-sum-tot" }, el("span", {}, `Voucher ${fromVoucher.code}`), el("span", {}, `− ${euro(fromVoucher.amount)}`)));
         body.appendChild(el("div", { class: "nv-sum-tot" }, el("span", {}, "Incassato"), el("span", {}, euro(collected))));
-        body.appendChild(el("div", { class: "nv-sum-tot" }, el("span", {}, "Da incassare"), el("span", {}, euro(due))));
+        body.appendChild(el("div", { class: "nv-sum-tot" }, el("span", {}, "Da saldare"), el("span", {}, euro(Math.max(0, Math.round((due - (fromVoucher ? fromVoucher.amount : 0)) * 100) / 100)))));
       }
       if (this._nvKind !== "richiesta") body.appendChild(el("div", {}, el("span", { class: `nv-badge${form.pending ? " wait" : ""}` },
         el("ha-icon", { icon: form.pending ? "mdi:clock-outline" : "mdi:check-circle" }),
@@ -8821,6 +8870,7 @@ class SpaBookingCard extends HTMLElement {
 
   _voucherStatusText(voucher) {
     if (voucher.status === "redeemed") return "Riscattato";
+    if (voucher.treatments_redeemed || Number(voucher.credit_used) > 0) return `Credito residuo ${euro(this._voucherCredit(voucher))} · fino al ${this._dateIt(voucher.expires_on)}`;
     if (voucher.expired) return `Scaduto il ${this._dateIt(voucher.expires_on)}`;
     return `Valido fino al ${this._dateIt(voucher.expires_on)}`;
   }
@@ -8890,6 +8940,13 @@ class SpaBookingCard extends HTMLElement {
 
   /** Fill the booking from the voucher: one person per voucher person, her treatments and accessories. */
   _applyVoucher(voucher) {
+    // Treatments already taken (2.8.1): only the credit is left, the booking stays as it is.
+    if (voucher.treatments_redeemed || !(voucher.people || []).some((p) => (p.treatment_ids || []).length)) {
+      this._form.payment = { ...(this._form.payment || {}), voucher: true, voucher_code: voucher.code };
+      this._form.voucher_query = "";
+      this._render();
+      return;
+    }
     const people = voucher.people && voucher.people.length
       ? voucher.people
       : [{ treatment_ids: [], extras: [] }];
@@ -20790,6 +20847,46 @@ class SpaBookingCard extends HTMLElement {
         .ag-hours, .ag-lane { grid-template-columns: 130px minmax(0, 1fr); }
       }
 
+      /* 2.8.1: the bill */
+      .conto { border: 1px solid var(--sb-line); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 10px; background: var(--sb-card, #fff); }
+      .conto.ok { border-color: color-mix(in srgb, #1f8a52 45%, var(--sb-line)); }
+      .conto-head { display: flex; align-items: center; gap: 8px; }
+      .conto-title { font-weight: 800; font-size: 14px; flex: 1; }
+      .conto-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 999px; }
+      .conto-badge ha-icon { --mdc-icon-size: 15px; }
+      .conto-badge.ok { background: var(--sb-ok-bg); color: var(--sb-ok-fg); }
+      .conto-badge.part { background: var(--sb-warn-bg); color: var(--sb-warn-fg); }
+      .conto-figs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+      .conto-figs > div { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 10px; background: color-mix(in srgb, var(--secondary-text-color) 6%, transparent); }
+      .conto-figs span { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--secondary-text-color); }
+      .conto-figs b { font-size: 17px; }
+      .conto-figs b.paid { color: var(--sb-ok-fg, #1f8a52); }
+      .conto-figs .due { background: var(--sb-warn-bg); }
+      .conto-figs .due b { color: var(--sb-warn-fg); }
+      .conto-bar { height: 6px; border-radius: 4px; background: var(--sb-line); overflow: hidden; }
+      .conto-bar i { display: block; height: 100%; background: #1f8a52; border-radius: 4px; }
+      .conto-rows { display: flex; flex-direction: column; }
+      .conto-row { display: flex; align-items: center; gap: 10px; padding: 8px 2px; border-top: 1px solid var(--sb-line); }
+      .conto-row:first-child { border-top: 0; }
+      .conto-row .grow { display: flex; flex-direction: column; min-width: 0; }
+      .conto-ico { width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center; flex: none;
+        background: color-mix(in srgb, var(--primary-color) 10%, transparent); color: var(--primary-color); }
+      .conto-ico ha-icon { --mdc-icon-size: 18px; }
+      .conto-row.voucher .conto-ico, .conto-row.m-voucher .conto-ico, .conto-row.m-gift_card .conto-ico { background: color-mix(in srgb, #8b5cf6 14%, transparent); color: #7c3aed; }
+      .conto-row.voucher { background: color-mix(in srgb, #8b5cf6 6%, transparent); border-radius: 10px; padding: 8px; }
+      .conto-empty { padding: 4px 2px; }
+      .conto-pay { display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 1px dashed var(--sb-line); }
+      .conto-pay-label { font-weight: 700; font-size: 13.5px; }
+      .conto-quick { display: flex; flex-wrap: wrap; gap: 8px; }
+      .conto-q { flex: 1 1 110px; justify-content: center; }
+      .pay-methods { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; }
+      .pay-m { all: unset; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 6px; border-radius: 12px;
+        border: 1px solid var(--sb-line); font-size: 12.5px; text-align: center; background: var(--sb-card, #fff); }
+      .pay-m ha-icon { --mdc-icon-size: 22px; color: var(--secondary-text-color); }
+      .pay-m.on { border-color: var(--primary-color); background: color-mix(in srgb, var(--primary-color) 10%, transparent); color: var(--primary-color); font-weight: 700; }
+      .pay-m.on ha-icon { color: var(--primary-color); }
+      .pay-m:focus-visible { outline: 2px solid var(--primary-color); }
+      .pay-amount { font-size: 20px; font-weight: 700; }
       /* 2.7.0: Shop online */
       .gd-box { gap: 12px; }
       .gd-row { align-items: center; gap: 16px; flex-wrap: wrap; }

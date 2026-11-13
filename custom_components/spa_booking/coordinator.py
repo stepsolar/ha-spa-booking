@@ -2335,6 +2335,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 appointment["status"] = STATUS_CANCELLED
                 appointment["cancel_reason"] = reason
                 appointment["cancelled_at"] = dt_util.utcnow().isoformat()
+                self._voucher_release(appointment)
 
             if added or to_cancel:
                 await self._async_save()
@@ -2465,9 +2466,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         self.clients.append(client)
                 self.appointments.extend(item[0] for item in prepared)
                 if voucher is not None:
-                    voucher["status"] = VOUCHER_REDEEMED
-                    voucher["redeemed_at"] = dt_util.utcnow().isoformat()
-                    voucher["appointment_ids"] = [item[0]["id"] for item in prepared]
+                    self._voucher_settle(voucher, [item[0] for item in prepared])
                 if promo is not None:
                     promo["status"] = PROMO_VOUCHER_REDEEMED
                     promo["redeemed_at"] = dt_util.utcnow().isoformat()
@@ -2480,12 +2479,12 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return {"appointments": payloads, "count": len(payloads)}
 
     def voucher_payload(self, voucher: dict[str, Any]) -> dict[str, Any]:
-        """Return a voucher with its derived expiry flag."""
+        """Return a voucher with its derived expiry flag and the credit left."""
         expires = _norm_date(voucher.get("expires_on"))
         expired = bool(expires) and dt_util.now().date() > datetime.strptime(
             expires, "%Y-%m-%d"
         ).date()
-        return {**copy.deepcopy(voucher), "expired": expired}
+        return {**copy.deepcopy(voucher), "expired": expired, "credit_left": self._voucher_credit(voucher)}
 
     def _voucher_of_rows(self, rows: list[dict[str, Any]]) -> dict[str, Any] | None:
         """The gift voucher the booking redeems, or None for an ordinary booking.
@@ -2524,15 +2523,104 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # A voucher from the shop whose product is not paired yet (or paired
         # with accessories only) only records the code: the desk books what
         # the guest bought (2.7.0).
-        if voucher.get("source") == "wordpress" and not any(p["treatment_ids"] for p in voucher["people"]):
+        # A gift card only (or treatments already taken, 2.8.1): it is credit,
+        # anything can be booked with it.
+        if voucher.get("treatments_redeemed") or not any(p["treatment_ids"] for p in voucher["people"]):
             return
-        wanted = [sorted(p["treatment_ids"]) for p in voucher["people"]]
-        got = [sorted(ids) for ids in booked.values()]
-        if sorted(wanted) != sorted(got):
-            raise ValidationError(
-                f"La prenotazione non corrisponde al voucher {voucher['code']}: "
-                "stesse persone e stessi trattamenti"
-            )
+        # Every person of the voucher must find her treatments in one booked
+        # person; more treatments, accessories or people are allowed and are
+        # paid as balance (2.8.1; before, it had to match exactly).
+        free = [list(ids) for ids in booked.values()]
+        for person in sorted((p for p in voucher["people"] if p["treatment_ids"]), key=lambda p: -len(p["treatment_ids"])):
+            match = next((ids for ids in free if all(ids.count(t) >= person["treatment_ids"].count(t) for t in person["treatment_ids"])), None)
+            if match is None:
+                names = {t["id"]: t["name"] for t in self.treatments}
+                wanted = ", ".join(names.get(t, t) for t in person["treatment_ids"])
+                raise ValidationError(
+                    f"La prenotazione non corrisponde al voucher {voucher['code']}: manca {wanted}"
+                    + (f" per {person['name']}" if person.get("name") else "")
+                )
+            free.remove(match)
+
+    def _voucher_credit(self, voucher: dict[str, Any]) -> float:
+        """The gift card credit still to spend on a voucher."""
+        total = sum(float(p.get("gift_card_amount") or 0) for p in voucher.get("people") or [])
+        return round(max(0.0, total - float(voucher.get("credit_used") or 0)), 2)
+
+    def _voucher_settle(self, voucher: dict[str, Any], appointments: list[dict[str, Any]]) -> None:
+        """The voucher pays the booking (2.8.1), as takings on its appointments.
+
+        Its treatments (and the accessories in the package) are paid in full
+        with a «Voucher» taking; then the gift card credit pays what is still
+        owed, a «Gift card» taking per appointment, up to the credit. What is
+        left is the balance the guest pays at the desk; credit left over stays
+        on the voucher for the next visit. Called with the lock held.
+        """
+        today = dt_util.now().date().isoformat()
+        prices = {t["id"]: float(t.get("price") or 0) for t in self.treatments}
+        accessories = {a.get("id"): float(a.get("price") or 0) for a in self.accessories if isinstance(a, dict)}
+        if not voucher.get("treatments_redeemed"):
+            treatments = [t for p in voucher["people"] for t in p["treatment_ids"]]
+            extras = [e for p in voucher["people"] for e in p.get("extras") or []]
+        else:
+            treatments, extras = [], []
+        had_treatments = bool(treatments)
+
+        def take(appointment: dict[str, Any], method: str, amount: float) -> None:
+            if amount <= 0:
+                return
+            appointment.setdefault("payments", []).append({
+                "id": _new_id("pay"), "method": method, "date": today, "amount": round(amount, 2),
+                "voucher_id": voucher["id"], "voucher_code": voucher["code"],
+            })
+
+        for appointment in appointments:
+            covered = 0.0
+            if appointment.get("treatment_id") in treatments:
+                treatments.remove(appointment["treatment_id"])
+                agreed = appointment.get("price")
+                if agreed is None:
+                    agreed = appointment.get("list_price")
+                covered += float(prices.get(appointment["treatment_id"], 0) if agreed is None else agreed)
+            for extra in appointment.get("extras") or []:
+                if extra in extras:
+                    extras.remove(extra)
+                    covered += accessories.get(extra, 0.0)
+            take(appointment, "voucher", covered)
+        credit = self._voucher_credit(voucher)
+        used = 0.0
+        for appointment in appointments:
+            if credit - used <= 0:
+                break
+            due = self._payment_totals(appointment)["due"]
+            amount = round(min(due, credit - used), 2)
+            take(appointment, "gift_card", amount)
+            used += amount
+        voucher["credit_used"] = round(float(voucher.get("credit_used") or 0) + used, 2)
+        if had_treatments:
+            voucher["treatments_redeemed"] = True
+        voucher["appointment_ids"] = [*voucher.get("appointment_ids", []), *(a["id"] for a in appointments)]
+        if self._voucher_credit(voucher) <= 0.004:
+            voucher["status"] = VOUCHER_REDEEMED
+            voucher["redeemed_at"] = dt_util.utcnow().isoformat()
+
+    def _voucher_release(self, appointment: dict[str, Any]) -> None:
+        """A cancelled appointment gives back what its voucher paid (2.8.1)."""
+        kept = []
+        for item in appointment.get("payments") or []:
+            voucher = next((v for v in self.vouchers if v["id"] == item.get("voucher_id")), None) if item.get("voucher_id") else None
+            if voucher is None:
+                kept.append(item)
+                continue
+            if item.get("method") == "gift_card":
+                voucher["credit_used"] = round(max(0.0, float(voucher.get("credit_used") or 0) - float(item.get("amount") or 0)), 2)
+            else:
+                voucher["treatments_redeemed"] = False
+            voucher["appointment_ids"] = [i for i in voucher.get("appointment_ids", []) if i != appointment["id"]]
+            if not voucher.get("wp_redeemed"):
+                voucher["status"] = VOUCHER_ACTIVE
+                voucher["redeemed_at"] = ""
+        appointment["payments"] = kept
 
     def _promo_voucher_of_rows(self, rows: list[dict[str, Any]]) -> dict[str, Any] | None:
         """The loyalty voucher the booking redeems, or None.
@@ -5245,6 +5333,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             appointment["status"] = STATUS_CANCELLED
             appointment["cancel_reason"] = reason
             appointment["cancelled_at"] = dt_util.utcnow().isoformat()
+            self._voucher_release(appointment)
             await self._async_save()
 
         payload = self.appointment_payload(appointment)
