@@ -79,6 +79,7 @@ from .const import (
     DEFAULT_PROPOSE_MESSAGE,
     DEFAULT_REQUEST_MESSAGE,
     DEFAULT_SUMMARY_MESSAGE,
+    DEFAULT_CANCEL_MESSAGE,
     DEFAULT_APPOINTMENT_REMINDER_MESSAGE,
     DEFAULT_APPOINTMENT_REMINDER_AUTO,
     DEFAULT_APPOINTMENT_REMINDER_HOURS,
@@ -245,6 +246,11 @@ HISTORY_FIELDS: Final = (
 HISTORY_MAX: Final = 100
 #: Messages kept per WhatsApp conversation, the oldest dropped first.
 CHAT_MAX_MESSAGES: Final = 500
+
+
+def _pct_text(value: float) -> str:
+    """10 → "10", 12.5 → "12,5"."""
+    return f"{value:.2f}".rstrip("0").rstrip(".").replace(".", ",")
 
 
 def acting_person() -> tuple[str, str]:
@@ -5634,25 +5640,99 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return payload
 
     async def async_cancel_appointment(
-        self, appointment_id: str, reason: str = ""
+        self, appointment_id: str, reason: str = "", whole_group: bool = False
     ) -> dict[str, Any]:
-        """Cancel an appointment, keeping it in the history."""
+        """Cancel an appointment, keeping it in the history.
+
+        ``whole_group`` (2.8.7) cancels with it every appointment of the same
+        booking (same batch) still standing: the couple or the group at once.
+        The payload of the one asked for carries ``cancelled_ids``.
+        """
         async with self._lock:
             appointment = self._find(self.appointments, appointment_id, "Appuntamento")
             if appointment["status"] == STATUS_CANCELLED:
                 raise ValidationError("L'appuntamento e' gia' annullato")
-            appointment["status"] = STATUS_CANCELLED
-            appointment["cancel_reason"] = reason
-            appointment["cancelled_at"] = dt_util.utcnow().isoformat()
-            self._voucher_release(appointment)
+            targets = [appointment]
+            batch = appointment.get("batch_id")
+            if whole_group and batch:
+                targets += [
+                    a for a in self.appointments
+                    if a is not appointment and a.get("batch_id") == batch and a["status"] != STATUS_CANCELLED
+                ]
+            now = dt_util.utcnow().isoformat()
+            for item in targets:
+                item["status"] = STATUS_CANCELLED
+                item["cancel_reason"] = reason
+                item["cancelled_at"] = now
+                self._voucher_release(item)
             await self._async_save()
 
-        payload = self.appointment_payload(appointment)
-        self.hass.bus.async_fire(EVENT_APPOINTMENT_CANCELLED, payload)
-        await self._async_notify_operator(
-            payload, "Appuntamento annullato", show_operator=False
-        )
-        return payload
+        payloads = [self.appointment_payload(item) for item in targets]
+        for payload in payloads:
+            self.hass.bus.async_fire(EVENT_APPOINTMENT_CANCELLED, payload)
+            await self._async_notify_operator(
+                payload, "Appuntamento annullato", show_operator=False
+            )
+        result = dict(payloads[0])
+        result["cancelled_ids"] = [p["id"] for p in payloads]
+        return result
+
+    def format_cancel_message(self, payloads: list[dict[str, Any]], reason: str = "") -> str:
+        """The guest's cancellation message for one or more appointments (2.8.7)."""
+        ordered = sorted(payloads, key=lambda p: str(p.get("start_local") or ""))
+        first = ordered[0]
+        client = first.get("client") or {}
+        settings = self._data[KEY_SETTINGS]
+        days = sorted({str(p.get("start_local") or "")[:10] for p in ordered if p.get("start_local")})
+        values = {
+            "{nome}": str(client.get("first_name") or "").strip() or "ospite",
+            "{cognome}": str(client.get("last_name") or "").strip(),
+            "{hotel}": str(settings.get("guest_header") or "").strip() or DEFAULT_GUEST_HEADER,
+            "{data}": " e ".join(_day_words(day) for day in days) if days else "—",
+            "{appuntamenti}": "\n".join(self._appointment_lines(ordered)),
+            "{trattamenti}": "\n".join(self._appointment_lines(ordered)),
+            "{codice}": ", ".join(dict.fromkeys(str(p.get("code") or "") for p in ordered if p.get("code"))) or "—",
+            "{motivo}": reason,
+        }
+        text = str(settings.get("cancel_message") or "").strip() or DEFAULT_CANCEL_MESSAGE
+        if not reason:
+            text = "\n".join(line for line in text.split("\n") if "{motivo}" not in line)
+        for key, value in values.items():
+            text = text.replace(key, value)
+        return text
+
+    async def async_send_cancel_message(self, appointment_ids: list[str]) -> dict[str, Any]:
+        """Tell the guests their booking is cancelled: one message per number (2.8.7).
+
+        A party booked on one card gets one message with every appointment;
+        people with their own number each get theirs.
+        """
+        by_chat: dict[str, list[dict[str, Any]]] = {}
+        reason = ""
+        for item in self.appointments:
+            if item["id"] not in appointment_ids:
+                continue
+            reason = reason or str(item.get("cancel_reason") or "")
+            payload = self.appointment_payload(item)
+            chat_id = messaging.whatsapp_chat_id(str((payload.get("client") or {}).get("phone") or ""))
+            if chat_id:
+                by_chat.setdefault(chat_id, []).append(payload)
+        if not by_chat:
+            return {"sent": 0, "failed": 0, "error": "Nessun numero WhatsApp nella scheda del cliente"}
+        sent = failed = 0
+        error = ""
+        for chat_id, payloads in by_chat.items():
+            try:
+                result = await messaging.async_send_whatsapp(
+                    self.hass, chat_id, self.format_cancel_message(payloads, reason), waha=self.waha)
+            except Exception as err:  # noqa: BLE001
+                result = {"sent": False, "error": str(err)}
+            if result.get("sent"):
+                sent += 1
+            else:
+                failed += 1
+                error = str(result.get("error") or error)
+        return {"sent": sent, "failed": failed, "error": error}
 
     async def async_delete_appointment(self, appointment_id: str) -> dict[str, Any]:
         """Delete a cancelled appointment for good."""
@@ -8590,10 +8670,67 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         }
         if "{appuntamenti}" in template:
             values["{data}"] = _day_words(start[:10]) if start else "—"
-        text = template
+            values["{appuntamenti}"] = "\n".join(self._appointment_lines([payload], with_price=True))
+        text = self._with_discount(template, self._discount_line([payload]))
         for key, value in values.items():
             text = text.replace(key, value)
         return text
+
+    def _discount_of(self, payload: dict[str, Any]) -> tuple[float, float, float]:
+        """(list price, price paid, percent) of a discounted treatment (2.8.7).
+
+        (0, 0, 0) when the guest pays the list price. The percent is the
+        partner's when the discount is hers, else worked out from the prices.
+        """
+        price = payload.get("price")
+        if price is None:
+            return (0.0, 0.0, 0.0)
+        listed = payload.get("list_price")
+        if listed is None:
+            treatment = next((t for t in self.treatments if t["id"] == payload.get("treatment_id")), None)
+            listed = (treatment or {}).get("price")
+        try:
+            listed, price = float(listed), float(price)
+        except (TypeError, ValueError):
+            return (0.0, 0.0, 0.0)
+        if listed <= 0 or price >= listed - 0.004:
+            return (0.0, 0.0, 0.0)
+        pct = float(payload.get("partner_discount_pct") or 0) or round((1 - price / listed) * 100, 1)
+        return (round(listed, 2), round(price, 2), pct)
+
+    def _discount_line(self, payloads: list[dict[str, Any]]) -> str:
+        """«🎁 Sconto 10%: −16,00 €», or "" when nobody had a discount (2.8.7)."""
+        saved = 0.0
+        pcts = set()
+        partner = False
+        for payload in payloads:
+            listed, price, pct = self._discount_of(payload)
+            if listed:
+                saved += listed - price
+                pcts.add(pct)
+                partner = partner or bool(payload.get("partner_discount_pct"))
+        if saved <= 0:
+            return ""
+        label = "Sconto partner" if partner else "Sconto"
+        if len(pcts) == 1:
+            label += f" {_pct_text(next(iter(pcts)))}%"
+        return f"🎁 {label}: −{_money_text(saved)}"
+
+    @staticmethod
+    def _with_discount(template: str, line: str) -> str:
+        """Put the discount line in the text: at {sconto}, else above the total."""
+        if "{sconto}" in template:
+            if line:
+                return template.replace("{sconto}", line)
+            return "\n".join(row for row in template.split("\n") if row.strip() != "{sconto}").replace("{sconto}", "")
+        if not line:
+            return template
+        rows = template.split("\n")
+        for index, row in enumerate(rows):
+            if "{totale}" in row or "{residuo}" in row:
+                rows.insert(index, line)
+                return "\n".join(rows)
+        return template + "\n" + line
 
     def _appointment_lines(
         self,
@@ -8629,7 +8766,11 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # The price of this person's treatment (with her accessories),
                 # so a party reads what each one costs before the total.
                 price = float(self._payment_totals(payload).get("total") or 0)
-                if price > 0:
+                listed, paid, _pct = self._discount_of(payload)
+                if price > 0 and listed:
+                    # The list price struck through, then what she pays.
+                    line += f" · ~{_money_text(price + listed - paid)}~ {_money_text(price)}"
+                elif price > 0:
                     line += f" · {_money_text(price)}"
             lines.append(line)
         return lines
@@ -8691,7 +8832,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "{residuo}": _money_text(totals["due"]),
             "{pagamenti}": "\n".join(payments) or "Nessun versamento registrato.",
         }
-        text = self._summary_template()
+        text = self._with_discount(self._summary_template(), self._discount_line(ordered))
         if not totals["total"] and not totals["collected"]:
             # No price on the booking: the money line would read "0,00 €".
             text = "\n".join(
