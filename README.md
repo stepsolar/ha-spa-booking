@@ -133,6 +133,16 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v2.8.6** — **Programma partner** (serve il riavvio di Home Assistant).
+  Nuova scheda Promo › Programma partner: link del modulo, **sconto agli
+  ospiti** che prenotano col link di un partner (generale o per partner), punti
+  sull'importo scontato e **premio** (es. 300 punti = buono da 30 €) con il
+  suo messaggio. Il modulo del sito mostra all'ospite lo sconto e il totale
+  scontato (il codice partner resta nascosto); l'appuntamento nasce col prezzo
+  scontato e mostra «Sconto partner». La **scheda partner** si apre: link da
+  copiare, punti con barra verso il premio, **«Genera voucher e invia»** (gift
+  card inviata su WhatsApp o per email, punti tolti), premi e rettifiche,
+  prenotazioni dei suoi ospiti con importo e punti.
 - **v2.8.5** — **Pacchetto dello shop nelle promo** (serve il riavvio di Home
   Assistant). Nella Campagna promo, nuovo passo «Pacchetto in promozione»: si
   sceglie un prodotto dello shop online (letto con «Prova collegamento») e,

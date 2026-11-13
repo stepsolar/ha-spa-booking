@@ -249,6 +249,14 @@ class SpaBookingPublicTreatmentsView(_PublicView):
                 "accent": settings.get("web_accent") or "",
                 "max_days_ahead": settings.get("web_max_days_ahead") or 60,
             }
+            # The guest came with a partner's link (2.8.6): only the discount
+            # travels, never who the partner is.
+            partner_code = str(request.query.get("partner") or "").strip()[:20]
+            if partner_code:
+                partner_id = coordinator._partner_id_of(partner_code)
+                discount = coordinator.partner_discount_of(partner_id) if partner_id else 0.0
+                if discount > 0:
+                    site["partner_discount"] = discount
 
             code = str(request.query.get("code") or "").strip().upper()
             if not code:

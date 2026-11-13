@@ -40,6 +40,7 @@ from .const import (
     KEY_PROMO_VOUCHERS,
     KEY_PARTNERS,
     DEFAULT_LOYALTY_MESSAGE,
+    DEFAULT_PARTNER_REWARD_MESSAGE,
     PROMO_VOUCHER_PENDING,
     PROMO_VOUCHER_REDEEMED,
     PROMO_VOUCHER_SENT,
@@ -2006,6 +2007,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 therapist_preference=therapist_preference,
             )
             appointment["partner_id"] = self._partner_id_of(partner_id)
+            self._apply_partner_discount(appointment)
             # Appended only after validation, so a refused booking never leaves
             # an empty client card behind.
             if is_new_client:
@@ -2534,6 +2536,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         )
                         # The partner who brought the party (2.5.0).
                         appointment["partner_id"] = self._partner_id_of(row.get("partner_id"))
+                        self._apply_partner_discount(appointment)
                         if is_new and not any(
                             staged["id"] == client["id"] for staged in staged_clients
                         ):
@@ -3335,6 +3338,168 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return {"earned": earned, "adjust": adjust, "spent": spent, "balance": earned + adjust - spent,
                 "booked": round(booked, 2), "bookings": bookings}
 
+    def partner_discount_of(self, partner_id: str) -> float:
+        """The discount (%) of the guests who book with this partner (2.8.6)."""
+        partner = next((p for p in self.partners if p["id"] == partner_id), None)
+        if partner is None or partner.get("active") is False:
+            return 0.0
+        own = partner.get("discount_pct")
+        if own is not None:
+            return float(own)
+        return float(self._data.get(KEY_SETTINGS, {}).get("partner_discount_pct") or 0)
+
+    def _apply_partner_discount(self, appointment: dict[str, Any]) -> None:
+        """Lower the price of a booking that came with a partner's code (2.8.6).
+
+        Only a price nobody agreed by hand: the list price less the partner
+        discount, remembered as ``partner_discount_pct`` so a partner taken
+        off the booking gives the list price back. A price the desk typed
+        stays as it is.
+        """
+        pct = self.partner_discount_of(appointment.get("partner_id") or "")
+        applied = appointment.get("partner_discount_pct")
+        if applied:
+            # Undo the previous discount first (partner changed or removed).
+            appointment["price"] = None
+            appointment.pop("partner_discount_pct", None)
+        elif appointment.get("price") is not None:
+            return
+        if pct <= 0:
+            return
+        listed = appointment.get("list_price")
+        if listed is None:
+            treatment = next((t for t in self.treatments if t["id"] == appointment.get("treatment_id")), None)
+            listed = (treatment or {}).get("price")
+        try:
+            listed = float(listed)
+        except (TypeError, ValueError):
+            return
+        if listed <= 0:
+            return
+        appointment["price"] = round(listed * (1 - pct / 100), 2)
+        appointment["partner_discount_pct"] = pct
+
+    def partner_detail(self, partner_id: str) -> dict[str, Any]:
+        """Everything behind a partner's points (2.8.6), for her card.
+
+        Each booking her guests made (with what it is worth and the points it
+        gave), the corrections by hand and the vouchers she received.
+        """
+        partner = self._find(self.partners, partner_id, "Partner")
+        rate = float(self._data.get(KEY_SETTINGS, {}).get("partner_points_per_euro") or 0)
+        clients = {c["id"]: c for c in self.clients}
+        treatments = {t["id"]: t for t in self.treatments}
+        bookings = []
+        for appointment in self.appointments:
+            if appointment.get("partner_id") != partner["id"]:
+                continue
+            cancelled = appointment.get("status") == "cancelled"
+            value = 0.0 if cancelled else self._booked_value(appointment)
+            client = clients.get(appointment.get("client_id") or "")
+            bookings.append({
+                "id": appointment["id"],
+                "code": appointment.get("code") or "",
+                "start": appointment.get("start") or "",
+                "status": appointment.get("status") or "",
+                "client": self.full_name(client) if client else "",
+                "treatment": (treatments.get(appointment.get("treatment_id") or "") or {}).get("name") or "",
+                "value": round(value, 2),
+                "discount_pct": appointment.get("partner_discount_pct") or 0,
+                "points": int(math.floor(value * rate + 1e-9)),
+            })
+        bookings.sort(key=lambda b: b["start"], reverse=True)
+        settings = self._data.get(KEY_SETTINGS, {})
+        return {
+            "partner_id": partner["id"],
+            "points": self.partner_points_of(partner),
+            "rate": rate,
+            "discount_pct": self.partner_discount_of(partner["id"]),
+            "reward_points": int(settings.get("partner_reward_points") or 0),
+            "reward_value": float(settings.get("partner_reward_value") or 0),
+            "bookings": bookings,
+            "log": list(reversed(partner.get("points_log") or [])),
+            "rewards": list(reversed(partner.get("rewards") or [])),
+            "link": self.partner_link(partner),
+        }
+
+    def format_partner_reward(self, partner: dict[str, Any], voucher: dict[str, Any], points: int, value: float) -> str:
+        settings = self._data.get(KEY_SETTINGS, {})
+        template = str(settings.get("partner_reward_message") or DEFAULT_PARTNER_REWARD_MESSAGE)
+        name = str(partner.get("first_name") or partner.get("company") or "").strip()
+        return (
+            template.replace("{nome}", name or "partner")
+            .replace("{attivita}", str(partner.get("company") or ""))
+            .replace("{codice}", str(voucher.get("code") or ""))
+            .replace("{valore}", _money_text(value))
+            .replace("{punti}", str(points))
+            .replace("{scadenza}", _date_it(voucher.get("expires_on") or ""))
+            .replace("{hotel}", str(settings.get("guest_header") or "Il Marchese Hotel & Spa"))
+        )
+
+    async def async_partner_reward(self, partner_id: str, by: str = "", send: bool = True) -> dict[str, Any]:
+        """Turn a partner's points into a voucher and send it to her (2.8.6).
+
+        The points of the prize (Programma partner) are taken at once, before
+        anything is sent, so a double tap cannot give two vouchers. The
+        voucher is a gift card worth the prize; it goes on WhatsApp when the
+        partner has a number, else by email.
+        """
+        settings = self._data.get(KEY_SETTINGS, {})
+        partner = self._find(self.partners, partner_id, "Partner")
+        threshold = int(settings.get("partner_reward_points") or 0)
+        value = float(settings.get("partner_reward_value") or 0)
+        if not threshold or value <= 0:
+            raise ValidationError("Imposta punti e valore del premio in Promo › Programma partner")
+        balance = self.partner_points_of(partner)["balance"]
+        if balance < threshold:
+            raise ValidationError(f"Servono {threshold} punti: il partner ne ha {balance}")
+        name = " ".join(x for x in (partner.get("first_name"), partner.get("last_name")) if x) or partner.get("company") or "Partner"
+        voucher = await self.async_create_voucher(
+            "Programma partner", str(partner.get("phone") or ""), name, str(partner.get("phone") or ""),
+            [{"name": name, "treatment_ids": [], "gift_card_amount": value}],
+            None, by or "Programma partner",
+        )
+        async with self._lock:
+            stored = self._find(self.vouchers, voucher["id"], "Voucher")
+            stored["source"] = "partner"
+            stored["partner_id"] = partner["id"]
+            partner["points_spent"] = int(partner.get("points_spent") or 0) + threshold
+            reward = {"at": dt_util.utcnow().isoformat(), "points": threshold, "value": value,
+                      "voucher_id": stored["id"], "code": stored["code"], "sent": "", "by": by}
+            partner.setdefault("rewards", []).append(reward)
+            await self._async_save()
+        text = self.format_partner_reward(partner, stored, threshold, value)
+        sent = ""
+        error = ""
+        if send:
+            chat_id = messaging.whatsapp_chat_id(str(partner.get("phone") or ""))
+            if chat_id:
+                try:
+                    result = await messaging.async_send_whatsapp(self.hass, chat_id, text, waha=self.waha)
+                    sent = "whatsapp" if result.get("sent") else ""
+                    error = str(result.get("error") or "")
+                except Exception as err:  # noqa: BLE001
+                    error = str(err)
+            if not sent and "@" in str(partner.get("email") or ""):
+                try:
+                    result = await self._async_deliver_email(
+                        str(partner["email"]), f"Il Suo buono da {_money_text(value)}", text)
+                    sent = "email" if result.get("sent") else ""
+                    error = "" if sent else str(result.get("error") or error)
+                except Exception as err:  # noqa: BLE001
+                    error = error or str(err)
+            if not sent and not error:
+                error = "il partner non ha né WhatsApp né email"
+        if sent:
+            async with self._lock:
+                reward["sent"] = sent
+                for item in partner.get("rewards") or []:
+                    if item.get("voucher_id") == stored["id"]:
+                        item["sent"] = sent
+                await self._async_save()
+        return {"voucher": self.voucher_payload(stored), "sent": sent, "error": error,
+                "text": text, "points": self.partner_points_of(partner)}
+
     def partner_points_summary(self) -> dict[str, dict[str, Any]]:
         """The points of every partner, for the card."""
         return {partner["id"]: self.partner_points_of(partner) for partner in self.partners}
@@ -3364,6 +3529,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             for item in self.appointments:
                 if item is appointment or (batch and item.get("batch_id") == batch):
                     item["partner_id"] = target
+                    self._apply_partner_discount(item)
                     changed += 1
             await self._async_save()
         return {"changed": changed, "partner_id": target}
