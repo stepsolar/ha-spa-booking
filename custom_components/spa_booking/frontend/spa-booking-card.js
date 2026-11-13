@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.8.7";
+const CARD_VERSION = "2.8.8";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -4648,10 +4648,12 @@ class SpaBookingCard extends HTMLElement {
     }, el("span", { class: "dt-round-icon" }, el("ha-icon", { icon })), el("span", { class: "dt-round-label" }, label));
     const rounds = el("div", { class: "dt-rounds" });
     if (canBook && !cancelled) {
-      rounds.appendChild(round("mdi:pencil-outline", "Modifica", { click: () => this._closeAnd(() => this._openEditAppointment(appointment)) }));
-      if (grouped && related.length > 1 && related.every((member) => this._ownsAppointment(member))) {
-        rounds.appendChild(round("mdi:account-group-outline", "Modifica gruppo", { click: () => this._closeAnd(() => this._openEditBatch(appointment)) }));
-      }
+      // 2.8.8: on a group «Modifica» is the group edit (all the people).
+      const asGroup = related.length > 1 && related.every((member) => this._ownsAppointment(member));
+      rounds.appendChild(round(asGroup ? "mdi:account-group-outline" : "mdi:pencil-outline", "Modifica", {
+        title: asGroup ? `Modifica la prenotazione di gruppo (${related.length} appuntamenti)` : "Modifica",
+        click: () => this._closeAnd(() => (asGroup ? this._openEditBatch(appointment) : this._openEditAppointment(appointment))),
+      }));
     }
     if (phone) rounds.appendChild(round("mdi:phone", "Chiama", { href: telHref(phone), title: phone, tone: "tel" }));
     if (whatsapp) rounds.appendChild(round("mdi:whatsapp", "WhatsApp", { href: whatsapp, blank: true, tone: "wa" }));
@@ -4866,6 +4868,7 @@ class SpaBookingCard extends HTMLElement {
       });
       add(sheet, section("Appuntamenti del gruppo", listEl));
     }
+    if (canBook && !cancelled) add(sheet, this._groupTools(appointment));
 
     const clientRows = [];
     if (client && client.phone) {
@@ -5900,6 +5903,11 @@ class SpaBookingCard extends HTMLElement {
       fromRequest
         ? "Controlla e modifica la richiesta, scegli chi fa ogni massaggio, poi conferma: l'operatore riceve subito la richiesta."
         : "Compila i passi: il riepilogo si aggiorna mentre scrivi."));
+    if (this._batchEditing && this._batchAnchorId) {
+      // 2.8.8: split a person off or join another booking from the group edit.
+      const anchor = this._lookup.appointment.get(this._batchAnchorId);
+      if (anchor) wrap.appendChild(this._groupTools(anchor, { inForm: true }));
+    }
     if (fromRequest) {
       wrap.appendChild(el("div", { class: "nv-from-request" },
         el("ha-icon", { icon: "mdi:clipboard-text-clock-outline" }),
@@ -18995,6 +19003,13 @@ class SpaBookingCard extends HTMLElement {
   _relatedOf(appointment) {
     if (!appointment) return [appointment];
     const candidates = (this._data.appointments || []).filter((a) => a.status !== "cancelled");
+    // 2.8.8: a booking is a group by its code (batch), nothing else: a person
+    // taken out of the group stands alone even on the same day, and another
+    // booking joins only through «Aggiungi prenotazione».
+    if (appointment.batch_id) {
+      const byBatch = candidates.filter((a) => a.batch_id === appointment.batch_id);
+      return byBatch.length ? byBatch.sort((a, b) => parseDate(a.start) - parseDate(b.start)) : [appointment];
+    }
 
     const targetDate = String(appointment.start || "").slice(0, 10);
     // Vista Raggruppata: mostra **tutti gli appuntamenti attivi** dello stesso
@@ -19015,6 +19030,65 @@ class SpaBookingCard extends HTMLElement {
       }
     }
     return [appointment];
+  }
+
+  /**
+   * «Prenotazione CODE» (2.8.8): the people of the group, each with her
+   * treatments and «Scollega» (she becomes a booking of her own, new code,
+   * same client); below, another booking joins by typing its code.
+   */
+  _groupTools(appointment, { inForm = false } = {}) {
+    const members = (this._data.appointments || []).filter((a) =>
+      a.status !== "cancelled" && (appointment.batch_id ? a.batch_id === appointment.batch_id : a.id === appointment.id));
+    const byPerson = new Map();
+    members.sort((a, b) => (a.person || 0) - (b.person || 0) || parseDate(a.start) - parseDate(b.start))
+      .forEach((a) => { const k = a.person || 0; if (!byPerson.has(k)) byPerson.set(k, []); byPerson.get(k).push(a); });
+    const box = el("div", { class: `detail-section gt${inForm ? " cfg-box" : ""}` },
+      el("h4", {}, el("ha-icon", { icon: "mdi:pound-box-outline" }), ` Prenotazione ${appointment.code || ""}`,
+        el("span", { class: "dim small" }, ` · ${byPerson.size === 1 ? "1 persona" : `${byPerson.size} persone`}`)));
+    if (byPerson.size > 1) {
+      [...byPerson.entries()].forEach(([person, items]) => {
+        const who = items[0].client_id !== appointment.client_id ? this._clientName(items[0]) : "";
+        box.appendChild(el("div", { class: "gt-person" },
+          el("span", { class: "gt-badge" }, String(person + 1)),
+          el("div", { class: "grow" },
+            el("b", {}, `Persona ${person + 1}`, who ? ` · ${who}` : ""),
+            el("div", { class: "dim small" }, items.map((a) => `${timeOf(parseDate(a.start))} ${this._treatmentName(a)}`).join(" · "))),
+          el("button", {
+            class: "btn small", disabled: this._busy, title: "Toglie questa persona dal gruppo: diventa una prenotazione sua, con un nuovo codice",
+            on: { click: async (event) => {
+              event.stopPropagation();
+              if (!window.confirm(`Scollegare Persona ${person + 1} (${items.length === 1 ? "1 trattamento" : `${items.length} trattamenti`}) dalla prenotazione ${appointment.code}?\n\nDiventa una prenotazione a parte, con un nuovo codice e lo stesso cliente.`)) return;
+              try {
+                const result = await this._call("split_from_group", { appointment_id: items[0].id });
+                this._message = { kind: "ok", text: `Persona scollegata: nuovo codice ${result.code}.` };
+                if (inForm) this._openEditBatch(this._lookup.appointment.get(appointment.id) || appointment);
+                this._render();
+              } catch (error) { /* shown */ }
+            } },
+          }, el("ha-icon", { icon: "mdi:link-variant-off" }), "Scollega")));
+      });
+    }
+    const input = el("input", {
+      class: "input gt-code", placeholder: "es. KC4HT", maxlength: "12",
+      on: { keydown: (event) => { event.stopPropagation(); if (event.key === "Enter") join(); } },
+    });
+    const join = async () => {
+      const code = String(input.value || "").trim().toUpperCase();
+      if (!code) return;
+      try {
+        await this._call("join_group", { appointment_id: appointment.id, code });
+        this._message = { kind: "ok", text: `Prenotazione ${code} aggiunta: ora ha il codice ${appointment.code}.` };
+        if (inForm) this._openEditBatch(this._lookup.appointment.get(appointment.id) || appointment);
+        this._render();
+      } catch (error) { /* shown */ }
+    };
+    box.appendChild(el("div", { class: "gt-join" },
+      el("span", { class: "dim small" }, "Aggiungi una prenotazione già inserita:"),
+      input,
+      el("button", { class: "btn small", disabled: this._busy, on: { click: (event) => { event.stopPropagation(); join(); } } },
+        el("ha-icon", { icon: "mdi:link-variant-plus" }), "Aggiungi")));
+    return box;
   }
 
   _relatedTotals(appointment) {
@@ -21840,6 +21914,12 @@ class SpaBookingCard extends HTMLElement {
       .cx-dot { width: 16px; height: 16px; flex: none; border-radius: 50%; border: 2px solid var(--sb-line); }
       .cx-opt.on .cx-dot { border-color: var(--primary-color); box-shadow: inset 0 0 0 3px var(--card-background-color); background: var(--primary-color); }
       .cx-text { display: flex; flex-direction: column; gap: 2px; }
+      .gt h4 { display: flex; align-items: center; gap: 4px; }
+      .gt-person { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--sb-line); font-size: 13px; }
+      .gt-badge { width: 24px; height: 24px; flex: none; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; background: color-mix(in srgb, var(--primary-color) 15%, transparent); color: var(--primary-color); }
+      .gt-join { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-top: 10px; border-top: 1px solid var(--sb-line); }
+      .gt-code { width: 140px; text-transform: uppercase; }
+      .gt-code::placeholder { text-transform: none; }
       .pt-amount { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
       .profile-head { display: flex; gap: 14px; align-items: center; }
       .user-avatar.big { width: 56px; height: 56px; font-size: 18px; }

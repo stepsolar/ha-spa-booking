@@ -2352,6 +2352,29 @@ google_disconnect:
   name: Scollega account Google
   description: Dimentica l'account Google usato per le email e revoca il permesso.
 
+split_from_group:
+  name: Scollega dal gruppo
+  description: Toglie una persona, con i suoi trattamenti, dalla prenotazione di gruppo e le dà un codice suo.
+  fields:
+    appointment_id:
+      name: ID appuntamento
+      required: true
+      selector:
+        text:
+join_group:
+  name: Unisci al gruppo
+  description: Aggiunge a questa prenotazione un'altra prenotazione, indicata con il suo codice.
+  fields:
+    appointment_id:
+      name: ID appuntamento
+      required: true
+      selector:
+        text:
+    code:
+      name: Codice dell'altra prenotazione
+      required: true
+      selector:
+        text:
 partner_detail:
   name: Dettaglio partner
   description: Prenotazioni portate dal partner, punti ottenuti, rettifiche e premi.

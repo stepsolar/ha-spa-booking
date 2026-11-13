@@ -219,6 +219,7 @@ ACTOR: ContextVar[tuple[str, str] | None] = ContextVar("spa_booking_actor", defa
 #: the administrator reads. Offer bookkeeping and sent-flags are left out.
 HISTORY_FIELDS: Final = (
     ("status", "Stato"),
+    ("code", "Codice prenotazione"),
     ("start", "Inizio"),
     ("end", "Fine"),
     ("treatment_id", "Trattamento"),
@@ -246,6 +247,14 @@ HISTORY_FIELDS: Final = (
 HISTORY_MAX: Final = 100
 #: Messages kept per WhatsApp conversation, the oldest dropped first.
 CHAT_MAX_MESSAGES: Final = 500
+
+
+def _group_by(items: list[Any], key: Any) -> dict[Any, list[Any]]:
+    """Items grouped by ``key(item)``, in their order."""
+    groups: dict[Any, list[Any]] = {}
+    for item in items:
+        groups.setdefault(key(item), []).append(item)
+    return groups
 
 
 def _pct_text(value: float) -> str:
@@ -1909,6 +1918,16 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             for existing in (*self.appointments, *(planned or []))
             if existing.get("code")
         }
+        # One code per booking (2.8.8): every person and treatment of the same
+        # booking shares the code of the first one.
+        group_code = next(
+            (
+                existing["code"]
+                for existing in (*(planned or []), *self.appointments)
+                if batch_id and existing.get("batch_id") == batch_id and existing.get("code")
+            ),
+            "",
+        )
         appointment = _norm_appointment(
             {
                 "client_id": client["id"],
@@ -1928,7 +1947,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # booking made for one.
                 "person": _norm_person(person_index),
                 "batch_id": batch_id,
-                "code": _new_code(used_codes),
+                "code": group_code or _new_code(used_codes),
                 # Who confirmed it, and when. Empty on a pending booking: there
                 # is nobody to name yet.
                 "confirmed_by": "",
@@ -5676,6 +5695,94 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         result = dict(payloads[0])
         result["cancelled_ids"] = [p["id"] for p in payloads]
         return result
+
+    def _group_members(self, appointment: dict[str, Any]) -> list[dict[str, Any]]:
+        batch = appointment.get("batch_id")
+        if not batch:
+            return [appointment]
+        return [a for a in self.appointments if a.get("batch_id") == batch]
+
+    async def async_split_from_group(self, appointment_id: str) -> dict[str, Any]:
+        """Take one person, with all her treatments, out of a group (2.8.8).
+
+        She becomes a booking of her own: new code, same client card, her
+        payments and voucher takings with her. The people left are numbered
+        again from Persona 1.
+        """
+        async with self._lock:
+            appointment = self._find(self.appointments, appointment_id, "Appuntamento")
+            members = self._group_members(appointment)
+            active = [a for a in members if a.get("status") != STATUS_CANCELLED]
+            person = appointment.get("person") or 0
+            people = {a.get("person") or 0 for a in active}
+            if len(people) < 2:
+                raise ValidationError("Nel gruppo c'è una sola persona: non c'è niente da scollegare")
+            moving = [a for a in members if (a.get("person") or 0) == person]
+            codes = {a["code"] for a in self.appointments if a.get("code")}
+            batch_id = _new_id("batch")
+            code = _new_code(codes)
+            for item in moving:
+                item["batch_id"] = batch_id
+                item["code"] = code
+                item["person"] = 0
+            staying = [a for a in members if a not in moving]
+            order = sorted({a.get("person") or 0 for a in staying})
+            renumber = {old: new for new, old in enumerate(order)}
+            for item in staying:
+                item["person"] = renumber[item.get("person") or 0]
+            await self._async_save()
+        return {
+            "code": code,
+            "batch_id": batch_id,
+            "appointments": [self.appointment_payload(a) for a in moving],
+        }
+
+    async def async_join_group(self, appointment_id: str, code: str) -> dict[str, Any]:
+        """Add another booking, found by its code, to this group (2.8.8).
+
+        Its people come after the ones already in the group, keep their own
+        client card and take the group's code.
+        """
+        wanted = str(code or "").strip().upper()
+        if not wanted:
+            raise ValidationError("Scrivi il codice della prenotazione da aggiungere")
+        async with self._lock:
+            appointment = self._find(self.appointments, appointment_id, "Appuntamento")
+            if appointment.get("status") == STATUS_CANCELLED:
+                raise ValidationError("La prenotazione è annullata")
+            if not appointment.get("batch_id"):
+                appointment["batch_id"] = _new_id("batch")
+            target = appointment["batch_id"]
+            group = self._group_members(appointment)
+            group_code = appointment.get("code") or ""
+            if wanted == group_code.upper():
+                raise ValidationError("È il codice di questa stessa prenotazione")
+            joining = [
+                a for a in self.appointments
+                if str(a.get("code") or "").upper() == wanted and a.get("batch_id") != target
+            ]
+            if not joining:
+                raise ValidationError(f"Nessuna prenotazione con il codice {wanted}")
+            if all(a.get("status") == STATUS_CANCELLED for a in joining):
+                raise ValidationError(f"La prenotazione {wanted} è annullata")
+            # Every appointment of the other booking(s), not only those with
+            # the code typed: an old group may still have a code per person.
+            batches = {a.get("batch_id") for a in joining if a.get("batch_id")}
+            joining += [a for a in self.appointments if a.get("batch_id") in batches and a not in joining]
+            offset = max((a.get("person") or 0) for a in group) + 1
+            for items in _group_by(joining, lambda a: a.get("batch_id") or a["id"]).values():
+                for item in items:
+                    item["person"] = offset + (item.get("person") or 0)
+                offset = max(item["person"] for item in items) + 1
+            for item in joining:
+                item["batch_id"] = target
+                item["code"] = group_code or item.get("code")
+            await self._async_save()
+        return {
+            "code": group_code,
+            "batch_id": target,
+            "appointments": [self.appointment_payload(a) for a in self._group_members(appointment)],
+        }
 
     def format_cancel_message(self, payloads: list[dict[str, Any]], reason: str = "") -> str:
         """The guest's cancellation message for one or more appointments (2.8.7)."""
