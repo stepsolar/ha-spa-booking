@@ -301,6 +301,9 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # deletes a chat, or all of them.
         self._chats_store: Store = Store(hass, 1, "spa_booking.chats")
         self._chats: dict[str, list[dict[str, Any]]] = {}
+        # When a chat last changed: the WhatsApp sensor carries it, so the card
+        # reloads the conversations as soon as a message goes out or comes in.
+        self._chat_stamp = ""
         # The tracked fields of every appointment at the last save: what the
         # next save compares against to write the change history.
         self._history_snap: dict[str, dict[str, Any]] | None = None
@@ -347,7 +350,45 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._async_load_chats()
         self.async_set_updated_data(self._data)
 
-    async def async_add_external_message(self, chat_id: str, text: str) -> None:
+    @staticmethod
+    def _chat_key(chat_id: str) -> str:
+        """One key per person: the same number as @c.us, @s.whatsapp.net or bare."""
+        value = str(chat_id or "").strip()
+        if value.lower().endswith("@s.whatsapp.net"):
+            value = value.split("@")[0] + "@c.us"
+        return messaging.to_whatsapp_chat_id(value) or value
+
+    def record_outgoing_whatsapp(self, chat_id: str, message: str) -> None:
+        """Note a WhatsApp Spa Booking sent (2.8.4): guest, operator or group.
+
+        Who sent it is the person logged in at the card; a message sent by a
+        timer (reminder, report, offer cascade) has nobody and reads
+        «Automatico» in the card.
+        """
+        if not chat_id or not message:
+            return
+        self._chat_add(chat_id, {
+            "dir": "out", "text": message, "at": dt_util.now().isoformat(),
+            "by": (ACTOR.get() or ("", ""))[1] or "",
+        })
+        self._chat_stamp = dt_util.now().isoformat()
+        self.async_update_listeners()
+
+    def record_incoming_whatsapp(self, chat_id: str, text: str, operator_id: str = "") -> None:
+        """Note a WhatsApp received (2.8.4), operators' answers included."""
+        if not chat_id or not text:
+            return
+        operator = operator_id or (
+            messaging.find_operator_by_chat(self.operators, "whatsapp", chat_id) or {}
+        ).get("id", "")
+        self._chat_add(chat_id, {
+            "dir": "in", "text": text, "at": dt_util.now().isoformat(),
+            **({"operator_id": operator} if operator else {}),
+        })
+        self._chat_stamp = dt_util.now().isoformat()
+        self.async_update_listeners()
+
+    async def async_add_external_message(self, chat_id: str, text: str, record: bool = True) -> None:
         """Save an incoming WhatsApp message from a non-operator number.
 
         The webhook fires ``EVENT_ANSWER_REQUEST`` for every inbound message;
@@ -361,7 +402,8 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "received_at": dt_util.now().isoformat(),
         }
         self._external_messages.appendleft(entry)
-        self._chat_add(chat_id, {"dir": "in", "text": text, "at": entry["received_at"]})
+        if record:
+            self._chat_add(chat_id, {"dir": "in", "text": text, "at": entry["received_at"]})
         self.async_update_listeners()
         self.hass.bus.async_fire(
             EVENT_EXTERNAL_MESSAGE,
@@ -371,11 +413,16 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_load_chats(self) -> None:
         stored = await self._chats_store.async_load()
         chats = (stored or {}).get("chats") if isinstance(stored, dict) else None
-        self._chats = {
-            str(chat_id): [dict(m) for m in messages if isinstance(m, dict)][-CHAT_MAX_MESSAGES:]
-            for chat_id, messages in (chats or {}).items()
-            if isinstance(messages, list)
-        }
+        self._chats = {}
+        for chat_id, messages in (chats or {}).items():
+            if not isinstance(messages, list):
+                continue
+            # The same person under two spellings becomes one chat (2.8.4).
+            merged = self._chats.setdefault(self._chat_key(chat_id), [])
+            merged.extend(dict(m) for m in messages if isinstance(m, dict))
+        for key, messages in self._chats.items():
+            messages.sort(key=lambda m: str(m.get("at") or ""))
+            self._chats[key] = messages[-CHAT_MAX_MESSAGES:]
         # The sensor (and automations) see the latest incoming messages again.
         incoming = sorted(
             (
@@ -392,8 +439,9 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def _chat_add(self, chat_id: str, message: dict[str, Any]) -> None:
         """Note a message of a conversation and save it (debounced)."""
-        messages = self._chats.setdefault(str(chat_id), [])
+        messages = self._chats.setdefault(self._chat_key(chat_id), [])
         messages.append(message)
+        messages.sort(key=lambda m: str(m.get("at") or ""))
         del messages[:-CHAT_MAX_MESSAGES]
         self._chats_store.async_delay_save(lambda: {"chats": self._chats}, 2)
 
@@ -412,13 +460,17 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._chats = {}
             self._external_messages.clear()
         else:
-            removed = 1 if self._chats.pop(str(chat_id), None) is not None else 0
+            removed = 1 if self._chats.pop(self._chat_key(chat_id), None) is not None else 0
             kept = [m for m in self._external_messages if m.get("chat_id") != chat_id]
             self._external_messages.clear()
             self._external_messages.extend(kept)
         await self._chats_store.async_save({"chats": self._chats})
         self.async_update_listeners()
         return removed
+
+    @property
+    def chat_stamp(self) -> str:
+        return self._chat_stamp
 
     @property
     def external_messages(self) -> list[dict[str, Any]]:
@@ -6037,13 +6089,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         result = await messaging.async_send_whatsapp(
             self.hass, chat_id, text, waha=self.waha
         )
-        if result.get("sent"):
-            # The reply stays in the conversation, with who wrote it.
-            self._chat_add(chat_id, {
-                "dir": "out", "text": text, "at": dt_util.now().isoformat(),
-                "by": acting_person()[1],
-            })
-            self.async_update_listeners()
+        # The reply is noted in the conversation by the send itself (2.8.4).
         return result
 
     async def async_send_guest_summary(

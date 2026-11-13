@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.8.3";
+const CARD_VERSION = "2.8.4";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -9994,51 +9994,97 @@ class SpaBookingCard extends HTMLElement {
     const canDelete = this._can("messages");
     const stored = this._waChats || [];
     wrap.appendChild(this._sectionHead("mdi:whatsapp", "Messaggi WhatsApp",
-      "Messaggi arrivati al numero dell'hotel da chi non è un'operatrice. Restano salvati anche dopo un riavvio, finché non elimini la chat.",
+      "Tutti i messaggi di Spa Booking: quelli degli ospiti e degli operatori, le conferme, i promemoria e le richieste inviate, con chi li ha mandati. Restano salvati finché non elimini la chat.",
       canDelete && stored.length
         ? el("button", { class: "btn small danger-ghost", on: { click: () => this._deleteWaChats(null) } },
             el("ha-icon", { icon: "mdi:delete-sweep-outline" }), "Elimina tutte")
         : null));
     if (!stored.length) {
-      wrap.appendChild(el("div", { class: "empty" }, this._waChats ? "Nessun messaggio esterno ricevuto." : "Caricamento…"));
+      wrap.appendChild(el("div", { class: "empty" }, this._waChats ? "Nessun messaggio ancora." : "Caricamento…"));
       return wrap;
     }
     // One conversation per number, newest first.
     const chats = new Map(stored.map((chat) => [chat.chat_id, (chat.messages || []).map((m) => ({ ...m, received_at: m.at }))]));
-    const ordered = [...chats.entries()].filter(([, list]) => list.length);
+    const all = [...chats.entries()].filter(([, list]) => list.length);
+    if (!all.length) {
+      wrap.appendChild(el("div", { class: "empty" }, "Nessun messaggio ancora."));
+      return wrap;
+    }
+    // 2.8.4: guests and operators in one place, with a filter and a search.
+    const kindOf = (id, items) => (this._operatorByChat(id, items) ? "operatori" : String(id).endsWith("@g.us") ? "gruppi" : "ospiti");
+    const nameOf = (id, items) => {
+      const operator = this._operatorByChat(id, items);
+      if (operator) return operator.name || "Operatore";
+      const client = this._clientByChat(id);
+      return client ? this._clientName({ client_id: client.id }) : String(id).endsWith("@g.us") ? "Gruppo WhatsApp" : this._chatLabel(id);
+    };
+    const filter = this._waFilter || "tutte";
+    const query = (this._waSearch || "").trim().toLowerCase();
+    const counts = { tutte: all.length, ospiti: 0, operatori: 0, gruppi: 0 };
+    all.forEach(([id, items]) => { counts[kindOf(id, items)] += 1; });
+    const ordered = all.filter(([id, items]) =>
+      (filter === "tutte" || kindOf(id, items) === filter)
+      && (!query || `${nameOf(id, items)} ${this._chatLabel(id)}`.toLowerCase().includes(query)));
+    wrap.appendChild(el("div", { class: "wa-filters" },
+      [["tutte", "Tutte"], ["ospiti", "Ospiti"], ["operatori", "Operatori"], ...(counts.gruppi ? [["gruppi", "Gruppi"]] : [])]
+        .map(([id, label]) => el("button", {
+          class: `chip${filter === id ? " on" : ""}`,
+          on: { click: () => { this._waFilter = id; this._waShown = 0; this._render(); } },
+        }, `${label} (${counts[id]})`)),
+      el("input", {
+        class: "input wa-search", type: "search", placeholder: "Cerca nome o numero",
+        value: this._waSearch || "",
+        on: {
+          input: (event) => { this._waSearch = event.target.value; clearTimeout(this._waSearchT); this._waSearchT = setTimeout(() => this._render(), 250); },
+          keydown: (event) => event.stopPropagation(),
+        },
+      })));
     if (!ordered.length) {
-      wrap.appendChild(el("div", { class: "empty" }, "Nessun messaggio esterno ricevuto."));
+      wrap.appendChild(el("div", { class: "empty" }, "Nessuna chat per questo filtro."));
       return wrap;
     }
     if (!this._waChat || !chats.has(this._waChat)) this._waChat = ordered[0][0];
 
     const shell = el("div", { class: `wa-shell${this._waChatOpen ? " open" : ""}` });
     const list = el("div", { class: "wa-chats" });
-    ordered.forEach(([id, items]) => {
+    const limit = Math.max(60, this._waShown || 0);
+    ordered.slice(0, limit).forEach(([id, items]) => {
       const last = items[items.length - 1];
       const client = this._clientByChat(id);
+      const operator = this._operatorByChat(id, items);
       list.appendChild(el("button", {
         class: `wa-chat${id === this._waChat ? " on" : ""}`,
         on: { click: () => { this._waChat = id; this._waChatOpen = true; this._render(); } },
       },
-      el("span", { class: "user-avatar tone-2" }, client ? this._initials(this._clientName({ client_id: client.id })) : el("ha-icon", { icon: "mdi:account-outline" })),
+      el("span", { class: `user-avatar ${operator ? "tone-4" : "tone-2"}` },
+        operator || client ? this._initials(nameOf(id, items)) : el("ha-icon", { icon: String(id).endsWith("@g.us") ? "mdi:account-group-outline" : "mdi:account-outline" })),
       el("span", { class: "wa-chat-text" },
-        el("span", { class: "wa-chat-name" }, client ? this._clientName({ client_id: client.id }) : this._chatLabel(id)),
-        el("span", { class: "wa-chat-last" }, last.text || "")),
+        el("span", { class: "wa-chat-name" }, nameOf(id, items),
+          operator ? el("span", { class: "wa-tag" }, "Operatore") : null),
+        el("span", { class: "wa-chat-last" }, `${last.dir === "out" ? "↗ " : ""}${(last.text || "").split("\n")[0]}`)),
       el("span", { class: "wa-chat-time" }, this._waTime(last.received_at))));
     });
+    if (ordered.length > limit) {
+      list.appendChild(el("button", {
+        class: "btn small wa-more", on: { click: () => { this._waShown = limit + 60; this._render(); } },
+      }, `Mostra altre (${ordered.length - limit})`));
+    }
     shell.appendChild(list);
 
     const items = chats.get(this._waChat) || [];
     const chatId = this._waChat;
     const client = this._clientByChat(chatId);
+    const chatOperator = this._operatorByChat(chatId, items);
     const conv = el("div", { class: "wa-conv" });
     conv.appendChild(el("div", { class: "wa-conv-head" },
       el("button", { class: "icon-btn wa-back", title: "Torna ai messaggi", on: { click: () => { this._waChatOpen = false; this._render(); } } },
         el("ha-icon", { icon: "mdi:arrow-left" })),
       el("div", { class: "grow" },
-        el("div", { class: "wa-chat-name" }, client ? this._clientName({ client_id: client.id }) : this._chatLabel(chatId)),
-        el("div", { class: "dim small" }, client ? this._clientSummary(client) : `${this._chatLabel(chatId)} · non è ancora un cliente`)),
+        el("div", { class: "wa-chat-name" }, nameOf(chatId, items)),
+        el("div", { class: "dim small" }, chatOperator
+          ? `Operatore · ${this._chatLabel(chatId)}`
+          : client ? this._clientSummary(client)
+          : String(chatId).endsWith("@g.us") ? "Gruppo" : `${this._chatLabel(chatId)} · non è ancora un cliente`)),
       canDelete
         ? el("button", { class: "icon-btn", title: "Elimina questa chat", "aria-label": "Elimina questa chat",
             on: { click: () => this._deleteWaChats(chatId) } }, el("ha-icon", { icon: "mdi:delete-outline" }))
@@ -10047,7 +10093,7 @@ class SpaBookingCard extends HTMLElement {
     items.forEach((msg) => bubbles.appendChild(
       el("div", { class: `bubble ${msg.dir === "out" ? "out" : "in"}` },
         el("span", {}, msg.text || ""),
-        el("span", { class: "bubble-time" }, [msg.dir === "out" && msg.by ? msg.by : "", this._waTime(msg.received_at)].filter(Boolean).join(" · ")))));
+        el("span", { class: "bubble-time" }, [msg.dir === "out" ? (msg.by || "Automatico") : "", this._waTime(msg.received_at)].filter(Boolean).join(" · ")))));
     conv.appendChild(bubbles);
     conv.appendChild(el("div", { class: "wa-compose" },
       el("input", {
@@ -10071,7 +10117,7 @@ class SpaBookingCard extends HTMLElement {
         disabled: this._waBusy,
         on: { click: () => { this._waReplyTo = chatId; this._sendWaReply(chatId); } },
       }, el("ha-icon", { icon: "mdi:send" }))));
-    conv.appendChild(el("div", { class: "wa-actions" },
+    if (!chatOperator && !String(chatId).endsWith("@g.us")) conv.appendChild(el("div", { class: "wa-actions" },
       el("button", {
         class: "btn small",
         on: { click: (e) => { e.preventDefault(); this._createRequestFromWhatsapp(chatId); } },
@@ -10098,6 +10144,23 @@ class SpaBookingCard extends HTMLElement {
     if (!digits) return String(chatId || "");
     const { cc, number } = splitPhone(`+${digits}`);
     return `+${cc} ${number}`;
+  }
+
+  /** The operator whose WhatsApp is this chat, if any (2.8.4). */
+  _operatorByChat(chatId, items) {
+    const tagged = (items || []).find((m) => m.operator_id);
+    if (tagged && this._lookup.operator.get(tagged.operator_id)) return this._lookup.operator.get(tagged.operator_id);
+    const id = String(chatId || "");
+    const digits = id.split("@")[0].replace(/\D/g, "");
+    return (this._data.operators || []).find((operator) => {
+      const explicit = String(operator.whatsapp_chat_id || "");
+      if (explicit && explicit === id) return true;
+      if (!digits || id.endsWith("@g.us")) return false;
+      if (explicit && explicit.split("@")[0].replace(/\D/g, "") === digits && !explicit.endsWith("@g.us")) return true;
+      if (!operator.phone) return false;
+      const { cc, number } = splitPhone(operator.phone);
+      return `${cc}${number.replace(/\D/g, "")}` === digits;
+    }) || null;
   }
 
   /** The client whose phone is this WhatsApp chat, if any. */
@@ -20307,6 +20370,12 @@ class SpaBookingCard extends HTMLElement {
                   background: var(--sb-card); border: 1px solid var(--sb-line); border-radius: var(--sb-radius);
                   box-shadow: var(--sb-shadow); overflow: hidden; min-height: 420px; }
       .wa-chats { border-right: 1px solid var(--sb-line); overflow-y: auto; max-height: 70vh; }
+      .wa-filters { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+      .wa-filters .chip { border: 1px solid var(--sb-line); background: var(--card-background-color); border-radius: 999px; padding: 5px 12px; font: inherit; font-size: 13px; cursor: pointer; color: var(--primary-text-color); }
+      .wa-filters .chip.on { background: var(--primary-color); border-color: var(--primary-color); color: var(--text-primary-color, #fff); }
+      .wa-search { flex: 1; min-width: 180px; max-width: 320px; margin-left: auto; }
+      .wa-tag { margin-left: 6px; font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 999px; background: color-mix(in srgb, var(--primary-color) 15%, transparent); color: var(--primary-color); vertical-align: middle; }
+      .wa-more { margin: 8px auto; display: block; }
       .wa-chat { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; gap: 10px; align-items: center;
                  width: 100%; padding: 10px 12px; border: 0; border-bottom: 1px solid var(--sb-line);
                  background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }

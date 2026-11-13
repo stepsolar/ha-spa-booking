@@ -62,6 +62,7 @@ def build_coordinator(data: dict[str, Any] | None = None) -> SpaBookingCoordinat
     coordinator._external_messages = deque(maxlen=20)
     coordinator._chats_store = _FakeStore()
     coordinator._chats = {}
+    coordinator._chat_stamp = ""
     coordinator._waha_inbound = None
     coordinator._card_version = ""
     coordinator.scheduler = None

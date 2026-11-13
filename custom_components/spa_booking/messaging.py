@@ -185,7 +185,47 @@ def chunk_text(text: str, limit: int) -> list[str]:
     return chunks
 
 
+#: Called with (chat_id, message) after every WhatsApp that went out (2.8.4):
+#: the coordinator keeps it in the chat history the card shows.
+_SENT_LISTENERS: list[Any] = []
+
+
+def add_sent_listener(callback: Any) -> Any:
+    """Register a callback for sent WhatsApp messages; returns the remover."""
+    _SENT_LISTENERS.append(callback)
+
+    def _remove() -> None:
+        if callback in _SENT_LISTENERS:
+            _SENT_LISTENERS.remove(callback)
+
+    return _remove
+
+
 async def async_send_whatsapp(
+    hass: HomeAssistant,
+    chat_id: str,
+    message: str,
+    blocking: bool = True,
+    waha: WahaClient | None = None,
+) -> dict[str, Any]:
+    """Send a WhatsApp message and note it in the chat history (2.8.4).
+
+    Every message Spa Booking sends — confirmations, reminders, offers to the
+    operators, reports, replies — goes through here, so the WhatsApp tab of
+    the card shows the whole conversation, not only what the guest wrote.
+    """
+    result = await async_deliver_whatsapp(hass, chat_id, message, blocking, waha)
+    if result.get("sent"):
+        target = to_whatsapp_chat_id(chat_id)
+        for callback in list(_SENT_LISTENERS):
+            try:
+                callback(target, message)
+            except Exception:  # noqa: BLE001 - the history must never break a send
+                _LOGGER.exception("Registrazione messaggio WhatsApp inviato fallita")
+    return result
+
+
+async def async_deliver_whatsapp(
     hass: HomeAssistant,
     chat_id: str,
     message: str,

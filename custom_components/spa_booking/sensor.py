@@ -100,6 +100,8 @@ class SpaBookingSensor(CoordinatorEntity[SpaBookingCoordinator], SensorEntity):
                 "messages": messages,
                 "count": len(messages),
                 "last": messages[0] if messages else None,
+                # Changes with every message sent or received (2.8.4).
+                "chats_updated": self.coordinator.chat_stamp,
             }
 
         agenda = self._agenda(self._kind)
