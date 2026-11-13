@@ -133,6 +133,15 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v2.8.0** — **Backup automatico su Google Drive** (serve il riavvio di
+  Home Assistant): in Impostazioni › Dati e backup, «Collega Google Drive»
+  (stesso progetto Google dell'email, permesso `drive.file`: Spa Booking vede
+  solo i file che crea). Ogni giorno all'ora scelta (03:30 di default) il
+  backup completo va nella cartella «Spa Booking backup»; si tengono gli
+  ultimi 3, il più vecchio viene cancellato; un secondo backup nello stesso
+  giorno sostituisce quello del giorno. «Fai il backup ora», elenco dei
+  backup su Drive e «Ripristina». Servizi `gdrive_backup`, `gdrive_list`,
+  `gdrive_restore`.
 - **v2.7.3** — **Corretto: i partner non comparivano.** La card non
   caricava partner, punti dei partner e punti fedeltà dei clienti (erano
   salvati, ma la lista restava vuota dopo ogni aggiornamento della pagina):

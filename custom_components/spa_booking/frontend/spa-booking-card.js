@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.7.3";
+const CARD_VERSION = "2.8.0";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -12064,7 +12064,7 @@ class SpaBookingCard extends HTMLElement {
       el("div", { class: "pg-step-head" }, el("span", { class: "nt-icon" }, el("ha-icon", { icon })), el("span", { class: "pg-step-title" }, title)),
       el("div", { class: "dim small" }, text),
       el("div", { class: "row tight" }, buttons));
-    return el("div", { class: "nt-panels two" },
+    return el("div", { class: "stack" }, this._gdriveBox(busy), el("div", { class: "nt-panels two" },
       panel("mdi:account-multiple-outline", "Clienti (CSV)",
         "Un file con Nome, Cognome, Telefono, Email e Note di tutti i clienti, da aprire in Excel. Importando un CSV i clienti con un telefono già presente vengono saltati.",
         el("button", { class: "btn small", disabled: this._busy, on: { click: () => busy(async () => {
@@ -12093,7 +12093,80 @@ class SpaBookingCard extends HTMLElement {
             await this._loadData();
             this._message = { kind: "ok", text: "Backup ripristinato." };
           }));
-        } } }, el("ha-icon", { icon: "mdi:database-import" }), "Ripristina backup")));
+        } } }, el("ha-icon", { icon: "mdi:database-import" }), "Ripristina backup"))));
+  }
+
+  /** Impostazioni › Dati e backup › Google Drive (2.8.0): a backup a day, the last three kept. */
+  _gdriveBox(busy) {
+    const settings = (this._data && this._data.settings) || {};
+    const googleReady = !!(settings.google_client_id && settings.google_secret_set);
+    const driveOk = !!settings.google_connected && String(settings.google_scopes || "").includes("drive.file");
+    const when = (iso) => iso ? new Date(iso).toLocaleString("it-IT", { weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "";
+    const size = (n) => n > 1048576 ? `${(n / 1048576).toFixed(1).replace(".", ",")} MB` : `${Math.max(1, Math.round((n || 0) / 1024))} KB`;
+    const save = (patch) => busy(async () => {
+      await this._call("update_settings", patch);
+    });
+    const box = el("div", { class: "cfg-box pg-step gd-box" },
+      el("div", { class: "pg-step-head" }, el("span", { class: "nt-icon" }, el("ha-icon", { icon: "mdi:google-drive" })),
+        el("span", { class: "pg-step-title" }, "Backup automatico su Google Drive")),
+      el("div", { class: "dim small" }, "Ogni giorno Spa Booking salva il backup completo (lo stesso di «Scarica backup») nella cartella «Spa Booking backup» del tuo Google Drive. Si tengono gli ultimi 3: quando arriva quello nuovo, il più vecchio viene cancellato."));
+    if (!googleReady) {
+      box.appendChild(el("div", { class: "pg-sum warn" }, el("ha-icon", { icon: "mdi:information-outline" }),
+        el("span", {}, "Serve il progetto Google già usato per l'email: inserisci Client ID e Client secret in Configurazione › Email › Accedi con Google.")));
+      return box;
+    }
+    if (!driveOk) {
+      box.appendChild(el("div", { class: "pg-sum" }, el("ha-icon", { icon: "mdi:numeric-1-circle-outline" }),
+        el("span", {}, "Una volta sola, nel progetto Google Cloud: ", el("b", {}, "API e servizi › Libreria › Google Drive API › Abilita"),
+          ". Poi premi «Collega Google Drive» e spunta il permesso: Spa Booking vedrà solo i file che crea lui, nient'altro del tuo Drive.")));
+      box.appendChild(el("div", { class: "row" },
+        el("button", { class: "btn primary", disabled: this._busy, on: { click: () => this._googleLogin("drive") } },
+          el("ha-icon", { icon: "mdi:google-drive" }), "Collega Google Drive")));
+      return box;
+    }
+    const last = settings.gdrive_last_backup;
+    box.appendChild(el("div", { class: "gm-connected" },
+      el("span", { class: "gm-logo" }, "G"),
+      el("span", { class: "grow" }, el("b", {}, "Google Drive collegato"), el("span", { class: "dim small" }, settings.google_account || "")),
+      el("button", { class: "btn small", disabled: this._busy, on: { click: () => this._googleLogin("drive") } }, "Ricollega")));
+    box.appendChild(el("div", { class: "row gd-row" },
+      el("label", { class: "pg-switch-row lp-switch" },
+        el("input", { type: "checkbox", checked: !!settings.gdrive_enabled, disabled: this._busy,
+          on: { change: (event) => save({ gdrive_enabled: event.target.checked }) } }),
+        el("span", {}, el("b", {}, "Backup automatico ogni giorno"))),
+      el("label", { class: "field gd-time" }, el("span", {}, "Alle"),
+        el("input", { class: "input", type: "time", value: settings.gdrive_time || "03:30", disabled: this._busy,
+          on: { change: (event) => save({ gdrive_time: event.target.value || "03:30" }) } }))));
+    box.appendChild(el("div", { class: `pg-sum${settings.gdrive_last_error ? " warn" : ""}` },
+      el("ha-icon", { icon: settings.gdrive_last_error ? "mdi:alert-outline" : "mdi:cloud-check-outline" }),
+      el("span", {}, settings.gdrive_last_error
+        ? `Ultimo tentativo non riuscito (${when(settings.gdrive_last_try)}): ${settings.gdrive_last_error}`
+        : last ? `Ultimo backup: ${when(last)} · ${settings.gdrive_last_file || ""} · ${size(settings.gdrive_last_size)}` : "Nessun backup ancora su Drive.")));
+    const files = this._gdriveFiles;
+    box.appendChild(el("div", { class: "row tight" },
+      el("button", { class: "btn small", disabled: this._busy, on: { click: () => busy(async () => {
+        const r = await this._call("gdrive_backup", {});
+        this._gdriveFiles = null;
+        this._message = { kind: "ok", text: `Backup salvato su Drive: ${r.file}${r.replaced ? " (sostituito quello di oggi)" : ""}${(r.removed || []).length ? ` · eliminato ${r.removed.join(", ")}` : ""}.` };
+      }) } }, el("ha-icon", { icon: "mdi:cloud-upload-outline" }), "Fai il backup ora"),
+      el("button", { class: "btn small ghost", disabled: this._busy, on: { click: () => busy(async () => {
+        const r = await this._service("gdrive_list", {});
+        this._gdriveFiles = (r && r.files) || [];
+      }) } }, el("ha-icon", { icon: "mdi:folder-google-drive" }), files ? "Aggiorna elenco" : "Backup su Drive")));
+    if (files) {
+      box.appendChild(files.length ? el("div", { class: "stack tight" }, files.map((file) => el("div", { class: "row item gd-file" },
+        el("ha-icon", { icon: "mdi:file-cloud-outline" }),
+        el("span", { class: "grow" }, el("b", {}, file.name), el("span", { class: "dim small" }, ` · ${when(file.modifiedTime || file.createdTime)} · ${size(Number(file.size || 0))}`)),
+        el("button", { class: "btn small danger-ghost", disabled: this._busy, on: { click: () => {
+          if (!window.confirm(`Ripristinare «${file.name}»?\n\nTutti i dati attuali di Spa Booking verranno sostituiti da quelli di questo backup.`)) return;
+          busy(async () => {
+            await this._service("gdrive_restore", { file_id: file.id });
+            await this._loadData();
+            this._message = { kind: "ok", text: `Backup «${file.name}» ripristinato.` };
+          });
+        } } }, "Ripristina")))) : el("div", { class: "dim small" }, "Nessun backup nella cartella."));
+    }
+    return box;
   }
 
   // ----------------------------------------------------------------- TELECAMERE
@@ -15389,14 +15462,14 @@ class SpaBookingCard extends HTMLElement {
   }
 
   /** «Accedi con Google»: save, ask the server for Google's page, open it in a window. */
-  async _googleLogin() {
-    if (JSON.stringify(this._emailDraft) !== this._emailBase && !(await this._saveEmail())) return;
+  async _googleLogin(purpose = "email") {
+    if (purpose === "email" && JSON.stringify(this._emailDraft) !== this._emailBase && !(await this._saveEmail())) return;
     let popup = null;
     try {
       // Opened at once (inside the click), filled when the address arrives: a
       // window opened later would be blocked by the browser.
       popup = window.open("", "spa_booking_google", "width=520,height=700");
-      const result = await this._service("google_auth_url", { redirect_uri: this._googleRedirect() });
+      const result = await this._service("google_auth_url", { redirect_uri: this._googleRedirect(), purpose });
       if (popup && !popup.closed) popup.location.href = result.url;
       else window.location.assign(result.url);
     } catch (error) {
@@ -20718,6 +20791,10 @@ class SpaBookingCard extends HTMLElement {
       }
 
       /* 2.7.0: Shop online */
+      .gd-box { gap: 12px; }
+      .gd-row { align-items: center; gap: 16px; flex-wrap: wrap; }
+      .gd-time { flex-direction: row; align-items: center; gap: 8px; }
+      .gd-time .input { width: 120px; }
       .shop-keys { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
       .shop-key { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--sb-line); background: var(--sb-card, #fff); min-width: 0; }
       .shop-key code { font-size: 12.5px; word-break: break-all; background: color-mix(in srgb, var(--secondary-text-color) 8%, transparent); padding: 6px 8px; border-radius: 8px; }

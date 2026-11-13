@@ -175,6 +175,9 @@ SERVICE_TEST_WEB_NOTICE = "test_web_notice"
 SERVICE_SEND_EMAIL = "send_email"
 SERVICE_GOOGLE_AUTH_URL = "google_auth_url"
 SERVICE_GOOGLE_DISCONNECT = "google_disconnect"
+SERVICE_GDRIVE_BACKUP = "gdrive_backup"
+SERVICE_GDRIVE_LIST = "gdrive_list"
+SERVICE_GDRIVE_RESTORE = "gdrive_restore"
 SERVICE_TEST_EMAIL = "test_email"
 SERVICE_WHATSAPP_CHATS = "whatsapp_chats"
 SERVICE_DELETE_WHATSAPP_CHATS = "delete_whatsapp_chats"
@@ -904,6 +907,8 @@ UPDATE_SETTINGS_SCHEMA = vol.Schema(
         # VAT (2.5.1).
         vol.Optional("vat_default"): vol.Any(vol.Coerce(float), None),
         vol.Optional("wp_enabled"): vol.Any(cv.boolean, None),
+        vol.Optional("gdrive_enabled"): vol.Any(cv.boolean, None),
+        vol.Optional("gdrive_time"): vol.Any(cv.string, None),
         vol.Optional("wp_url"): vol.Any(cv.string, None),
         vol.Optional("wp_product_map"): vol.Any(dict, None),
         vol.Optional("billing_company"): vol.Any(cv.string, None),
@@ -1966,13 +1971,33 @@ TEST_EMAIL_SCHEMA = vol.Schema(
 
 
 GOOGLE_AUTH_URL_SCHEMA = vol.Schema(
-    {vol.Required("redirect_uri"): cv.string}, extra=vol.PREVENT_EXTRA
+    {vol.Required("redirect_uri"): cv.string, vol.Optional("purpose", default="email"): vol.In(["email", "drive"])},
+    extra=vol.PREVENT_EXTRA,
 )
+GDRIVE_EMPTY_SCHEMA = vol.Schema({}, extra=vol.PREVENT_EXTRA)
+GDRIVE_RESTORE_SCHEMA = vol.Schema({vol.Required("file_id"): cv.string}, extra=vol.PREVENT_EXTRA)
 
 
 async def _async_google_auth_url(call: ServiceCall) -> ServiceResponse:
     """The Google page for «Accedi con Google», for this card's address."""
-    return await _coordinator(call).async_google_auth_url(call.data["redirect_uri"])
+    return await _coordinator(call).async_google_auth_url(call.data["redirect_uri"], call.data.get("purpose", "email"))
+
+
+async def _async_gdrive_backup(call: ServiceCall) -> ServiceResponse:
+    """Write today's backup to Google Drive now (2.8.0)."""
+    return await _coordinator(call).async_gdrive_backup(reason="a mano")
+
+
+async def _async_gdrive_list(call: ServiceCall) -> ServiceResponse:
+    """The backups on Google Drive."""
+    return await _coordinator(call).async_gdrive_list()
+
+
+async def _async_gdrive_restore(call: ServiceCall) -> ServiceResponse:
+    """Replace the data with a backup from Google Drive."""
+    coordinator = _coordinator(call)
+    await _require_admin(call, coordinator)
+    return await coordinator.async_gdrive_restore(call.data["file_id"])
 
 
 async def _async_google_disconnect(call: ServiceCall) -> ServiceResponse:
@@ -3041,6 +3066,9 @@ _HANDLERS: dict[str, tuple[Any, Any, SupportsResponse]] = {
     SERVICE_DELETE_PARTNER: (_async_delete_partner, DELETE_PARTNER_SCHEMA, SupportsResponse.ONLY),
     SERVICE_IMPORT_PARTNERS: (_async_import_partners, IMPORT_PARTNERS_SCHEMA, SupportsResponse.ONLY),
     SERVICE_WP_SYNC: (_async_wp_sync, WP_EMPTY_SCHEMA, SupportsResponse.ONLY),
+    SERVICE_GDRIVE_BACKUP: (_async_gdrive_backup, GDRIVE_EMPTY_SCHEMA, SupportsResponse.ONLY),
+    SERVICE_GDRIVE_LIST: (_async_gdrive_list, GDRIVE_EMPTY_SCHEMA, SupportsResponse.ONLY),
+    SERVICE_GDRIVE_RESTORE: (_async_gdrive_restore, GDRIVE_RESTORE_SCHEMA, SupportsResponse.ONLY),
     SERVICE_DELETE_ALL_PARTNERS: (_async_delete_all_partners, WP_EMPTY_SCHEMA, SupportsResponse.ONLY),
     SERVICE_WP_TEST: (_async_wp_test, WP_EMPTY_SCHEMA, SupportsResponse.ONLY),
     SERVICE_WP_NEW_SECRET: (_async_wp_new_secret, WP_EMPTY_SCHEMA, SupportsResponse.ONLY),
@@ -3317,6 +3345,9 @@ SERVICE_LEVELS: dict[str, str] = {
     SERVICE_DELETE_PARTNER: "manager",
     SERVICE_IMPORT_PARTNERS: "manager",
     SERVICE_WP_SYNC: "operator",
+    SERVICE_GDRIVE_BACKUP: "admin",
+    SERVICE_GDRIVE_LIST: "admin",
+    SERVICE_GDRIVE_RESTORE: "admin",
     SERVICE_DELETE_ALL_PARTNERS: "manager",
     SERVICE_WP_TEST: "admin",
     SERVICE_WP_NEW_SECRET: "admin",

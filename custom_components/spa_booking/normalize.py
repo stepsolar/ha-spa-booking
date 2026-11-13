@@ -1002,6 +1002,16 @@ def _norm_settings(raw: dict[str, Any]) -> dict[str, Any]:
         "google_client_secret": str(raw.get("google_client_secret") or "").strip(),
         "google_refresh_token": str(raw.get("google_refresh_token") or ""),
         "google_account": str(raw.get("google_account") or "").strip(),
+        "google_scopes": str(raw.get("google_scopes") or ""),
+        # Daily backups on Google Drive (2.8.0): the newest three are kept.
+        "gdrive_enabled": bool(raw.get("gdrive_enabled", False)),
+        "gdrive_time": _norm_clock(raw.get("gdrive_time")) or "03:30",
+        "gdrive_folder_id": str(raw.get("gdrive_folder_id") or ""),
+        "gdrive_last_backup": str(raw.get("gdrive_last_backup") or ""),
+        "gdrive_last_try": str(raw.get("gdrive_last_try") or ""),
+        "gdrive_last_file": str(raw.get("gdrive_last_file") or ""),
+        "gdrive_last_size": _norm_count(raw.get("gdrive_last_size"), 0, 10**10, 0),
+        "gdrive_last_error": str(raw.get("gdrive_last_error") or ""),
         "email_aliases": [
             str(a).strip() for a in (raw.get("email_aliases") or []) if isinstance(a, str) and "@" in a
         ][:20],

@@ -34,6 +34,9 @@ REVOKE_URL = "https://oauth2.googleapis.com/revoke"
 SEND_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
 #: Send only (sensitive, not restricted), plus who the account is.
 SCOPES = "openid email https://www.googleapis.com/auth/gmail.send"
+#: Drive backups (2.8.0): only the files Spa Booking creates (non-sensitive).
+DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file"
+SCOPES_DRIVE = f"openid email {DRIVE_SCOPE}"
 CALLBACK_PATH = "/api/spa_booking/google/callback"
 STATE_TTL_SEC = 15 * 60
 
@@ -48,25 +51,26 @@ class PendingLogin:
 
     redirect_uri: str
     expires: float
+    purpose: str = "email"
 
 
-def new_state(pending: dict[str, PendingLogin], redirect_uri: str) -> str:
+def new_state(pending: dict[str, PendingLogin], redirect_uri: str, purpose: str = "email") -> str:
     """A one-time state for one login; old ones are dropped."""
     now = time.time()
     for key in [k for k, v in pending.items() if v.expires < now]:
         pending.pop(key, None)
     state = secrets.token_urlsafe(24)
-    pending[state] = PendingLogin(redirect_uri, now + STATE_TTL_SEC)
+    pending[state] = PendingLogin(redirect_uri, now + STATE_TTL_SEC, purpose)
     return state
 
 
-def auth_url(client_id: str, redirect_uri: str, state: str, login_hint: str = "") -> str:
+def auth_url(client_id: str, redirect_uri: str, state: str, login_hint: str = "", scopes: str = SCOPES) -> str:
     """Google's consent page for this login."""
     params = {
         "client_id": client_id,
         "redirect_uri": redirect_uri,
         "response_type": "code",
-        "scope": SCOPES,
+        "scope": scopes,
         "access_type": "offline",
         # Always ask, so Google always hands back a refresh token.
         "prompt": "consent",
@@ -204,4 +208,6 @@ class GoogleCallbackView(HomeAssistantView):
             account = await coordinator.async_google_callback(str(query.get("state") or ""), str(query.get("code") or ""))
         except GoogleAuthError as err:
             return _page(False, "Accesso non riuscito", str(err))
+        if account.startswith("drive:"):
+            return _page(True, "Google Drive collegato", f"Spa Booking salverà i backup sul Drive di {account[6:]}.")
         return _page(True, "Account Google collegato", f"Spa Booking invierà le email da {account}.")
