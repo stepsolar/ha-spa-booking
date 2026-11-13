@@ -133,6 +133,13 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v2.8.4** — **Tutti i messaggi WhatsApp nella scheda WhatsApp** (serve il
+  riavvio di Home Assistant). Ogni messaggio che Spa Booking invia (conferme,
+  promemoria, richieste d'acconto, richieste e avvisi agli operatori, report,
+  promo, risposte scritte dalla card) e ogni messaggio ricevuto, anche dagli
+  operatori, resta nella conversazione: una chat per numero, con chi l'ha
+  mandato («Automatico» per gli invii programmati). Filtri Tutte / Ospiti /
+  Operatori e ricerca per nome o numero.
 - **v2.8.3** — **Conferma richiesta modificabile e operatori sempre avvisati**
   (serve il riavvio di Home Assistant). «Conferma» su una richiesta (dal banco
   o dal sito) ora la apre in Nuovo appuntamento già compilata: si possono

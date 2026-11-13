@@ -38,6 +38,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await coordinator.async_load()
 
     entry.runtime_data = coordinator
+    # Every WhatsApp sent lands in the card's WhatsApp tab (2.8.4).
+    entry.async_on_unload(messaging.add_sent_listener(coordinator.record_outgoing_whatsapp))
     hass.data.setdefault(DOMAIN, coordinator)
 
     # Serve the management card to every Lovelace dashboard, so no manual
@@ -105,6 +107,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # this one event, so the answer parsing lives here rather than in YAML.
     async def _on_answer_request(event: Event) -> None:
         data = dict(event.data)
+        # Every WhatsApp received — a guest or an operator, an answer or not —
+        # is kept in the conversation the card shows (2.8.4).
+        if str(data.get("channel") or "") == "whatsapp":
+            shown = str(data.get("text") or "").strip() or (
+                f"Reazione {data.get('emoji')}" if data.get("emoji") else ""
+            )
+            try:
+                coordinator.record_incoming_whatsapp(
+                    str(data.get("chat_id") or ""), shown, str(data.get("operator_id") or "")
+                )
+            except Exception:  # noqa: BLE001 - the history must not break the handler
+                _LOGGER.exception("Registrazione messaggio WhatsApp ricevuto fallita")
         # An informational word (AIUTO, OGGI, DOMANI, …) is not an answer:
         # it sends the operator the matching message instead.
         text = str(data.get("text") or "")
@@ -145,7 +159,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 if text:
                     try:
                         await coordinator.async_add_external_message(
-                            str(data.get("chat_id") or ""), text
+                            str(data.get("chat_id") or ""), text, record=False
                         )
                     except Exception:  # noqa: BLE001 - sensor update must not break the handler
                         _LOGGER.exception("Salvataggio messaggio esterno fallito")
