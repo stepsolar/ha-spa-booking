@@ -133,6 +133,11 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v2.8.2** — **Conferma WhatsApp di gruppo completa** (serve il riavvio di
+  Home Assistant). «Invia conferma» su un appuntamento di una coppia o di un
+  gruppo manda un solo messaggio con tutte le persone prenotate insieme: ogni
+  trattamento con il suo prezzo, il totale complessivo e il saldo da pagare.
+  Prima partiva solo l'appuntamento cliccato (es. 80 € invece di 160 €).
 - **v2.8.1** — **Voucher e gift card come pagamento, nuovo «Conto»** (serve
   il riavvio di Home Assistant). Prenotando con un voucher, Spa Booking
   registra da solo gli incassi: i trattamenti del voucher come «Voucher», poi
