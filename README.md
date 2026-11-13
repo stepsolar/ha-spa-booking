@@ -133,6 +133,14 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v2.8.5** — **Pacchetto dello shop nelle promo** (serve il riavvio di Home
+  Assistant). Nella Campagna promo, nuovo passo «Pacchetto in promozione»: si
+  sceglie un prodotto dello shop online (letto con «Prova collegamento») e,
+  volendo, un prezzo in promo. Nel testo: `{pacchetto}`, `{prezzo_pacchetto}`
+  (quello in promo se indicato), `{prezzo_listino}` e `{link_pacchetto}` (la
+  pagina per acquistarlo); scegliendo il pacchetto il blocco si aggiunge da
+  solo al testo. Plugin WordPress **1.1.0**: invia anche pagina e immagine dei
+  prodotti (con l'1.0.0 il link funziona lo stesso).
 - **v2.8.4** — **Tutti i messaggi WhatsApp nella scheda WhatsApp** (serve il
   riavvio di Home Assistant). Ogni messaggio che Spa Booking invia (conferme,
   promemoria, richieste d'acconto, richieste e avvisi agli operatori, report,

@@ -6254,6 +6254,9 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         template = str(promo.get("message") or "").strip() or DEFAULT_PROMO_MESSAGE
         first_name = str(client.get("first_name") or "").strip()
         last_name = str(client.get("last_name") or "").strip()
+        package = self.promo_package(promo)
+        for key in ("{pacchetto}", "{prezzo_pacchetto}", "{prezzo_listino}", "{link_pacchetto}"):
+            template = template.replace(key, package.get(key, ""))
         return (
             template.replace("{nome}", first_name or "ospite")
             .replace("{cognome}", last_name)
@@ -6261,6 +6264,37 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             .replace("{codice_promo}", str(promo.get("code") or ""))
             .replace("{scadenza_promo}", _date_it(str(promo.get("expiry") or "")))
         )
+
+    def promo_package(self, promo: dict[str, Any]) -> dict[str, str]:
+        """Name, price and link of the shop package a promo offers (2.8.5).
+
+        Read from the shop's current product list, so a renamed product or a
+        new price is used at once; the snapshot saved with the promo is the
+        fallback when the product is no longer on the site. The link is the
+        product page: the plugin sends it (1.1.0), else the WordPress
+        «?post_type=product&p=ID» address, which leads to the same page.
+        """
+        key = str(promo.get("product_key") or "")
+        if not key:
+            return {}
+        settings = self._data.get(KEY_SETTINGS, {})
+        product = next((p for p in settings.get("wp_products") or [] if p.get("key") == key), None) or {}
+        name = str(product.get("name") or promo.get("product_name") or "").strip()
+        listed = product.get("price") if product.get("price") is not None else promo.get("product_price")
+        offer = promo.get("product_promo_price")
+        url = str(product.get("url") or promo.get("product_url") or "").strip()
+        base = str(settings.get("wp_url") or "").rstrip("/")
+        if not url and base and key.split(":")[0].isdigit():
+            if not base.startswith(("http://", "https://")):
+                base = "https://" + base
+            url = f"{base}/?post_type=product&p={key.split(':')[0]}"
+        price = offer if offer is not None else listed
+        return {
+            "{pacchetto}": name,
+            "{prezzo_pacchetto}": _money_text(price) if price is not None else "",
+            "{prezzo_listino}": _money_text(listed) if listed is not None else "",
+            "{link_pacchetto}": url,
+        }
 
     def _promo_expiry(self, promo: dict[str, Any] | None = None) -> date | None:
         """The last day the promo may go out, or None when it has no expiry."""
