@@ -111,6 +111,18 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v3.1.2** — (serve il riavvio di Home Assistant)
+  - Pagina `/spa_booking`: tornano **tutte le icone** (ne mancavano 119 delle
+    più recenti, tra cui il pulsante calendario, il menu Stampa, i fogli e
+    l'Elenco): l'elenco delle icone ora comprende ogni icona usata dalla
+    card. Tre icone che non esistono in Material Design Icons sono state
+    sostituite.
+  - Agenda: la striscia dei giorni si apre sulla settimana del giorno
+    mostrato anche nella pagina `/spa_booking` (partiva quattro settimane
+    prima).
+  - Preparazione per **Spa Booking Web** (la versione cloud): lì la card
+    nasconde la scheda Spa (senza dispositivi di Home Assistant) e mostra
+    «Esci» accanto al nome.
 - **v3.1.1** — (basta ricaricare la pagina)
   - Agenda: la striscia dei giorni **scorre in orizzontale** una settimana
     alla volta (dito, rotellina del mouse o frecce ai lati) e mostra le 4
