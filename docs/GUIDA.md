@@ -1,6 +1,6 @@
 # Spa Booking — guida alle schede (2.2)
 
-Aggiornata alla 2.8.8: [gruppi e codice](#prenotazioni-di-gruppo-e-codice-288); [annullamento](#annullamento-287); [programma partner](#programma-partner-286); [pacchetto nelle promo](#pacchetto-dello-shop-nelle-promo-285); [tutti i messaggi WhatsApp](#tutti-i-messaggi-whatsapp-284); [conferma richiesta](#conferma-di-una-richiesta-283); [conto e voucher come pagamento](#conto-e-voucher-come-pagamento-281); [backup su Google Drive](#backup-su-google-drive-280); [Shop online](#shop-online-270); [importa partner e disiscrizione](#importa-partner-e-disiscrizione-260); [vista Mese](#vista-mese-255); [Dati fatturazione e Modifica appuntamento](#dati-fatturazione-e-modifica-appuntamento-252); [IVA](#iva-251); [campagne e punti partner](#campagne-e-punti-partner-250); [Email e Accedi con Google](#email-241); [dettaglio, punti e partner](#dettaglio-punti-fedelta-e-partner-240); [Agenda](#agenda-2312); [Nuovo appuntamento a passi](#nuovo-appuntamento-a-passi-2310); [promo salvate e modelli](#promo-salvate-e-modelli-239); [Promo e Impostazioni](#promo-e-impostazioni-238); [Notifiche](#notifiche-236); [messaggi e chat](#messaggi-e-chat-235); [preferenza massaggiatrice/massaggiatore](#preferenza-massaggiatrice-o-massaggiatore); [promo e fedeltà del cliente](#promo-e-fedeltà-del-cliente); [conferme e promemoria WhatsApp](#conferme-e-promemoria-whatsapp); [firme e storico](#firme-e-storico); [chiusure con giorni esclusi](#chiusure-con-giorni-esclusi); [Proponi data](#proponi-data) nelle richieste, con trattamenti alternativi e prezzo; [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
+Aggiornata alla 2.8.9: [pacchetti nelle prenotazioni](#pacchetti-dello-shop-nelle-prenotazioni-289); [gruppi e codice](#prenotazioni-di-gruppo-e-codice-288); [annullamento](#annullamento-287); [programma partner](#programma-partner-286); [pacchetto nelle promo](#pacchetto-dello-shop-nelle-promo-285); [tutti i messaggi WhatsApp](#tutti-i-messaggi-whatsapp-284); [conferma richiesta](#conferma-di-una-richiesta-283); [conto e voucher come pagamento](#conto-e-voucher-come-pagamento-281); [backup su Google Drive](#backup-su-google-drive-280); [Shop online](#shop-online-270); [importa partner e disiscrizione](#importa-partner-e-disiscrizione-260); [vista Mese](#vista-mese-255); [Dati fatturazione e Modifica appuntamento](#dati-fatturazione-e-modifica-appuntamento-252); [IVA](#iva-251); [campagne e punti partner](#campagne-e-punti-partner-250); [Email e Accedi con Google](#email-241); [dettaglio, punti e partner](#dettaglio-punti-fedelta-e-partner-240); [Agenda](#agenda-2312); [Nuovo appuntamento a passi](#nuovo-appuntamento-a-passi-2310); [promo salvate e modelli](#promo-salvate-e-modelli-239); [Promo e Impostazioni](#promo-e-impostazioni-238); [Notifiche](#notifiche-236); [messaggi e chat](#messaggi-e-chat-235); [preferenza massaggiatrice/massaggiatore](#preferenza-massaggiatrice-o-massaggiatore); [promo e fedeltà del cliente](#promo-e-fedeltà-del-cliente); [conferme e promemoria WhatsApp](#conferme-e-promemoria-whatsapp); [firme e storico](#firme-e-storico); [chiusure con giorni esclusi](#chiusure-con-giorni-esclusi); [Proponi data](#proponi-data) nelle richieste, con trattamenti alternativi e prezzo; [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
 
 Questa guida mostra ogni scheda della dashboard **Spa Booking** e spiega a
 cosa serve ogni funzione. Le immagini sono state fatte con dati di prova.
@@ -32,6 +32,35 @@ in Impostazioni › Aspetto).
 
 
 
+
+## Pacchetti dello shop nelle prenotazioni (2.8.9)
+
+Con **2 o più persone**, in Nuovo appuntamento, Nuova richiesta e Modifica
+gruppo, nel passo 1 compare **Pacchetti dello shop**: sono i prodotti dello
+shop online abbinati ai trattamenti in Configurazione › Shop online (con il
+numero di persone, i trattamenti e gli accessori).
+
+- Tocca un pacchetto: va alle prossime persone senza trattamenti, con i
+  trattamenti uno dopo l'altro (dall'orario del primo trattamento) e gli
+  accessori del pacchetto. Se mancano persone, si aggiungono da sole.
+- Due coppie: tocca due pacchetti, anche diversi.
+- Il prezzo è quello dello shop, diviso sui trattamenti; gli accessori del
+  pacchetto sono inclusi. Con la ✕ sul pacchetto lo togli (i trattamenti
+  restano, a prezzo di listino).
+- Nella scheda dell'appuntamento compare «Pacchetto: … · accessori inclusi».
+
+Anche il **modulo del sito** propone i pacchetti all'ospite quando sceglie 2
+o più persone; il pacchetto resta nella richiesta fino alla conferma.
+
+In Modifica appuntamento (una persona) il riquadro «Pacchetti dello shop»
+apre la modifica completa, dove si aggiungono le persone.
+
+In **Modifica gruppo** il tasto **Scollega** è nel box di ogni persona e
+**Aggiungi una prenotazione già inserita** è nel passo 1.
+
+![Pacchetti in Nuovo appuntamento](anteprime/72-pacchetti-nuovo.png)
+
+![Pacchetti nel modulo del sito](anteprime/73-pacchetti-sito.png)
 
 ## Prenotazioni di gruppo e codice (2.8.8)
 

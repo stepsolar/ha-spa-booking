@@ -133,6 +133,18 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v2.8.9** — **Pacchetti dello shop nelle prenotazioni** (serve il riavvio
+  di Home Assistant). Con 2 o più persone, in Nuovo appuntamento, Nuova
+  richiesta e Modifica gruppo compare «Pacchetti dello shop»: i prodotti dello
+  shop abbinati ai trattamenti (Shop online › Abbinamenti). Un tocco assegna
+  il pacchetto alle prossime persone, con i suoi trattamenti uno dopo l'altro
+  e i suoi accessori; con due coppie si sceglie due volte, anche due pacchetti
+  diversi. Il prezzo è quello dello shop, ripartito sui trattamenti, e gli
+  accessori del pacchetto sono inclusi. Anche il **modulo del sito** offre i
+  pacchetti all'ospite (prezzo del pacchetto nel totale) e la richiesta li
+  porta con sé fino alla conferma. In Modifica gruppo **Scollega** è nel box di
+  ogni persona e **Aggiungi una prenotazione già inserita** è nel passo 1; il
+  riquadro con l'elenco delle persone non compare più nel modulo.
 - **v2.8.8** — **Un codice per prenotazione di gruppo** (serve il riavvio di
   Home Assistant). Le nuove prenotazioni con più persone o più trattamenti
   hanno **un solo codice**, anche le persone aggiunte dopo. «Modifica» su un

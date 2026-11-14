@@ -386,6 +386,10 @@ CREATE_APPOINTMENT_SCHEMA = vol.Schema(
         #: price and the discounted one. Leave them out for catalogue price.
         vol.Optional("list_price"): vol.Any(vol.Coerce(float), None),
         vol.Optional("price"): vol.Any(vol.Coerce(float), None),
+        #: The shop package this treatment belongs to (2.8.9) and which copy
+        #: of it (two couples, two packages): its price is shared out.
+        vol.Optional("package_key"): vol.Any(cv.string, None),
+        vol.Optional("package_group"): vol.Any(cv.string, None),
         #: The desk saw the overlap warning and books anyway: skips only the
         #: same-person client refusal, never an operator double-booking.
         vol.Optional("batch_id"): vol.Any(cv.string, None),
@@ -1060,6 +1064,10 @@ BOOKING_ENTRY_SCHEMA = vol.Schema(
         #: price and the discounted one. Leave them out for catalogue price.
         vol.Optional("list_price"): vol.Any(vol.Coerce(float), None),
         vol.Optional("price"): vol.Any(vol.Coerce(float), None),
+        #: The shop package this treatment belongs to (2.8.9) and which copy
+        #: of it (two couples, two packages): its price is shared out.
+        vol.Optional("package_key"): vol.Any(cv.string, None),
+        vol.Optional("package_group"): vol.Any(cv.string, None),
         #: The desk saw the overlap warning and books anyway: skips only the
         #: same-person client refusal, never an operator double-booking.
         vol.Optional("force_client_overlap", default=False): cv.boolean,
@@ -1152,6 +1160,8 @@ REQUEST_ENTRY_SCHEMA = vol.Schema(
         vol.Optional("person"): vol.Any(None, vol.All(vol.Coerce(int), vol.Range(min=0))),
         #: This person would like a woman ("F") or a man ("M") (2.3.4).
         vol.Optional("therapist_preference"): vol.Any(vol.In(("", "F", "M")), None),
+        vol.Optional("package_key"): vol.Any(cv.string, None),
+        vol.Optional("package_group"): vol.Any(cv.string, None),
     },
     extra=vol.PREVENT_EXTRA,
 )

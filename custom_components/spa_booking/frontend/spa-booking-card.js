@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.8.8";
+const CARD_VERSION = "2.8.9";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -1657,6 +1657,159 @@ class SpaBookingCard extends HTMLElement {
    * form (flat fields); more than one switches to the per-person array,
    * preserving everything already typed as the first person.
    */
+  /**
+   * Shop packages (2.8.9): the products of the online shop paired with
+   * treatments (Configurazione › Shop online › Abbinamenti), with their
+   * price, people and what each person gets.
+   */
+  _shopPackages(minPeople = 1) {
+    const settings = (this._data && this._data.settings) || {};
+    const mapping = settings.wp_product_map || {};
+    return (settings.wp_products || []).map((product) => {
+      const entry = mapping[product.key] || {};
+      const ids = (entry.treatment_ids || []).filter(Boolean);
+      if (!ids.length || !ids.every((id) => { const t = this._lookup.treatment.get(id); return t && t.active !== false; })) return null;
+      const people = Math.max(1, Number(entry.people) || 1);
+      if (people < minPeople) return null;
+      return { key: product.key, name: product.name || "", price: product.price != null ? Number(product.price) : null,
+        people, treatment_ids: ids, extras: (entry.extras || []).filter(Boolean), note: entry.note || "", image: product.image || "" };
+    }).filter(Boolean);
+  }
+
+  /** The people of the form, as a list (one person = the flat form). */
+  _formPersons() {
+    return Array.isArray(this._form.persons) ? this._form.persons : [this._form];
+  }
+
+  /**
+   * Share each package's shop price among its treatments, by the weight of
+   * their list prices — the same rule the server applies (2.8.9).
+   */
+  _sharePackagePrices() {
+    const packages = new Map(this._shopPackages().map((p) => [p.key, p]));
+    const groups = new Map();
+    this._formPersons().forEach((person) => this._treatmentsOf(person).forEach((treat) => {
+      if (!treat.package_key || !treat.treatment_id) return;
+      const key = treat.package_group || treat.package_key;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(treat);
+    }));
+    groups.forEach((treats) => {
+      const pkg = packages.get(treats[0].package_key);
+      if (!pkg || pkg.price == null) return;
+      const weights = treats.map((t) => Number((this._lookup.treatment.get(t.treatment_id) || {}).price) || 0);
+      const whole = weights.reduce((a, b) => a + b, 0);
+      let given = 0;
+      treats.forEach((treat, i) => {
+        const share = i === treats.length - 1
+          ? Math.round((pkg.price - given) * 100) / 100
+          : Math.round(pkg.price * (whole ? weights[i] / whole : 1 / treats.length) * 100) / 100;
+        given += share;
+        treat.list_price = weights[i];
+        treat.price = Math.max(0, share);
+      });
+    });
+  }
+
+  /**
+   * Book a package for the next people without one (2.8.9): each of them
+   * gets its treatments one after the other (from the time of the first
+   * treatment already on the form) and its accessories. Missing people are
+   * added. Two couples, two packages: tap twice.
+   */
+  _addPackage(pkg) {
+    let persons = this._formPersons();
+    const isFree = (p) => !p.package && !this._treatmentsOf(p).some((t) => t.treatment_id);
+    let free = persons.map((p, i) => (isFree(p) ? i : -1)).filter((i) => i >= 0);
+    // Not enough empty people: the package goes on people already booked
+    // without one (their treatments are replaced), asking first.
+    const booked = persons.map((p, i) => (!p.package && !isFree(p) ? i : -1)).filter((i) => i >= 0);
+    if (free.length < pkg.people && booked.length) {
+      const take = booked.slice(0, pkg.people - free.length);
+      if (window.confirm(`Assegnare «${pkg.name}» anche a ${take.map((i) => `Persona ${i + 1}`).join(" e ")}? I loro trattamenti vengono sostituiti da quelli del pacchetto.`)) {
+        free = free.concat(take).sort((a, b) => a - b);
+      }
+    }
+    if (free.length < pkg.people) {
+      const want = persons.length + (pkg.people - free.length);
+      if (want > this._peopleMax()) {
+        this._message = { kind: "error", text: `Il pacchetto è per ${pkg.people} persone: non c'è posto per altre persone.` };
+        this._render();
+        return;
+      }
+      this._setPeople(want);
+      persons = this._formPersons();
+      free = persons.map((p, i) => (isFree(p) ? i : -1)).filter((i) => i >= 0);
+    }
+    const first = this._formPersons().map((p) => this._treatmentsOf(p).find((t) => t.treatment_id)).find(Boolean);
+    const startAt = first && first.time ? first.time : "10:00";
+    const group = `pk${this._uid()}`;
+    const toMin = (hhmm) => { const [h, m] = String(hhmm).split(":").map(Number); return h * 60 + (m || 0); };
+    const fromMin = (mins) => `${String(Math.floor(mins / 60) % 24).padStart(2, "0")}:${String(mins % 60).padStart(2, "0")}`;
+    free.slice(0, pkg.people).forEach((index) => {
+      const person = persons[index];
+      let clock = toMin(startAt);
+      // In Modifica gruppo the appointments already booked are reused.
+      const previous = this._treatmentsOf(person).map((t) => t.appointment_id).filter(Boolean);
+      person.treatments = pkg.treatment_ids.map((id, n) => {
+        const treatment = this._lookup.treatment.get(id) || {};
+        const row = { ...this._blankTreatment(), treatment_id: id, time: fromMin(clock), package_key: pkg.key, package_group: group,
+          ...(previous[n] ? { appointment_id: previous[n] } : {}) };
+        clock += Number(treatment.duration_min) || 60;
+        return row;
+      });
+      person.extras = [...pkg.extras];
+      person.package = { key: pkg.key, group, name: pkg.name };
+    });
+    this._sharePackagePrices();
+    this._render();
+  }
+
+  /** Take a package off its people: they keep the treatments, at list price. */
+  _removePackage(group) {
+    this._formPersons().forEach((person) => {
+      if (!person.package || person.package.group !== group) return;
+      delete person.package;
+      this._treatmentsOf(person).forEach((treat) => {
+        delete treat.package_key; delete treat.package_group; treat.price = null;
+      });
+    });
+    this._render();
+  }
+
+  /** «Pacchetti dello shop» in step 1 (Nuovo, Richiesta, Modifica gruppo). */
+  _packagesBlock() {
+    const count = this._peopleCount();
+    const packages = this._shopPackages(2);
+    if (count < 2 || !packages.length) return null;
+    const used = new Map();
+    this._formPersons().forEach((person, index) => {
+      if (!person.package) return;
+      if (!used.has(person.package.group)) used.set(person.package.group, { ...person.package, people: [] });
+      used.get(person.package.group).people.push(index + 1);
+    });
+    const box = el("div", { class: "pk-box" },
+      el("div", { class: "pk-head" }, el("ha-icon", { icon: "mdi:package-variant-closed" }), el("b", {}, "Pacchetti dello shop"),
+        el("span", { class: "dim small" }, "Tocca un pacchetto per assegnarlo alle prossime persone; con due coppie, due pacchetti.")));
+    if (used.size) {
+      box.appendChild(el("div", { class: "pk-used" }, [...used.entries()].map(([group, info]) => el("span", { class: "pk-chip on" },
+        el("ha-icon", { icon: "mdi:package-variant-closed-check" }),
+        `${info.name || "Pacchetto"} · Persona ${info.people.join(" e ")}`,
+        el("button", { class: "pk-x", title: "Togli il pacchetto (i trattamenti restano, a prezzo di listino)", disabled: this._busy,
+          on: { click: () => this._removePackage(group) } }, el("ha-icon", { icon: "mdi:close" }))))));
+    }
+    box.appendChild(el("div", { class: "pk-list" }, packages.map((pkg) => el("button", {
+      type: "button", class: "pk-card", disabled: this._busy,
+      title: [pkg.treatment_ids.map((id) => (this._lookup.treatment.get(id) || {}).name).join(" + "),
+        pkg.extras.length ? `con ${pkg.extras.map((id) => (this._accessory(id) || {}).label || id).join(", ")}` : "", pkg.note].filter(Boolean).join(" · "),
+      on: { click: () => this._addPackage(pkg) },
+    },
+    el("span", { class: "pk-name" }, pkg.name),
+    el("span", { class: "dim small" }, `${pkg.people} persone · ${pkg.treatment_ids.map((id) => (this._lookup.treatment.get(id) || {}).name).join(" + ")}`),
+    el("span", { class: "pk-price" }, pkg.price != null ? euro(pkg.price) : "", el("ha-icon", { icon: "mdi:plus-circle-outline" }))))));
+    return box;
+  }
+
   _setPeople(n) {
     const count = Math.max(1, Math.min(this._peopleMax(), Math.floor(n)));
     if (count === 1) {
@@ -1834,7 +1987,8 @@ class SpaBookingCard extends HTMLElement {
       });
       const extras = (person.extras || []).map((id) => {
         const entry = this._accessory(id) || {};
-        return { label: entry.label || id, price: Number(entry.price) || 0 };
+        // In a shop package the accessories are included (2.8.9).
+        return { label: entry.label || id, price: person.package ? 0 : Number(entry.price) || 0 };
       });
       const subtotal =
         Math.round((lines.reduce((sum, line) => sum + line.price, 0) +
@@ -2328,6 +2482,7 @@ class SpaBookingCard extends HTMLElement {
               ...(treat.appointment_id ? { appointment_id: treat.appointment_id } : {}),
               ...(treat.list_price != null ? { list_price: treat.list_price } : {}),
               ...(treat.price != null ? { price: treat.price } : {}),
+              ...(treat.package_key ? { package_key: treat.package_key, package_group: treat.package_group || treat.package_key } : {}),
               ...this._operatorChoice(treat),
               ...(this._batchEditing ? {} : (this._paymentData() ? { payment: this._paymentData() } : {})),
               ...clients,
@@ -4679,6 +4834,9 @@ class SpaBookingCard extends HTMLElement {
               ...(this._data.partners || []).map((p) => el("option", { value: p.id, selected: appointment.partner_id === p.id }, this._partnerName(p.id))))
             : (this._partnerName(appointment.partner_id) || "nessuno"))
           : null,
+        appointment.package_key
+          ? this._detailLine("Pacchetto", `${appointment.package_name || "Pacchetto dello shop"} · accessori inclusi`)
+          : null,
         appointment.partner_id && appointment.partner_discount_pct
           ? this._detailLine("Sconto partner", `${String(appointment.partner_discount_pct).replace(".", ",")}% (codice ${((this._data.partners || []).find((p) => p.id === appointment.partner_id) || {}).code || ""})`)
           : null,
@@ -5533,7 +5691,11 @@ class SpaBookingCard extends HTMLElement {
         extras: [],
         appointment_id: appt.id,
         force_new: false,
+        ...(appt.package_key ? { package_key: appt.package_key, package_group: appt.package_group || appt.package_key } : {}),
       });
+      // 2.8.9: which appointments are hers (for «Scollega») and her package.
+      (p.appointment_ids = p.appointment_ids || []).push(appt.id);
+      if (appt.package_key && !p.package) p.package = { key: appt.package_key, group: appt.package_group || appt.package_key, name: appt.package_name || "" };
     }
     const persons = [...byPerson.values()];
     if (!persons.length) {
@@ -5568,6 +5730,7 @@ class SpaBookingCard extends HTMLElement {
       persons: persons,
       new_client: false,
       stagedPayments: [],
+      partner_id: (related.find((a) => a.partner_id) || {}).partner_id || "",
       _batchEditing: true,
     };
 
@@ -5781,6 +5944,7 @@ class SpaBookingCard extends HTMLElement {
         (row.entries || []).forEach((entry) => {
           flattened.push({
             ...entry,
+            ...(row.partner_id !== undefined ? { partner_id: row.partner_id } : { partner_id: "" }),
             treatment_id: entry.treatment_id || row.treatment_id,
             pending: row.pending,
             guest_type: entry.guest_type || row.guest_type || GUEST_DEFAULT,
@@ -5903,11 +6067,6 @@ class SpaBookingCard extends HTMLElement {
       fromRequest
         ? "Controlla e modifica la richiesta, scegli chi fa ogni massaggio, poi conferma: l'operatore riceve subito la richiesta."
         : "Compila i passi: il riepilogo si aggiorna mentre scrivi."));
-    if (this._batchEditing && this._batchAnchorId) {
-      // 2.8.8: split a person off or join another booking from the group edit.
-      const anchor = this._lookup.appointment.get(this._batchAnchorId);
-      if (anchor) wrap.appendChild(this._groupTools(anchor, { inForm: true }));
-    }
     if (fromRequest) {
       wrap.appendChild(el("div", { class: "nv-from-request" },
         el("ha-icon", { icon: "mdi:clipboard-text-clock-outline" }),
@@ -5938,6 +6097,39 @@ class SpaBookingCard extends HTMLElement {
     steps.appendChild(this._nvBar);
     wrap.appendChild(el("div", { class: "nv-layout" }, steps, this._nvSide));
     return wrap;
+  }
+
+  /**
+   * Modifica gruppo (2.8.9): another booking, already in the agenda, joins
+   * this one by its code. The edit reopens with everybody in it.
+   */
+  _joinBookingField() {
+    const anchor = this._lookup.appointment.get(this._batchAnchorId);
+    if (!anchor) return null;
+    if (!this._joinOpen) {
+      return el("button", { class: "btn small pk-join-open", disabled: this._busy, on: { click: () => { this._joinOpen = true; this._render(); } } },
+        el("ha-icon", { icon: "mdi:link-variant-plus" }), "Aggiungi una prenotazione già inserita");
+    }
+    const input = el("input", {
+      class: "input gt-code", placeholder: "es. KC4HT", maxlength: "12",
+      on: { keydown: (event) => { event.stopPropagation(); if (event.key === "Enter") join(); } },
+    });
+    const join = async () => {
+      const code = String(input.value || "").trim().toUpperCase();
+      if (!code) return;
+      if (!window.confirm(`Aggiungere la prenotazione ${code} a questo gruppo (${anchor.code})?\n\nLe modifiche non salvate di questa pagina si perdono.`)) return;
+      try {
+        await this._call("join_group", { appointment_id: anchor.id, code });
+        this._joinOpen = false;
+        this._message = { kind: "ok", text: `Prenotazione ${code} aggiunta al gruppo ${anchor.code}.` };
+        this._openEditBatch(this._lookup.appointment.get(anchor.id) || anchor);
+      } catch (error) { /* shown */ }
+    };
+    return el("div", { class: "gt-join" },
+      el("span", { class: "dim small" }, `Codice della prenotazione da unire a ${anchor.code}:`),
+      input,
+      el("button", { class: "btn small primary", disabled: this._busy, on: { click: () => join() } }, el("ha-icon", { icon: "mdi:link-variant-plus" }), "Unisci"),
+      el("button", { class: "btn small", on: { click: () => { this._joinOpen = false; this._render(); } } }, "Annulla"));
   }
 
   /** Every treatment chosen, all persons together. */
@@ -6128,6 +6320,8 @@ class SpaBookingCard extends HTMLElement {
         : null));
     box.appendChild(el("div", { class: "pg-sum" }, el("ha-icon", { icon: "mdi:calendar" }),
       el("b", {}, longDay(parseLocal(form.date || today, "10:00")))));
+    add(box, this._packagesBlock());
+    if (this._batchEditing && this._batchAnchorId) add(box, this._joinBookingField());
     if (this._nvKind === "richiesta") {
       if (this._nvVoucherOpen || (form.voucher_code || "").trim()) {
         box.appendChild(el("label", { class: "field" },
@@ -7225,7 +7419,7 @@ class SpaBookingCard extends HTMLElement {
     const catalogue = treatment && treatment.price != null ? Number(treatment.price) || 0 : 0;
     const agreed = appointment.price != null ? appointment.price
       : appointment.list_price != null ? appointment.list_price : catalogue;
-    const extras = (appointment.extras || []).reduce((sum, id) => {
+    const extras = appointment.extras_included ? 0 : (appointment.extras || []).reduce((sum, id) => {
       const entry = this._accessory(id) || {};
       return sum + (Number(entry.price) || 0);
     }, 0);
@@ -7559,7 +7753,28 @@ class SpaBookingCard extends HTMLElement {
         index === 0 && removable
           ? el("span", { class: "chip" }, "riferimento")
           : null,
+        state.package ? el("span", { class: "pk-chip on small" }, el("ha-icon", { icon: "mdi:package-variant-closed-check" }), state.package.name || "Pacchetto") : null,
         el("div", { class: "spacer" }),
+        // Modifica gruppo (2.8.9): this person leaves the group with her
+        // treatments and gets a code of her own.
+        this._batchEditing && removable && (state.appointment_ids || []).length
+          ? el("button", {
+              class: "btn small", disabled: this._busy,
+              title: "Toglie questa persona dal gruppo: diventa una prenotazione a parte, con un nuovo codice e lo stesso cliente",
+              on: { click: async () => {
+                const anchor = this._lookup.appointment.get(this._batchAnchorId) || {};
+                if (!window.confirm(`Scollegare Persona ${index + 1} dalla prenotazione ${anchor.code || ""}?\n\nDiventa una prenotazione a parte con un nuovo codice. Le modifiche non salvate di questa pagina si perdono.`)) return;
+                try {
+                  const result = await this._call("split_from_group", { appointment_id: state.appointment_ids[0] });
+                  this._message = { kind: "ok", text: `Persona scollegata: nuovo codice ${result.code}.` };
+                  const keep = this._lookup.appointment.get(this._batchAnchorId);
+                  const stay = keep && !state.appointment_ids.includes(keep.id) ? keep
+                    : this._formPersons().filter((p) => p !== state).map((p) => this._lookup.appointment.get((p.appointment_ids || [])[0])).find(Boolean);
+                  if (stay) this._openEditBatch(stay); else this._render();
+                } catch (error) { /* shown */ }
+              } },
+            }, el("ha-icon", { icon: "mdi:link-variant-off" }), "Scollega")
+          : null,
         index > 0
           ? el("button", {
               class: "btn small",
@@ -8622,6 +8837,7 @@ class SpaBookingCard extends HTMLElement {
             extras: state.extras || [],
             // operator_id intentionally omitted for requests — reception assigns later
             ...(t.therapist_preference ? { therapist_preference: t.therapist_preference } : {}),
+            ...(t.package_key ? { package_key: t.package_key, package_group: t.package_group || t.package_key } : {}),
           };
           if (multi) item.person = index;
           entries.push(item);
@@ -10006,6 +10222,7 @@ class SpaBookingCard extends HTMLElement {
       el("div", { class: "bk-person-head" },
         el("span", { class: "dim" }, `Persona ${index + 1}`),
         multi && index === 0 ? el("span", { class: "chip" }, "riferimento") : null,
+        state.package ? el("span", { class: "pk-chip on small" }, el("ha-icon", { icon: "mdi:package-variant-closed-check" }), state.package.name || "Pacchetto") : null,
         el("div", { class: "spacer" }),
         multi && index > 0
           ? el("button", {
@@ -10617,6 +10834,7 @@ class SpaBookingCard extends HTMLElement {
       time: e.time || "10:00",
       // Kept so «Modifica» does not lose a person's wish from the website.
       ...(e.therapist_preference ? { therapist_preference: e.therapist_preference } : {}),
+      ...(e.package_key ? { package_key: e.package_key, package_group: e.package_group || e.package_key } : {}),
     });
     // Entries that name their person (website, or saved from 2.1.1 on) go
     // in her box; older entries were meant for everybody, so each box gets
@@ -10628,9 +10846,12 @@ class SpaBookingCard extends HTMLElement {
     if (people > 1) {
       persons = Array.from({ length: people }, (_, index) => {
         const mine = tagged ? entries.filter((e) => (Number(e.person) || 0) === index) : entries;
+        const pkg = mine.find((e) => e.package_key);
         return this._personFrom({
           treatments: mine.length ? mine.map(toTreat) : [this._blankTreatment()],
           extras: mine.length ? [...(mine[0].extras || [])] : [],
+          ...(pkg ? { package: { key: pkg.package_key, group: pkg.package_group || pkg.package_key,
+            name: (this._shopPackages().find((x) => x.key === pkg.package_key) || {}).name || "" } } : {}),
         });
       });
       treatments = [];
@@ -10658,6 +10879,7 @@ class SpaBookingCard extends HTMLElement {
       partner_id: req.partner_id || "",
       new_client: false,
     };
+    this._sharePackagePrices();
     this._tab = "nuovo";
     this._nuovoTab = "nuova";
     this._render();
@@ -19247,6 +19469,16 @@ class SpaBookingCard extends HTMLElement {
     const close = () => { this._editing = null; this._editFormMode = false; this._render(); };
     wrap.appendChild(this._sectionHead("mdi:calendar-edit", "Modifica appuntamento",
       current ? `${this._clientName(current)} · codice ${current.code || "—"}` : ""));
+    // 2.8.9: a couple's package needs more people: the full edit (the same
+    // steps as Nuovo appuntamento) can add them and pick the package.
+    if (current && this._shopPackages(2).length && this._ownsAppointment(current)) {
+      wrap.appendChild(el("div", { class: "pk-box pk-hint" },
+        el("div", { class: "pk-head" }, el("ha-icon", { icon: "mdi:package-variant-closed" }), el("b", {}, "Pacchetti dello shop"),
+          el("span", { class: "dim small" }, "Per trasformarla in un pacchetto di coppia o di gruppo apri la modifica completa: lì aggiungi le persone e scegli il pacchetto.")),
+        el("button", { class: "btn small", disabled: this._busy,
+          on: { click: () => { this._editing = null; this._editFormMode = false; this._openEditBatch(current); } } },
+          el("ha-icon", { icon: "mdi:account-multiple-plus-outline" }), "Persone e pacchetti")));
+    }
 
     const timeState = {
       get time() { return ((draft.start || "").split("T")[1] || "10:00").slice(0, 5); },
@@ -21915,6 +22147,22 @@ class SpaBookingCard extends HTMLElement {
       .cx-opt.on .cx-dot { border-color: var(--primary-color); box-shadow: inset 0 0 0 3px var(--card-background-color); background: var(--primary-color); }
       .cx-text { display: flex; flex-direction: column; gap: 2px; }
       .gt h4 { display: flex; align-items: center; gap: 4px; }
+      .pk-box { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--sb-line); border-radius: 12px; background: color-mix(in srgb, var(--primary-color) 4%, transparent); }
+      .pk-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+      .pk-head ha-icon { --mdc-icon-size: 20px; color: var(--primary-color); }
+      .pk-head .dim { flex-basis: 100%; }
+      .pk-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; }
+      .pk-card { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; text-align: left; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--sb-line); background: var(--card-background-color); color: var(--primary-text-color); font: inherit; cursor: pointer; }
+      .pk-card:hover { border-color: var(--primary-color); }
+      .pk-name { font-weight: 600; }
+      .pk-price { display: flex; align-items: center; gap: 6px; justify-content: space-between; width: 100%; font-weight: 600; color: var(--primary-color); }
+      .pk-price ha-icon { --mdc-icon-size: 18px; margin-left: auto; }
+      .pk-used { display: flex; flex-wrap: wrap; gap: 6px; }
+      .pk-chip { display: inline-flex; align-items: center; gap: 5px; padding: 4px 6px 4px 10px; border-radius: 999px; font-size: 13px; background: color-mix(in srgb, var(--primary-color) 14%, transparent); color: var(--primary-color); font-weight: 600; }
+      .pk-chip.small { font-size: 11px; padding: 2px 8px; }
+      .pk-chip ha-icon { --mdc-icon-size: 15px; }
+      .pk-x { border: none; background: none; color: inherit; cursor: pointer; display: inline-flex; padding: 2px; border-radius: 50%; }
+      .pk-join-open { align-self: flex-start; }
       .gt-person { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--sb-line); font-size: 13px; }
       .gt-badge { width: 24px; height: 24px; flex: none; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; background: color-mix(in srgb, var(--primary-color) 15%, transparent); color: var(--primary-color); }
       .gt-join { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-top: 10px; border-top: 1px solid var(--sb-line); }

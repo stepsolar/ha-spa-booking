@@ -45,6 +45,8 @@
       voucherOk: "Voucher valido fino al {d}: trattamenti già scelti.", voucherBad: "Voucher non valido o scaduto.",
       treatments: "Trattamenti", time: "Orario", noSlots: "Nessun orario libero in questa data.",
       loading: "Caricamento…", sameAs1: "Come la persona 1", fromVoucher: "dal voucher",
+      packages: "Pacchetti", packagesHint: "Siete in coppia o in gruppo? Scegliete un pacchetto: ogni coppia può prenderne uno diverso.",
+      people2: "{n} persone", inPackage: "nel pacchetto", removePkg: "Togli", withExtras: "con {x}",
       first: "Nome", last: "Cognome", phone: "Telefono", phoneHint: "Ti confermiamo l'orario su WhatsApp.",
       email: "Email", notes: "Note", notesPh: "Allergie, preferenze, orario migliore…",
       total: "Totale indicativo", when: "Data", contact: "Contatto",
@@ -69,6 +71,8 @@
       pref: "For the massage you would prefer…", prefAny: "No preference", prefF: "A female therapist", prefM: "A male therapist",
       treatments: "Treatments", time: "Time", noSlots: "No free time on this date.",
       loading: "Loading…", sameAs1: "Same as guest 1", fromVoucher: "from the voucher",
+      packages: "Packages", packagesHint: "Coming as a couple or a group? Choose a package: each couple can take a different one.",
+      people2: "{n} guests", inPackage: "in the package", removePkg: "Remove", withExtras: "with {x}",
       first: "First name", last: "Last name", phone: "Phone", phoneHint: "We confirm the time on WhatsApp.",
       email: "Email", notes: "Notes", notesPh: "Allergies, preferences, best time…",
       total: "Estimated total", when: "Date", contact: "Contact",
@@ -92,6 +96,8 @@
       pref: "Für die Massage bevorzugen Sie…", prefAny: "Egal", prefF: "Eine Masseurin", prefM: "Einen Masseur",
       treatments: "Behandlungen", time: "Uhrzeit", noSlots: "An diesem Tag ist keine Uhrzeit frei.",
       loading: "Wird geladen…", sameAs1: "Wie Person 1", fromVoucher: "aus dem Gutschein",
+      packages: "Pakete", packagesHint: "Zu zweit oder in der Gruppe? Wählen Sie ein Paket: jedes Paar kann ein anderes nehmen.",
+      people2: "{n} Personen", inPackage: "im Paket", removePkg: "Entfernen", withExtras: "mit {x}",
       first: "Vorname", last: "Nachname", phone: "Telefon", phoneHint: "Wir bestätigen die Uhrzeit per WhatsApp.",
       email: "E-Mail", notes: "Hinweise", notesPh: "Allergien, Wünsche, beste Uhrzeit…",
       total: "Voraussichtlicher Preis", when: "Datum", contact: "Kontakt",
@@ -264,13 +270,77 @@
 
   function total() {
     var sum = 0;
+    var counted = {};
     state.persons.forEach(function (person) {
+      // A package costs its own price once, whatever is inside (2.8.9).
+      if (person.pkg && !counted[person.pkg.group]) { counted[person.pkg.group] = true; sum += Number(person.pkg.price) || 0; }
       person.picks.forEach(function (pick) {
         var item = treatment(pick.id);
-        if (item && item.price && !pick.voucher) sum += Number(item.price) || 0;
+        if (item && item.price && !pick.voucher && !pick.pkg) sum += Number(item.price) || 0;
       });
     });
     return sum;
+  }
+
+  // Shop packages for two or more people (2.8.9): one tap gives the next
+  // people without treatments everything the package includes.
+  function packagesTotal() {
+    var sum = 0;
+    var counted = {};
+    state.persons.forEach(function (p) {
+      if (p.pkg && !counted[p.pkg.group]) { counted[p.pkg.group] = true; sum += Number(p.pkg.price) || 0; }
+    });
+    return sum;
+  }
+
+  function addPackage(pkg) {
+    var free = [];
+    state.persons.forEach(function (p, i) { if (!p.pkg && !p.picks.length) free.push(i); });
+    if (free.length < pkg.people) {
+      setPeople(state.people + (pkg.people - free.length));
+      free = [];
+      state.persons.forEach(function (p, i) { if (!p.pkg && !p.picks.length) free.push(i); });
+    }
+    var group = "w" + Date.now().toString(36) + Math.floor(Math.random() * 1000);
+    free.slice(0, pkg.people).forEach(function (i) {
+      state.persons[i].pkg = { key: pkg.key, group: group, name: pkg.name, price: pkg.price };
+      state.persons[i].picks = pkg.treatment_ids.map(function (id) { return { id: id, time: "", pkg: true }; });
+    });
+    state.error = "";
+    render();
+  }
+
+  function removePackage(group) {
+    state.persons.forEach(function (p) {
+      if (p.pkg && p.pkg.group === group) { p.pkg = null; p.picks = []; }
+    });
+    render();
+  }
+
+  function packagesBox() {
+    var list = config.packages || [];
+    if (state.people < 2 || !list.length) return null;
+    var box = h("div", { class: "pkgs" }, h("p", { class: "lbl" }, t("packages")), h("p", { class: "hint" }, t("packagesHint")));
+    var used = {};
+    state.persons.forEach(function (p, i) {
+      if (!p.pkg) return;
+      if (!used[p.pkg.group]) used[p.pkg.group] = { name: p.pkg.name, who: [] };
+      used[p.pkg.group].who.push(i + 1);
+    });
+    Object.keys(used).forEach(function (group) {
+      box.appendChild(h("div", { class: "pkg-on" },
+        h("span", null, "✓ " + used[group].name + " · " + used[group].who.map(function (n) { return t("person", { n: n }); }).join(", ")),
+        h("button", { type: "button", class: "link", onclick: function () { removePackage(group); } }, t("removePkg"))));
+    });
+    box.appendChild(h("div", { class: "cards" }, list.map(function (pkg) {
+      var names = pkg.treatment_ids.map(function (id) { var x = treatment(id); return x ? x.name : ""; }).join(" + ");
+      var extra = pkg.extras && pkg.extras.length ? " · " + t("withExtras", { x: pkg.extras.join(", ") }) : "";
+      return h("button", { type: "button", class: "card pkg", onclick: function () { addPackage(pkg); } },
+        pkg.name,
+        h("small", null, t("people2", { n: pkg.people }) + " · " + names + extra
+          + (config.showPrices && pkg.price ? " · " + money(pkg.price) : "")));
+    })));
+    return box;
   }
 
   // ------------------------------------------------------------- validation
@@ -340,6 +410,7 @@
         var entry = { treatment_id: pick.id, time: pick.time, person: index };
         var item = treatment(pick.id);
         if (item && item.gender_choice && person.pref) entry.therapist_preference = person.pref;
+        if (person.pkg && pick.pkg) { entry.package_key = person.pkg.key; entry.package_group = person.pkg.group; }
         entries.push(entry);
       });
     });
@@ -411,6 +482,8 @@
     ".btn{font:inherit;font-weight:600;padding:11px 18px;border-radius:10px;border:1px solid #cfd5db;background:#fff;color:inherit;cursor:pointer}",
     ".btn.pri{background:var(--a);border-color:var(--a);color:#fff}.btn[disabled]{opacity:.6;cursor:default}",
     ".hint{font-size:13px;color:#5f656b;margin:6px 0 0}.ok{color:#2e7d32}.bad{color:#c62828}",
+    ".pkgs{margin:0 0 14px;padding:12px;border-radius:12px;background:#f6f3ee}.pkgs .lbl{margin-top:0}.card.pkg small{white-space:normal}",
+    ".pkg-on{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:6px 0;padding:8px 10px;border-radius:10px;background:#e8f3ec;color:#1e5a33;font-size:14px}",
     ".promo{margin:8px 0 4px;padding:10px 12px;border-radius:10px;background:#fff6e0;color:#6b4a00;font-size:14px}",
     ".person{border:1px solid #e3e6ea;border-radius:14px;padding:14px;margin-bottom:12px}",
     ".phead{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;font-weight:600}",
@@ -530,13 +603,16 @@
       if (!groups[cat]) { groups[cat] = []; order.push(cat); }
       groups[cat].push(item);
     });
+    var pkgs = packagesBox();
+    if (pkgs) box.appendChild(pkgs);
     state.persons.forEach(function (person, index) {
       var card = h("div", { class: "person" });
       card.appendChild(h("div", { class: "phead" },
         h("span", null, state.people > 1 ? t("person", { n: index + 1 }) : t("treatments")),
-        index > 0 ? h("button", {
+        index > 0 && !person.pkg ? h("button", {
           type: "button", class: "link",
           onclick: function () {
+            if (person.pkg) return;
             person.picks = state.persons[0].picks.map(function (p) { return { id: p.id, time: p.time, voucher: false }; });
             render();
           },
@@ -545,7 +621,7 @@
         if (order.length > 1 && cat) card.appendChild(h("div", { class: "cat" }, cat));
         card.appendChild(h("div", { class: "cards" }, groups[cat].map(function (item) {
           var pick = person.picks.filter(function (p) { return p.id === item.id; })[0];
-          var locked = pick && pick.voucher;
+          var locked = pick && (pick.voucher || pick.pkg);
           var sub = item.duration_min + " " + t("min") + (config.showPrices && item.price ? " · " + money(item.price) : "");
           return h("button", {
             type: "button", class: "card" + (pick ? " on" : "") + (locked ? " lock" : ""),
@@ -557,7 +633,7 @@
               state.error = "";
               render();
             },
-          }, item.name, h("small", null, locked ? t("fromVoucher") : sub));
+          }, item.name, h("small", null, locked ? t(pick.pkg ? "inPackage" : "fromVoucher") : sub));
         })));
       });
       person.picks.forEach(function (pick) {
@@ -652,6 +728,7 @@
         return (item ? item.name : "") + " · " + pick.time;
       }).join(", ");
       if (wantsPref(person) && person.pref) text += " · " + t(person.pref === "F" ? "prefF" : "prefM").toLowerCase();
+      if (person.pkg) text = person.pkg.name + ": " + text;
       rows.push([state.people > 1 ? t("person", { n: index + 1 }) : t("treatments"), text]);
     });
     var phone = /^(\+|00)/.test(state.phone.trim()) ? state.phone.trim() : "+" + state.cc + " " + state.phone.trim();
@@ -660,7 +737,8 @@
       // The partner's guests see their discount (2.8.6).
       var pct = config.partnerDiscount || 0;
       if (pct > 0) {
-        var cut = Math.round(total() * pct) / 100;
+        // A package keeps its own price: the discount is on the rest.
+        var cut = Math.round((total() - packagesTotal()) * pct) / 100;
         rows.push([t("discount", { p: pctText(pct) }), "−" + money(cut)]);
         rows.push([t("total"), money(total() - cut)]);
       } else rows.push([t("total"), money(total())]);
@@ -699,6 +777,7 @@
     config.accent = site.accent || "";
     config.maxDays = site.max_days_ahead || 60;
     config.partnerDiscount = Number(site.partner_discount) || 0;
+    config.packages = site.packages || [];
     render();
   }).catch(function () {
     config.error = t("errLoad");
