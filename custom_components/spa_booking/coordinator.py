@@ -3382,6 +3382,8 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         mapping = settings.get("wp_product_map") or {}
         known = {t["id"] for t in self.treatments if t.get("active", True)}
         out = []
+        hidden_web = set(settings.get("package_hidden_web") or [])
+        hidden_desk = set(settings.get("package_hidden_desk") or [])
         for product in settings.get("wp_products") or []:
             entry = mapping.get(product.get("key")) or {}
             treatments = [t for t in entry.get("treatment_ids") or [] if t in known]
@@ -3399,6 +3401,8 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "extras": [e for e in entry.get("extras") or [] if e],
                 "note": str(entry.get("note") or ""),
                 "image": product.get("image") or "",
+                "hidden_web": product["key"] in hidden_web,
+                "hidden_desk": product["key"] in hidden_desk,
             })
         return out
 
@@ -4197,6 +4201,84 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.promo_vouchers.append(voucher)
             await self._async_save()
         return self.promo_voucher_payload(voucher)
+
+    async def async_send_loyalty_voucher(
+        self,
+        client_id: str = "",
+        partner_id: str = "",
+        discount_percent: int | None = None,
+        days: int | None = None,
+        min_spend: int | None = None,
+        by: str = "",
+    ) -> dict[str, Any]:
+        """A loyalty voucher sent by hand, with no booking behind it (2.8.11).
+
+        Same voucher as the one a visit earns (Promo › Voucher fedeltà), with
+        its message; sent at once on WhatsApp, or by email to a partner who has
+        no number. Sconto, validità and spesa minima default to the settings.
+        """
+        settings = self._data[KEY_SETTINGS]
+        if bool(client_id) == bool(partner_id):
+            raise ValidationError("Indica un cliente oppure un partner")
+        if client_id:
+            person = self._find(self.clients, client_id, "Cliente")
+            first, last = str(person.get("first_name") or ""), str(person.get("last_name") or "")
+        else:
+            person = self._find(self.partners, partner_id, "Partner")
+            first = str(person.get("first_name") or person.get("company") or "")
+            last = str(person.get("last_name") or "") if person.get("first_name") else ""
+        valid_days = int(days or settings.get("promo_voucher_days") or DEFAULT_PROMO_VOUCHER_DAYS)
+        async with self._lock:
+            existing = {v["code"] for v in self.promo_vouchers}
+            now = dt_util.utcnow()
+            voucher = _norm_promo_voucher({
+                "id": f"fid_{secrets.token_hex(6)}",
+                "code": _new_promo_voucher_code(existing),
+                "client_id": client_id,
+                "partner_id": partner_id,
+                "first_name": first.strip(),
+                "last_name": last.strip(),
+                "phone": str(person.get("phone") or "").strip(),
+                "discount_percent": discount_percent or settings.get("promo_voucher_discount"),
+                "min_spend": settings.get("promo_voucher_min_spend") if min_spend is None else min_spend,
+                "max_spend": settings.get("promo_voucher_max_spend"),
+                "created_at": now.isoformat(),
+                "send_at": now.isoformat(),
+                "expires_on": (dt_util.now().date() + timedelta(days=valid_days)).strftime("%Y-%m-%d"),
+                "status": PROMO_VOUCHER_PENDING,
+                "appointment_id": "",
+                "manual": True,
+                "by": by,
+            })
+            self.promo_vouchers.append(voucher)
+            await self._async_save()
+        text = self.format_promo_voucher(voucher)
+        sent = ""
+        error = ""
+        chat_id = messaging.whatsapp_chat_id(voucher["phone"])
+        if chat_id:
+            try:
+                result = await messaging.async_send_whatsapp(self.hass, chat_id, text, waha=self.waha)
+                sent = "whatsapp" if result.get("sent") else ""
+                error = str(result.get("error") or "")
+            except Exception as err:  # noqa: BLE001
+                error = str(err)
+        email = str(person.get("email") or "")
+        if not sent and "@" in email:
+            try:
+                result = await self._async_deliver_email(email, "Il Suo voucher fedeltà", text)
+                sent = "email" if result.get("sent") else ""
+                error = "" if sent else str(result.get("error") or error)
+            except Exception as err:  # noqa: BLE001
+                error = error or str(err)
+        if not sent and not error:
+            error = "nessun numero WhatsApp né email"
+        if sent:
+            async with self._lock:
+                voucher["status"] = PROMO_VOUCHER_SENT
+                voucher["sent_at"] = dt_util.utcnow().isoformat()
+                await self._async_save()
+        return {"voucher": self.promo_voucher_payload(voucher), "sent": sent, "error": error, "text": text}
 
     async def async_send_promo_vouchers(self) -> dict[str, Any]:
         """Send every loyalty-voucher message that has come due, once each.

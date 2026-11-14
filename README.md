@@ -133,6 +133,14 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v2.8.11** — **Voucher fedeltà a mano e scheda Pacchetti** (serve il
+  riavvio di Home Assistant). Nella scheda di ogni cliente e di ogni partner,
+  «Invia voucher fedeltà» crea e invia subito un voucher fedeltà (sconto,
+  validità e spesa minima modificabili; WhatsApp, o email se manca il numero)
+  anche senza una prenotazione. Nuova scheda Configurazione › **Pacchetti**,
+  sotto Trattamenti: i pacchetti dello shop abbinati, con persone, trattamenti,
+  accessori e prezzo; ognuno si può nascondere dal **modulo web** e dal menu
+  di **Nuovo appuntamento e richiesta**.
 - **v2.8.10** — Correzioni (serve il riavvio di Home Assistant). I
   **pacchetti** in Nuovo appuntamento, Nuova richiesta e Modifica gruppo sono
   ora una riga sola: un menu «Scegli un pacchetto dello shop…» e i pacchetti

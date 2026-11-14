@@ -142,6 +142,7 @@ SERVICE_DELETE_PARTNER = "delete_partner"
 SERVICE_IMPORT_PARTNERS = "import_partners"
 SERVICE_DELETE_ALL_PARTNERS = "delete_all_partners"
 SERVICE_PARTNER_DETAIL = "partner_detail"
+SERVICE_SEND_LOYALTY_VOUCHER = "send_loyalty_voucher"
 SERVICE_SPLIT_FROM_GROUP = "split_from_group"
 SERVICE_JOIN_GROUP = "join_group"
 SERVICE_PARTNER_REWARD = "partner_reward"
@@ -261,6 +262,7 @@ ALL_SERVICES = (
     SERVICE_IMPORT_PARTNERS,
     SERVICE_DELETE_ALL_PARTNERS,
     SERVICE_PARTNER_DETAIL,
+    SERVICE_SEND_LOYALTY_VOUCHER,
     SERVICE_PARTNER_REWARD,
     SERVICE_SPLIT_FROM_GROUP,
     SERVICE_JOIN_GROUP,
@@ -943,6 +945,8 @@ UPDATE_SETTINGS_SCHEMA = vol.Schema(
         # Partners (2.5.0).
         vol.Optional("partner_points_per_euro"): vol.Any(vol.Coerce(float), None),
         vol.Optional("partner_booking_url"): vol.Any(cv.string, None),
+        vol.Optional("package_hidden_web"): vol.Any([cv.string], None),
+        vol.Optional("package_hidden_desk"): vol.Any([cv.string], None),
         vol.Optional("partner_discount_pct"): vol.Any(vol.Coerce(float), None),
         vol.Optional("partner_reward_points"): vol.Any(vol.Coerce(int), None),
         vol.Optional("partner_reward_value"): vol.Any(vol.Coerce(int), None),
@@ -1306,6 +1310,17 @@ PARTNER_POINTS_ADJUST_SCHEMA = vol.Schema(
 SPLIT_FROM_GROUP_SCHEMA = vol.Schema({vol.Required(ATTR_APPOINTMENT_ID): cv.string}, extra=vol.PREVENT_EXTRA)
 JOIN_GROUP_SCHEMA = vol.Schema(
     {vol.Required(ATTR_APPOINTMENT_ID): cv.string, vol.Required("code"): cv.string}, extra=vol.PREVENT_EXTRA
+)
+
+SEND_LOYALTY_VOUCHER_SCHEMA = vol.Schema(
+    {
+        vol.Optional("client_id"): cv.string,
+        vol.Optional("partner_id"): cv.string,
+        vol.Optional("discount_percent"): vol.All(vol.Coerce(int), vol.Range(min=1, max=100)),
+        vol.Optional("days"): vol.All(vol.Coerce(int), vol.Range(min=1, max=1000)),
+        vol.Optional("min_spend"): vol.All(vol.Coerce(int), vol.Range(min=0, max=100000)),
+    },
+    extra=vol.PREVENT_EXTRA,
 )
 
 PARTNER_DETAIL_SCHEMA = vol.Schema({vol.Required("partner_id"): cv.string}, extra=vol.PREVENT_EXTRA)
@@ -1812,6 +1827,16 @@ async def _async_split_from_group(call: ServiceCall) -> ServiceResponse:
 async def _async_join_group(call: ServiceCall) -> ServiceResponse:
     """Add another booking, by its code, to this group (2.8.8)."""
     return await _coordinator(call).async_join_group(call.data[ATTR_APPOINTMENT_ID], call.data["code"])
+
+
+async def _async_send_loyalty_voucher(call: ServiceCall) -> ServiceResponse:
+    """A loyalty voucher sent by hand to a client or a partner (2.8.11)."""
+    data = dict(call.data)
+    return await _coordinator(call).async_send_loyalty_voucher(
+        client_id=data.get("client_id", ""), partner_id=data.get("partner_id", ""),
+        discount_percent=data.get("discount_percent"), days=data.get("days"),
+        min_spend=data.get("min_spend"), by=_acting_name(),
+    )
 
 
 async def _async_partner_detail(call: ServiceCall) -> ServiceResponse:
@@ -3149,6 +3174,7 @@ _HANDLERS: dict[str, tuple[Any, Any, SupportsResponse]] = {
     SERVICE_WP_REDEEM: (_async_wp_redeem, WP_REDEEM_SCHEMA, SupportsResponse.ONLY),
     SERVICE_PARTNER_POINTS_ADJUST: (_async_partner_points_adjust, PARTNER_POINTS_ADJUST_SCHEMA, SupportsResponse.ONLY),
     SERVICE_PARTNER_DETAIL: (_async_partner_detail, PARTNER_DETAIL_SCHEMA, SupportsResponse.ONLY),
+    SERVICE_SEND_LOYALTY_VOUCHER: (_async_send_loyalty_voucher, SEND_LOYALTY_VOUCHER_SCHEMA, SupportsResponse.ONLY),
     SERVICE_SPLIT_FROM_GROUP: (_async_split_from_group, SPLIT_FROM_GROUP_SCHEMA, SupportsResponse.ONLY),
     SERVICE_JOIN_GROUP: (_async_join_group, JOIN_GROUP_SCHEMA, SupportsResponse.ONLY),
     SERVICE_PARTNER_REWARD: (_async_partner_reward, PARTNER_REWARD_SCHEMA, SupportsResponse.ONLY),
@@ -3432,6 +3458,7 @@ SERVICE_LEVELS: dict[str, str] = {
     SERVICE_WP_REDEEM: "operator",
     SERVICE_PARTNER_POINTS_ADJUST: "manager",
     SERVICE_PARTNER_DETAIL: "operator",
+    SERVICE_SEND_LOYALTY_VOUCHER: "manager",
     SERVICE_SPLIT_FROM_GROUP: "operator",
     SERVICE_JOIN_GROUP: "operator",
     SERVICE_PARTNER_REWARD: "manager",

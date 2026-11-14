@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.8.10";
+const CARD_VERSION = "2.8.11";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -366,6 +366,7 @@ const SPA_TABS = [
 const CFG_TABS = [
   { id: "categorie", label: "Categorie", icon: "mdi:tag-outline" },
   { id: "trattamenti", label: "Trattamenti", icon: "mdi:spa-outline" },
+  { id: "pacchetti", label: "Pacchetti", icon: "mdi:package-variant-closed" },
   { id: "accessori", label: "Accessori", icon: "mdi:gift-outline" },
   { id: "shop", label: "Shop online", icon: "mdi:storefront-outline" },
   { id: "operatori", label: "Operatori", icon: "mdi:account-group-outline" },
@@ -1204,7 +1205,8 @@ class SpaBookingCard extends HTMLElement {
     if (!this._escapeBound) {
       this._escapeBound = (event) => {
         if (event.key !== "Escape") return;
-        if (this._cancelPopup) { this._cancelPopup = null; this._render(); }
+        if (this._loyaltyPopup) { this._loyaltyPopup = null; this._render(); }
+        else if (this._cancelPopup) { this._cancelPopup = null; this._render(); }
         else if (this._overlapPopup) { this._overlapPopup = null; this._render(); }
         else if (this._proposePopup) { this._proposePopup = null; this._render(); }
         else if (this._payPopup) this._closePayPopup();
@@ -1672,7 +1674,9 @@ class SpaBookingCard extends HTMLElement {
       const people = Math.max(1, Number(entry.people) || 1);
       if (people < minPeople) return null;
       return { key: product.key, name: product.name || "", price: product.price != null ? Number(product.price) : null,
-        people, treatment_ids: ids, extras: (entry.extras || []).filter(Boolean), note: entry.note || "", image: product.image || "" };
+        people, treatment_ids: ids, extras: (entry.extras || []).filter(Boolean), note: entry.note || "", image: product.image || "",
+        hidden_web: (settings.package_hidden_web || []).includes(product.key),
+        hidden_desk: (settings.package_hidden_desk || []).includes(product.key) };
     }).filter(Boolean);
   }
 
@@ -1794,7 +1798,8 @@ class SpaBookingCard extends HTMLElement {
   /** «Pacchetti dello shop» in step 1 (Nuovo, Richiesta, Modifica gruppo). */
   _packagesBlock() {
     const count = this._peopleCount();
-    const packages = this._shopPackages(2);
+    // Hidden in Configurazione › Pacchetti (2.8.11) stay out of the menu.
+    const packages = this._shopPackages(2).filter((p) => !p.hidden_desk);
     if (count < 2 || !packages.length) return null;
     const used = new Map();
     this._formPersons().forEach((person, index) => {
@@ -3466,6 +3471,7 @@ class SpaBookingCard extends HTMLElement {
     this._detailInline = false;
     if (this._payPopup) add(root, this._renderPayPopup());
     if (this._cancelPopup) add(root, this._renderCancelPopup());
+    if (this._loyaltyPopup) add(root, this._renderLoyaltyPopup());
     if (this._overlapPopup) add(root, this._renderOverlapPopup());
     if (this._proposePopup) add(root, this._renderProposePopup());
     if (this._voucherPin) add(root, this._renderVoucherPinPopup());
@@ -5586,6 +5592,57 @@ class SpaBookingCard extends HTMLElement {
     } catch (error) {
       /* message already shown */
     }
+  }
+
+  /** «Invia voucher fedeltà» (2.8.11): sconto, validità, spesa minima, then send. */
+  _openLoyaltyPopup(target) {
+    const settings = (this._data && this._data.settings) || {};
+    this._loyaltyPopup = {
+      ...target,
+      discount: settings.promo_voucher_discount || 10,
+      days: settings.promo_voucher_days || 90,
+      min_spend: settings.promo_voucher_min_spend ?? 0,
+    };
+    this._render();
+  }
+
+  _renderLoyaltyPopup() {
+    const draft = this._loyaltyPopup;
+    const close = () => { this._loyaltyPopup = null; this._render(); };
+    const field = (key, label, extra) => el("label", { class: "field" }, el("span", {}, label),
+      el("input", { class: "input", type: "number", value: draft[key] ?? "", ...extra,
+        on: { input: (event) => { draft[key] = event.target.value; }, keydown: (event) => event.stopPropagation() } }));
+    const where = draft.phone ? `su WhatsApp a ${draft.phone}` : draft.email ? `per email a ${draft.email}` : "";
+    const send = async () => {
+      const payload = {
+        ...(draft.client_id ? { client_id: draft.client_id } : { partner_id: draft.partner_id }),
+        discount_percent: Math.max(1, Math.min(100, Math.round(Number(draft.discount) || 10))),
+        days: Math.max(1, Math.round(Number(draft.days) || 90)),
+        min_spend: Math.max(0, Math.round(Number(draft.min_spend) || 0)),
+      };
+      this._loyaltyPopup = null;
+      try {
+        const result = await this._call("send_loyalty_voucher", payload);
+        this._message = result.sent
+          ? { kind: "ok", text: `Voucher ${result.voucher.code} inviato ${result.sent === "email" ? "per email" : "su WhatsApp"}.` }
+          : { kind: "error", text: `Voucher ${result.voucher.code} creato ma non inviato: ${result.error || "errore"}.` };
+        this._render();
+      } catch (error) { /* shown */ }
+    };
+    const sheet = el("div", { class: "detail-sheet cx-sheet" },
+      el("h3", {}, el("ha-icon", { icon: "mdi:ticket-percent-outline" }), ` Voucher fedeltà per ${draft.name || ""}`),
+      el("div", { class: "nt-options" },
+        field("discount", "Sconto (%)", { min: "1", max: "100", step: "1" }),
+        field("days", "Valido per (giorni)", { min: "1", step: "1" }),
+        field("min_spend", "Spesa minima (€)", { min: "0", step: "1" })),
+      el("div", { class: "hint" }, where
+        ? `Si invia subito ${where}, con il testo di Promo › Voucher fedeltà. Il codice vale come quelli dati dopo una visita.`
+        : "Nessun numero WhatsApp né email: il voucher viene creato ma non può essere inviato."),
+      el("div", { class: "row" }, el("span", { class: "spacer" }),
+        el("button", { class: "btn", on: { click: close } }, "Annulla"),
+        el("button", { class: "btn primary", disabled: this._busy, on: { click: send } },
+          el("ha-icon", { icon: "mdi:send" }), where ? "Crea e invia" : "Crea")));
+    return el("div", { class: "detail-backdrop", on: { click: (event) => { if (event.target === event.currentTarget) close(); } } }, sheet);
   }
 
   _renderCancelPopup() {
@@ -11246,6 +11303,15 @@ class SpaBookingCard extends HTMLElement {
           } },
         }, el("ha-icon", { icon: "mdi:ticket-confirmation-outline" }), "Genera voucher e invia") : null)));
 
+    // Loyalty vouchers sent by hand (2.8.11).
+    const partnerVouchers = (this._data.promo_vouchers || []).filter((v) => v.partner_id === partner.id)
+      .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
+    left.appendChild(el("div", { class: "row lv-head" }, el("div", { class: "pt-h" }, "Voucher fedeltà"), el("span", { class: "spacer" }),
+      canEdit ? el("button", { class: "btn small", disabled: this._busy,
+        on: { click: () => this._openLoyaltyPopup({ partner_id: partner.id, name: title, phone: partner.phone, email: partner.email }) } },
+        el("ha-icon", { icon: "mdi:ticket-percent-outline" }), "Invia voucher fedeltà") : null));
+    partnerVouchers.forEach((voucher) => left.appendChild(this._promoVoucherRow(voucher, canEdit)));
+
     // Prizes and corrections.
     const rewards = data.rewards || [];
     const log = data.log || [];
@@ -11943,12 +12009,15 @@ class SpaBookingCard extends HTMLElement {
         el("span", { class: "stat-label" }, "Richieste"),
         el("span", { class: "stat-value" }, String(requests)),
         el("span", { class: "stat-sub" }, "dal sito e dal banco"))));
-    if (promoVouchers.length) {
-      left.appendChild(el("h3", {}, "Voucher fedeltà"));
-      promoVouchers.forEach((voucher) => {
-        left.appendChild(this._promoVoucherRow(voucher, canEditClient));
-      });
-    }
+    // 2.8.11: a loyalty voucher can be sent by hand, with no visit behind it.
+    left.appendChild(el("div", { class: "row lv-head" }, el("h3", {}, "Voucher fedeltà"), el("span", { class: "spacer" }),
+      this._can("manage_clients") ? el("button", { class: "btn small", disabled: this._busy,
+        on: { click: () => this._openLoyaltyPopup({ client_id: client.id, name: this._clientName({ client_id: client.id }), phone: client.phone, email: client.email }) } },
+        el("ha-icon", { icon: "mdi:ticket-percent-outline" }), "Invia voucher fedeltà") : null));
+    if (!promoVouchers.length) left.appendChild(el("div", { class: "hint" }, "Nessun voucher fedeltà."));
+    promoVouchers.forEach((voucher) => {
+      left.appendChild(this._promoVoucherRow(voucher, canEditClient));
+    });
 
     const appointments = this._clientAppointments(client.id);
     right.appendChild(el("h3", {}, `Storico (${appointments.length})`));
@@ -14981,6 +15050,7 @@ class SpaBookingCard extends HTMLElement {
     const page = el("div", { class: "cfg-page" });
     if (this._cfgTab === "categorie") add(page, this._renderCategories());
     if (this._cfgTab === "trattamenti") add(page, this._renderTreatments());
+    if (this._cfgTab === "pacchetti") add(page, this._renderPackages());
     if (this._cfgTab === "accessori") add(page, this._renderAccessori());
     if (this._cfgTab === "operatori") add(page, this._renderOperators());
     if (this._cfgTab === "blocchi") add(page, this._renderBlocks());
@@ -15848,6 +15918,58 @@ class SpaBookingCard extends HTMLElement {
   }
 
   /** Configurazione › Shop online (2.7.0): the WordPress shop and its products. */
+  /**
+   * Configurazione › Pacchetti (2.8.11): the shop products paired with
+   * treatments, as the desk and the website offer them. Each can be hidden
+   * from the website form, and from the menu of Nuovo appuntamento and
+   * Nuova richiesta. The pairing itself stays in Shop online.
+   */
+  _renderPackages() {
+    const wrap = el("div", { class: "stack" });
+    const settings = (this._data && this._data.settings) || {};
+    wrap.appendChild(this._sectionHead("mdi:package-variant-closed", "Pacchetti",
+      "I prodotti dello shop abbinati ai trattamenti. Quelli per 2 o più persone si scelgono in Nuovo appuntamento, Nuova richiesta, Modifica gruppo e nel modulo del sito: qui decidi dove si vedono."));
+    const all = this._shopPackages(1);
+    const productsCount = (settings.wp_products || []).length;
+    if (!all.length) {
+      wrap.appendChild(el("div", { class: "empty" }, productsCount
+        ? "Nessun prodotto è ancora abbinato ai trattamenti: fai gli abbinamenti in Shop online."
+        : "Nessun prodotto dello shop: collega il sito in Shop online e premi «Prova collegamento»."));
+      wrap.appendChild(el("button", { class: "btn small", on: { click: () => { this._cfgTab = "shop"; this._render(); } } },
+        el("ha-icon", { icon: "mdi:storefront-outline" }), "Vai a Shop online"));
+      return wrap;
+    }
+    const toggle = async (key, list, hide) => {
+      const current = new Set(settings[list] || []);
+      if (hide) current.add(key); else current.delete(key);
+      try { await this._call("update_settings", { [list]: [...current] }); } catch (error) { /* shown */ }
+    };
+    const switchEl = (pkg, list, on, label) => el("label", { class: "pkc-switch", title: label },
+      el("input", { type: "checkbox", checked: on, disabled: this._busy || !this._can("config"),
+        on: { change: (event) => toggle(pkg.key, list, !event.target.checked) } }),
+      el("span", {}, label));
+    const list = el("div", { class: "stack tight" });
+    all.sort((a, b) => b.people - a.people || a.name.localeCompare(b.name, "it")).forEach((pkg) => {
+      const multi = pkg.people >= 2;
+      const extras = pkg.extras.map((id) => (this._accessory(id) || {}).label || id);
+      list.appendChild(el("div", { class: `pkc-row${pkg.hidden_web && pkg.hidden_desk ? " off" : ""}` },
+        pkg.image ? el("img", { class: "pkc-img", src: pkg.image, alt: "" }) : el("span", { class: "pkc-img ph" }, el("ha-icon", { icon: "mdi:package-variant-closed" })),
+        el("div", { class: "pkc-main" },
+          el("div", {}, el("b", {}, pkg.name), el("span", { class: "dim small" }, ` · ${pkg.people === 1 ? "1 persona" : `${pkg.people} persone`}${pkg.price != null ? ` · ${euro(pkg.price)}` : ""}`)),
+          el("div", { class: "dim small" }, `Ogni persona: ${pkg.treatment_ids.map((id) => (this._lookup.treatment.get(id) || {}).name || id).join(" + ")}${extras.length ? ` · con ${extras.join(", ")}` : ""}`),
+          pkg.note ? el("div", { class: "dim small" }, pkg.note) : null,
+          multi ? null : el("div", { class: "hint small" }, "Per 1 persona: si usa per i voucher venduti online, non nel menu dei pacchetti.")),
+        multi ? el("div", { class: "pkc-switches" },
+          switchEl(pkg, "package_hidden_web", !pkg.hidden_web, "Modulo web"),
+          switchEl(pkg, "package_hidden_desk", !pkg.hidden_desk, "Nuovo appuntamento e richiesta")) : null));
+    });
+    wrap.appendChild(list);
+    wrap.appendChild(el("div", { class: "hint" }, "Trattamenti, accessori e persone di ogni pacchetto si cambiano in ",
+      el("a", { href: "#", on: { click: (event) => { event.preventDefault(); this._cfgTab = "shop"; this._render(); } } }, "Shop online › Abbinamenti"),
+      "; il prezzo è quello del sito."));
+    return wrap;
+  }
+
   _renderShop() {
     const settings = (this._data && this._data.settings) || {};
     const isAdmin = this._userLevel() === "admin";
@@ -22174,6 +22296,17 @@ class SpaBookingCard extends HTMLElement {
       .gt h4 { display: flex; align-items: center; gap: 4px; }
       .pk-box { display: flex; flex-direction: column; gap: 8px; padding: 8px 12px; border: 1px solid var(--sb-line); border-radius: 12px; background: color-mix(in srgb, var(--primary-color) 4%, transparent); }
       .pk-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+      .lv-head { align-items: center; }
+      .lv-head h3 { margin: 0; }
+      .pkc-row { display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 12px; border: 1px solid var(--sb-line); border-radius: 12px; background: var(--card-background-color); }
+      .pkc-row.off { opacity: .6; }
+      .pkc-img { width: 56px; height: 56px; border-radius: 10px; object-fit: cover; background: var(--sb-card); display: flex; align-items: center; justify-content: center; }
+      .pkc-img.ph ha-icon { --mdc-icon-size: 26px; color: var(--secondary-text-color); }
+      .pkc-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+      .pkc-switches { display: flex; flex-direction: column; gap: 6px; }
+      .pkc-switch { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; white-space: nowrap; }
+      .pkc-switch input { width: 18px; height: 18px; accent-color: var(--primary-color); }
+      @media (max-width: 640px) { .pkc-row { grid-template-columns: 48px minmax(0, 1fr); } .pkc-switches { grid-column: 1 / -1; flex-direction: row; flex-wrap: wrap; gap: 14px; } }
       .pk-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
       .pk-line ha-icon { --mdc-icon-size: 20px; color: var(--primary-color); }
       .pk-select { flex: 1; min-width: 220px; max-width: 460px; }
