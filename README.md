@@ -111,6 +111,10 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v3.1.3** — (basta ricaricare la pagina)
+  - Agenda: la striscia dei giorni restava sulla prima settimana (quattro
+    settimane prima) quando la card si ridisegnava subito dopo l'apertura;
+    ora si apre sempre sulla settimana del giorno mostrato.
 - **v3.1.2** — (serve il riavvio di Home Assistant)
   - Pagina `/spa_booking`: tornano **tutte le icone** (ne mancavano 119 delle
     più recenti, tra cui il pulsante calendario, il menu Stampa, i fogli e

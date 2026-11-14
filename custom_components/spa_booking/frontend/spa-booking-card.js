@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "3.1.2";
+const CARD_VERSION = "3.1.3";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -4166,7 +4166,13 @@ class SpaBookingCard extends HTMLElement {
       el("span", { class: "ag-wd-count" }, counts[index] ? `${counts[index]} app.` : "libero"),
       el("span", { class: "ag-wd-bar" }, el("i", { style: `width:${Math.round((minutes[index] / top) * 100)}%` })));
     }));
-    strip.addEventListener("scroll", () => { this._weekScroll = strip.scrollLeft; this._weekScrollDay = this._day; }, { passive: true });
+    // A scroll event can arrive after a redraw removed this strip: detached,
+    // it reads 0, which would send the next strip back to the first week.
+    strip.addEventListener("scroll", () => {
+      if (!strip.isConnected || !strip.clientWidth) return;
+      this._weekScroll = strip.scrollLeft;
+      this._weekScrollDay = this._day;
+    }, { passive: true });
     // A vertical mouse wheel scrolls the strip sideways.
     strip.addEventListener("wheel", (event) => {
       if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
