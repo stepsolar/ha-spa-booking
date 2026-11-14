@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.9.0";
+const CARD_VERSION = "2.9.1";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -3291,11 +3291,117 @@ class SpaBookingCard extends HTMLElement {
       this._editing = null;
       this._editFormMode = false;
     }
+    this._liveExclusionCheck();
     try {
       this._renderInner();
     } catch (error) {
       this._renderFailure(error);
     }
+  }
+
+  /**
+   * Mutually exclusive categories (2.9.1): the first clash between what the
+   * form is about to book and what is already in the agenda, as the same
+   * sentence the server uses, or "" when the slot is free.
+   * ``entries``: [{treatment_id, start: "YYYY-MM-DDTHH:MM"}].
+   */
+  _exclusionClash(entries, skipIds = new Set()) {
+    const exclusive = (a, b) => !!(a && b && a.id !== b.id
+      && ((a.exclusive_with || []).includes(b.id) || (b.exclusive_with || []).includes(a.id)));
+    const planned = (entries || []).map((entry) => {
+      const treatment = this._lookup.treatment.get(entry.treatment_id);
+      const startText = String(entry.start || "").slice(0, 16);
+      if (!treatment || startText.length < 16) return null;
+      const start = new Date(`${startText}:00`);
+      if (Number.isNaN(start.getTime())) return null;
+      const end = new Date(start.getTime() + (Number(treatment.duration_min) || 0) * 60000);
+      return { treatment, category: this._categoryOf(treatment), start, end };
+    }).filter((item) => item && item.category);
+    if (!planned.length) return "";
+    const hm = (date) => `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+    for (const item of planned) {
+      for (const appointment of this._data.appointments || []) {
+        if (skipIds.has(appointment.id)) continue;
+        if (appointment.status !== "confirmed" && appointment.status !== "pending") continue;
+        const otherTreatment = this._lookup.treatment.get(appointment.treatment_id);
+        const other = this._categoryOf(otherTreatment);
+        if (!exclusive(item.category, other)) continue;
+        const start = parseDate(appointment.start);
+        const end = parseDate(appointment.end);
+        if (!(start < item.end && end > item.start)) continue;
+        const client = appointment.client || this._lookup.client.get(appointment.client_id) || {};
+        const who = client.full_name || [client.first_name, client.last_name].filter(Boolean).join(" ");
+        return `La categoria '${item.category.name}' non può sovrapporsi a '${other.name}': `
+          + `${who ? `${who}, ` : ""}${otherTreatment.name} ${hm(start)}–${hm(end)}`
+          + `${appointment.code ? ` (codice ${appointment.code})` : ""}.`;
+      }
+      for (const peer of planned) {
+        if (peer !== item && exclusive(item.category, peer.category) && peer.start < item.end && peer.end > item.start) {
+          return `La categoria '${item.category.name}' non può sovrapporsi a '${peer.category.name}' `
+            + `nella stessa prenotazione (${hm(peer.start)}–${hm(peer.end)}).`;
+        }
+      }
+    }
+    return "";
+  }
+
+  /** What the open form would book, for the exclusion check. */
+  _exclusionDraft() {
+    if (this._editing && this._editing.kind === "appointment" && this._tab === "agenda" && this._editing.draft) {
+      const draft = this._editing.draft;
+      return { entries: [{ treatment_id: draft.treatment_id, start: draft.start }], skip: new Set([this._editing.id]) };
+    }
+    if (this._tab !== "nuovo" && !this._batchEditing) return null;
+    if (!this._form) return null;
+    const entries = [];
+    const skip = new Set();
+    try {
+      this._bookingRows().forEach((row) => (row.entries || []).forEach((entry) => {
+        entries.push({ treatment_id: entry.treatment_id || row.treatment_id, start: entry.start });
+        if (entry.appointment_id) skip.add(entry.appointment_id);
+      }));
+    } catch (error) {
+      return null;
+    }
+    if (this._batchEditing) {
+      const batch = this._batchAnchorBatchId;
+      if (this._batchAnchorId) skip.add(this._batchAnchorId);
+      (this._data.appointments || []).forEach((item) => { if (batch && item.batch_id === batch) skip.add(item.id); });
+    }
+    return { entries, skip };
+  }
+
+  /** The clash of the open form, or "". */
+  _exclusionOfDraft() {
+    if (!this._data || !this._lookup) return "";
+    const draft = this._exclusionDraft();
+    return draft ? this._exclusionClash(draft.entries, draft.skip) : "";
+  }
+
+  /**
+   * Show the clash as soon as the time (or treatment, package, date) is
+   * chosen, once per clash: closing the popup does not bring it back until
+   * the form changes into another clash. Saving is refused regardless.
+   */
+  _liveExclusionCheck() {
+    let message = "";
+    try { message = this._exclusionOfDraft(); } catch (error) { message = ""; }
+    if (!message) { this._exclusionShown = ""; return; }
+    if (message === this._exclusionShown) return;
+    this._exclusionShown = message;
+    this._message = null;
+    this._overlapPopup = { kind: "exclusive", message };
+  }
+
+  /** Before a save: refuse it with the popup when the slot clashes. */
+  _blockedByExclusion() {
+    let message = "";
+    try { message = this._exclusionOfDraft(); } catch (error) { message = ""; }
+    if (!message) return false;
+    this._exclusionShown = message;
+    this._overlapPopup = { kind: "exclusive", message };
+    this._render();
+    return true;
   }
 
   /**
@@ -6046,6 +6152,7 @@ class SpaBookingCard extends HTMLElement {
 
 
   async _saveBatchEdit(forceRules = false) {
+    if (this._blockedByExclusion()) return;
     try {
       this._batchBusy = true;
       this._render();
@@ -6075,7 +6182,10 @@ class SpaBookingCard extends HTMLElement {
       this._message = { kind: "ok", text: "Gruppo aggiornato." };
     } catch (error) {
       const text = String((error && error.message) || "");
-      if (!forceRules && this._isCategoryRule(text)) {
+      if (this._isExclusionRule(text)) {
+        this._message = null;
+        this._overlapPopup = { kind: "exclusive", message: text };
+      } else if (!forceRules && this._isCategoryRule(text)) {
         this._message = null;
         this._overlapPopup = { kind: "rules", message: text, retry: { run: () => this._saveBatchEdit(true) } };
       }
@@ -8556,6 +8666,7 @@ class SpaBookingCard extends HTMLElement {
   async _createBookings(force = false, forceRules = false) {
     const rows = this._bookingRows();
     if (!rows.length) return;
+    if (this._blockedByExclusion()) return;
     if (force) {
       // The desk saw the overlap warning and books anyway: every entry
       // carries the flag, the backend still refuses operator clashes.
@@ -8627,6 +8738,12 @@ class SpaBookingCard extends HTMLElement {
       // go back and fix the form, which stays untouched. An operator clash
       // keeps the plain error, it can never be forced.
       const text = String((error && error.message) || "");
+      if (this._isExclusionRule(text)) {
+        this._message = null;
+        this._overlapPopup = { kind: "exclusive", message: text };
+        this._render();
+        return;
+      }
       if (!forceRules && this._isCategoryRule(text)) {
         this._message = null;
         this._overlapPopup = {
@@ -8708,6 +8825,11 @@ class SpaBookingCard extends HTMLElement {
     return /^La categoria '.*' (accetta|non può sovrapporsi)/.test(String(text || ""));
   }
 
+  /** Mutually exclusive categories: never forceable (2.9.1). */
+  _isExclusionRule(text) {
+    return /^La categoria '.*' non può sovrapporsi/.test(String(text || ""));
+  }
+
   /** The overlap question, over a backdrop like the other popups. */
   _renderOverlapPopup() {
     const draft = this._overlapPopup || {};
@@ -8726,6 +8848,18 @@ class SpaBookingCard extends HTMLElement {
         this._createBookings(true);
       }
     };
+    if (draft.kind === "exclusive") {
+      const close = () => { this._overlapPopup = null; this._render(); };
+      const sheet = el("div", { class: "detail-sheet overlap-sheet rules" },
+        el("div", { class: "overlap-icon" }, el("ha-icon", { icon: "mdi:calendar-remove" })),
+        el("h3", { class: "overlap-title" }, "Fascia oraria già occupata"),
+        el("div", { class: "detail-text overlap-text" }, draft.message || ""),
+        el("div", { class: "hint" },
+          "Queste categorie non possono mai accavallarsi, quindi l'appuntamento non può essere salvato in questa fascia. Cambia orario, giorno o trattamento."),
+        el("div", { class: "row" }, el("div", { class: "spacer" }),
+          el("button", { class: "btn primary", on: { click: close } }, "Cambia orario")));
+      return el("div", { class: "detail-backdrop", on: { click: (event) => { if (event.target === event.currentTarget) close(); } } }, sheet);
+    }
     const rules = draft.kind === "rules";
     // Forcing a category rule is the reception's call, as on the server.
     const mayForce = !rules || this._can("payments");
@@ -19923,6 +20057,7 @@ class SpaBookingCard extends HTMLElement {
 
     const groupSize = current ? this._groupSize(current) : 1;
     const save = async (pending, wholeGroup, force = false, forceRules = false) => {
+      if (this._blockedByExclusion()) return;
       try {
         await this._call("update_appointment", {
           appointment_id: this._editing.id,
@@ -19951,6 +20086,12 @@ class SpaBookingCard extends HTMLElement {
       } catch (error) {
         /* shown */
         const text = String((error && error.message) || "");
+        if (this._isExclusionRule(text)) {
+          this._message = null;
+          this._overlapPopup = { kind: "exclusive", message: text };
+          this._render();
+          return;
+        }
         if (!forceRules && this._isCategoryRule(text)) {
           this._message = null;
           this._overlapPopup = {

@@ -1,6 +1,6 @@
 # Spa Booking — guida alle schede (2.2)
 
-Aggiornata alla 2.9.0: [gruppi in entrata e uscita, Telegram integrato, ordinamento](#novit%C3%A0-della-290); ordine di trattamenti e pacchetti, modulo del sito compatto; [pacchetti e voucher fedeltà a mano](#scheda-pacchetti-e-voucher-fedelt%C3%A0-a-mano-2811); [pacchetti nelle prenotazioni](#pacchetti-dello-shop-nelle-prenotazioni-289); [gruppi e codice](#prenotazioni-di-gruppo-e-codice-288); [annullamento](#annullamento-287); [programma partner](#programma-partner-286); [pacchetto nelle promo](#pacchetto-dello-shop-nelle-promo-285); [tutti i messaggi WhatsApp](#tutti-i-messaggi-whatsapp-284); [conferma richiesta](#conferma-di-una-richiesta-283); [conto e voucher come pagamento](#conto-e-voucher-come-pagamento-281); [backup su Google Drive](#backup-su-google-drive-280); [Shop online](#shop-online-270); [importa partner e disiscrizione](#importa-partner-e-disiscrizione-260); [vista Mese](#vista-mese-255); [Dati fatturazione e Modifica appuntamento](#dati-fatturazione-e-modifica-appuntamento-252); [IVA](#iva-251); [campagne e punti partner](#campagne-e-punti-partner-250); [Email e Accedi con Google](#email-241); [dettaglio, punti e partner](#dettaglio-punti-fedelta-e-partner-240); [Agenda](#agenda-2312); [Nuovo appuntamento a passi](#nuovo-appuntamento-a-passi-2310); [promo salvate e modelli](#promo-salvate-e-modelli-239); [Promo e Impostazioni](#promo-e-impostazioni-238); [Notifiche](#notifiche-236); [messaggi e chat](#messaggi-e-chat-235); [preferenza massaggiatrice/massaggiatore](#preferenza-massaggiatrice-o-massaggiatore); [promo e fedeltà del cliente](#promo-e-fedeltà-del-cliente); [conferme e promemoria WhatsApp](#conferme-e-promemoria-whatsapp); [firme e storico](#firme-e-storico); [chiusure con giorni esclusi](#chiusure-con-giorni-esclusi); [Proponi data](#proponi-data) nelle richieste, con trattamenti alternativi e prezzo; [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
+Aggiornata alla 2.9.1: [categorie che non si accavallano](#categorie-che-non-si-accavallano-291); [gruppi in entrata e uscita, Telegram integrato, ordinamento](#novit%C3%A0-della-290); ordine di trattamenti e pacchetti, modulo del sito compatto; [pacchetti e voucher fedeltà a mano](#scheda-pacchetti-e-voucher-fedelt%C3%A0-a-mano-2811); [pacchetti nelle prenotazioni](#pacchetti-dello-shop-nelle-prenotazioni-289); [gruppi e codice](#prenotazioni-di-gruppo-e-codice-288); [annullamento](#annullamento-287); [programma partner](#programma-partner-286); [pacchetto nelle promo](#pacchetto-dello-shop-nelle-promo-285); [tutti i messaggi WhatsApp](#tutti-i-messaggi-whatsapp-284); [conferma richiesta](#conferma-di-una-richiesta-283); [conto e voucher come pagamento](#conto-e-voucher-come-pagamento-281); [backup su Google Drive](#backup-su-google-drive-280); [Shop online](#shop-online-270); [importa partner e disiscrizione](#importa-partner-e-disiscrizione-260); [vista Mese](#vista-mese-255); [Dati fatturazione e Modifica appuntamento](#dati-fatturazione-e-modifica-appuntamento-252); [IVA](#iva-251); [campagne e punti partner](#campagne-e-punti-partner-250); [Email e Accedi con Google](#email-241); [dettaglio, punti e partner](#dettaglio-punti-fedelta-e-partner-240); [Agenda](#agenda-2312); [Nuovo appuntamento a passi](#nuovo-appuntamento-a-passi-2310); [promo salvate e modelli](#promo-salvate-e-modelli-239); [Promo e Impostazioni](#promo-e-impostazioni-238); [Notifiche](#notifiche-236); [messaggi e chat](#messaggi-e-chat-235); [preferenza massaggiatrice/massaggiatore](#preferenza-massaggiatrice-o-massaggiatore); [promo e fedeltà del cliente](#promo-e-fedeltà-del-cliente); [conferme e promemoria WhatsApp](#conferme-e-promemoria-whatsapp); [firme e storico](#firme-e-storico); [chiusure con giorni esclusi](#chiusure-con-giorni-esclusi); [Proponi data](#proponi-data) nelle richieste, con trattamenti alternativi e prezzo; [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
 
 Questa guida mostra ogni scheda della dashboard **Spa Booking** e spiega a
 cosa serve ogni funzione. Le immagini sono state fatte con dati di prova.
@@ -32,6 +32,19 @@ in Impostazioni › Aspetto).
 
 
 
+
+## Categorie che non si accavallano (2.9.1)
+
+In Configurazione › Trattamenti, nella scheda di una categoria, «Non sovrapporre
+con» elenca le categorie con cui non deve mai condividere l'orario
+(es. Spa privata ↔ Ingresso Spa). La regola vale nei due sensi.
+
+Appena nel modulo scegli una fascia già occupata dall'altra categoria compare
+il popup «Fascia oraria già occupata» con l'appuntamento che la occupa. Se lo
+chiudi e provi a salvare, il popup torna e l'appuntamento non viene salvato:
+questa regola non si può forzare.
+
+![Fascia oraria già occupata](anteprime/77-fascia-occupata.png)
 
 ## Novità della 2.9.0
 
