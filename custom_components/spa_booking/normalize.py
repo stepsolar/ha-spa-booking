@@ -1496,6 +1496,14 @@ def _norm_partner(raw: Any) -> dict[str, Any]:
     }
 
 
+def _norm_package_ref(raw: dict[str, Any]) -> dict[str, str]:
+    """The shop package (key) and which booked copy of it (group), if any."""
+    key = str(raw.get("package_key") or "").strip()[:40]
+    if not key:
+        return {}
+    return {"package_key": key, "package_group": str(raw.get("package_group") or key).strip()[:40]}
+
+
 def _norm_pct(raw: Any) -> float:
     """A percentage from 0 to 100 (two decimals); 0 when not a number."""
     try:
@@ -1827,6 +1835,11 @@ def _norm_appointment(raw: dict[str, Any]) -> dict[str, Any]:
         "partner_id": str(raw.get("partner_id") or "").strip(),
         # The discount her guest had (2.8.6), only when there is one.
         **({"partner_discount_pct": _norm_pct(raw.get("partner_discount_pct"))} if raw.get("partner_discount_pct") else {}),
+        # The shop package this treatment is part of (2.8.9): its price is
+        # the package's share and its accessories are included.
+        **_norm_package_ref(raw),
+        **({"package_name": str(raw.get("package_name") or "")[:200]} if raw.get("package_key") else {}),
+        **({"extras_included": True} if raw.get("package_key") and raw.get("extras_included", True) else {}),
         # What changed, when and by whom: only the administrator sees it.
         "history": [dict(item) for item in raw.get("history") or [] if isinstance(item, dict)][-100:],
     }
@@ -1865,6 +1878,7 @@ def _norm_request(raw: dict[str, Any]) -> dict[str, Any]:
             clean["person"] = _norm_person(item.get("person"))
         if _norm_preference(item.get("therapist_preference")):
             clean["therapist_preference"] = _norm_preference(item.get("therapist_preference"))
+        clean.update(_norm_package_ref(item))
         entries.append(clean)
     status = raw.get("status")
     if status not in (REQUEST_PENDING, REQUEST_CONFIRMED):

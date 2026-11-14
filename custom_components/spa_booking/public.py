@@ -243,12 +243,32 @@ class SpaBookingPublicTreatmentsView(_PublicView):
                     item["price"] = payload["price"]
                 items.append(item)
             items.sort(key=lambda item: (item["category_name"], item["name"]))
+            # The shop packages for two or more people (2.8.9) whose
+            # treatments are all on the site: the guest picks one per couple.
+            visible = {item["id"] for item in items}
+            accessories = {a.get("id"): a for a in coordinator.accessories if isinstance(a, dict)}
+            packages = []
+            for package in coordinator.shop_packages(min_people=2):
+                if not set(package["treatment_ids"]) <= visible:
+                    continue
+                entry = {
+                    "key": package["key"], "name": package["name"], "people": package["people"],
+                    "treatment_ids": package["treatment_ids"],
+                    "extras": [str((accessories.get(e) or {}).get("label") or "") for e in package["extras"]
+                               if (accessories.get(e) or {}).get("label")],
+                    "note": package["note"], "image": package["image"],
+                }
+                if show_prices and package.get("price") is not None:
+                    entry["price"] = package["price"]
+                packages.append(entry)
             # What the form needs to draw itself (2.2.0b3).
             site = {
                 "show_prices": show_prices,
                 "accent": settings.get("web_accent") or "",
                 "max_days_ahead": settings.get("web_max_days_ahead") or 60,
             }
+            if packages:
+                site["packages"] = packages
             # The guest came with a partner's link (2.8.6): only the discount
             # travels, never who the partner is.
             partner_code = str(request.query.get("partner") or "").strip()[:20]
@@ -407,6 +427,11 @@ class SpaBookingPublicRequestView(_PublicView):
                 wish = str(entry.get("therapist_preference") or "")[:1].upper()
                 if wish in ("F", "M"):
                     item["therapist_preference"] = wish
+                # Part of a shop package the guest chose (2.8.9).
+                package_key = str(entry.get("package_key") or "")[:40]
+                if package_key and package_key in {p["key"] for p in coordinator.shop_packages(min_people=2)}:
+                    item["package_key"] = package_key
+                    item["package_group"] = str(entry.get("package_group") or package_key)[:40]
                 clean_entries.append(item)
             if not clean_entries:
                 raise ValidationError("Trattamento non valido nella richiesta")

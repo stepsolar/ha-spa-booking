@@ -165,6 +165,7 @@ from .normalize import (
     _norm_operator,
     _norm_parallel,
     _norm_payment,
+    _norm_package_ref,
     _norm_payment_list,
     _norm_person,
     _norm_price_opt,
@@ -2495,6 +2496,11 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         staged_clients: list[dict[str, Any]] = []
         planned: list[dict[str, Any]] = []
         prepared: list[tuple[dict[str, Any], dict[str, Any], bool]] = []
+        # Shop packages (2.8.9): each treatment gets its share of the price.
+        self._share_package_prices(
+            [(str(row.get("treatment_id") or ""), entry) for row in rows for entry in row.get("entries") or []
+             if isinstance(entry, dict)]
+        )
 
         # Total entries per treatment across the whole batch, so min_parallel
         # can be checked against the full group and not just the entries
@@ -2561,6 +2567,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         )
                         # The partner who brought the party (2.5.0).
                         appointment["partner_id"] = self._partner_id_of(row.get("partner_id"))
+                        self._apply_package(appointment, entry)
                         self._apply_partner_discount(appointment)
                         if is_new and not any(
                             staged["id"] == client["id"] for staged in staged_clients
@@ -3362,6 +3369,83 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         spent = int(partner.get("points_spent") or 0)
         return {"earned": earned, "adjust": adjust, "spent": spent, "balance": earned + adjust - spent,
                 "booked": round(booked, 2), "bookings": bookings}
+
+    def shop_packages(self, min_people: int = 1) -> list[dict[str, Any]]:
+        """The shop products paired with treatments, as bookable packages (2.8.9).
+
+        Each has its price (the shop's), how many people it is for, and the
+        treatments and accessories every one of them gets.
+        """
+        settings = self._data.get(KEY_SETTINGS, {})
+        mapping = settings.get("wp_product_map") or {}
+        known = {t["id"] for t in self.treatments if t.get("active", True)}
+        out = []
+        for product in settings.get("wp_products") or []:
+            entry = mapping.get(product.get("key")) or {}
+            treatments = [t for t in entry.get("treatment_ids") or [] if t in known]
+            if not treatments or len(treatments) != len(entry.get("treatment_ids") or []):
+                continue
+            people = max(1, int(entry.get("people") or 1))
+            if people < min_people:
+                continue
+            out.append({
+                "key": product["key"],
+                "name": product.get("name") or "",
+                "price": product.get("price"),
+                "people": people,
+                "treatment_ids": treatments,
+                "extras": [e for e in entry.get("extras") or [] if e],
+                "note": str(entry.get("note") or ""),
+                "image": product.get("image") or "",
+            })
+        return out
+
+    def _share_package_prices(self, items: list[tuple[str, dict[str, Any]]]) -> None:
+        """Share each booked package's price among its treatments (2.8.9).
+
+        ``items`` are (treatment id, entry) pairs. Entries of the same
+        ``package_group`` without a price of their own split the shop price
+        by the weight of each treatment's list price (equal parts when there
+        is none); the last one takes the rounding cents.
+        """
+        packages = {p["key"]: p for p in self.shop_packages()}
+        prices = {t["id"]: float(t.get("price") or 0) for t in self.treatments}
+        groups: dict[str, list[tuple[str, dict[str, Any]]]] = {}
+        for treatment_id, entry in items:
+            key = entry.get("package_key")
+            if key and entry.get("price") is None:
+                groups.setdefault(str(entry.get("package_group") or key), []).append((treatment_id, entry))
+        for members in groups.values():
+            package = packages.get(members[0][1].get("package_key"))
+            if not package or package.get("price") is None:
+                continue
+            total = float(package["price"])
+            weights = [prices.get(t, 0.0) for t, _ in members]
+            whole = sum(weights)
+            shares = [round(total * (w / whole if whole else 1 / len(members)), 2) for w in weights]
+            shares[-1] = round(total - sum(shares[:-1]), 2)
+            for (_t, entry), share in zip(members, shares, strict=True):
+                entry["price"] = max(0.0, share)
+
+    def _package_extras(self, key: Any) -> list[str]:
+        """The accessories included in a shop package (2.8.9)."""
+        if not key:
+            return []
+        entry = (self._data.get(KEY_SETTINGS, {}).get("wp_product_map") or {}).get(str(key)) or {}
+        return [str(e) for e in entry.get("extras") or [] if e]
+
+    def _apply_package(self, appointment: dict[str, Any], entry: dict[str, Any]) -> None:
+        """Mark a treatment as part of a shop package (2.8.9): name, group, accessories included."""
+        key = str(entry.get("package_key") or "")
+        if not key:
+            for field in ("package_key", "package_group", "package_name", "extras_included"):
+                appointment.pop(field, None)
+            return
+        product = next((p for p in self._data.get(KEY_SETTINGS, {}).get("wp_products") or [] if p.get("key") == key), {})
+        appointment["package_key"] = key
+        appointment["package_group"] = str(entry.get("package_group") or key)
+        appointment["package_name"] = str(product.get("name") or entry.get("package_name") or "Pacchetto")
+        appointment["extras_included"] = True
 
     def partner_discount_of(self, partner_id: str) -> float:
         """The discount (%) of the guests who book with this partner (2.8.6)."""
@@ -4301,8 +4385,13 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             "start": f"{day}T{clock}:00",
                             "client_id": request["client_id"],
                             "person": person,
-                            "extras": entry.get("extras") or [],
+                            "extras": entry.get("extras") or self._package_extras(entry.get("package_key")),
                             **({"operator_ids": able} if able else {}),
+                            **(
+                                {"package_key": entry["package_key"],
+                                 "package_group": entry.get("package_group") or entry["package_key"]}
+                                if entry.get("package_key") else {}
+                            ),
                             # The person's own wish wins over the request's.
                             "therapist_preference": entry.get("therapist_preference")
                             or request.get("therapist_preference")
@@ -4343,6 +4432,9 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             batch_id = anchor.get("batch_id") or _new_id("batch")
             existing = [a for a in self.appointments if a.get("batch_id") == batch_id]
             id_map = {a["id"]: a for a in existing}
+            self._share_package_prices(
+                [(str(row.get("treatment_id") or ""), row) for row in rows if isinstance(row, dict)]
+            )
             # Appointments whose masseuse must hear about the edit (2.8.3).
             reassigned: list[tuple[dict[str, Any], str]] = []
 
@@ -4528,10 +4620,20 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         appointment["review_request_sent"] = existing_appt.get("review_request_sent", False)
                         appointment["deposit_request_sent"] = existing_appt.get("deposit_request_sent", False)
                         kept_ids.add(existing_appt["id"])
-
                     elif appointment.get("offer_state") == OFFER_PENDING:
                         # A person added to the group: her masseuse is asked.
                         reassigned.append((appointment, ""))
+
+                    # The partner of the booking stays with every person (2.8.9).
+                    appointment["partner_id"] = self._partner_id_of(
+                        row.get("partner_id") if row.get("partner_id") is not None
+                        else (existing_appt or anchor).get("partner_id") or ""
+                    )
+                    self._apply_package(appointment, row)
+                    if existing_appt is not None and existing_appt.get("partner_discount_pct") and appointment.get("price") is not None:
+                        appointment["partner_discount_pct"] = existing_appt["partner_discount_pct"]
+                    elif existing_appt is None:
+                        self._apply_partner_discount(appointment)
 
                     # Clients handled below; no-op placeholder
                     prepared.append((appointment, client, is_new))
@@ -4656,6 +4758,10 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 item["person"] = _norm_person(entry.get("person"))
             if entry.get("therapist_preference") in ("F", "M"):
                 item["therapist_preference"] = entry["therapist_preference"]
+            # Part of a shop package (2.8.9): its accessories come with it.
+            item.update(_norm_package_ref(entry))
+            if item.get("package_key") and not item["extras"]:
+                item["extras"] = self._package_extras(item["package_key"])
             clean.append(item)
         if not clean:
             raise ValidationError("Aggiungi almeno un trattamento alla richiesta")
@@ -6236,7 +6342,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             for item in self.accessories
             if isinstance(item, dict) and item.get("id")
         }
-        for extra_id in appointment.get("extras") or []:
+        for extra_id in [] if appointment.get("extras_included") else appointment.get("extras") or []:
             entry = catalogue_extras.get(extra_id)
             if entry:
                 try:
