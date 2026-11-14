@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "3.1.1";
+const CARD_VERSION = "3.1.2";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -130,7 +130,7 @@ const NOTIFY_AUTO = (draft, autoKey, hoursKey, fallback, label, hoursLabel, chan
 ];
 const NOTIFY_MESSAGES = [
   {
-    id: "request", group: "Prima della visita", icon: "mdi:email-receive-outline",
+    id: "request", group: "Prima della visita", icon: "mdi:email-arrow-left-outline",
     title: "Richiesta ricevuta", key: "request_message",
     when: () => "Quando si salva una richiesta", auto: () => true,
     description: "Parte da solo quando una richiesta viene salvata, dal sito o dalla reception, se l'ospite ha il telefono.",
@@ -2998,7 +2998,15 @@ class SpaBookingCard extends HTMLElement {
         manager: ["agenda", "nuovo", "spa", "clienti", "voucher", "whatsapp"],
         admin: ["agenda", "nuovo", "spa", "clienti", "voucher", "whatsapp", "config"],
       }[this._userLevel()] || [];
-    return TABS.filter((tab) => allowed.includes(tab.id));
+    // Spa Booking Web (3.1.2) has no Home Assistant entities: the Spa tab
+    // (lights, climate, cameras) has nothing to show there.
+    return TABS.filter((tab) => allowed.includes(tab.id) && !(tab.id === "spa" && this._webMode()));
+  }
+
+  /** Running on Spa Booking Web (the cloud server), not inside Home Assistant. */
+  _webMode() {
+    const version = String((this._hass && this._hass.config && this._hass.config.version) || "");
+    return version.startsWith("Spa Booking Web");
   }
 
   /**
@@ -3255,6 +3263,14 @@ class SpaBookingCard extends HTMLElement {
           title: "Esci e lascia il tablet al collega",
           on: { click: () => this._pinLogout() },
         }, el("ha-icon", { icon: "mdi:lock" }), el("span", { class: "label" }, "Cambia utente")));
+    }
+    // On Spa Booking Web each person logs in with her own password, so she
+    // needs a way out on a shared computer (3.1.2).
+    if (this._webMode()) {
+      chip.appendChild(
+        el("a", {
+          class: "btn small ghost user-switch", href: "/auth/logout", title: "Esci da Spa Booking",
+        }, el("ha-icon", { icon: "mdi:logout" }), el("span", { class: "label" }, "Esci")));
     }
     return chip;
   }
@@ -4159,17 +4175,29 @@ class SpaBookingCard extends HTMLElement {
     }, { passive: false });
     const page = (direction) => strip.scrollBy({ left: direction * (strip.clientWidth + 6), behavior: "smooth" });
     // Once laid out: back where it was, or on the week of the shown day.
-    (typeof requestAnimationFrame === "function" ? requestAnimationFrame : (fn) => setTimeout(fn, 0))(() => {
+    // A strip still hidden (the standalone page shows it behind the loading
+    // screen) has no width yet: try again shortly instead of saving 0.
+    const later = typeof requestAnimationFrame === "function" ? requestAnimationFrame : (fn) => setTimeout(fn, 0);
+    let tries = 0;
+    const place = () => {
       if (!strip.isConnected) return;
+      if (!strip.clientWidth) {
+        tries += 1;
+        if (tries < 60) setTimeout(place, 100);
+        return;
+      }
       if (this._weekScroll != null && this._weekScrollDay === this._day) {
         strip.scrollLeft = this._weekScroll;
         return;
       }
       const target = strip.querySelector(`[data-day="${ymd(monday)}"]`);
-      if (target) strip.scrollLeft = target.offsetLeft - strip.offsetLeft;
+      if (target) {
+        strip.scrollLeft += target.getBoundingClientRect().left - strip.getBoundingClientRect().left;
+      }
       this._weekScroll = strip.scrollLeft;
       this._weekScrollDay = this._day;
-    });
+    };
+    later(place);
     return el("div", { class: "ag-week-wrap" },
       el("button", { type: "button", class: "icon-btn ag-week-arrow", title: "Settimana prima", on: { click: () => page(-1) } }, el("ha-icon", { icon: "mdi:chevron-left" })),
       strip,
@@ -10692,7 +10720,7 @@ class SpaBookingCard extends HTMLElement {
             : `${state === "scaduto" ? "Scaduto il" : "Valido fino al"} ${this._dateIt(voucher.expires_on)}`),
         el("span", {}, el("ha-icon", { icon: "mdi:pencil" }),
           voucher.source === "wordpress" ? `Shop online${voucher.wp_order_id ? ` · ordine #${voucher.wp_order_id}` : ""}` : `Creato da ${voucher.created_by_name || "—"}`),
-        voucher.source === "wordpress" && voucher.message ? el("span", {}, el("ha-icon", { icon: "mdi:message-heart-outline" }), `«${voucher.message}»`) : null,
+        voucher.source === "wordpress" && voucher.message ? el("span", {}, el("ha-icon", { icon: "mdi:heart-outline" }), `«${voucher.message}»`) : null,
         voucher.package_note ? el("span", {}, el("ha-icon", { icon: "mdi:package-variant" }), `Incluso: ${voucher.package_note}`) : null,
         voucher.source === "wordpress" && state === "riscattato"
           ? el("span", { class: voucher.wp_redeemed ? "" : "warn" }, el("ha-icon", { icon: voucher.wp_redeemed ? "mdi:check-decagram" : "mdi:sync-alert" }),
@@ -17069,7 +17097,7 @@ class SpaBookingCard extends HTMLElement {
           } catch (error) {
             this._message = { kind: "error", text: String(error && error.message || error) };
           } finally { this._busy = false; this._render(); }
-        } } }, el("ha-icon", { icon: "mdi:email-send-outline" }), "Invia email di prova")),
+        } } }, el("ha-icon", { icon: "mdi:email-arrow-right-outline" }), "Invia email di prova")),
       el("div", { class: "hint" }, "La prova salva prima le modifiche. Se qualcosa non va, il messaggio dice cosa correggere.")));
 
     wrap.appendChild(this._pageSaveBar("email", () => this._saveEmail(), () => { this._emailDraft = null; this._render(); }));
