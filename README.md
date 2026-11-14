@@ -1,40 +1,34 @@
-# Spa Booking — integrazione Home Assistant
+<p align="center"><img src="docs/anteprime/logo.png" width="128" alt="Spa Booking"></p>
 
-Gestione degli appuntamenti della SPA dentro Home Assistant: categorie,
-trattamenti con durata propria, operatrici, schede cliente, agenda del giorno
-per operatrice e per categoria, pagamenti, voucher, richieste dal sito web,
-promemoria e report automatici su WhatsApp e Telegram.
+<h1 align="center">Spa Booking</h1>
 
-Versione corrente: **2.3.7** — documentazione completa in
-[`custom_components/spa_booking/README.md`](custom_components/spa_booking/README.md).
+<p align="center"><b>La spa dell'hotel in Home Assistant</b>: agenda, prenotazioni, operatori,
+clienti, voucher, WhatsApp e Telegram, modulo per il sito e shop online, in una sola card.</p>
 
-**[Guida alle schede con le anteprime](docs/GUIDA.md)**: ogni scheda della
-dashboard con la spiegazione di ogni funzione.
+<p align="center">Versione <b>3.0.0</b> · <a href="docs/GUIDA.md"><b>Guida completa con le immagini</b></a></p>
 
-![Agenda](docs/anteprime/01-agenda.png)
+![Agenda](docs/anteprime/v3/v3-01-agenda.png)
 
-## Funzionalità principali
+## Cosa fa
 
-- **Agenda del giorno** per operatrici e categorie, vista singola o raggruppata
-  per cliente.
-- **Prenotazioni multipersona e multitrattamento** in un'unica operazione, con
-  controllo di sovrapposizioni, pause delle operatrici, fasce orarie e
-  esclusioni tra categorie.
-- **Offerte alle operatrici** su WhatsApp/Telegram con conferma, rifiuto e
-  passaggio automatico alla successiva libera.
-- **Pagamenti** multi-metodo, acconti e saldo.
-- **Clienti** con deduplicazione per telefono (anche numeri esteri).
-- **Voucher regalo e voucher fedeltà**, con avviso di scadenza.
-- **Richieste dal sito WordPress** tramite API pubblica protetta da token e
-  limite di richieste.
-- **Attività automatiche** (promemoria, recensioni, promo, report mensile)
-  eseguite dall'integrazione stessa, con orario di silenzio.
-- **Login personale e ruoli** (Massaggiatrice, Reception, Manager,
-  Amministratore) applicati anche lato server, utenti creati dalla card e
-  **PIN** per il tablet condiviso della reception.
-- **Prefisso internazionale** accanto a ogni campo telefono, anche nel modulo
-  del sito.
-- **Backup e ripristino** in JSON e CSV clienti.
+| | |
+|---|---|
+| ![Scheda appuntamento](docs/anteprime/v3/v3-04-dettaglio.png) | **Agenda** in tre viste (Timeline per operatrice e categoria, Elenco, Mese), settimana con il riempimento dei giorni, pillole per in sala, da confermare e da incassare, stampa della giornata. **Scheda dell'appuntamento** con entrata e uscita (anche di gruppo), conto e incassi, conferma, promemoria, acconto, recensione e storico modifiche. |
+| ![Nuovo appuntamento](docs/anteprime/v3/v3-05-nuovo.png) | **Nuovo appuntamento a passi** per una o più persone, ognuna con i suoi trattamenti, orari, operatrice e accessori; pacchetti dello shop, voucher, partner e sconti. Controlli su operatrici occupate, pause, chiusure, regole delle categorie e **categorie che non si accavallano**. Un solo codice per prenotazione di gruppo. |
+| ![Richieste](docs/anteprime/v3/v3-07-lista.png) | **Richieste** dal sito e dal banco: conferma in un tocco con la scelta dell'operatrice, proposta di un'altra data con trattamenti alternativi, conferma di ricezione su WhatsApp. |
+| ![WhatsApp](docs/anteprime/v3/v3-13-whatsapp.png) | **WhatsApp integrato** (si collega da solo al numero dell'hotel) e **bot Telegram integrato**: offerte agli operatori con SI/NO e passaggio automatico alla successiva libera, conferme, promemoria, acconti, annullamenti, recensioni, report; tutte le chat dentro la card. |
+| ![Voucher](docs/anteprime/v3/v3-12-voucher.png) | **Voucher regalo e gift card** firmati con il PIN, usati come pagamento con credito residuo; **voucher dallo shop WooCommerce** importati da soli e riscattati sul sito all'entrata. |
+| ![Scheda cliente](docs/anteprime/v3/v3-10-scheda-cliente.png) | **Clienti** riconosciuti dal telefono, **punti fedeltà** e voucher fedeltà automatici o a mano, **partner** con link personale, sconto ai loro ospiti, punti e premi, campagne email. |
+| ![Promo](docs/anteprime/v3/v3-19-promo.png) | **Promo WhatsApp** da modelli pronti (Natale, San Valentino, Black Friday…), programmate o ricorrenti, anche con un pacchetto dello shop. |
+| ![Impostazioni](docs/anteprime/v3/v3-21-impostazioni.png) | **Ruoli** (Massaggiatrice, Reception, Manager, Amministratore) controllati anche dal server, utenti creati dalla card e **tablet della reception con PIN**; IVA e dati di fatturazione; email con Google o SMTP; backup automatico su Google Drive; aggiornamenti dalla card. |
+
+Il **modulo per il sito** (italiano, inglese, tedesco) propone solo gli
+orari liberi, i pacchetti dello shop e lo sconto partner, e si aggiorna da
+solo con Spa Booking.
+
+| | | |
+|---|---|---|
+| ![Modulo del sito](docs/anteprime/30-sito-f1-quando.png) | ![Telefono](docs/anteprime/v3/v3-22-telefono-agenda.png) | ![Tema scuro](docs/anteprime/v3/v3-24-scuro.png) |
 
 ## Installazione
 
@@ -52,22 +46,20 @@ riavvia. La card e il modulo del sito sono inclusi nella cartella
 La card di gestione viene caricata automaticamente in ogni dashboard; è
 disponibile anche come pagina a sé su `/spa_booking`.
 
-## WhatsApp integrato
+## WhatsApp e Telegram
 
-Spa Booking si collega da solo al numero WhatsApp dell'hotel, come WhatsApp
-Web (dalla 2.9.0 è l'unico collegamento: l'add-on WAHA non è più supportato):
+**WhatsApp** — Configurazione › Notifiche › Collegamenti › **Collega
+WhatsApp**, poi dal telefono dell'hotel: WhatsApp › Dispositivi collegati ›
+Collega un dispositivo e inquadra il QR (oppure *Ottieni codice* con il
+numero). Non è un canale ufficiale di WhatsApp: il telefono deve restare con
+WhatsApp installato e connettersi almeno ogni 14 giorni. Funziona su
+processori Intel/AMD a 64 bit (mini PC, NUC, macchine virtuali).
 
-1. Configurazione › Notifiche › Collegamenti › **Collegamento WhatsApp**.
-2. Premi **Collega WhatsApp** e, dal telefono dell'hotel, WhatsApp ›
-   Dispositivi collegati › Collega un dispositivo: inquadra il codice QR.
-   Se la card è aperta sullo stesso telefono, scrivi il numero e premi
-   **Ottieni codice**, poi «Collega con il numero di telefono».
-3. Prova un invio con «Prova WhatsApp». Offerte, risposte, reazioni e
-   messaggi in arrivo arrivano dentro Spa Booking.
-
-Non è un canale ufficiale di WhatsApp. Il telefono deve
-restare con WhatsApp installato e connettersi almeno ogni 14 giorni. Per ora
-funziona su processori Intel/AMD a 64 bit (mini PC, NUC, macchine virtuali).
+**Telegram** — su Telegram crea un bot con **@BotFather** (`/newbot`),
+incolla il token in Collegamenti e premi **Salva e collega**. Ogni operatore
+scrive `/start` al bot e riceve il codice della sua chat da inserire nella
+sua scheda. Non serve l'integrazione Telegram di Home Assistant (se usa lo
+stesso bot, va rimossa).
 
 ## Modulo per il sito web
 
@@ -99,18 +91,6 @@ Prezzi, colore e indirizzo pubblico si impostano nella stessa sezione. Il
 «Codice completo (vecchio)» resta disponibile per i siti che non possono
 caricare uno script da un altro indirizzo.
 
-## Aggiornare dalla 2.0.x
-
-- La cartella `/config/www/spa_booking/` non viene più letta e si può
-  cancellare.
-- Le automazioni del vecchio `packages/spa_booking.yaml` che chiamavano
-  promemoria, offerte, promo e report non servono più: l'integrazione le
-  esegue da sola e non invia mai due volte, quindi si possono togliere con
-  calma.
-- Gli utenti non amministratori di Home Assistant devono avere un livello
-  nella scheda **Accessi**, altrimenti i servizi rifiutano le loro chiamate
-  (la card già non mostrava nulla a chi non aveva accesso).
-
 ## Sviluppo
 
 ```bash
@@ -131,6 +111,19 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v3.0.0** — (serve il riavvio di Home Assistant)
+  - **Nuovo logo** di Spa Booking (pietre zen con la foglia, sull'acqua,
+    dentro l'anello dorato del tempo) nella testata, nel tablet con PIN e
+    come icona dell'integrazione.
+  - **Nuova schermata di caricamento**: il logo si compone con
+    un'animazione (pietre che si posano, foglia che spunta, anello che gira),
+    sia nella card sia nella pagina `/spa_booking`, chiara e scura.
+  - Popup **Fascia oraria già occupata**: dice solo quali categorie non
+    possono accavallarsi, senza cliente, trattamento, orario e codice
+    dell'appuntamento che occupa la fascia.
+  - **Guida completa 3.0** (`docs/GUIDA.md`) riorganizzata per schede, con
+    tutte le funzioni e nuove immagini; README con le immagini di Spa
+    Booking.
 - **v2.9.1** — (serve il riavvio di Home Assistant)
   - **Categorie che non si accavallano** (es. spa privata e spa condivisa):
     appena scegli una fascia oraria già occupata dall'altra categoria (ora,

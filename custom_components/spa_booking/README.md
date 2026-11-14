@@ -4,6 +4,10 @@ Gestione degli appuntamenti della SPA dentro Home Assistant: categorie,
 trattamenti con durata propria, operatori, schede clienti e agenda del giorno
 raggruppata per operatore e per categoria.
 
+> Questo file è la documentazione tecnica (servizi, eventi, permessi). La
+> guida d'uso completa della versione 3.0, con le immagini, è in
+> [`docs/GUIDA.md`](../../docs/GUIDA.md).
+
 ## Novità versione 2.1
 
 - **Pianificatore interno**: promemoria, offerte scadute, richieste di
@@ -286,8 +290,9 @@ Il report del mese precedente parte da solo il 1° del mese all'orario
 `report_time` (predefinito 08:00), una sola volta: il mese inviato viene
 memorizzato.
 
-WhatsApp passa dal gateway WAHA configurato nella card. Senza gateway si usa
-ancora, se esiste, `rest_command.spa_booking_whatsapp_send`.
+WhatsApp passa dal collegamento WhatsApp integrato (Configurazione ›
+Notifiche › Collegamenti); Telegram dal bot integrato configurato nello
+stesso punto.
 
 ### Messaggio di benvenuto per le richieste web
 
@@ -342,7 +347,7 @@ I ruoli della scheda **Accessi** valgono anche lato server. Regola: vale il
 ruolo assegnato; un amministratore di Home Assistant è sempre admin; chiunque
 altro non ha accesso. Le automazioni e gli script agiscono come sistema.
 
-- **read** (Solo lettura): caricare i dati e l'agenda (senza chiave WAHA,
+- **read** (Solo lettura): caricare i dati e l'agenda (senza token Telegram,
   token del sito, segreto del webhook e PIN);
 - **therapist** (Massaggiatrice): prenotare, spostare, annullare e fare
   check-in/out **solo dei propri appuntamenti** (quelli dell'operatrice

@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.9.1";
+const CARD_VERSION = "3.0.0";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -628,6 +628,71 @@ function add(node, ...children) {
     });
   return node;
 }
+
+/**
+ * The Spa Booking mark (3.0.0): stacked zen stones with a sprouting leaf,
+ * resting on water, inside a golden time ring — the spa and the booking in
+ * one sign. Gradient ids are unique per copy, so several marks can live in
+ * the same shadow root.
+ */
+const SPA_LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" aria-hidden="true">
+  <defs>
+    <linearGradient id="ID-bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1f9e98"/><stop offset="1" stop-color="#0b4f63"/></linearGradient>
+    <linearGradient id="ID-st" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fffaf2"/><stop offset="1" stop-color="#e3d5c0"/></linearGradient>
+  </defs>
+  <rect x="2" y="2" width="116" height="116" rx="34" fill="url(#ID-bg)"/>
+  <circle cx="60" cy="60" r="44" fill="none" stroke="#fffaf2" stroke-opacity=".28" stroke-width="3"/>
+  <g class="lg-ring"><path d="M60 16 A44 44 0 1 1 18.2 46.4" fill="none" stroke="#f0c977" stroke-width="3.2" stroke-linecap="round"/><circle cx="18.2" cy="46.4" r="4.2" fill="#f0c977"/></g>
+  <path class="lg-wave" d="M32 95 q7 -4.5 14 0 t14 0 t14 0 t14 0" fill="none" stroke="#bfe8df" stroke-opacity=".75" stroke-width="2.6" stroke-linecap="round"/>
+  <ellipse class="lg-st lg-st1" cx="60" cy="81" rx="24" ry="8.5" fill="url(#ID-st)"/>
+  <ellipse class="lg-st lg-st2" cx="60" cy="66" rx="17.5" ry="7" fill="url(#ID-st)"/>
+  <ellipse class="lg-st lg-st3" cx="60" cy="53.5" rx="11" ry="5.5" fill="url(#ID-st)"/>
+  <g class="lg-leaf"><path d="M61 48 C 59 37, 66 29, 79 28 C 78 40, 71 47, 61 48 Z" fill="#bfe8df"/><path d="M62.5 46.5 C 66 41, 70 36, 76 31" fill="none" stroke="#1f9e98" stroke-width="1.4" stroke-linecap="round"/></g>
+</svg>`;
+let spaLogoSeq = 0;
+function spaLogo(size = 36, animated = false) {
+  spaLogoSeq += 1;
+  const wrap = document.createElement("span");
+  wrap.className = `sb-logo${animated ? " anim" : ""}`;
+  wrap.style.width = `${size}px`;
+  wrap.style.height = `${size}px`;
+  wrap.innerHTML = SPA_LOGO_SVG.replace(/ID-/g, `sbl${spaLogoSeq}-`);
+  return wrap;
+}
+
+/** CSS of the mark and of its loading animation (card and standalone page). */
+const SPA_LOGO_CSS = `
+  .sb-logo { display: inline-block; flex: none; line-height: 0; }
+  .sb-logo svg { width: 100%; height: 100%; display: block; }
+  .sb-logo.anim .lg-ring { transform-origin: 60px 60px; animation: sbl-spin 2.6s linear infinite; }
+  .sb-logo.anim .lg-st { opacity: 0; transform-box: fill-box; transform-origin: center;
+    animation: sbl-drop .7s cubic-bezier(.3,1.5,.5,1) forwards; }
+  .sb-logo.anim .lg-st1 { animation-delay: .1s; }
+  .sb-logo.anim .lg-st2 { animation-delay: .35s; }
+  .sb-logo.anim .lg-st3 { animation-delay: .6s; }
+  .sb-logo.anim .lg-leaf { opacity: 0; transform-box: fill-box; transform-origin: 0% 100%;
+    animation: sbl-leaf .6s .95s ease-out forwards, sbl-sway 3s 1.6s ease-in-out infinite; }
+  .sb-logo.anim .lg-wave { stroke-dasharray: 8 6; animation: sbl-flow 1.4s linear infinite; }
+  @keyframes sbl-spin { to { transform: rotate(360deg); } }
+  @keyframes sbl-drop { from { opacity: 0; transform: translateY(-14px); } to { opacity: 1; transform: none; } }
+  @keyframes sbl-leaf { from { opacity: 0; transform: scale(.2) rotate(-25deg); } to { opacity: 1; transform: none; } }
+  @keyframes sbl-sway { 0%, 100% { transform: rotate(0); } 50% { transform: rotate(-7deg); } }
+  @keyframes sbl-flow { to { stroke-dashoffset: -28; } }
+  .sb-splash { min-height: 72vh; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 14px; text-align: center; padding: 24px; }
+  .sb-splash .sb-logo { filter: drop-shadow(0 14px 28px rgba(11, 79, 99, .28)); }
+  .sb-splash-title { font-family: Georgia, "Times New Roman", serif; font-size: 30px; letter-spacing: .5px;
+    color: var(--primary-text-color, #12343b); margin-top: 6px; }
+  .sb-splash-sub { font-size: 12px; letter-spacing: 3px; text-transform: uppercase; color: #1f9e98; font-weight: 600; }
+  .sb-splash-dots { display: flex; gap: 6px; margin-top: 4px; }
+  .sb-splash-dots i { width: 6px; height: 6px; border-radius: 50%; background: #f0c977; animation: sbl-dot 1.2s ease-in-out infinite; }
+  .sb-splash-dots i:nth-child(2) { animation-delay: .2s; }
+  .sb-splash-dots i:nth-child(3) { animation-delay: .4s; }
+  @keyframes sbl-dot { 0%, 100% { opacity: .25; transform: translateY(0); } 50% { opacity: 1; transform: translateY(-4px); } }
+  @media (prefers-reduced-motion: reduce) {
+    .sb-logo.anim * , .sb-splash-dots i { animation-duration: .01s !important; animation-iteration-count: 1 !important; }
+  }
+`;
 
 function el(tag, props, ...children) {
   const node = document.createElement(tag);
@@ -3196,7 +3261,7 @@ class SpaBookingCard extends HTMLElement {
   _renderPinScreen() {
     const people = (this._me && this._me.people) || [];
     const wrap = el("div", { class: "pin-screen" });
-    wrap.appendChild(el("ha-icon", { class: "pin-logo", icon: "mdi:spa-outline" }));
+    wrap.appendChild(spaLogo(64));
     wrap.appendChild(el("h2", {}, "Tablet della reception"));
     if (!people.length) {
       wrap.appendChild(el("p", { class: "dim" },
@@ -3318,7 +3383,6 @@ class SpaBookingCard extends HTMLElement {
       return { treatment, category: this._categoryOf(treatment), start, end };
     }).filter((item) => item && item.category);
     if (!planned.length) return "";
-    const hm = (date) => `${pad(date.getHours())}:${pad(date.getMinutes())}`;
     for (const item of planned) {
       for (const appointment of this._data.appointments || []) {
         if (skipIds.has(appointment.id)) continue;
@@ -3329,16 +3393,12 @@ class SpaBookingCard extends HTMLElement {
         const start = parseDate(appointment.start);
         const end = parseDate(appointment.end);
         if (!(start < item.end && end > item.start)) continue;
-        const client = appointment.client || this._lookup.client.get(appointment.client_id) || {};
-        const who = client.full_name || [client.first_name, client.last_name].filter(Boolean).join(" ");
-        return `La categoria '${item.category.name}' non può sovrapporsi a '${other.name}': `
-          + `${who ? `${who}, ` : ""}${otherTreatment.name} ${hm(start)}–${hm(end)}`
-          + `${appointment.code ? ` (codice ${appointment.code})` : ""}.`;
+        // Only the two categories (3.0.0): who holds the slot is not shown.
+        return `La categoria '${item.category.name}' non può sovrapporsi a '${other.name}'.`;
       }
       for (const peer of planned) {
         if (peer !== item && exclusive(item.category, peer.category) && peer.start < item.end && peer.end > item.start) {
-          return `La categoria '${item.category.name}' non può sovrapporsi a '${peer.category.name}' `
-            + `nella stessa prenotazione (${hm(peer.start)}–${hm(peer.end)}).`;
+          return `La categoria '${item.category.name}' non può sovrapporsi a '${peer.category.name}' nella stessa prenotazione.`;
         }
       }
     }
@@ -3464,6 +3524,10 @@ class SpaBookingCard extends HTMLElement {
 
   _renderInner() {
     if (!this._ready) return;
+    // The splash keeps running while the first load answers: redrawing it
+    // would restart its animation on every tick.
+    if (!this._loadedOnce && this._splashShown && this.shadowRoot.querySelector(".sb-splash")) return;
+    this._splashShown = !this._loadedOnce;
     const root = this.shadowRoot;
     root.innerHTML = "";
     add(root, this._style());
@@ -3472,9 +3536,7 @@ class SpaBookingCard extends HTMLElement {
     // the permissions known, so a granted account never sees a flash of
     // "Accesso non consentito".
     if (!this._loadedOnce) {
-      root.appendChild(
-        el("div", { class: "wrap" }, el("div", { class: "hint" }, "Caricamento…"))
-      );
+      root.appendChild(this._renderSplash());
       return;
     }
     // The shared reception tablet waits for somebody's PIN.
@@ -3716,6 +3778,15 @@ class SpaBookingCard extends HTMLElement {
     this._render();
   }
 
+  /** The first loading screen (3.0.0): the animated mark. */
+  _renderSplash() {
+    return el("div", { class: "sb-splash" },
+      spaLogo(104, true),
+      el("div", { class: "sb-splash-title" }, (this._config && this._config.title) || "Spa Booking"),
+      el("div", { class: "sb-splash-sub" }, "Preparo l'agenda"),
+      el("div", { class: "sb-splash-dots" }, el("i"), el("i"), el("i")));
+  }
+
   _header() {
     // The title the reception wrote in Impostazioni wins; the card's own YAML
     // configuration is the fallback, and the built-in one the last resort.
@@ -3734,7 +3805,7 @@ class SpaBookingCard extends HTMLElement {
         },
         el("ha-icon", { icon: "mdi:menu" })
       ));
-    head.appendChild(el("ha-icon", { class: "head-icon", icon: "mdi:spa-outline" }));
+    head.appendChild(spaLogo(34));
     head.appendChild(
       el(
         "div",
@@ -8853,7 +8924,9 @@ class SpaBookingCard extends HTMLElement {
       const sheet = el("div", { class: "detail-sheet overlap-sheet rules" },
         el("div", { class: "overlap-icon" }, el("ha-icon", { icon: "mdi:calendar-remove" })),
         el("h3", { class: "overlap-title" }, "Fascia oraria già occupata"),
-        el("div", { class: "detail-text overlap-text" }, draft.message || ""),
+        // The server names the appointment in the way after a colon: the
+        // popup only says which categories clash (3.0.0).
+        el("div", { class: "detail-text overlap-text" }, String(draft.message || "").replace(/:\s[\s\S]*$/, ".")),
         el("div", { class: "hint" },
           "Queste categorie non possono mai accavallarsi, quindi l'appuntamento non può essere salvato in questa fascia. Cambia orario, giorno o trattamento."),
         el("div", { class: "row" }, el("div", { class: "spacer" }),
@@ -20235,7 +20308,7 @@ class SpaBookingCard extends HTMLElement {
 
 
   _style() {
-    return el("style", {}, `
+    return el("style", {}, SPA_LOGO_CSS + `
       :host {
         display: block;
         background: var(--primary-background-color, #f6f7f9);
