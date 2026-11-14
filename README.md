@@ -111,6 +111,11 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v3.1.1** — (basta ricaricare la pagina)
+  - Agenda: la striscia dei giorni **scorre in orizzontale** una settimana
+    alla volta (dito, rotellina del mouse o frecce ai lati) e mostra le 4
+    settimane prima e le 12 dopo, con il mese sul lunedì e sul primo del
+    mese. Resta dove l'hai lasciata mentre la card si aggiorna.
 - **v3.1.0** — (basta ricaricare la pagina)
   - **Nuova vista Elenco** in agenda, in tre modi: *Per orario* (righe in
     ordine di ora con la linea dell'ora attuale, stato, da incassare e
