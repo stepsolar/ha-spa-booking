@@ -119,10 +119,9 @@ def test_missing_program_is_reported(tmp_path: Path, monkeypatch: pytest.MonkeyP
 def test_engine_choice_picks_the_gateway(monkeypatch: pytest.MonkeyPatch) -> None:
     coordinator = build_coordinator()
     settings = coordinator._data["settings"]
-    assert coordinator.whatsapp_engine == "waha"
-    assert coordinator.waha is None  # no WAHA URL: rest_command fallback, as before
-    settings["waha_url"] = "http://waha:3000"
-    assert coordinator.waha.base_url == "http://waha:3000"
+    assert coordinator.whatsapp_engine == "integrated"  # 2.9.0: no more WAHA add-on
+    assert coordinator.waha is None  # not started yet
+    assert "waha_url" not in settings
 
     started: list[str] = []
 
@@ -139,7 +138,6 @@ def test_engine_choice_picks_the_gateway(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setattr("custom_components.spa_booking.coordinator.WaBridge", FakeBridge)
     run(coordinator.async_update_settings(whatsapp_engine="integrated"))
     assert isinstance(coordinator.waha, FakeBridge)  # never WAHA while integrated
-    run(coordinator.async_update_settings(whatsapp_engine="waha"))
+    run(coordinator.async_stop_whatsapp())
     assert started == ["start", "stop"]
-    assert coordinator.wa_bridge is None
-    assert coordinator.waha.base_url == "http://waha:3000"
+    assert coordinator.wa_bridge is None and coordinator.waha is None

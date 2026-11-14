@@ -115,7 +115,6 @@ SERVICE_IMPORT_CLIENTS_CSV = "import_clienti_csv"
 SERVICE_GET_MONTHLY_REPORT = "get_monthly_report"
 SERVICE_UPDATE_SETTINGS = "update_settings"
 SERVICE_CHECK_WAHA = "check_waha"
-SERVICE_SETUP_WAHA_WEBHOOK = "waha_webhook"
 SERVICE_RESPOND_TO_OFFER = "respond_to_offer"
 SERVICE_CREATE_BOOKINGS = "create_bookings"
 SERVICE_CLEAR_SLOT_BLOCK = "clear_slot_block"
@@ -143,6 +142,7 @@ SERVICE_IMPORT_PARTNERS = "import_partners"
 SERVICE_DELETE_ALL_PARTNERS = "delete_all_partners"
 SERVICE_PARTNER_DETAIL = "partner_detail"
 SERVICE_SEND_LOYALTY_VOUCHER = "send_loyalty_voucher"
+SERVICE_TELEGRAM_STATUS = "telegram_status"
 SERVICE_SPLIT_FROM_GROUP = "split_from_group"
 SERVICE_JOIN_GROUP = "join_group"
 SERVICE_PARTNER_REWARD = "partner_reward"
@@ -235,7 +235,6 @@ ALL_SERVICES = (
     SERVICE_GET_MONTHLY_REPORT,
     SERVICE_UPDATE_SETTINGS,
     SERVICE_CHECK_WAHA,
-    SERVICE_SETUP_WAHA_WEBHOOK,
     SERVICE_RESPOND_TO_OFFER,
     SERVICE_CREATE_BOOKINGS,
     SERVICE_CLEAR_SLOT_BLOCK,
@@ -263,6 +262,7 @@ ALL_SERVICES = (
     SERVICE_DELETE_ALL_PARTNERS,
     SERVICE_PARTNER_DETAIL,
     SERVICE_SEND_LOYALTY_VOUCHER,
+    SERVICE_TELEGRAM_STATUS,
     SERVICE_PARTNER_REWARD,
     SERVICE_SPLIT_FROM_GROUP,
     SERVICE_JOIN_GROUP,
@@ -520,10 +520,12 @@ CHECK_IN_APPOINTMENT_SCHEMA = vol.Schema(
     {
         vol.Required(ATTR_APPOINTMENT_ID): cv.string,
         vol.Optional(ATTR_CHECKED_IN, default=True): cv.boolean,
+        # 2.9.0: other people of the group entering (or leaving) together.
+        vol.Optional("appointment_ids"): [cv.string],
     }
 )
 CHECK_OUT_APPOINTMENT_SCHEMA = vol.Schema(
-    {vol.Required(ATTR_APPOINTMENT_ID): cv.string}
+    {vol.Required(ATTR_APPOINTMENT_ID): cv.string, vol.Optional("appointment_ids"): [cv.string]}
 )
 
 RELOAD_CARD_SCHEMA = vol.Schema({vol.Optional("version", default=""): cv.string})
@@ -989,15 +991,8 @@ UPDATE_SETTINGS_SCHEMA = vol.Schema(
         vol.Optional("web_show_prices"): cv.boolean,
         vol.Optional("web_accent"): vol.Any(cv.string, None),
         vol.Optional("web_public_url"): vol.Any(cv.string, None),
-        # WAHA gateway: with an URL set, WhatsApp goes straight to the add-on
-        # instead of through the rest_command fallback.
-        vol.Optional("whatsapp_engine"): vol.In(["waha", "integrated"]),
-        vol.Optional("waha_url"): vol.Any(cv.string, None),
-        vol.Optional("waha_api_key"): vol.Any(cv.string, None),
-        vol.Optional("waha_session"): vol.Any(cv.string, None),
-        # How the WAHA add-on reaches Home Assistant, used to build the webhook
-        # URL it posts the operators' answers to. Empty = Supervisor network.
-        vol.Optional("waha_ha_url"): vol.Any(cv.string, None),
+        vol.Optional("whatsapp_engine"): vol.In(["integrated"]),
+        vol.Optional("telegram_bot_token"): vol.Any(cv.string, None),
         # Configuration tab: the order of the treatments, as dragged.
         vol.Optional("treatments_order"): vol.Any(
             vol.All(cv.ensure_list, [cv.string]), None
@@ -1022,7 +1017,6 @@ UPDATE_SETTINGS_SCHEMA = vol.Schema(
 
 CHECK_WAHA_SCHEMA = vol.Schema({})
 
-SETUP_WAHA_WEBHOOK_SCHEMA = vol.Schema({})
 
 EXPORT_DATA_SCHEMA = vol.Schema({})
 EXPORT_ALL_SCHEMA = vol.Schema({})
@@ -1568,7 +1562,7 @@ async def _require_admin(call: ServiceCall, coordinator: SpaBookingCoordinator) 
 
 #: Secrets that only an administrator may read back from the dataset.
 _SECRET_SETTINGS = (
-    "waha_api_key", "waha_webhook_secret", "waha_webhook_id", "web_token", "smtp_password",
+    "web_token", "smtp_password", "telegram_bot_token",
     "google_client_secret", "google_refresh_token", "wp_secret",
 )
 
@@ -1828,6 +1822,11 @@ async def _async_split_from_group(call: ServiceCall) -> ServiceResponse:
 async def _async_join_group(call: ServiceCall) -> ServiceResponse:
     """Add another booking, by its code, to this group (2.8.8)."""
     return await _coordinator(call).async_join_group(call.data[ATTR_APPOINTMENT_ID], call.data["code"])
+
+
+async def _async_telegram_status(call: ServiceCall) -> ServiceResponse:
+    """The bot built into Spa Booking: name, state, who wrote to it (2.9.0)."""
+    return await _coordinator(call).async_telegram_status()
 
 
 async def _async_send_loyalty_voucher(call: ServiceCall) -> ServiceResponse:
@@ -2284,18 +2283,18 @@ async def _async_resize_appointment_group(call: ServiceCall) -> ServiceResponse:
 
 async def _async_check_in_appointment(call: ServiceCall) -> ServiceResponse:
     """Record the client entering the spa, or undo it."""
-    appointment = await _coordinator(call).async_check_in_appointment(
-        call.data[ATTR_APPOINTMENT_ID], call.data.get(ATTR_CHECKED_IN, True)
-    )
-    return {"appointment": appointment}
+    coordinator = _coordinator(call)
+    ids = list(dict.fromkeys([call.data[ATTR_APPOINTMENT_ID], *call.data.get("appointment_ids", [])]))
+    done = [await coordinator.async_check_in_appointment(item, call.data.get(ATTR_CHECKED_IN, True)) for item in ids]
+    return {"appointment": done[0], "appointments": done}
 
 
 async def _async_check_out_appointment(call: ServiceCall) -> ServiceResponse:
     """Record the client leaving the spa."""
-    appointment = await _coordinator(call).async_check_out_appointment(
-        call.data[ATTR_APPOINTMENT_ID]
-    )
-    return {"appointment": appointment}
+    coordinator = _coordinator(call)
+    ids = list(dict.fromkeys([call.data[ATTR_APPOINTMENT_ID], *call.data.get("appointment_ids", [])]))
+    done = [await coordinator.async_check_out_appointment(item) for item in ids]
+    return {"appointment": done[0], "appointments": done}
 
 
 async def _async_reload_card(call: ServiceCall) -> ServiceResponse:
@@ -2613,13 +2612,8 @@ async def _async_update_settings(call: ServiceCall) -> ServiceResponse:
 
 
 async def _async_check_waha(call: ServiceCall) -> ServiceResponse:
-    """Ask the configured WAHA gateway who it is."""
+    """Ask the WhatsApp connection built into Spa Booking how it is."""
     return await _coordinator(call).async_check_waha()
-
-
-async def _async_setup_waha_webhook(call: ServiceCall) -> ServiceResponse:
-    """Subscribe the WAHA session to this integration's webhook."""
-    return await _coordinator(call).async_setup_waha_webhook()
 
 
 async def _async_get_users(call: ServiceCall) -> ServiceResponse:
@@ -3110,11 +3104,6 @@ _HANDLERS: dict[str, tuple[Any, Any, SupportsResponse]] = {
         CHECK_WAHA_SCHEMA,
         SupportsResponse.ONLY,
     ),
-    SERVICE_SETUP_WAHA_WEBHOOK: (
-        _async_setup_waha_webhook,
-        SETUP_WAHA_WEBHOOK_SCHEMA,
-        SupportsResponse.ONLY,
-    ),
     SERVICE_RESPOND_TO_OFFER: (
         _async_respond_to_offer,
         RESPOND_TO_OFFER_SCHEMA,
@@ -3176,6 +3165,7 @@ _HANDLERS: dict[str, tuple[Any, Any, SupportsResponse]] = {
     SERVICE_PARTNER_POINTS_ADJUST: (_async_partner_points_adjust, PARTNER_POINTS_ADJUST_SCHEMA, SupportsResponse.ONLY),
     SERVICE_PARTNER_DETAIL: (_async_partner_detail, PARTNER_DETAIL_SCHEMA, SupportsResponse.ONLY),
     SERVICE_SEND_LOYALTY_VOUCHER: (_async_send_loyalty_voucher, SEND_LOYALTY_VOUCHER_SCHEMA, SupportsResponse.ONLY),
+    SERVICE_TELEGRAM_STATUS: (_async_telegram_status, vol.Schema({}), SupportsResponse.ONLY),
     SERVICE_SPLIT_FROM_GROUP: (_async_split_from_group, SPLIT_FROM_GROUP_SCHEMA, SupportsResponse.ONLY),
     SERVICE_JOIN_GROUP: (_async_join_group, JOIN_GROUP_SCHEMA, SupportsResponse.ONLY),
     SERVICE_PARTNER_REWARD: (_async_partner_reward, PARTNER_REWARD_SCHEMA, SupportsResponse.ONLY),
@@ -3460,6 +3450,7 @@ SERVICE_LEVELS: dict[str, str] = {
     SERVICE_PARTNER_POINTS_ADJUST: "manager",
     SERVICE_PARTNER_DETAIL: "operator",
     SERVICE_SEND_LOYALTY_VOUCHER: "manager",
+    SERVICE_TELEGRAM_STATUS: "admin",
     SERVICE_SPLIT_FROM_GROUP: "operator",
     SERVICE_JOIN_GROUP: "operator",
     SERVICE_PARTNER_REWARD: "manager",

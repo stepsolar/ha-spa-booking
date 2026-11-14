@@ -82,7 +82,6 @@ from .const import (
     DEFAULT_VOUCHER_EXPIRY_REMINDER_DAYS,
     DEFAULT_CARD_TITLE,
     DEFAULT_VOUCHER_EXPIRY_REMINDER_MESSAGE,
-    DEFAULT_WAHA_SESSION,
     DEFAULT_WEB_BREAK_END,
     DEFAULT_WEB_BREAK_START,
     DEFAULT_WEB_CLOSE_TIME,
@@ -579,7 +578,7 @@ FORM_BLOCK_COLUMNS: dict[str, list[str]] = {
 #: The same idea for the notifications tab (Configurazione → Impostazioni): each
 #: box is a block the reception can drag around, freely crossing columns.
 NOTIFY_BLOCK_COLUMNS: dict[str, list[str]] = {
-    "left": ["telegram", "whatsapp", "whatsapp_engine", "waha", "preview"],
+    "left": ["telegram", "whatsapp", "whatsapp_engine", "preview"],
     "right": ["review", "report", "offers", "deposit", "guest_header", "summary",
               "request_message", "request_propose", "appointment_reminder"],
 }
@@ -783,6 +782,9 @@ def _norm_settings(raw: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "telegram_config_entry_id": str(raw.get("telegram_config_entry_id") or "").strip(),
+        # The bot built into Spa Booking (2.9.0): its token from @BotFather.
+        # Set = Spa Booking talks to Telegram by itself, without Home Assistant.
+        "telegram_bot_token": str(raw.get("telegram_bot_token") or "").strip(),
         "report_telegram_chats": str(raw.get("report_telegram_chats") or "").strip(),
         "report_whatsapp_chat": str(raw.get("report_whatsapp_chat") or "").strip(),
         "report_per_operator": bool(raw.get("report_per_operator", True)),
@@ -1119,30 +1121,9 @@ def _norm_settings(raw: dict[str, Any]) -> dict[str, Any]:
         "promo_order": _norm_form_order(
             raw.get("promo_order"), PROMO_BLOCK_COLUMNS
         ),
-        # WhatsApp gateway (the WAHA add-on). When the URL is set, the
-        # integration talks to it directly instead of going through
-        # ``rest_command.spa_booking_whatsapp_send``: the key and the session
-        # name are stored here, never in a package, so one place configures
-        # every WhatsApp send of this installation.
-        # Which WhatsApp connection sends and receives: the WAHA add-on, or
-        # the one built into the integration ("integrated", beta).
-        "whatsapp_engine": "integrated"
-        if str(raw.get("whatsapp_engine") or "") == "integrated"
-        else "waha",
-        "waha_url": str(raw.get("waha_url") or "").strip(),
-        "waha_api_key": str(raw.get("waha_api_key") or "").strip(),
-        "waha_session": str(
-            raw.get("waha_session") or DEFAULT_WAHA_SESSION
-        ).strip(),
-        # The webhook the WAHA add-on posts the operators' answers to, and the
-        # secret it signs them with. Both are generated once, when the gateway
-        # is switched on, and are never shown in the card: rotating them by hand
-        # would silently stop inbound answers until the next activation.
-        "waha_webhook_id": str(raw.get("waha_webhook_id") or "").strip(),
-        "waha_webhook_secret": str(raw.get("waha_webhook_secret") or "").strip(),
-        # How the WAHA add-on reaches Home Assistant, when it is not the add-on
-        # installed on this host (empty = the Supervisor network default).
-        "waha_ha_url": str(raw.get("waha_ha_url") or "").strip(),
+        # WhatsApp is the connection built into Spa Booking (2.9.0: the WAHA
+        # add-on is no longer supported; old waha_* settings are dropped).
+        "whatsapp_engine": "integrated",
         # Public booking API for the hotel website. The site is another origin
         # and cannot use the Lovelace websocket, so it talks to the three HTTP
         # views in ``public.py``; every call must carry this token. Nothing

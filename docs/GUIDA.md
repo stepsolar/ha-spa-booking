@@ -1,6 +1,6 @@
 # Spa Booking — guida alle schede (2.2)
 
-Aggiornata alla 2.8.12: ordine di trattamenti e pacchetti, modulo del sito compatto; [pacchetti e voucher fedeltà a mano](#scheda-pacchetti-e-voucher-fedelt%C3%A0-a-mano-2811); [pacchetti nelle prenotazioni](#pacchetti-dello-shop-nelle-prenotazioni-289); [gruppi e codice](#prenotazioni-di-gruppo-e-codice-288); [annullamento](#annullamento-287); [programma partner](#programma-partner-286); [pacchetto nelle promo](#pacchetto-dello-shop-nelle-promo-285); [tutti i messaggi WhatsApp](#tutti-i-messaggi-whatsapp-284); [conferma richiesta](#conferma-di-una-richiesta-283); [conto e voucher come pagamento](#conto-e-voucher-come-pagamento-281); [backup su Google Drive](#backup-su-google-drive-280); [Shop online](#shop-online-270); [importa partner e disiscrizione](#importa-partner-e-disiscrizione-260); [vista Mese](#vista-mese-255); [Dati fatturazione e Modifica appuntamento](#dati-fatturazione-e-modifica-appuntamento-252); [IVA](#iva-251); [campagne e punti partner](#campagne-e-punti-partner-250); [Email e Accedi con Google](#email-241); [dettaglio, punti e partner](#dettaglio-punti-fedelta-e-partner-240); [Agenda](#agenda-2312); [Nuovo appuntamento a passi](#nuovo-appuntamento-a-passi-2310); [promo salvate e modelli](#promo-salvate-e-modelli-239); [Promo e Impostazioni](#promo-e-impostazioni-238); [Notifiche](#notifiche-236); [messaggi e chat](#messaggi-e-chat-235); [preferenza massaggiatrice/massaggiatore](#preferenza-massaggiatrice-o-massaggiatore); [promo e fedeltà del cliente](#promo-e-fedeltà-del-cliente); [conferme e promemoria WhatsApp](#conferme-e-promemoria-whatsapp); [firme e storico](#firme-e-storico); [chiusure con giorni esclusi](#chiusure-con-giorni-esclusi); [Proponi data](#proponi-data) nelle richieste, con trattamenti alternativi e prezzo; [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
+Aggiornata alla 2.9.0: [gruppi in entrata e uscita, Telegram integrato, ordinamento](#novit%C3%A0-della-290); ordine di trattamenti e pacchetti, modulo del sito compatto; [pacchetti e voucher fedeltà a mano](#scheda-pacchetti-e-voucher-fedelt%C3%A0-a-mano-2811); [pacchetti nelle prenotazioni](#pacchetti-dello-shop-nelle-prenotazioni-289); [gruppi e codice](#prenotazioni-di-gruppo-e-codice-288); [annullamento](#annullamento-287); [programma partner](#programma-partner-286); [pacchetto nelle promo](#pacchetto-dello-shop-nelle-promo-285); [tutti i messaggi WhatsApp](#tutti-i-messaggi-whatsapp-284); [conferma richiesta](#conferma-di-una-richiesta-283); [conto e voucher come pagamento](#conto-e-voucher-come-pagamento-281); [backup su Google Drive](#backup-su-google-drive-280); [Shop online](#shop-online-270); [importa partner e disiscrizione](#importa-partner-e-disiscrizione-260); [vista Mese](#vista-mese-255); [Dati fatturazione e Modifica appuntamento](#dati-fatturazione-e-modifica-appuntamento-252); [IVA](#iva-251); [campagne e punti partner](#campagne-e-punti-partner-250); [Email e Accedi con Google](#email-241); [dettaglio, punti e partner](#dettaglio-punti-fedelta-e-partner-240); [Agenda](#agenda-2312); [Nuovo appuntamento a passi](#nuovo-appuntamento-a-passi-2310); [promo salvate e modelli](#promo-salvate-e-modelli-239); [Promo e Impostazioni](#promo-e-impostazioni-238); [Notifiche](#notifiche-236); [messaggi e chat](#messaggi-e-chat-235); [preferenza massaggiatrice/massaggiatore](#preferenza-massaggiatrice-o-massaggiatore); [promo e fedeltà del cliente](#promo-e-fedeltà-del-cliente); [conferme e promemoria WhatsApp](#conferme-e-promemoria-whatsapp); [firme e storico](#firme-e-storico); [chiusure con giorni esclusi](#chiusure-con-giorni-esclusi); [Proponi data](#proponi-data) nelle richieste, con trattamenti alternativi e prezzo; [aggiornamenti dalla card](#aggiornamenti), nuove schede di richieste, cliente e configurazione; [modulo del sito](#modulo-del-sito) a passi e in tre lingue, [avviso delle regole di categoria](#avviso-regole-della-categoria).
 
 Questa guida mostra ogni scheda della dashboard **Spa Booking** e spiega a
 cosa serve ogni funzione. Le immagini sono state fatte con dati di prova.
@@ -32,6 +32,33 @@ in Impostazioni › Aspetto).
 
 
 
+
+## Novità della 2.9.0
+
+**Entrata e uscita di gruppo.** Toccando Entrata (o Uscita) su una
+prenotazione di più persone si apre un popup: «Tutto il gruppo» oppure
+spunta solo chi entra adesso. Uscendo, il gruppo riceve un solo voucher
+fedeltà; «Invia recensione» manda un solo messaggio per numero.
+
+![Entrata di gruppo](anteprime/75-entrata-gruppo.png)
+
+**Telegram integrato.** In Configurazione › Notifiche › Collegamenti incolla
+il token del bot (su Telegram: @BotFather › /newbot) e premi «Salva e
+collega». Ogni operatore cerca il bot e scrive /start: riceve il codice della
+sua chat, che compare anche nella card con «Copia codice»; incollalo nel campo
+Telegram della sua scheda operatore. Se il bot era usato dall'integrazione
+Telegram di Home Assistant, rimuovila (un bot si legge da un solo programma).
+
+**WhatsApp** è sempre quello integrato: l'add-on WAHA non è più supportato.
+
+**Ordinare** pacchetti, categorie e trattamenti: trascina dalla maniglia ⋮⋮
+(Configurazione › Pacchetti; Configurazione › Trattamenti › matita). Le
+categorie si possono chiudere per spostarle meglio quando sono tante.
+
+![Ordinare i trattamenti](anteprime/76-ordina-trattamenti.png)
+
+In agenda i trattamenti senza operatore sono raggruppati sotto il nome della
+loro categoria.
 
 ## Scheda Pacchetti e voucher fedeltà a mano (2.8.11)
 
@@ -606,10 +633,10 @@ Configurazione › Notifiche ha quattro sotto-schede:
 - **Operatrici**: come funzionano le offerte, il tempo per rispondere e il
   promemoria.
 - **Report**: destinatari del report mensile, invio immediato e anteprima.
-- **Collegamenti**: WhatsApp integrato o WAHA, e il bot Telegram.
+- **Collegamenti**: WhatsApp integrato e il bot Telegram integrato (token di @BotFather).
 
 Quando cambi qualcosa compare in basso la barra «Modifiche non salvate» con
-Salva e Annulla. (Il gateway WAHA ha ancora il suo «Salva gateway».)
+Salva e Annulla.
 
 ![Notifiche](anteprime/29-nt-ospiti.png)
 
@@ -1066,7 +1093,7 @@ sinistra, sul telefono una striscia di icone.
 | ![Accessori](anteprime/14-config-accessori.png) | **Accessori**: kit, accappatoio, cuffia… con il loro simbolo. |
 | ![Operatori](anteprime/15-config-operatori.png) | **Operatori**: telefono con prefisso, WhatsApp/Telegram, ruolo, trattamenti, priorità per le offerte. |
 | ![Fasce bloccate](anteprime/16-config-fasce-bloccate.png) | **Fasce bloccate**: chiusure della spa, di una categoria o di un'operatrice, a giornata o con orario. |
-| ![Notifiche](anteprime/17-config-notifiche.png) | **Notifiche**: collegamento WhatsApp (integrato o WAHA), report, offerte alle operatrici, acconto, riepilogo, promemoria, recensioni. Ogni messaggio ha la prova su un numero. |
+| ![Notifiche](anteprime/17-config-notifiche.png) | **Notifiche**: collegamento WhatsApp e bot Telegram, report, offerte alle operatrici, acconto, riepilogo, promemoria, recensioni. Ogni messaggio ha la prova su un numero. |
 | ![Promo](anteprime/18-config-promo.png) | **Promo**: invio promozionale e voucher fedeltà automatici. |
 | ![Impostazioni](anteprime/21-config-impostazioni.png) | **Impostazioni**: titolo, aspetto, sito web (con il numero degli avvisi), ordine dei campi, backup e ripristino. |
 

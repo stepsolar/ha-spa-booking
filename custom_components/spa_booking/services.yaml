@@ -854,12 +854,10 @@ update_settings:
     whatsapp_engine:
       name: Collegamento WhatsApp
       description: >-
-        "integrated" usa il collegamento integrato in Spa Booking (beta, come
-        WhatsApp Web); "waha" usa l'add-on WAHA.
+        Sempre "integrated": il collegamento integrato in Spa Booking.
       selector:
         select:
           options:
-            - waha
             - integrated
     telegram_config_entry_id:
       name: ID configurazione bot Telegram
@@ -1759,19 +1757,10 @@ promo_voucher_tick:
 check_waha:
   name: Verifica connessione WhatsApp
   description: >-
-    Chiede all'add-on WAHA configurato la sua versione: risponde se il
-    gateway e' raggiungibile, se la chiave API e' accettata e quale router
-    WhatsApp sta usando. Non invia messaggi.
+    Controlla il collegamento WhatsApp integrato in Spa Booking. Non invia
+    messaggi.
   fields: {}
 
-waha_webhook:
-  name: Attiva ricezione WhatsApp
-  description: >-
-    Chiede alla sessione WAHA configurata di pubblicare messaggi e reazioni sul
-    webhook di questa integrazione. Da quel momento le risposte delle
-    massaggiatrici arrivano dentro Spa Booking, senza l'integrazione WAHA e
-    senza automazioni. Risponde con l'indirizzo del webhook registrato.
-  fields: {}
 
 create_request:
   name: Crea richiesta

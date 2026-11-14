@@ -37,7 +37,7 @@ def setup(coordinator):
         "u_reader": "read",
         "u_giulia": "therapist",
     }
-    coordinator._data[KEY_SETTINGS]["waha_api_key"] = "segreto"
+    coordinator._data[KEY_SETTINGS]["wp_secret"] = "segreto"
     coordinator._data[KEY_SETTINGS]["web_token"] = "token-sito"
     hass = MagicMock()
     hass.data = {DOMAIN: coordinator}
@@ -97,12 +97,12 @@ def test_unlisted_services_default_to_admin(setup) -> None:
 def test_secrets_hidden_from_non_admin(setup) -> None:
     hass, _ = setup
     data = run(services._async_export_data(_call(hass, "u_operator")))["data"]
-    assert data["settings"]["waha_api_key"] == ""
+    assert data["settings"]["wp_secret"] == ""
     assert data["settings"]["web_token"] == ""
     config = run(services._async_get_config(_call(hass, "u_reader")))["config"]
-    assert config["settings"]["waha_api_key"] == ""
+    assert config["settings"]["wp_secret"] == ""
     admin = run(services._async_export_data(_call(hass, "u_admin_ha")))["data"]
-    assert admin["settings"]["waha_api_key"] == "segreto"
+    assert admin["settings"]["wp_secret"] == "segreto"
 
 
 def test_operator_may_only_change_layout(setup) -> None:
@@ -110,8 +110,8 @@ def test_operator_may_only_change_layout(setup) -> None:
     run(services._async_update_settings(_call(hass, "u_operator", {"appearance": "dark"})))
     assert coordinator._data[KEY_SETTINGS]["appearance"] == "dark"
     with pytest.raises(ValidationError):
-        run(services._async_update_settings(_call(hass, "u_operator", {"waha_url": "http://evil"})))
-    assert coordinator._data[KEY_SETTINGS]["waha_url"] == ""
+        run(services._async_update_settings(_call(hass, "u_operator", {"web_public_url": "http://evil"})))
+    assert coordinator._data[KEY_SETTINGS].get("web_public_url", "") == ""
 
 
 def test_every_service_has_a_level() -> None:

@@ -183,12 +183,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 str(data.get("channel") or "") == "whatsapp"
                 and reason.startswith("Nessuna operatrice collegata")
             ):
-                # A WAHA inbound event is only published for configured
-                # recipients, so an unknown sender is usually an operator not
-                # yet added as a WAHA recipient.
                 _LOGGER.warning(
-                    "Messaggio WhatsApp da %s: nessuna operatrice riconosciuta "
-                    "(aggiungerla come destinatario nell'integrazione WAHA)",
+                    "Messaggio WhatsApp da %s: nessuna operatrice riconosciuta",
                     data.get("chat_id") or "sconosciuto",
                 )
             else:
@@ -198,20 +194,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.bus.async_listen(EVENT_ANSWER_REQUEST, _on_answer_request)
     )
 
-    # Inbound WhatsApp answers: the webhook is claimed now when the gateway
-    # already has its id, so a restart keeps receiving them. The first
-    # activation (or a move to another WAHA) still needs the card's button,
-    # because only then is the session told where to post.
-    coordinator._async_register_waha_inbound()
-    entry.async_on_unload(coordinator.async_unregister_waha_inbound)
-
-    # WhatsApp built into Spa Booking (beta): started in the background when
-    # chosen, stopped with the entry and when Home Assistant closes.
+    # WhatsApp built into Spa Booking: started in the background, stopped
+    # with the entry and when Home Assistant closes.
     await coordinator.async_apply_whatsapp_engine()
     entry.async_on_unload(coordinator.async_stop_whatsapp)
+    # Telegram built into Spa Booking (2.9.0): started when a token is saved.
+    await coordinator.async_apply_telegram()
+    entry.async_on_unload(coordinator.async_stop_telegram)
 
     async def _on_stop(_event: Event) -> None:
         await coordinator.async_stop_whatsapp()
+        await coordinator.async_stop_telegram()
 
     entry.async_on_unload(
         hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _on_stop)

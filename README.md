@@ -52,22 +52,20 @@ riavvia. La card e il modulo del sito sono inclusi nella cartella
 La card di gestione viene caricata automaticamente in ogni dashboard; è
 disponibile anche come pagina a sé su `/spa_booking`.
 
-## WhatsApp integrato (beta, dalla 2.2.0b1)
+## WhatsApp integrato
 
-Spa Booking può collegarsi da solo al numero WhatsApp dell'hotel, come
-WhatsApp Web, senza l'add-on WAHA:
+Spa Booking si collega da solo al numero WhatsApp dell'hotel, come WhatsApp
+Web (dalla 2.9.0 è l'unico collegamento: l'add-on WAHA non è più supportato):
 
-1. Configurazione › WhatsApp › **Collegamento WhatsApp** › scegli
-   «WhatsApp integrato (beta)».
+1. Configurazione › Notifiche › Collegamenti › **Collegamento WhatsApp**.
 2. Premi **Collega WhatsApp** e, dal telefono dell'hotel, WhatsApp ›
    Dispositivi collegati › Collega un dispositivo: inquadra il codice QR.
    Se la card è aperta sullo stesso telefono, scrivi il numero e premi
    **Ottieni codice**, poi «Collega con il numero di telefono».
 3. Prova un invio con «Prova WhatsApp». Offerte, risposte, reazioni e
-   messaggi in arrivo funzionano come con WAHA.
+   messaggi in arrivo arrivano dentro Spa Booking.
 
-Per tornare a WAHA basta scegliere «Add-on WAHA». Come WAHA, non è un canale
-ufficiale di WhatsApp: il rischio sul numero è lo stesso. Il telefono deve
+Non è un canale ufficiale di WhatsApp. Il telefono deve
 restare con WhatsApp installato e connettersi almeno ogni 14 giorni. Per ora
 funziona su processori Intel/AMD a 64 bit (mini PC, NUC, macchine virtuali).
 
@@ -133,6 +131,23 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v2.9.0** — (serve il riavvio di Home Assistant)
+  - **Entrata e uscita di gruppo**: su una prenotazione di più persone si
+    apre un popup per far entrare (o uscire) tutto il gruppo o solo le
+    persone spuntate.
+  - Un gruppo che esce riceve **un solo voucher fedeltà**; «Invia
+    recensione» vale per tutta la prenotazione (un messaggio per numero).
+  - **Add-on WAHA rimosso**: WhatsApp è sempre quello integrato.
+  - **Telegram integrato**: basta il token del bot (da @BotFather) in
+    Notifiche › Collegamenti; Spa Booking invia offerte con i pulsanti,
+    promemoria e report e riceve le risposte da solo, senza l'integrazione
+    Telegram di Home Assistant. Con /start l'operatore riceve il codice della
+    sua chat, che compare anche nella card da copiare.
+  - **Ordinamento a trascinamento** con la maniglia ⋮⋮, fluido anche col
+    dito: pacchetti (Configurazione › Pacchetti) e categorie/trattamenti
+    (Configurazione › Trattamenti › matita, categorie richiudibili).
+  - In agenda i trattamenti senza operatore stanno sotto il **nome della
+    loro categoria** (es. «Ingresso Spa») invece di «Senza operatore».
 - **v2.8.13** — **I pulsanti WhatsApp aprono la chat di Spa Booking** (basta
   ricaricare la pagina). Il pulsante WhatsApp di clienti, partner, operatori,
   appuntamenti e contatti apre la scheda WhatsApp della card sulla chat di
