@@ -110,7 +110,8 @@ PAGE_TEMPLATE = """<!DOCTYPE html>
         #loadingOverlay {
             position: fixed;
             inset: 0;
-            background: rgba(255, 255, 255, 0.97);
+            background: radial-gradient(circle at 50% 38%, #ffffff 0%, #f4efe6 55%, #dcefeb 100%);
+            gap: 14px;
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -122,25 +123,46 @@ PAGE_TEMPLATE = """<!DOCTYPE html>
             opacity: 0;
             visibility: hidden;
         }
-        #loadingSpinner {
-            width: 60px;
-            height: 60px;
-            border: 4px solid #e0e0e0;
-            border-top-color: #1976d2;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-        }
-        #loadingOverlay.error #loadingSpinner {
-            display: none;
-        }
-        @keyframes spin {
-            to { transform: rotate(360deg); }
+        /* The Spa Booking mark (3.0.0), animated while the card loads. */
+        #loadingLogo { width: 112px; height: 112px; filter: drop-shadow(0 16px 30px rgba(11, 79, 99, .28)); }
+        #loadingLogo svg { width: 100%; height: 100%; display: block; }
+        #loadingLogo .lg-ring { transform-origin: 60px 60px; animation: sbl-spin 2.6s linear infinite; }
+        #loadingLogo .lg-st { opacity: 0; transform-box: fill-box; transform-origin: center;
+            animation: sbl-drop .7s cubic-bezier(.3,1.5,.5,1) forwards; }
+        #loadingLogo .lg-st1 { animation-delay: .1s; }
+        #loadingLogo .lg-st2 { animation-delay: .35s; }
+        #loadingLogo .lg-st3 { animation-delay: .6s; }
+        #loadingLogo .lg-leaf { opacity: 0; transform-box: fill-box; transform-origin: 0% 100%;
+            animation: sbl-leaf .6s .95s ease-out forwards, sbl-sway 3s 1.6s ease-in-out infinite; }
+        #loadingLogo .lg-wave { stroke-dasharray: 8 6; animation: sbl-flow 1.4s linear infinite; }
+        #loadingOverlay.error #loadingLogo .lg-ring { animation: none; }
+        #loadingOverlay.error #loadingDots { display: none; }
+        #loadingOverlay.error #loadingText { text-transform: none; letter-spacing: 0; font-size: 15px;
+            font-weight: 500; color: #444; }
+        @keyframes sbl-spin { to { transform: rotate(360deg); } }
+        @keyframes sbl-drop { from { opacity: 0; transform: translateY(-14px); } to { opacity: 1; transform: none; } }
+        @keyframes sbl-leaf { from { opacity: 0; transform: scale(.2) rotate(-25deg); } to { opacity: 1; transform: none; } }
+        @keyframes sbl-sway { 0%, 100% { transform: rotate(0); } 50% { transform: rotate(-7deg); } }
+        @keyframes sbl-flow { to { stroke-dashoffset: -28; } }
+        #loadingTitle { font-family: Georgia, "Times New Roman", serif; font-size: 30px; letter-spacing: .5px;
+            color: #12343b; margin-top: 6px; }
+        #loadingDots { display: flex; gap: 6px; }
+        #loadingDots i { width: 6px; height: 6px; border-radius: 50%; background: #f0c977;
+            animation: sbl-dot 1.2s ease-in-out infinite; }
+        #loadingDots i:nth-child(2) { animation-delay: .2s; }
+        #loadingDots i:nth-child(3) { animation-delay: .4s; }
+        @keyframes sbl-dot { 0%, 100% { opacity: .25; transform: translateY(0); } 50% { opacity: 1; transform: translateY(-4px); } }
+        @media (prefers-color-scheme: dark) {
+            #loadingOverlay { background: radial-gradient(circle at 50% 38%, #1d3a40 0%, #10232a 60%, #0a171c 100%); }
+            #loadingTitle { color: #f4efe6; }
+            #loadingText { color: #bcd6d2 !important; }
         }
         #loadingText {
-            margin-top: 16px;
-            font-size: 16px;
-            color: #555;
-            font-weight: 500;
+            font-size: 12px;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            color: #1f9e98;
+            font-weight: 600;
             text-align: center;
             max-width: 32rem;
             padding: 0 1rem;
@@ -165,8 +187,23 @@ PAGE_TEMPLATE = """<!DOCTYPE html>
 </head>
 <body>
     <div id="loadingOverlay">
-        <div id="loadingSpinner"></div>
-        <div id="loadingText">Caricamento Gestione SPA...</div>
+        <div id="loadingLogo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" aria-hidden="true">
+  <defs>
+    <linearGradient id="ov-bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1f9e98"/><stop offset="1" stop-color="#0b4f63"/></linearGradient>
+    <linearGradient id="ov-st" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fffaf2"/><stop offset="1" stop-color="#e3d5c0"/></linearGradient>
+  </defs>
+  <rect x="2" y="2" width="116" height="116" rx="34" fill="url(#ov-bg)"/>
+  <circle cx="60" cy="60" r="44" fill="none" stroke="#fffaf2" stroke-opacity=".28" stroke-width="3"/>
+  <g class="lg-ring"><path d="M60 16 A44 44 0 1 1 18.2 46.4" fill="none" stroke="#f0c977" stroke-width="3.2" stroke-linecap="round"/><circle cx="18.2" cy="46.4" r="4.2" fill="#f0c977"/></g>
+  <path class="lg-wave" d="M32 95 q7 -4.5 14 0 t14 0 t14 0 t14 0" fill="none" stroke="#bfe8df" stroke-opacity=".75" stroke-width="2.6" stroke-linecap="round"/>
+  <ellipse class="lg-st lg-st1" cx="60" cy="81" rx="24" ry="8.5" fill="url(#ov-st)"/>
+  <ellipse class="lg-st lg-st2" cx="60" cy="66" rx="17.5" ry="7" fill="url(#ov-st)"/>
+  <ellipse class="lg-st lg-st3" cx="60" cy="53.5" rx="11" ry="5.5" fill="url(#ov-st)"/>
+  <g class="lg-leaf"><path d="M61 48 C 59 37, 66 29, 79 28 C 78 40, 71 47, 61 48 Z" fill="#bfe8df"/><path d="M62.5 46.5 C 66 41, 70 36, 76 31" fill="none" stroke="#1f9e98" stroke-width="1.4" stroke-linecap="round"/></g>
+</svg></div>
+        <div id="loadingTitle">Spa Booking</div>
+        <div id="loadingText">Preparo l'agenda</div>
+        <div id="loadingDots"><i></i><i></i><i></i></div>
     </div>
 
     <div class="app-container">
@@ -421,7 +458,7 @@ PAGE_TEMPLATE = """<!DOCTYPE html>
 
         function start() {
             overlay.classList.remove("error");
-            loadingText.textContent = "Caricamento Gestione SPA...";
+            loadingText.textContent = "Preparo l'agenda";
 
             // Safety net: never leave the spinner forever if the card module
             // fails to load or renders nothing.
