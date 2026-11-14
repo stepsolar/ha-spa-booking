@@ -2375,6 +2375,36 @@ join_group:
       required: true
       selector:
         text:
+send_loyalty_voucher:
+  name: Invia voucher fedeltà
+  description: Crea un voucher fedeltà (sconto in percentuale) per un cliente o un partner e lo invia subito, anche senza una prenotazione.
+  fields:
+    client_id:
+      name: ID cliente
+      selector:
+        text:
+    partner_id:
+      name: ID partner
+      selector:
+        text:
+    discount_percent:
+      name: Sconto (%)
+      selector:
+        number:
+          min: 1
+          max: 100
+    days:
+      name: Validità (giorni)
+      selector:
+        number:
+          min: 1
+          max: 1000
+    min_spend:
+      name: Spesa minima (€)
+      selector:
+        number:
+          min: 0
+          max: 100000
 partner_detail:
   name: Dettaglio partner
   description: Prenotazioni portate dal partner, punti ottenuti, rettifiche e premi.

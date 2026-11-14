@@ -294,6 +294,10 @@ def _norm_promo_voucher(raw: Any) -> dict[str, Any]:
         "appointment_id": str(raw.get("appointment_id") or "").strip(),
         "status": status,
         "expires_on": _norm_date(raw.get("expires_on")),
+        # 2.8.11: sent by hand from a client's or a partner's card.
+        "partner_id": str(raw.get("partner_id") or "").strip(),
+        "manual": bool(raw.get("manual", False)),
+        "by": str(raw.get("by") or "").strip(),
     }
 
 
@@ -1089,6 +1093,10 @@ def _norm_settings(raw: dict[str, Any]) -> dict[str, Any]:
         # The page of the hotel website with the booking form: the partners'
         # links point there, with ?partner=CODE.
         "partner_booking_url": str(raw.get("partner_booking_url") or "").strip(),
+        # Configurazione › Pacchetti (2.8.11): packages kept off the website
+        # form, and off the menu of Nuovo appuntamento / Nuova richiesta.
+        "package_hidden_web": sorted({str(k) for k in raw.get("package_hidden_web") or [] if k}),
+        "package_hidden_desk": sorted({str(k) for k in raw.get("package_hidden_desk") or [] if k}),
         # Programma partner (2.8.6): the discount of the guests who book with a
         # partner's link, and the prize the partner's points turn into.
         "partner_discount_pct": _norm_pct(raw.get("partner_discount_pct")),
