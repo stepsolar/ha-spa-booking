@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.8.13";
+const CARD_VERSION = "2.9.0";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -1205,7 +1205,8 @@ class SpaBookingCard extends HTMLElement {
     if (!this._escapeBound) {
       this._escapeBound = (event) => {
         if (event.key !== "Escape") return;
-        if (this._loyaltyPopup) { this._loyaltyPopup = null; this._render(); }
+        if (this._gatePopup) { this._gatePopup = null; this._render(); }
+        else if (this._loyaltyPopup) { this._loyaltyPopup = null; this._render(); }
         else if (this._cancelPopup) { this._cancelPopup = null; this._render(); }
         else if (this._overlapPopup) { this._overlapPopup = null; this._render(); }
         else if (this._proposePopup) { this._proposePopup = null; this._render(); }
@@ -2610,26 +2611,11 @@ class SpaBookingCard extends HTMLElement {
    * type on the phone, and the buttons to link and unlink.
    */
   _whatsappEngineBox(box, settings) {
-    const engine = settings.whatsapp_engine || "waha";
+    // 2.9.0: WhatsApp is always the connection built into Spa Booking (the
+    // WAHA add-on is gone).
     const node = box("whatsapp_engine", "Collegamento WhatsApp");
-    const choice = (value, label, hint) =>
-      el("label", { class: "check" },
-        el("input", {
-          type: "radio",
-          name: "whatsapp_engine",
-          checked: engine === value,
-          disabled: this._busy,
-          on: { change: () => this._setWhatsappEngine(value) },
-        }),
-        el("span", {}, label, el("span", { class: "dim" }, ` — ${hint}`)));
-    node.appendChild(choice("integrated", "WhatsApp integrato (beta)",
-      "Spa Booking si collega da solo al numero, come WhatsApp Web: nessun add-on da installare"));
-    node.appendChild(choice("waha", "Add-on WAHA",
-      "il gateway esterno usato finora"));
-    if (engine !== "integrated") {
-      this._waStopPolling();
-      return node;
-    }
+    node.appendChild(el("div", { class: "hint" },
+      "Spa Booking si collega da solo al numero dell'hotel, come WhatsApp Web: nessun add-on da installare."));
 
     const status = this._waStatus || { state: "starting", label: "Avvio in corso" };
     if (!this._waStatus && !this._waLoading) this._waRefresh();
@@ -2695,21 +2681,12 @@ class SpaBookingCard extends HTMLElement {
     }, el("ha-icon", { icon: "mdi:refresh" }), "Aggiorna"));
     node.appendChild(buttons);
     node.appendChild(el("div", { class: "hint" },
-      "Versione di prova. Il telefono deve restare con WhatsApp installato e connettersi almeno ogni 14 giorni. " +
-      "Per tornare all'add-on basta scegliere «Add-on WAHA»."));
+      "Il telefono deve restare con WhatsApp installato e connettersi almeno ogni 14 giorni."));
 
     // While something is changing, the state is asked again every few seconds.
     if (["starting", "pairing", "connecting", "disconnected"].includes(state)) this._waStartPolling();
     else this._waStopPolling();
     return node;
-  }
-
-  async _setWhatsappEngine(engine) {
-    this._waStatus = null;
-    this._waCode = "";
-    try {
-      await this._call("update_settings", { whatsapp_engine: engine });
-    } catch (error) { /* shown */ }
   }
 
   async _waRefresh() {
@@ -2771,62 +2748,7 @@ class SpaBookingCard extends HTMLElement {
     await this._waRefresh();
   }
 
-  /**
-   * Ask the configured WAHA gateway who it is: reachable, key accepted, which
-   * router. Sends nothing and changes nothing, so it is safe to press first.
-   */
-  async _checkWaha() {
-    this._busy = true;
-    this._wahaStatus = "Verifica in corso…";
-    this._render();
-    try {
-      const result = await this._service("check_waha", {});
-      if (!result || result.configured === false) {
-        this._wahaStatus = "⚠ " + ((result && result.error) || "Gateway non configurato.");
-      } else if (result.ok) {
-        this._wahaStatus =
-          "✅ WAHA raggiungibile — versione " + (result.version || "?") +
-          (result.engine ? " · router " + result.engine : "") + ".";
-      } else {
-        this._wahaStatus = "⚠ " + (result.error || "WAHA non raggiungibile.");
-      }
-    } catch (error) {
-      this._wahaStatus = "⚠ " + this._friendlyError(error, "Verifica non riuscita.");
-    } finally {
-      this._busy = false;
-      this._render();
-    }
-  }
 
-  /**
-   * Turn on inbound answers: save the gateway, then subscribe its session to
-   * this integration's webhook. The secret is created once on the backend and
-   * never comes back, so nothing here can leak it.
-   */
-  async _enableWaha() {
-    this._busy = true;
-    this._wahaStatus = "Attivazione in corso…";
-    this._render();
-    try {
-      await this._call("update_settings", {
-        waha_url: (this._notifyDraft && this._notifyDraft.waha_url || "").trim(),
-        waha_api_key: (this._notifyDraft && this._notifyDraft.waha_api_key) || "",
-        waha_session: ((this._notifyDraft && this._notifyDraft.waha_session) || "").trim() || "default",
-        waha_ha_url: ((this._notifyDraft && this._notifyDraft.waha_ha_url) || "").trim(),
-      });
-      const result = await this._service("waha_webhook", {});
-      this._wahaStatus =
-        "✅ Ricezione attiva — WAHA pubblicherà su " +
-        (result && result.webhook_url ? result.webhook_url : "questo webhook") +
-        ((result && result.updated) ? "." : " (iscrizione già presente).");
-      await this._loadData();
-    } catch (error) {
-      this._wahaStatus = "⚠ " + this._friendlyError(error, "Attivazione non riuscita.");
-    } finally {
-      this._busy = false;
-      this._render();
-    }
-  }
 
   async _toggleOffer(appointment, isPending) {
     await this._call("set_offer_state", {
@@ -3500,6 +3422,7 @@ class SpaBookingCard extends HTMLElement {
     if (this._payPopup) add(root, this._renderPayPopup());
     if (this._cancelPopup) add(root, this._renderCancelPopup());
     if (this._loyaltyPopup) add(root, this._renderLoyaltyPopup());
+    if (this._gatePopup) add(root, this._renderGatePopup());
     if (this._overlapPopup) add(root, this._renderOverlapPopup());
     if (this._proposePopup) add(root, this._renderProposePopup());
     if (this._voucherPin) add(root, this._renderVoucherPinPopup());
@@ -4068,12 +3991,22 @@ class SpaBookingCard extends HTMLElement {
       .filter((operator) => busy.has(operator.id))
       .sort((a, b) => (Number(a.priority) || 0) - (Number(b.priority) || 0) || a.name.localeCompare(b.name))
       .forEach((operator) => lanes.set(operator.id, []));
+    // 2.9.0: what has no operator goes in one lane per category (Spa,
+    // Viso e corpo…), named after it, in the order of the categories.
+    const catLanes = new Map();
     parties.forEach((members) => {
-      const key = members[0].operator_id && this._lookup.operator.get(members[0].operator_id) ? members[0].operator_id : "__none__";
-      if (!lanes.has(key)) lanes.set(key, []);
-      lanes.get(key).push(members);
+      if (members[0].operator_id && this._lookup.operator.get(members[0].operator_id)) {
+        lanes.get(members[0].operator_id).push(members);
+        return;
+      }
+      const category = this._categoryOf(this._lookup.treatment.get(members[0].treatment_id));
+      const key = `cat:${category ? category.id : ""}`;
+      if (!catLanes.has(key)) catLanes.set(key, []);
+      catLanes.get(key).push(members);
     });
-    if (lanes.has("__none__")) { const none = lanes.get("__none__"); lanes.delete("__none__"); lanes.set("__none__", none); }
+    const catRank = new Map(this._categoriesInTreatmentOrder().map((c, i) => [`cat:${c.id}`, i]));
+    [...catLanes.entries()].sort((a, b) => (catRank.has(a[0]) ? catRank.get(a[0]) : 999) - (catRank.has(b[0]) ? catRank.get(b[0]) : 999))
+      .forEach(([key, items]) => lanes.set(key, items));
 
     const box = el("div", { class: "ag-tl" });
     const hours = el("div", { class: "ag-hours" }, el("div", { class: "ag-lane-who" }));
@@ -4131,10 +4064,14 @@ class SpaBookingCard extends HTMLElement {
             el("span", { class: `user-avatar tone-${toneIndex++ % 6}` }, this._initials(operator.name)),
             el("span", { class: "ag-who-text" }, el("b", {}, operator.name),
               el("span", {}, items.length ? `${people} ${people === 1 ? "trattamento" : "trattamenti"} · ${minutesLabel(busyMin)}` : "libera")))
-        : el("div", { class: "ag-lane-who" },
-            el("span", { class: "user-avatar spa" }, el("ha-icon", { icon: "mdi:spa-outline" })),
-            el("span", { class: "ag-who-text" }, el("b", {}, "Senza operatrice"),
-              el("span", {}, `${people} ${people === 1 ? "ingresso" : "ingressi"} · Spa e altri`)));
+        : (() => {
+            const category = this._lookup.category.get(String(key).replace(/^cat:/, ""));
+            return el("div", { class: "ag-lane-who" },
+              el("span", { class: "user-avatar spa", style: category && category.color ? `background:${category.color};color:#fff` : "" },
+                el("ha-icon", { icon: "mdi:spa-outline" })),
+              el("span", { class: "ag-who-text" }, el("b", {}, category ? category.name : "Altri trattamenti"),
+                el("span", {}, `${people} ${people === 1 ? "persona" : "persone"} · ${minutesLabel(busyMin)}`)));
+          })();
       box.appendChild(el("div", { class: `ag-lane${items.length ? "" : " free"}` }, who, track));
     });
     box.appendChild(el("div", { class: "ag-legend" },
@@ -4364,7 +4301,10 @@ class SpaBookingCard extends HTMLElement {
 
       const groups = new Map();
       bookingGroups.forEach((members) => {
-        const key = members[0].operator_id || "__none__";
+        // 2.9.0: without an operator, grouped (and named) by category.
+        const category = members[0].operator_id ? null
+          : this._categoryOf(this._lookup.treatment.get(members[0].treatment_id));
+        const key = members[0].operator_id || `cat:${category ? category.id : ""}`;
         if (!groups.has(key)) groups.set(key, []);
         groups.get(key).push(members);
       });
@@ -4387,8 +4327,8 @@ class SpaBookingCard extends HTMLElement {
           el(
             "div",
             { class: "group-head" },
-            el("ha-icon", { icon: operator ? "mdi:account-voice" : "mdi:account-off-outline" }),
-            el("span", {}, operator ? operator.name : "Senza operatore"),
+            el("ha-icon", { icon: operator ? "mdi:account-voice" : "mdi:spa-outline" }),
+            el("span", {}, operator ? operator.name : (category ? category.name : "Altri trattamenti")),
             el("span", { class: "badge" },
               String(partyList.reduce((sum, members) => sum + members.length, 0)))
           )
@@ -5203,23 +5143,88 @@ class SpaBookingCard extends HTMLElement {
     }
   }
 
+  /**
+   * Entrata / uscita (2.9.0): on a group a popup asks who enters (or
+   * leaves): the whole group at once, or the people ticked.
+   */
+  _gateMembers(appointment, mode) {
+    return this._relatedOf(appointment).filter((a) => a && a.status === "confirmed" && (
+      mode === "in" ? !a.checked_in : mode === "undo" ? a.checked_in && !a.checked_out : a.checked_in !== false && !a.checked_out));
+  }
+
   async _confirmEntry(appointment, value = true) {
+    const members = this._gateMembers(appointment, value ? "in" : "undo");
+    if (members.length > 1) {
+      this._gatePopup = { mode: value ? "in" : "undo", anchor: appointment, members, picked: new Set(members.map((a) => a.id)) };
+      this._render();
+      return;
+    }
+    await this._gateSend(value ? "in" : "undo", [appointment.id]);
+  }
+
+  async _confirmExit(appointment) {
+    const members = this._gateMembers(appointment, "out");
+    if (members.length > 1) {
+      this._gatePopup = { mode: "out", anchor: appointment, members, picked: new Set(members.map((a) => a.id)) };
+      this._render();
+      return;
+    }
+    await this._gateSend("out", [appointment.id]);
+  }
+
+  async _gateSend(mode, ids) {
+    if (!ids.length) return;
+    const [first, ...rest] = ids;
     try {
-      await this._call("check_in_appointment", {
-        appointment_id: appointment.id,
-        checked_in: value,
-      });
+      if (mode === "out") {
+        await this._call("check_out_appointment", { appointment_id: first, ...(rest.length ? { appointment_ids: rest } : {}) });
+      } else {
+        await this._call("check_in_appointment", { appointment_id: first, checked_in: mode === "in", ...(rest.length ? { appointment_ids: rest } : {}) });
+      }
+      if (ids.length > 1) {
+        this._message = { kind: "ok", text: `${mode === "out" ? "Uscita" : mode === "in" ? "Ingresso" : "Ingresso annullato"} registrat${mode === "undo" ? "o" : "a"} per ${ids.length} appuntamenti.` };
+        this._render();
+      }
     } catch (error) {
       /* message already shown */
     }
   }
 
-  async _confirmExit(appointment) {
-    try {
-      await this._call("check_out_appointment", { appointment_id: appointment.id });
-    } catch (error) {
-      /* message already shown */
-    }
+  _renderGatePopup() {
+    const draft = this._gatePopup;
+    const close = () => { this._gatePopup = null; this._render(); };
+    const verb = { in: "Entrata", out: "Uscita", undo: "Annulla entrata" }[draft.mode];
+    const all = draft.picked.size === draft.members.length;
+    const rows = draft.members.map((a) => {
+      const start = parseDate(a.start);
+      const on = draft.picked.has(a.id);
+      return el("label", { class: `cx-opt gate-row${on ? " on" : ""}` },
+        el("input", { type: "checkbox", checked: on, on: { change: (event) => {
+          if (event.target.checked) draft.picked.add(a.id); else draft.picked.delete(a.id);
+          this._render();
+        } } }),
+        el("span", { class: "cx-text" },
+          el("b", {}, `${a.person != null && draft.members.some((m) => m.person) ? `Persona ${(a.person || 0) + 1} · ` : ""}${this._clientName(a)}`),
+          el("span", { class: "dim small" }, `${start ? timeOf(start) : ""} ${this._treatmentName(a)}${a.operator_id ? ` · ${this._operatorName(a)}` : ""}`)));
+    });
+    const sheet = el("div", { class: "detail-sheet cx-sheet" },
+      el("h3", {}, el("ha-icon", { icon: draft.mode === "out" ? "mdi:logout" : "mdi:login" }), ` ${verb} · prenotazione ${draft.anchor.code || ""}`),
+      el("div", { class: "cx-choice" },
+        el("button", { type: "button", class: `cx-opt${all ? " on" : ""}`, on: { click: () => {
+          draft.picked = all ? new Set() : new Set(draft.members.map((a) => a.id)); this._render();
+        } } }, el("span", { class: "cx-dot" }), el("span", { class: "cx-text" },
+          el("b", {}, `Tutto il gruppo (${draft.members.length})`),
+          el("span", { class: "dim small" }, "oppure spunta solo chi entra adesso")))),
+      el("div", { class: "cx-choice" }, rows),
+      el("div", { class: "row" }, el("span", { class: "spacer" }),
+        el("button", { class: "btn", on: { click: close } }, "Annulla"),
+        el("button", { class: "btn primary", disabled: this._busy || !draft.picked.size, on: { click: () => {
+          const ids = draft.members.filter((a) => draft.picked.has(a.id)).map((a) => a.id);
+          this._gatePopup = null;
+          this._gateSend(draft.mode, ids);
+        } } }, el("ha-icon", { icon: draft.mode === "out" ? "mdi:logout" : "mdi:login" }),
+          `${verb} (${draft.picked.size})`)));
+    return el("div", { class: "detail-backdrop", on: { click: (event) => { if (event.target === event.currentTarget) close(); } } }, sheet);
   }
 
   /**
@@ -7255,7 +7260,7 @@ class SpaBookingCard extends HTMLElement {
     const settings = (this._data && this._data.settings) || {};
     const raw = (settings.notifiche_order && typeof settings.notifiche_order === "object")
       ? settings.notifiche_order : {};
-    const defaults = { left: ["telegram", "whatsapp", "whatsapp_engine", "waha", "preview"],
+    const defaults = { left: ["telegram", "whatsapp", "whatsapp_engine", "preview"],
                        right: ["review", "report", "offers", "deposit", "guest_header", "summary",
                                "request_message", "request_propose", "appointment_reminder"] };
     const seen = new Set();
@@ -8015,6 +8020,83 @@ class SpaBookingCard extends HTMLElement {
   }
 
   /** The <select> of treatments, grouped by category. */
+  /**
+   * A list ordered by dragging (2.9.0): press the handle (⋮⋮) and move, with
+   * a finger or the mouse; the other rows slide out of the way and the new
+   * order is saved when the row is let go. ``rows`` are elements with
+   * ``data-key``; ``onOrder(keys)`` gets the new order. Long lists scroll
+   * while dragging near the edge of the screen.
+   */
+  _sortable(list, onOrder) {
+    list.classList.add("sortable");
+    list.addEventListener("pointerdown", (event) => {
+      const handle = event.target.closest && event.target.closest(".sort-handle");
+      if (!handle || !list.contains(handle) || event.button > 0) return;
+      const row = handle.closest("[data-key]");
+      if (!row || row.parentNode !== list) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const rows = [...list.children].filter((n) => n.dataset && n.dataset.key);
+      const from = rows.indexOf(row);
+      const rects = rows.map((n) => n.getBoundingClientRect());
+      const height = rects[from].height + (rows[1] ? Math.max(0, rects[1].top - rects[0].bottom) : 0);
+      const startY = event.clientY;
+      let to = from;
+      let lastY = startY;
+      row.classList.add("sorting");
+      list.classList.add("is-sorting");
+      handle.setPointerCapture && handle.setPointerCapture(event.pointerId);
+      let scroller = null;
+      const move = (ev) => {
+        lastY = ev.clientY;
+        const dy = ev.clientY - startY;
+        row.style.transform = `translateY(${dy}px)`;
+        const center = rects[from].top + rects[from].height / 2 + dy;
+        to = from;
+        rects.forEach((r, i) => {
+          const mid = r.top + r.height / 2;
+          if (i < from && center < mid) to = Math.min(to, i);
+          if (i > from && center > mid) to = Math.max(to, i);
+        });
+        rows.forEach((n, i) => {
+          if (n === row) return;
+          let shift = 0;
+          if (from < to && i > from && i <= to) shift = -height;
+          if (from > to && i < from && i >= to) shift = height;
+          n.style.transform = shift ? `translateY(${shift}px)` : "";
+        });
+        // Scroll the page while dragging near its edges.
+        const edge = 70;
+        const speed = ev.clientY < edge ? -12 : ev.clientY > window.innerHeight - edge ? 12 : 0;
+        if (speed && !scroller) scroller = setInterval(() => window.scrollBy(0, speed), 16);
+        if (!speed && scroller) { clearInterval(scroller); scroller = null; }
+      };
+      const end = () => {
+        handle.removeEventListener("pointermove", move);
+        handle.removeEventListener("pointerup", end);
+        handle.removeEventListener("pointercancel", end);
+        if (scroller) clearInterval(scroller);
+        row.classList.remove("sorting");
+        list.classList.remove("is-sorting");
+        rows.forEach((n) => { n.style.transform = ""; });
+        if (to !== from) {
+          const keys = rows.map((n) => n.dataset.key);
+          const [moved] = keys.splice(from, 1);
+          keys.splice(to, 0, moved);
+          onOrder(keys);
+        }
+      };
+      handle.addEventListener("pointermove", move);
+      handle.addEventListener("pointerup", end);
+      handle.addEventListener("pointercancel", end);
+    });
+    return list;
+  }
+
+  _sortHandle(title = "Trascina per spostare") {
+    return el("span", { class: "sort-handle", title, role: "button", "aria-label": title }, el("ha-icon", { icon: "mdi:drag-vertical" }));
+  }
+
   /** Position of a treatment in the saved Trattamenti order; unlisted ones go last. */
   _trtRank(treatment) {
     const order = (this._data.settings && this._data.settings.treatments_order) || [];
@@ -15778,46 +15860,69 @@ class SpaBookingCard extends HTMLElement {
       return node;
     };
     panels.appendChild(this._whatsappEngineBox(box, settings));
-    if ((settings.whatsapp_engine || "waha") !== "integrated") {
-      const field = (label, key, placeholder, type = "text") => el("label", { class: "field" },
-        el("span", {}, label),
-        el("input", { class: "input", type, value: draft[key] || "", placeholder,
-          autocomplete: type === "password" ? "new-password" : "off",
-          on: { input: (event) => { draft[key] = event.target.value; } } }));
-      panels.appendChild(box("waha", "Gateway WhatsApp (WAHA)",
-        field("Indirizzo WAHA", "waha_url", "http://homeassistant:3000"),
-        field("Chiave API", "waha_api_key", "chiave dell'add-on", "password"),
-        field("Sessione", "waha_session", "default"),
-        field("Indirizzo Home Assistant (solo se WAHA è su un altro host)", "waha_ha_url", "http://homeassistant:8123"),
-        el("div", { class: "row tight" },
-          el("button", { class: "btn small", disabled: this._busy, on: { click: () => this._checkWaha() } },
-            el("ha-icon", { icon: "mdi:lan-check" }), "Verifica connessione"),
-          el("button", { class: "btn small", disabled: this._busy, on: { click: () => this._enableWaha() } },
-            el("ha-icon", { icon: "mdi:webhook" }), "Attiva ricezione risposte"),
-          el("button", {
-            class: "btn small primary", disabled: this._busy,
-            on: { click: async () => {
-              try {
-                await this._call("update_settings", {
-                  waha_url: (draft.waha_url || "").trim(),
-                  waha_api_key: draft.waha_api_key || "",
-                  waha_session: (draft.waha_session || "").trim(),
-                  waha_ha_url: (draft.waha_ha_url || "").trim(),
-                });
-                this._wahaStatus = "Impostazioni gateway salvate.";
-                this._render();
-              } catch (error) { /* shown */ }
-            } },
-          }, el("ha-icon", { icon: "mdi:content-save" }), "Salva gateway")),
-        this._wahaStatus ? el("div", { class: "hint" }, this._wahaStatus) : null));
-    }
-    panels.appendChild(box("telegram", "Bot Telegram",
-      el("label", { class: "field" },
-        el("span", {}, "ID configurazione bot"),
-        el("input", { class: "input", type: "text", value: draft.telegram_config_entry_id || "", placeholder: "01J…",
-          on: { input: (event) => { draft.telegram_config_entry_id = event.target.value; changed(); } } })),
-      el("div", { class: "hint" }, "Il bot Telegram di Home Assistant da usare per i messaggi e il report.")));
+    panels.appendChild(this._telegramBox(box, settings));
     return panels;
+  }
+
+  /**
+   * «Bot Telegram» (2.9.0): Spa Booking talks to Telegram by itself. The
+   * token of a bot made with @BotFather is all it needs; the operators write
+   * /start to the bot and get the code of their chat.
+   */
+  _telegramBox(box, settings) {
+    const status = this._tgStatus;
+    if (!status && !this._tgLoading) this._tgRefresh();
+    const tokenInput = el("input", {
+      class: "input", type: "password", autocomplete: "new-password",
+      placeholder: settings.telegram_bot_token ? "•••••• token salvato" : "123456789:AA…",
+      on: { keydown: (event) => event.stopPropagation() },
+    });
+    const node = box("telegram", "Bot Telegram",
+      el("div", { class: "hint" }, "Spa Booking usa il bot da solo, senza l'integrazione Telegram di Home Assistant: invia gli appuntamenti con i pulsanti Confermo / Rifiuto, i promemoria e il report, e riceve le risposte."),
+      status && status.configured
+        ? el("div", { class: `wa-state ${status.ok ? "ok" : "error"}` },
+            el("ha-icon", { icon: status.ok ? "mdi:check-circle" : "mdi:alert-circle" }),
+            el("span", {}, status.ok ? `Attivo · @${status.username}` : "Non raggiungibile"))
+        : el("div", { class: "wa-state" }, el("ha-icon", { icon: "mdi:robot-off-outline" }), el("span", {}, "Nessun bot collegato")),
+      status && status.error ? el("div", { class: "hint" }, /409|Conflict/i.test(status.error)
+        ? "Un altro programma legge lo stesso bot (di solito l'integrazione Telegram di Home Assistant): rimuovila, oppure usa un bot diverso."
+        : status.error) : null,
+      el("label", { class: "field" }, el("span", {}, "Token del bot (da @BotFather)"), tokenInput),
+      el("div", { class: "row tight" },
+        el("button", { class: "btn small primary", disabled: this._busy, on: { click: async () => {
+          const token = String(tokenInput.value || "").trim();
+          if (!token) return;
+          try { await this._call("update_settings", { telegram_bot_token: token }); this._tgStatus = null; this._tgRefresh(); } catch (error) { /* shown */ }
+        } } }, el("ha-icon", { icon: "mdi:content-save" }), "Salva e collega"),
+        settings.telegram_bot_token ? el("button", { class: "btn small danger", disabled: this._busy, on: { click: async () => {
+          if (!window.confirm("Scollegare il bot Telegram? Gli operatori non riceveranno più nulla su Telegram.")) return;
+          try { await this._call("update_settings", { telegram_bot_token: "" }); this._tgStatus = null; this._tgRefresh(); } catch (error) { /* shown */ }
+        } } }, el("ha-icon", { icon: "mdi:link-off" }), "Scollega") : null,
+        el("button", { class: "btn small", disabled: this._busy, on: { click: () => { this._tgStatus = null; this._tgRefresh(); } } },
+          el("ha-icon", { icon: "mdi:refresh" }), "Aggiorna")));
+    const recent = (status && status.recent) || [];
+    if (recent.length) {
+      node.appendChild(el("div", { class: "pt-h" }, "Hanno scritto al bot"));
+      recent.forEach((chat) => node.appendChild(el("div", { class: "pt-line" },
+        el("ha-icon", { icon: "mdi:account-outline" }),
+        el("span", { class: "grow" }, `${chat.name || "—"}${chat.username ? ` (@${chat.username})` : ""}`, el("span", { class: "dim small" }, ` · ${chat.chat_id}`)),
+        el("button", { class: "btn small", on: { click: async () => {
+          try { await navigator.clipboard.writeText(chat.chat_id); this._message = { kind: "ok", text: `Codice ${chat.chat_id} copiato: incollalo nel campo Telegram della scheda operatore.` }; }
+          catch (error) { this._message = { kind: "ok", text: chat.chat_id }; }
+          this._render();
+        } } }, el("ha-icon", { icon: "mdi:content-copy" }), "Copia codice"))));
+    }
+    node.appendChild(el("div", { class: "hint" },
+      "Come si fa: 1) su Telegram apri @BotFather, scrivi /newbot e copia il token qui sopra; 2) ogni operatore cerca il bot e scrive /start: riceve il codice della sua chat, che compare anche qui; 3) incolla il codice nel campo Telegram della sua scheda in Configurazione › Operatori."));
+    return node;
+  }
+
+  async _tgRefresh() {
+    if (this._tgLoading) return;
+    this._tgLoading = true;
+    try { this._tgStatus = await this._service("telegram_status", {}); }
+    catch (error) { this._tgStatus = { configured: false, ok: false, error: this._friendlyError(error, ""), recent: [] }; }
+    finally { this._tgLoading = false; this._render(); }
   }
 
   // --------------------------------------------------------------- PROMO
@@ -15996,7 +16101,7 @@ class SpaBookingCard extends HTMLElement {
     const wrap = el("div", { class: "stack" });
     const settings = (this._data && this._data.settings) || {};
     wrap.appendChild(this._sectionHead("mdi:package-variant-closed", "Pacchetti",
-      "I prodotti dello shop abbinati ai trattamenti. Quelli per 2 o più persone si scelgono in Nuovo appuntamento, Nuova richiesta, Modifica gruppo e nel modulo del sito: qui decidi dove si vedono e, con le frecce, in che ordine."));
+      "I prodotti dello shop abbinati ai trattamenti. Quelli per 2 o più persone si scelgono in Nuovo appuntamento, Nuova richiesta, Modifica gruppo e nel modulo del sito: qui decidi dove si vedono e, trascinando la maniglia ⋮⋮, in che ordine."));
     const all = this._shopPackages(1);
     const productsCount = (settings.wp_products || []).length;
     if (!all.length) {
@@ -16016,24 +16121,25 @@ class SpaBookingCard extends HTMLElement {
       el("input", { type: "checkbox", checked: on, disabled: this._busy || !this._can("config"),
         on: { change: (event) => toggle(pkg.key, list, !event.target.checked) } }),
       el("span", {}, label));
+    // Dragged by the handle (2.9.0): the order of the website and of the menu
+    // of Nuovo appuntamento / Nuova richiesta.
     const list = el("div", { class: "stack tight" });
-    // Up and down arrows set the order shown on the website and in the
-    // menu of Nuovo appuntamento / Nuova richiesta (2.8.12).
-    const move = async (index, step) => {
-      const keys = all.map((p) => p.key);
-      const target = index + step;
-      if (target < 0 || target >= keys.length) return;
-      [keys[index], keys[target]] = [keys[target], keys[index]];
-      try { await this._call("update_settings", { package_order: keys }); } catch (error) { /* shown */ }
-    };
+    const canOrder = this._can("config");
+    if (canOrder) this._sortable(list, async (keys) => {
+      this._data.settings = { ...settings, package_order: keys };
+      this._render();
+      try { await this._service("update_settings", { package_order: keys }); } catch (error) {
+        this._message = { kind: "error", text: this._friendlyError(error, "Ordine non salvato.") };
+        this._render();
+      }
+    });
     all.forEach((pkg, index) => {
       const multi = pkg.people >= 2;
       const extras = pkg.extras.map((id) => (this._accessory(id) || {}).label || id);
-      list.appendChild(el("div", { class: `pkc-row${pkg.hidden_web && pkg.hidden_desk ? " off" : ""}` },
+      list.appendChild(el("div", { class: `pkc-row${pkg.hidden_web && pkg.hidden_desk ? " off" : ""}`, "data-key": pkg.key },
         el("div", { class: "pkc-move" },
-          el("button", { class: "icon-btn", title: "Sposta su", disabled: this._busy || index === 0, on: { click: () => move(index, -1) } }, el("ha-icon", { icon: "mdi:chevron-up" })),
-          el("span", { class: "pkc-pos" }, String(index + 1)),
-          el("button", { class: "icon-btn", title: "Sposta giù", disabled: this._busy || index === all.length - 1, on: { click: () => move(index, 1) } }, el("ha-icon", { icon: "mdi:chevron-down" }))),
+          canOrder ? this._sortHandle() : null,
+          el("span", { class: "pkc-pos" }, String(index + 1))),
         pkg.image ? el("img", { class: "pkc-img", src: pkg.image, alt: "" }) : el("span", { class: "pkc-img ph" }, el("ha-icon", { icon: "mdi:package-variant-closed" })),
         el("div", { class: "pkc-main" },
           el("div", {}, el("b", {}, pkg.name), el("span", { class: "dim small" }, ` · ${pkg.people === 1 ? "1 persona" : `${pkg.people} persone`}${pkg.price != null ? ` · ${euro(pkg.price)}` : ""}`)),
@@ -18245,9 +18351,8 @@ class SpaBookingCard extends HTMLElement {
     // treatments draggable up and down within each category.
     if (this._trtEditMode && this._can("config")) {
       wrap.appendChild(el("div", { class: "hint small" },
-        "Trascina le categorie tra le colonne e i trattamenti su/giù nella loro categoria."));
-      const columns = this._trtColumns();
-      wrap.appendChild(columns);
+        "Trascina dalla maniglia ⋮⋮: le categorie per cambiare l'ordine delle sezioni, i trattamenti dentro la loro categoria. Vale per il modulo del sito, Nuovo appuntamento e Nuova richiesta."));
+      wrap.appendChild(this._trtSortView());
       return wrap;
     }
 
@@ -18302,6 +18407,63 @@ class SpaBookingCard extends HTMLElement {
       }, el("ha-icon", { icon: "mdi:pencil" }))
     );
     return head;
+  }
+
+  /**
+   * «Ordina» of the Trattamenti tab (2.9.0): one column of categories, each
+   * with its treatments, both reordered by dragging. Categories can be
+   * folded to move them easily when the list is long.
+   */
+  _trtSortView() {
+    const groups = this._treatmentGroups();
+    const save = async (patch) => {
+      this._data.settings = { ...(this._data.settings || {}), ...patch };
+      this._render();
+      try { await this._service("update_settings", patch); } catch (error) {
+        this._message = { kind: "error", text: this._friendlyError(error, "Ordine non salvato.") };
+        this._render();
+      }
+    };
+    const allTrt = () => groups.flatMap((g) => g.items.map((t) => t.id));
+    this._trtFolded = this._trtFolded || new Set();
+    const folded = this._trtFolded;
+    const cats = el("div", { class: "stack tight ts-cats" });
+    this._sortable(cats, (keys) => save({ categories_order: { left: keys.filter(Boolean), right: [] } }));
+    groups.forEach((group) => {
+      const id = group.category.id || "";
+      const closed = folded.has(id);
+      const items = el("div", { class: "ts-items" });
+      this._sortable(items, (keys) => {
+        const order = allTrt();
+        const start = order.indexOf(group.items[0].id);
+        const rest = order.filter((t) => !keys.includes(t));
+        rest.splice(start < 0 ? rest.length : start, 0, ...keys);
+        save({ treatments_order: rest });
+      });
+      group.items.forEach((t) => items.appendChild(el("div", { class: "ts-item", "data-key": t.id },
+        this._sortHandle(),
+        el("span", { class: "grow" }, t.name),
+        el("span", { class: "dim small" }, `${t.duration_min}′${t.price ? ` · ${euro(t.price)}` : ""}`),
+        t.web_visible === false ? el("span", { class: "chip" }, "non sul sito") : null)));
+      cats.appendChild(el("div", { class: "ts-cat", "data-key": id, style: `--cat:${group.category.color || "var(--primary-color)"}` },
+        el("div", { class: "ts-cat-head" },
+          id ? this._sortHandle("Trascina la categoria") : el("span", { class: "sort-handle off" }),
+          el("span", { class: "trt2-dot" }),
+          el("b", { class: "grow" }, group.category.name),
+          el("span", { class: "badge" }, String(group.items.length)),
+          el("button", { class: "icon-btn", title: closed ? "Apri" : "Chiudi", on: { click: () => {
+            if (closed) folded.delete(id); else folded.add(id);
+            this._render();
+          } } }, el("ha-icon", { icon: closed ? "mdi:chevron-down" : "mdi:chevron-up" }))),
+        closed ? null : items));
+    });
+    return el("div", { class: "stack tight" },
+      el("div", { class: "row tight" },
+        el("button", { class: "btn small", on: { click: () => { groups.forEach((g) => folded.add(g.category.id || "")); this._render(); } } },
+          el("ha-icon", { icon: "mdi:unfold-less-horizontal" }), "Chiudi tutte"),
+        el("button", { class: "btn small", on: { click: () => { folded.clear(); this._render(); } } },
+          el("ha-icon", { icon: "mdi:unfold-more-horizontal" }), "Apri tutte")),
+      cats);
   }
 
   /** Build the two-column grid of draggable category blocks (edit mode). */
@@ -22376,11 +22538,24 @@ class SpaBookingCard extends HTMLElement {
       .cx-dot { width: 16px; height: 16px; flex: none; border-radius: 50%; border: 2px solid var(--sb-line); }
       .cx-opt.on .cx-dot { border-color: var(--primary-color); box-shadow: inset 0 0 0 3px var(--card-background-color); background: var(--primary-color); }
       .cx-text { display: flex; flex-direction: column; gap: 2px; }
+      .gate-row input { width: 18px; height: 18px; accent-color: var(--primary-color); flex: none; }
       .gt h4 { display: flex; align-items: center; gap: 4px; }
       .pk-box { display: flex; flex-direction: column; gap: 8px; padding: 8px 12px; border: 1px solid var(--sb-line); border-radius: 12px; background: color-mix(in srgb, var(--primary-color) 4%, transparent); }
       .pk-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
       .lv-head { align-items: center; }
       .lv-head h3 { margin: 0; }
+      .sortable > [data-key] { transition: transform .18s ease; }
+      .sortable.is-sorting > [data-key] { user-select: none; }
+      .sortable > .sorting { transition: none; position: relative; z-index: 3; box-shadow: 0 10px 28px rgba(0,0,0,.18); border-radius: 12px; }
+      .sort-handle { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 32px; flex: none; cursor: grab; touch-action: none; color: var(--secondary-text-color); border-radius: 8px; }
+      .sort-handle:hover { background: color-mix(in srgb, var(--primary-color) 10%, transparent); color: var(--primary-color); }
+      .sort-handle.off { cursor: default; visibility: hidden; }
+      .sorting .sort-handle { cursor: grabbing; }
+      .ts-cat { border: 1px solid var(--sb-line); border-left: 4px solid var(--cat); border-radius: 12px; background: var(--card-background-color); overflow: hidden; }
+      .ts-cat-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px; }
+      .ts-cat-head .trt2-dot { background: var(--cat); }
+      .ts-items { display: flex; flex-direction: column; padding: 0 10px 8px; }
+      .ts-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 10px; background: var(--sb-card); margin-top: 4px; font-size: 14px; }
       .pkc-move { display: flex; flex-direction: column; align-items: center; gap: 0; }
       .pkc-move .icon-btn { width: 28px; height: 24px; }
       .pkc-pos { font-size: 12px; font-weight: 700; color: var(--secondary-text-color); }

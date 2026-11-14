@@ -299,6 +299,16 @@ async def async_deliver_whatsapp(
     }
 
 
+#: The bot built into Spa Booking (2.9.0); None = Home Assistant's telegram_bot.
+_TELEGRAM_BOT: Any = None
+
+
+def set_telegram_bot(bot: Any) -> None:
+    """Send Telegram through the bot built into Spa Booking (None to stop)."""
+    global _TELEGRAM_BOT  # noqa: PLW0603
+    _TELEGRAM_BOT = bot
+
+
 async def async_send_telegram(
     hass: HomeAssistant,
     config_entry_id: str,
@@ -319,6 +329,29 @@ async def async_send_telegram(
             "chat_id": "",
             "sent": False,
             "error": "nessun chat id",
+        }
+    bot = _TELEGRAM_BOT
+    if bot is not None:
+        # The bot built into Spa Booking: straight to the Telegram API.
+        from .telegram_native import TelegramError
+
+        parts = chunk_text(message, TELEGRAM_CHUNK)
+        sent = 0
+        error = ""
+        for index, part in enumerate(parts):
+            try:
+                await bot.async_send(str(chat_id), part, inline_keyboard if index == 0 else None)
+                sent += 1
+            except TelegramError as err:
+                error = str(err)
+                _LOGGER.warning("Telegram a %s fallito: %s", chat_id, err)
+                break
+        return {
+            "channel": "telegram",
+            "chat_id": str(chat_id),
+            "sent": sent == len(parts) and sent > 0,
+            "parts": sent,
+            "error": "" if sent == len(parts) else (error or "invio non riuscito"),
         }
     if not config_entry_id:
         return {

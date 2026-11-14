@@ -21,12 +21,10 @@ const boxFn = (id, title) => { const { Node } = require("./card_harness"); const
 const buttons = (node) => all(node).filter((n) => n.tagName === "BUTTON").map((n) => n.textContent.trim());
 const radios = (node) => all(node).filter((n) => n.tagName === "INPUT" && n.attrs.type === "radio");
 
-// WAHA chosen: only the choice, no polling.
-let card = makeCard(null);
+// 2.9.0: no WAHA add-on, no engine choice.
+let card = makeCard({ state: "not_linked", label: "Non collegato" });
 let box = card._whatsappEngineBox(boxFn, { whatsapp_engine: "waha" });
-assert(radios(box).length === 2, "two engine choices");
-assert(box.textContent.includes("WhatsApp integrato (beta)") && box.textContent.includes("Add-on WAHA"), "choices labelled");
-assert(buttons(box).length === 0 && card.polling === false, "WAHA: no link buttons, no polling");
+assert(radios(box).length === 0 && !box.textContent.includes("WAHA"), "no engine choice, no WAHA");
 
 // Not linked: link button.
 card = makeCard({ state: "not_linked", label: "Non collegato" });
@@ -51,9 +49,6 @@ assert(card.polling === false, "connected: no polling");
 // Actions.
 (async () => {
   card = makeCard({ state: "pairing" });
-  radios(card._whatsappEngineBox(boxFn, { whatsapp_engine: "waha" }))[0].listeners.change[0]({});
-  await new Promise((r) => setTimeout(r, 0));
-  assert(JSON.stringify(card.calls[0]) === JSON.stringify(["update_settings", { whatsapp_engine: "integrated" }]), "choosing the engine saves it");
   card._waPairPhone = "333 1234567";
   await card._waPairCode();
   assert(card._waCode === "ABCD-1234", "link code requested and kept");

@@ -24,18 +24,17 @@ from pathlib import Path
 from typing import Any, Final
 from collections import deque
 
-from homeassistant.components import webhook
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceEntryType
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    EVENT_ANSWER_REQUEST,
     KEY_VOUCHERS,
     KEY_PROMO_VOUCHERS,
     KEY_PARTNERS,
@@ -87,7 +86,6 @@ from .const import (
     DEFAULT_REVIEW_REQUEST_AFTER_HOURS,
     DEFAULT_VOUCHER_EXPIRY_REMINDER_DAYS,
     DEFAULT_VOUCHER_EXPIRY_REMINDER_MESSAGE,
-    DEFAULT_WAHA_SESSION,
     DEFAULT_WEB_CLOSE_TIME,
     DEFAULT_WEB_ENABLED,
     DEFAULT_WEB_MAX_DAYS_AHEAD,
@@ -134,7 +132,7 @@ from .exceptions import (
     ValidationError,
 )
 from . import access, email_sender, gdrive_backup, google_auth, messaging, wp_shop
-from .waha import WahaAuthenticationError, WahaClient, WahaError
+from .waha import WahaAuthenticationError, WahaError
 from .waha_inbound import WahaInbound
 from .wa_bridge import WaBridge
 from .normalize import (
@@ -309,7 +307,6 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._send_lock = asyncio.Lock()
         self._data: dict[str, Any] = default_data()
         # The inbound WhatsApp handler, once the gateway is switched on.
-        self._waha_inbound: WahaInbound | None = None
         # Recent WhatsApp messages from numbers that are neither clients nor
         # operators, so the desk can read and answer external requests.
         self._external_messages: deque[dict[str, Any]] = deque(maxlen=20)
@@ -4179,11 +4176,16 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         async with self._lock:
             existing = {v["code"] for v in self.promo_vouchers}
+            # One voucher per booking (2.9.0): a group leaving earns its
+            # client one voucher, not one per person or treatment.
+            anchor = next((a for a in self.appointments if a["id"] == appointment_id), None)
+            booking = {a["id"] for a in self._group_members(anchor)} if anchor else {appointment_id}
             already = next(
                 (
                     v
                     for v in self.promo_vouchers
                     if v.get("appointment_id") == appointment_id
+                    or (v.get("appointment_id") in booking and v.get("client_id") == client_id)
                 ),
                 None,
             )
@@ -8472,14 +8474,58 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self._async_save()
         if "whatsapp_engine" in changes:
             await self.async_apply_whatsapp_engine()
+        if "telegram_bot_token" in changes:
+            await self.async_apply_telegram()
         return dict(self._data[KEY_SETTINGS])
+
+    # --------------------------------------------------------------- Telegram
+
+    async def async_apply_telegram(self) -> None:
+        """Start, restart or stop the bot built into Spa Booking (2.9.0)."""
+        from .telegram_native import TelegramBot
+
+        token = str(self._data[KEY_SETTINGS].get("telegram_bot_token") or "").strip()
+        current = getattr(self, "telegram", None)
+        if current is not None and current.token == token:
+            return
+        await self.async_stop_telegram()
+        if not token:
+            return
+
+        def on_update(data: dict[str, Any]) -> None:
+            self.hass.bus.async_fire(EVENT_ANSWER_REQUEST, data)
+
+        bot = TelegramBot(self.hass, token, on_update)
+        self.telegram = bot
+        messaging.set_telegram_bot(bot)
+        await bot.async_start()
+
+    async def async_stop_telegram(self) -> None:
+        bot = getattr(self, "telegram", None)
+        self.telegram = None
+        messaging.set_telegram_bot(None)
+        if bot is not None:
+            await bot.async_stop()
+
+    async def async_telegram_status(self) -> dict[str, Any]:
+        bot = getattr(self, "telegram", None)
+        if bot is None:
+            return {"configured": False, "ok": False, "error": "", "recent": []}
+        if not bot.me:
+            from .telegram_native import TelegramError
+
+            try:
+                await bot.async_get_me()
+            except TelegramError as err:
+                bot.error = str(err)
+        return bot.status()
 
     # ------------------------------------------------------------------- WAHA
 
     @property
     def whatsapp_engine(self) -> str:
-        """"waha" (the add-on) or "integrated" (built into Spa Booking)."""
-        return str(self._data[KEY_SETTINGS].get("whatsapp_engine") or "waha")
+        """Always "integrated": the WAHA add-on is gone (2.9.0)."""
+        return "integrated"
 
     async def async_apply_whatsapp_engine(self) -> None:
         """Start or stop the built-in WhatsApp connection to match the settings."""
@@ -8502,26 +8548,12 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await bridge.async_stop()
 
     @property
-    def waha(self) -> WahaClient | WaBridge | None:
-        """The WhatsApp gateway to send through, or None when unset.
+    def waha(self) -> WaBridge | None:
+        """The WhatsApp connection built into Spa Booking, or None while it is off.
 
-        With the built-in connection chosen, it is always that one (a send
-        fails clearly while it is not linked, rather than slipping through
-        another channel). Otherwise the WAHA add-on; an empty URL means "use
-        the rest_command fallback", as before the gateway moved inside.
+        The name stays for the many senders that pass ``waha=self.waha``.
         """
-        if self.whatsapp_engine == "integrated":
-            return self.wa_bridge
-        settings = self._data[KEY_SETTINGS]
-        url = str(settings.get("waha_url") or "")
-        if not url:
-            return None
-        return WahaClient(
-            async_get_clientsession(self.hass),
-            str(settings.get("waha_api_key") or ""),
-            str(settings.get("waha_session") or DEFAULT_WAHA_SESSION),
-            base_url=url,
-        )
+        return self.wa_bridge
 
     async def async_check_waha(self) -> dict[str, Any]:
         """Ask WAHA who it is, so the card can prove the configuration works.
@@ -8531,9 +8563,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         client = self.waha
         if client is None:
-            if self.whatsapp_engine == "integrated":
-                return {"configured": True, "ok": False, "error": "WhatsApp integrato non avviato"}
-            return {"configured": False, "ok": False, "error": "WAHA non configurato"}
+            return {"configured": True, "ok": False, "error": "WhatsApp integrato non avviato"}
         try:
             server = await client.async_get_server()
         except WahaAuthenticationError as err:
@@ -8546,87 +8576,6 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "version": server.version,
             "engine": server.engine or "",
         }
-
-    async def async_setup_waha_webhook(self) -> dict[str, Any]:
-        """Turn on inbound answers: our webhook, subscribed on the session.
-
-        One call does the whole job, because a half-configured webhook answers
-        nothing: the id and the secret are generated if this is the first time,
-        the path is claimed inside Home Assistant, and the session is told to
-        post to it. The secret is reported back only as "present", never as a
-        value, so the card and the logs cannot leak it.
-        """
-        if self.whatsapp_engine == "integrated":
-            raise ValidationError(
-                "Con WhatsApp integrato le risposte arrivano già da sole: non serve il webhook"
-            )
-        client = self.waha
-        if client is None:
-            raise ValidationError(
-                "Configura prima l'URL di WAHA nelle impostazioni"
-            )
-        async with self._lock:
-            settings = dict(self._data[KEY_SETTINGS])
-            if not settings.get("waha_webhook_id"):
-                settings["waha_webhook_id"] = f"spa_{secrets.token_hex(6)}"
-            if not settings.get("waha_webhook_secret"):
-                settings["waha_webhook_secret"] = secrets.token_hex(32)
-            self._data[KEY_SETTINGS] = _norm_settings(settings)
-            await self._async_save()
-
-        webhook_id = settings["waha_webhook_id"]
-        secret = settings["waha_webhook_secret"]
-        url = self._waha_webhook_url(webhook_id)
-        # WAHA is configured first: if it refuses (session missing, key
-        # refused) the webhook stays unclaimed here instead of accepting and
-        # dropping every answer.
-        changed = await client.async_ensure_webhook(url, secret)
-        self._async_register_waha_inbound()
-        return {
-            "active": True,
-            "webhook_url": url,
-            "updated": changed,
-        }
-
-    def _waha_webhook_url(self, webhook_id: str) -> str:
-        """The address the WAHA add-on posts the answers to.
-
-        The add-on runs in the Supervisor network, where Home Assistant answers
-        as ``homeassistant`` on port 8123. An installation that reaches it
-        another way overrides the prefix in the settings.
-        """
-        override = str(self._data[KEY_SETTINGS].get("waha_ha_url") or "").strip()
-        prefix = override.rstrip("/") or "http://homeassistant:8123"
-        return f"{prefix}{webhook.async_generate_path(webhook_id)}"
-
-    def _async_register_waha_inbound(self) -> WahaInbound | None:
-        """Claim the webhook path inside Home Assistant, replacing an old one.
-
-        Registering twice with the same id is harmless, so pressing the card's
-        button again cannot leave two handlers behind.
-        """
-        settings = self._data[KEY_SETTINGS]
-        webhook_id = str(settings.get("waha_webhook_id") or "")
-        secret = str(settings.get("waha_webhook_secret") or "")
-        if not (webhook_id and secret):
-            return None
-        inbound = WahaInbound(
-            self.hass,
-            self,
-            webhook_id=webhook_id,
-            secret=secret,
-            session=str(settings.get("waha_session") or DEFAULT_WAHA_SESSION),
-        )
-        inbound.async_register()
-        self._waha_inbound = inbound
-        return inbound
-
-    def async_unregister_waha_inbound(self) -> None:
-        """Free the webhook path, usually because the config entry unloaded."""
-        inbound = getattr(self, "_waha_inbound", None)
-        if inbound is not None:
-            inbound.async_unregister()
-            self._waha_inbound = None
 
     def _card_file_version(self) -> str:
         """Return the short content hash of the card, computed at load time."""
@@ -9437,11 +9386,17 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         oldest = now - timedelta(hours=after_hours + REVIEW_REQUEST_WINDOW_HOURS)
         asked: set[tuple[str, str]] = set()
         outbox: list[tuple[str, str, str]] = []
+        # 2.9.0: the button asks the whole booking, one message per number.
+        wanted: set[str] = set()
+        if appointment_id:
+            anchor = next((a for a in self.appointments if a["id"] == appointment_id), None)
+            wanted = {a["id"] for a in self._group_members(anchor)} if anchor else {appointment_id}
+        chats_asked: set[str] = set()
         async with self._send_lock:
             async with self._lock:
                 for appointment in self.appointments:
                     if appointment_id:
-                        if appointment["id"] != appointment_id:
+                        if appointment["id"] not in wanted:
                             continue
                         if appointment["status"] == STATUS_CANCELLED:
                             continue
@@ -9458,6 +9413,10 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     chat_id = messaging.whatsapp_chat_id(phone)
                     if not chat_id:
                         continue
+                    if appointment_id and chat_id in chats_asked:
+                        appointment["review_request_sent"] = True
+                        continue
+                    chats_asked.add(chat_id)
                     if not appointment_id:
                         end = dt_util.parse_datetime(appointment["end"])
                         day = dt_util.as_local(end).date().isoformat() if end else ""
