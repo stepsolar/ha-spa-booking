@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "3.0.1";
+const CARD_VERSION = "3.0.2";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -4042,12 +4042,16 @@ class SpaBookingCard extends HTMLElement {
     return el("div", { class: "ag-head" },
       el("div", { class: "ag-nav" },
         el("button", { class: "icon-btn ag-arrow", title: "Giorno prima", on: { click: () => go(ymd(addDays(day, -1))) } }, el("ha-icon", { icon: "mdi:chevron-left" })),
-        el("label", { class: "ag-day", title: "Scegli un giorno" },
+        el("label", { class: "ag-day", title: "Scegli un giorno", on: { click: (event) => this._openDayPicker(event) } },
           el("span", { class: "ag-day-name" }, label),
           el("span", { class: "ag-day-rel" }, relative),
           el("input", { class: "ag-date", type: "date", value: this._day, "aria-label": "Scegli un giorno",
             on: { change: (event) => go(event.target.value || todayStr()) } })),
         el("button", { class: "icon-btn ag-arrow", title: "Giorno dopo", on: { click: () => go(ymd(addDays(day, 1))) } }, el("ha-icon", { icon: "mdi:chevron-right" })),
+        // 3.0.2: the calendar was there but invisible — a visible button
+        // opens the browser's date picker.
+        el("button", { class: "icon-btn ag-arrow ag-cal", title: "Scegli una data dal calendario",
+          on: { click: (event) => this._openDayPicker(event) } }, el("ha-icon", { icon: "mdi:calendar-month-outline" })),
         diff !== 0 ? el("button", { class: "btn small", on: { click: () => go(todayStr()) } }, "Oggi") : null),
       this._agViews(view),
       el("span", { class: "spacer" }),
@@ -7988,6 +7992,19 @@ class SpaBookingCard extends HTMLElement {
    * the print dialog never covers the dashboard and the report never depends
    * on the card's own shadow styles.
    */
+  /** Open the date picker of the agenda's day (3.0.2). */
+  _openDayPicker(event) {
+    const head = event.currentTarget.closest(".ag-nav");
+    const input = head && head.querySelector(".ag-date");
+    if (!input) return;
+    event.preventDefault();
+    try {
+      if (typeof input.showPicker === "function") { input.showPicker(); return; }
+    } catch (error) { /* not allowed here: fall back to focus */ }
+    input.focus();
+    input.click();
+  }
+
   _printDay() {
     this._openHtmlPage(
       `Spa Booking — Report ${ymd(new Date(`${this._day}T00:00:00`))}`,
@@ -22276,6 +22293,7 @@ class SpaBookingCard extends HTMLElement {
       .ag-day-name { font-size: 20px; font-weight: 800; line-height: 1.15; white-space: nowrap; }
       .ag-day-rel { font-size: 12px; color: var(--secondary-text-color); }
       .ag-date { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
+      .ag-cal { color: var(--sb-accent, var(--primary-color)); }
       .ag-views ha-icon { --mdc-icon-size: 16px; }
       .ag-views button { display: inline-flex; align-items: center; gap: 6px; }
       .ag-week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
