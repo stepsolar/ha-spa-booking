@@ -62,3 +62,16 @@ def test_refusals(coordinator, freeze) -> None:
         run(coordinator.async_join_group(single[0]["id"], "ZZZZZ"))
     with pytest.raises(ValidationError):
         run(coordinator.async_join_group(single[0]["id"], single[0]["code"]))
+
+
+def test_split_person_is_not_counted_in_the_old_slot(coordinator, freeze) -> None:
+    freeze("2026-11-13 10:00")
+    ops = [o["id"] for o in coordinator.operators]
+    booked = run(coordinator.async_create_bookings([{
+        "treatment_id": MASSAGE,
+        "entries": [{"start": "2026-11-14T10:00:00", "first_name": "Anna", "phone": "347 1234567",
+                     "person": i, "operator_ids": ops} for i in range(2)]}]))["appointments"]
+    live = _live(coordinator, booked)
+    assert coordinator.group_size(live[0]) == 2
+    run(coordinator.async_split_from_group(live[1]["id"]))
+    assert coordinator.group_size(live[0]) == 1 and coordinator.group_size(live[1]) == 1

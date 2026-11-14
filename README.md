@@ -133,6 +133,14 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v2.8.10** — Correzioni (serve il riavvio di Home Assistant). I
+  **pacchetti** in Nuovo appuntamento, Nuova richiesta e Modifica gruppo sono
+  ora una riga sola: un menu «Scegli un pacchetto dello shop…» e i pacchetti
+  scelti come etichette. Togliendo un pacchetto (✕) si tolgono anche le sue
+  persone: il numero di persone e il riepilogo tornano giusti. Una persona
+  **scollegata** da una prenotazione ora compare in agenda come prenotazione a
+  sé (prima restava nascosta sotto la riga del gruppo, perché aveva stesso
+  cliente, orario e trattamento).
 - **v2.8.9** — **Pacchetti dello shop nelle prenotazioni** (serve il riavvio
   di Home Assistant). Con 2 o più persone, in Nuovo appuntamento, Nuova
   richiesta e Modifica gruppo compare «Pacchetti dello shop»: i prodotti dello

@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.8.9";
+const CARD_VERSION = "2.8.10";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -1765,15 +1765,29 @@ class SpaBookingCard extends HTMLElement {
     this._render();
   }
 
-  /** Take a package off its people: they keep the treatments, at list price. */
+  /**
+   * Take a package off (2.8.9): its people leave the booking with it, so the
+   * people count and the summary go back to what they were. If they were
+   * the only ones, one empty person stays.
+   */
   _removePackage(group) {
-    this._formPersons().forEach((person) => {
-      if (!person.package || person.package.group !== group) return;
-      delete person.package;
-      this._treatmentsOf(person).forEach((treat) => {
-        delete treat.package_key; delete treat.package_group; treat.price = null;
-      });
-    });
+    const persons = this._formPersons();
+    const keep = persons.filter((person) => !(person.package && person.package.group === group));
+    if (!Array.isArray(this._form.persons)) {
+      delete this._form.package;
+      this._form.treatments = [this._blankTreatment()];
+      this._form.extras = [];
+    } else if (keep.length > 1) {
+      this._form.persons = keep;
+      this._form.people = keep.length;
+    } else {
+      const last = keep[0] || this._personFrom();
+      this._form.treatments = this._treatmentsOf(last).map((t) => ({ ...t, uid: this._uid() }));
+      this._form.extras = [...(last.extras || [])];
+      if (last.package) this._form.package = last.package;
+      this._form.persons = null;
+      this._form.people = 1;
+    }
     this._render();
   }
 
@@ -1788,9 +1802,21 @@ class SpaBookingCard extends HTMLElement {
       if (!used.has(person.package.group)) used.set(person.package.group, { ...person.package, people: [] });
       used.get(person.package.group).people.push(index + 1);
     });
+    // One compact line (2.8.9): a menu of the packages, the chosen ones as chips.
+    const pick = el("select", {
+      class: "input pk-select", disabled: this._busy,
+      title: "Assegna un pacchetto alle prossime persone; con due coppie, scegline due",
+      on: { change: (event) => {
+        const pkg = packages.find((p) => p.key === event.target.value);
+        event.target.value = "";
+        if (pkg) this._addPackage(pkg);
+      } },
+    },
+    el("option", { value: "" }, used.size ? "Aggiungi un altro pacchetto…" : "Scegli un pacchetto dello shop…"),
+    ...packages.map((pkg) => el("option", { value: pkg.key },
+      `${pkg.name} · ${pkg.people} persone${pkg.price != null ? ` · ${euro(pkg.price)}` : ""}`)));
     const box = el("div", { class: "pk-box" },
-      el("div", { class: "pk-head" }, el("ha-icon", { icon: "mdi:package-variant-closed" }), el("b", {}, "Pacchetti dello shop"),
-        el("span", { class: "dim small" }, "Tocca un pacchetto per assegnarlo alle prossime persone; con due coppie, due pacchetti.")));
+      el("div", { class: "pk-line" }, el("ha-icon", { icon: "mdi:package-variant-closed" }), el("b", {}, "Pacchetti"), pick));
     if (used.size) {
       box.appendChild(el("div", { class: "pk-used" }, [...used.entries()].map(([group, info]) => el("span", { class: "pk-chip on" },
         el("ha-icon", { icon: "mdi:package-variant-closed-check" }),
@@ -1798,15 +1824,6 @@ class SpaBookingCard extends HTMLElement {
         el("button", { class: "pk-x", title: "Togli il pacchetto (i trattamenti restano, a prezzo di listino)", disabled: this._busy,
           on: { click: () => this._removePackage(group) } }, el("ha-icon", { icon: "mdi:close" }))))));
     }
-    box.appendChild(el("div", { class: "pk-list" }, packages.map((pkg) => el("button", {
-      type: "button", class: "pk-card", disabled: this._busy,
-      title: [pkg.treatment_ids.map((id) => (this._lookup.treatment.get(id) || {}).name).join(" + "),
-        pkg.extras.length ? `con ${pkg.extras.map((id) => (this._accessory(id) || {}).label || id).join(", ")}` : "", pkg.note].filter(Boolean).join(" · "),
-      on: { click: () => this._addPackage(pkg) },
-    },
-    el("span", { class: "pk-name" }, pkg.name),
-    el("span", { class: "dim small" }, `${pkg.people} persone · ${pkg.treatment_ids.map((id) => (this._lookup.treatment.get(id) || {}).name).join(" + ")}`),
-    el("span", { class: "pk-price" }, pkg.price != null ? euro(pkg.price) : "", el("ha-icon", { icon: "mdi:plus-circle-outline" }))))));
     return box;
   }
 
@@ -3983,7 +4000,7 @@ class SpaBookingCard extends HTMLElement {
     const parties = [];
     const seen = new Map();
     list.forEach((appointment) => {
-      const key = [appointment.treatment_id, appointment.client_id, appointment.start, appointment.operator_id || ""].join("|");
+      const key = [appointment.treatment_id, appointment.client_id, appointment.start, appointment.operator_id || "", appointment.batch_id || ""].join("|");
       if (!seen.has(key)) { seen.set(key, []); parties.push(seen.get(key)); }
       seen.get(key).push(appointment);
     });
@@ -4302,6 +4319,7 @@ class SpaBookingCard extends HTMLElement {
           appointment.client_id,
           appointment.start,
           appointment.operator_id || "",
+          appointment.batch_id || "",
         ].join("|");
         if (!seen.has(key)) {
           seen.set(key, []);
@@ -4360,6 +4378,7 @@ class SpaBookingCard extends HTMLElement {
             members[0].client_id,
             members[0].start,
             members[0].operator_id || "",
+            members[0].batch_id || "",
           ].join("|");
           if (members.length > 1 && this._expandedGroups.has(groupKey)) {
             members.slice(1).forEach((appointment) =>
@@ -5477,6 +5496,7 @@ class SpaBookingCard extends HTMLElement {
           appointment.client_id,
           appointment.start,
           appointment.operator_id || "",
+          appointment.batch_id || "",
         ].join("|");
         const expanded = this._expandedGroups && this._expandedGroups.has(groupKey);
         actions.appendChild(
@@ -7714,6 +7734,7 @@ class SpaBookingCard extends HTMLElement {
           appointment.client_id,
           appointment.start,
           appointment.operator_id || "",
+          appointment.batch_id || "",
         ].join("|");
         if (!seen.has(key)) {
           seen.set(key, []);
@@ -19218,7 +19239,9 @@ class SpaBookingCard extends HTMLElement {
         other.treatment_id === appointment.treatment_id &&
         other.client_id === appointment.client_id &&
         other.start === appointment.start &&
-        (other.operator_id || null) === (appointment.operator_id || null)
+        (other.operator_id || null) === (appointment.operator_id || null) &&
+        // 2.8.9: a person split off is her own booking, never in this row.
+        (other.batch_id || "") === (appointment.batch_id || "")
     );
   }
 
@@ -19360,6 +19383,7 @@ class SpaBookingCard extends HTMLElement {
       appointment.treatment_id,
       appointment.start,
       appointment.operator_id || "",
+      appointment.batch_id || "",
     ].join("|");
     if (!this._groupColorMap.has(key)) {
       this._groupColorMap.set(
@@ -19383,6 +19407,7 @@ class SpaBookingCard extends HTMLElement {
       appointment.client_id,
       appointment.start,
       appointment.operator_id || "",
+      appointment.batch_id || "",
     ].join("|");
     if (this._expandedGroups.has(key)) this._expandedGroups.delete(key);
     else this._expandedGroups.add(key);
@@ -22147,8 +22172,11 @@ class SpaBookingCard extends HTMLElement {
       .cx-opt.on .cx-dot { border-color: var(--primary-color); box-shadow: inset 0 0 0 3px var(--card-background-color); background: var(--primary-color); }
       .cx-text { display: flex; flex-direction: column; gap: 2px; }
       .gt h4 { display: flex; align-items: center; gap: 4px; }
-      .pk-box { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--sb-line); border-radius: 12px; background: color-mix(in srgb, var(--primary-color) 4%, transparent); }
+      .pk-box { display: flex; flex-direction: column; gap: 8px; padding: 8px 12px; border: 1px solid var(--sb-line); border-radius: 12px; background: color-mix(in srgb, var(--primary-color) 4%, transparent); }
       .pk-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+      .pk-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+      .pk-line ha-icon { --mdc-icon-size: 20px; color: var(--primary-color); }
+      .pk-select { flex: 1; min-width: 220px; max-width: 460px; }
       .pk-head ha-icon { --mdc-icon-size: 20px; color: var(--primary-color); }
       .pk-head .dim { flex-basis: 100%; }
       .pk-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; }
