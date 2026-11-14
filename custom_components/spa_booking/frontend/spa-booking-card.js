@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.8.12";
+const CARD_VERSION = "2.8.13";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -3143,6 +3143,30 @@ class SpaBookingCard extends HTMLElement {
    * as activity; at most once a minute it also tells the server, so the
    * session there stays alive exactly as long as the one here.
    */
+  /**
+   * Hook the WhatsApp links once (2.8.13).
+   */
+  _hookWaLinks() {
+    if (!this.shadowRoot) return;
+    // 2.8.13: every WhatsApp button of the card (client, partner, operator,
+    // appointment) opens the chat in the WhatsApp tab of Spa Booking, where
+    // the message goes out from the hotel's number and stays in the history.
+    // Only the «Apri in WhatsApp» link of that chat leaves for WhatsApp Web.
+    if (!this._waLinkHooked) {
+      this._waLinkHooked = true;
+      this.shadowRoot.addEventListener("click", (event) => {
+        const link = event.composedPath().find((node) => node && node.tagName === "A"
+          && /web\.whatsapp\.com\/send/.test(node.href || "") && !node.dataset.external);
+        if (!link || !this._visibleTabs().some((tab) => tab.id === "whatsapp")) return;
+        const digits = (new URL(link.href).searchParams.get("phone") || "").replace(/\D/g, "");
+        if (!digits) return;
+        event.preventDefault();
+        event.stopPropagation();
+        this._openWaChat(`${digits}@c.us`);
+      }, true);
+    }
+  }
+
   _setupIdleWatch() {
     if (this._idleWatch) return;
     if (!(this._me && this._me.shared)) return;
@@ -3335,6 +3359,7 @@ class SpaBookingCard extends HTMLElement {
    * reason instead is the only thing that lets anybody act on it.
    */
   _render() {
+    this._hookWaLinks();
     // An appointment being edited lives in the Agenda: leaving it (any menu,
     // any shortcut) drops the changes, like Annulla (2.5.2).
     // A detail belongs to the tab it was opened in (2.5.3): another tab closes it.
@@ -10417,13 +10442,20 @@ class SpaBookingCard extends HTMLElement {
         ? el("button", { class: "btn small danger-ghost", on: { click: () => this._deleteWaChats(null) } },
             el("ha-icon", { icon: "mdi:delete-sweep-outline" }), "Elimina tutte")
         : null));
-    if (!stored.length) {
+    let draftChat = this._waDraftChat;
+    if (draftChat && stored.some((chat) => chat.chat_id === draftChat && (chat.messages || []).length)) {
+      this._waDraftChat = draftChat = null;
+    }
+    if (!stored.length && !(draftChat && this._waChats)) {
       wrap.appendChild(el("div", { class: "empty" }, this._waChats ? "Nessun messaggio ancora." : "Caricamento…"));
       return wrap;
     }
     // One conversation per number, newest first.
     const chats = new Map(stored.map((chat) => [chat.chat_id, (chat.messages || []).map((m) => ({ ...m, received_at: m.at }))]));
-    const all = [...chats.entries()].filter(([, list]) => list.length);
+    // A chat opened from a WhatsApp button, still without messages (2.8.13).
+    if (draftChat && !chats.has(draftChat)) chats.set(draftChat, []);
+    const all = [...chats.entries()].filter(([id, list]) => list.length || id === draftChat);
+    if (draftChat && all.length > 1) all.unshift(all.splice(all.findIndex(([id]) => id === draftChat), 1)[0]);
     if (!all.length) {
       wrap.appendChild(el("div", { class: "empty" }, "Nessun messaggio ancora."));
       return wrap;
@@ -10467,7 +10499,7 @@ class SpaBookingCard extends HTMLElement {
     const list = el("div", { class: "wa-chats" });
     const limit = Math.max(60, this._waShown || 0);
     ordered.slice(0, limit).forEach(([id, items]) => {
-      const last = items[items.length - 1];
+      const last = items[items.length - 1] || { dir: "", text: "Nuova chat" };
       const client = this._clientByChat(id);
       const operator = this._operatorByChat(id, items);
       list.appendChild(el("button", {
@@ -10491,6 +10523,7 @@ class SpaBookingCard extends HTMLElement {
 
     const items = chats.get(this._waChat) || [];
     const chatId = this._waChat;
+    const external = waLink(`+${String(chatId).split("@")[0]}`);
     const client = this._clientByChat(chatId);
     const chatOperator = this._operatorByChat(chatId, items);
     const conv = el("div", { class: "wa-conv" });
@@ -10503,11 +10536,16 @@ class SpaBookingCard extends HTMLElement {
           ? `Operatore · ${this._chatLabel(chatId)}`
           : client ? this._clientSummary(client)
           : String(chatId).endsWith("@g.us") ? "Gruppo" : `${this._chatLabel(chatId)} · non è ancora un cliente`)),
-      canDelete
+      external && !String(chatId).endsWith("@g.us")
+        ? el("a", { class: "icon-btn", href: external, target: "_blank", rel: "noopener", "data-external": "1",
+            title: "Apri in WhatsApp (dal telefono o WhatsApp Web)" }, el("ha-icon", { icon: "mdi:open-in-new" }))
+        : null,
+      canDelete && items.length
         ? el("button", { class: "icon-btn", title: "Elimina questa chat", "aria-label": "Elimina questa chat",
             on: { click: () => this._deleteWaChats(chatId) } }, el("ha-icon", { icon: "mdi:delete-outline" }))
         : null));
     const bubbles = el("div", { class: "wa-bubbles" });
+    if (!items.length) bubbles.appendChild(el("div", { class: "empty small" }, "Nuova chat: scrivi qui sotto il primo messaggio, parte dal numero dell'hotel."));
     items.forEach((msg) => bubbles.appendChild(
       el("div", { class: `bubble ${msg.dir === "out" ? "out" : "in"}` },
         el("span", {}, msg.text || ""),
@@ -10557,6 +10595,33 @@ class SpaBookingCard extends HTMLElement {
   }
 
   /** "+39 340 555 1212" from "393405551212@c.us". */
+  /** Open (or start) the chat with a number in the WhatsApp tab (2.8.13). */
+  _openWaChat(chatId) {
+    if (!chatId) return;
+    this._detailId = null;
+    this._cancelPopup = null;
+    this._loyaltyPopup = null;
+    this._tab = "whatsapp";
+    this._waDraftChat = chatId;
+    this._waChat = chatId;
+    this._waChatOpen = true;
+    this._waFilter = "tutte";
+    this._waSearch = "";
+    this._render();
+    setTimeout(() => {
+      const input = this.shadowRoot && this.shadowRoot.querySelector(".wa-reply-input");
+      if (input) input.focus();
+    }, 50);
+  }
+
+  /** The chat id of a phone number, as WhatsApp spells it (39… @c.us). */
+  _waChatIdOf(phone) {
+    const url = waLink(phone);
+    if (!url) return "";
+    const digits = (new URL(url).searchParams.get("phone") || "").replace(/\D/g, "");
+    return digits ? `${digits}@c.us` : "";
+  }
+
   _chatLabel(chatId) {
     const digits = String(chatId || "").split("@")[0].replace(/\D/g, "");
     if (!digits) return String(chatId || "");
@@ -18934,7 +18999,9 @@ class SpaBookingCard extends HTMLElement {
                     this._render();
                     return;
                   }
-                  window.open(url, "_blank", "noopener");
+                  // 2.8.13: the chat in the WhatsApp tab, else WhatsApp Web.
+                  if (this._visibleTabs().some((tab) => tab.id === "whatsapp")) this._openWaChat(this._waChatIdOf(target));
+                  else window.open(url, "_blank", "noopener");
                 },
               },
             }, el("ha-icon", { icon: "mdi:whatsapp" }),
