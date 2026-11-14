@@ -6131,10 +6131,13 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Return an operator's unanswered offers, the most urgent first."""
         if not operator_id:
             return []
+        # A booking still waiting for the guest (status pending) gets its
+        # offer too, so her answer must find it (3.0.1): before, a pending
+        # booking's offer was never matched and stayed «in attesa» forever.
         pending = [
             appointment
             for appointment in self.appointments
-            if appointment["status"] == STATUS_CONFIRMED
+            if appointment["status"] in (STATUS_CONFIRMED, STATUS_PENDING)
             and appointment["offer_state"] == OFFER_PENDING
             and appointment["operator_id"] == operator_id
         ]
@@ -6151,7 +6154,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 None,
             )
             if appointment and (
-                appointment["status"] == STATUS_CONFIRMED
+                appointment["status"] in (STATUS_CONFIRMED, STATUS_PENDING)
                 and appointment["offer_state"] == OFFER_UNASSIGNED
             ):
                 candidates.append(appointment)
@@ -6608,11 +6611,20 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     @classmethod
     def operator_info_kind(cls, text: str) -> str | None:
         """Return the message kind an operator's word asks for, or None."""
-        lowered = (text or "").lower()
-        if not lowered:
+        # Only a message that IS the keyword (3.0.1): it used to match
+        # anywhere, so «Confermo, oggi ci sono» got the day's list back and
+        # the answer to the offer was swallowed.
+        tokens = [
+            word for word in "".join(
+                char.lower() if char.isalnum() or char.isspace() else " "
+                for char in (text or "")
+            ).split()
+            if word not in ("da", "per", "di", "il", "la", "le", "i")
+        ]
+        if len(tokens) != 1:
             return None
         for word, kind in cls.OPERATOR_INFO_WORDS:
-            if word in lowered:
+            if tokens[0] == word:
                 return kind
         return None
 
@@ -6656,6 +6668,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self,
         appointment_id: str | None = None,
         appointment_ids: list[str] | None = None,
+        only: bool = False,
     ) -> dict[str, Any]:
         """Send the guest a WhatsApp summary of one or more appointments.
 
@@ -6671,7 +6684,9 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # message reaches every person booked with it (same batch), so a couple
         # reads both treatments, the total of both and the balance of both.
         ids = list(dict.fromkeys(ids))
-        for item in list(ids):
+        # ``only`` (3.0.1): a partial confirmation names just what was
+        # confirmed, so the rest of the party is not added.
+        for item in ([] if only else list(ids)):
             anchor = next((a for a in self.appointments if a["id"] == item), None)
             batch = (anchor or {}).get("batch_id")
             if not batch:
@@ -7207,9 +7222,28 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         open_offers = self.open_offers_for(operator_id)
         if open_offers:
-            return await self.async_answer_offer(
-                open_offers[0]["id"], answer, operator_id, source, text
+            # One reply answers the whole booking (3.0.1): a group with two
+            # treatments for her sends two offers, and a single «Confermo»
+            # used to close only the first, leaving the other «in attesa».
+            first = open_offers[0]
+            batch = first.get("batch_id")
+            same = [first] + [
+                item for item in open_offers[1:]
+                if batch and item.get("batch_id") == batch
+            ]
+            result = await self.async_answer_offer(
+                first["id"], answer, operator_id, source, text
             )
+            for item in same[1:]:
+                try:
+                    await self.async_answer_offer(
+                        item["id"], answer, operator_id, source, text
+                    )
+                except SpaBookingError as err:
+                    _LOGGER.warning("Risposta all'offerta %s non applicata: %s", item["id"], err)
+            if len(same) > 1:
+                result["answered"] = [item["id"] for item in same]
+            return result
 
         if answer == ANSWER_AVAILABLE:
             unassigned = self._refused_unassigned(operator_id)
@@ -7254,7 +7288,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         async with self._lock:
             for appointment in self.appointments:
-                if appointment["status"] != STATUS_CONFIRMED:
+                if appointment["status"] not in (STATUS_CONFIRMED, STATUS_PENDING):
                     continue
                 if appointment["offer_state"] != OFFER_PENDING:
                     continue

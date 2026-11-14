@@ -77,3 +77,47 @@ def test_everybody_refuses_and_the_desk_is_told(coordinator, sent, freeze) -> No
     run(coordinator.async_answer_offer(appointment["id"], "decline", operator_id=giulia))
     assert appointment["offer_state"] == "unassigned" and appointment["operator_id"] is None
     assert any("Nessuna massaggiatrice ha accettato" in item["message"] and "0925992446" in item["chat_id"].replace(" ", "") for item in sent), sent[-1]
+
+
+def test_pending_booking_answer_by_whatsapp_301(coordinator, sent, freeze) -> None:
+    """3.0.1: a booking still «in attesa» gets its offer answered too."""
+    freeze("2026-11-10 08:00")
+    maria, giulia = _setup(coordinator)
+    booked = run(coordinator.async_create_appointment(
+        treatment_id=MASSAGE, start="2026-11-12T10:00:00+01:00", pending=True,
+        first_name="Ospite", phone="+39 347 5550000", operator_ids=[maria]))
+    appointment = next(a for a in coordinator.appointments if a["id"] == booked["id"])
+    assert appointment["status"] == "pending" and appointment["offer_state"] == "offered"
+    result = run(coordinator.async_answer_from_operator(
+        "confirm", chat_id="393330000001@c.us", channel="whatsapp", source="whatsapp", text="Conferma"))
+    assert result["handled"] and appointment["offer_state"] == ""
+
+
+def test_one_reply_confirms_the_whole_booking_301(coordinator, sent, freeze) -> None:
+    freeze("2026-11-10 08:00")
+    maria, giulia = _setup(coordinator)
+    booked = run(coordinator.async_create_bookings([{"treatment_id": MASSAGE, "entries": [
+        {"start": "2026-11-12T10:00:00", "first_name": "Anna", "phone": "+39 347 5550000", "person": 0, "operator_ids": [maria]},
+        {"start": "2026-11-12T12:00:00", "first_name": "Anna", "phone": "+39 347 5550000", "person": 1, "operator_ids": [maria]},
+    ]}]))["appointments"]
+    live = [next(a for a in coordinator.appointments if a["id"] == b["id"]) for b in booked]
+    assert all(a["offer_state"] == "offered" and a["operator_id"] == maria for a in live)
+    run(coordinator.async_answer_from_operator("confirm", operator_id=maria, source="whatsapp"))
+    assert all(a["offer_state"] == "" for a in live)
+
+
+def test_info_words_do_not_swallow_answers_301(coordinator) -> None:
+    kind = type(coordinator).operator_info_kind
+    assert kind("OGGI") == "today" and kind("Da confermare") == "pending" and kind("aiuto!") == "guide"
+    assert kind("Confermo, oggi ci sono") is None
+    assert kind("ok domani") is None
+
+
+def test_summary_only_confirmed_301(coordinator, sent, freeze) -> None:
+    freeze("2026-11-10 08:00")
+    booked = run(coordinator.async_create_bookings([{"treatment_id": "trt_ingresso_90", "pending": True, "entries": [
+        {"start": "2026-11-12T10:00:00", "first_name": "Anna", "phone": "+39 347 5550000", "person": i} for i in range(2)]}]))["appointments"]
+    result = run(coordinator.async_send_guest_summary(appointment_ids=[booked[0]["id"]], only=True))
+    assert result["appointment_ids"] == [booked[0]["id"]]
+    full = run(coordinator.async_send_guest_summary(appointment_ids=[booked[0]["id"]]))
+    assert len(full["appointment_ids"]) == 2

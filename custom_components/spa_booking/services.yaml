@@ -1260,6 +1260,11 @@ send_guest_summary:
       name: ID appuntamenti (gruppo)
       selector:
         object:
+    only:
+      name: Solo questi appuntamenti
+      description: Non aggiunge le altre persone della prenotazione (conferma parziale).
+      selector:
+        boolean:
 
 send_deposit_request:
   name: Richiedi acconto all'ospite

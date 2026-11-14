@@ -111,6 +111,23 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v3.0.1** — (serve il riavvio di Home Assistant)
+  - **Risposte delle operatrici** su WhatsApp: l'offerta restava «in
+    attesa di conferma» anche dopo la risposta. Cause corrette:
+    - le offerte di una prenotazione **ancora in attesa** (non confermata
+      all'ospite) non venivano mai abbinate alla risposta;
+    - «Conferma», «Confermato/a», «Perfetto» (e le reazioni 👌) non erano
+      riconosciuti, solo «Confermo», «Sì», «Ok»;
+    - una risposta con «oggi», «domani», «mese»… dentro (es. «Confermo, oggi
+      ci sono») veniva presa per una richiesta di elenco e la conferma si
+      perdeva: ora l'elenco parte solo se il messaggio è la sola parola;
+    - una sola risposta conferma tutti i trattamenti della stessa
+      prenotazione proposti a quell'operatrice (prima solo il primo).
+  - **Conferma di gruppo**: «Conferma» su una prenotazione di più persone o
+    trattamenti apre un popup — tutto il gruppo, una persona o singoli
+    trattamenti — e poi chiede se inviare all'ospite la conferma su
+    WhatsApp, che riporta solo quanto confermato (`send_guest_summary` con
+    `only: true`).
 - **v3.0.0** — (serve il riavvio di Home Assistant)
   - **Nuovo logo** di Spa Booking (pietre zen con la foglia, sull'acqua,
     dentro l'anello dorato del tempo) nella testata, nel tablet con PIN e

@@ -120,3 +120,13 @@ def test_whatsapp_chats_survive_and_are_deleted_by_hand() -> None:
     assert go(again.async_delete_chats("39444@c.us")) == 1
     assert [c["chat_id"] for c in again.whatsapp_chats()] == ["39333@c.us"]
     assert go(again.async_delete_chats()) == 1 and again.whatsapp_chats() == []
+
+
+def test_parse_answer_conferma_301():
+    """3.0.1: how the masseuses actually answer."""
+    from custom_components.spa_booking import messaging as m
+    for text in ("Conferma", "conferma!", "Confermato", "confermata grazie", "Perfetto", "OK 👍"):
+        assert m.parse_answer(text) == "confirm", text
+    assert m.parse_answer("non conferma") == "decline"
+    assert m.parse_answer("ciao ragazze, oggi aspetto ancora la conferma dalla reception per domani") is None
+    assert m.parse_reaction("👌") == "confirm"

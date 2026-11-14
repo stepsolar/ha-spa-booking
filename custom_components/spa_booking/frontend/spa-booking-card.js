@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "3.0.0";
+const CARD_VERSION = "3.0.1";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -1271,6 +1271,7 @@ class SpaBookingCard extends HTMLElement {
       this._escapeBound = (event) => {
         if (event.key !== "Escape") return;
         if (this._gatePopup) { this._gatePopup = null; this._render(); }
+        else if (this._confirmPopup) { this._confirmPopup = null; this._render(); }
         else if (this._loyaltyPopup) { this._loyaltyPopup = null; this._render(); }
         else if (this._cancelPopup) { this._cancelPopup = null; this._render(); }
         else if (this._overlapPopup) { this._overlapPopup = null; this._render(); }
@@ -3591,6 +3592,7 @@ class SpaBookingCard extends HTMLElement {
     if (this._cancelPopup) add(root, this._renderCancelPopup());
     if (this._loyaltyPopup) add(root, this._renderLoyaltyPopup());
     if (this._gatePopup) add(root, this._renderGatePopup());
+    if (this._confirmPopup) add(root, this._renderConfirmPopup());
     if (this._overlapPopup) add(root, this._renderOverlapPopup());
     if (this._proposePopup) add(root, this._renderProposePopup());
     if (this._voucherPin) add(root, this._renderVoucherPinPopup());
@@ -5427,45 +5429,140 @@ class SpaBookingCard extends HTMLElement {
    * worse than confirming without a signature.
    */
   async _confirmAppointment(appointment, force = false) {
-    const who = this._confirmerName();
-    try {
-      // _call reloads the data and shows its own message, so the confirmation
-      // is silent here rather than overwritten by a second one.
-      await this._call("update_appointment", {
-        appointment_id: appointment.id,
-        pending: false,
-        confirmed_by: who,
-        ...(force ? { force_client_overlap: true } : {}),
-      });
-      this._message = {
-        kind: "ok",
-        text: who
-          ? `Appuntamento confermato da ${who}.`
-          : "Appuntamento confermato.",
+    // A booking of several people or treatments (3.0.1): ask what to
+    // confirm — the whole group, one person or single treatments.
+    const members = this._relatedOf(appointment).filter((a) => a && a.status === "pending");
+    if (!force && members.length > 1) {
+      const anchorPerson = appointment.person || 0;
+      this._confirmPopup = {
+        step: "pick", anchor: appointment, members, mode: "all",
+        person: anchorPerson, picked: new Set([appointment.id]),
       };
       this._render();
-      // A confirmed booking is owed the summary: ask, and let the desk decide
-      // rather than sending a WhatsApp nobody asked for.
-      const phone = (appointment.client || this._lookup.client.get(appointment.client_id) || {}).phone || "";
-      if (phone && window.confirm(
-        "Inviare all'ospite il riepilogo dell'appuntamento su WhatsApp?")) {
-        try {
-          await this._call("send_guest_summary", { appointment_id: appointment.id });
-        } catch (error) {
-          /* message already shown */
+      return;
+    }
+    await this._confirmIds([appointment.id], force);
+  }
+
+  /** Confirm these appointments, then ask whether to tell the guest. */
+  async _confirmIds(ids, force = false) {
+    if (!ids.length) return;
+    const who = this._confirmerName();
+    const done = [];
+    let failure = "";
+    this._busy = true;
+    this._render();
+    for (const id of ids) {
+      try {
+        await this._service("update_appointment", {
+          appointment_id: id, pending: false, confirmed_by: who,
+          ...(force ? { force_client_overlap: true } : {}),
+        });
+        done.push(id);
+      } catch (error) {
+        failure = String((error && error.message) || "Conferma non riuscita.");
+        if (!force && ids.length === 1 && /sovrappone/i.test(failure) && /cliente/i.test(failure)) {
+          this._busy = false;
+          this._overlapPopup = { message: failure, retry: { kind: "confirm", id } };
+          this._render();
+          return;
         }
       }
-    } catch (error) {
-      // Same question as on create: a same-client overlap offers forcing,
-      // an operator clash keeps the plain error.
-      const text = String((error && error.message) || "");
-      if (!force && /sovrappone/i.test(text) && /cliente/i.test(text)) {
-        this._overlapPopup = { message: text, retry: { kind: "confirm", id: appointment.id } };
-        this._render();
-        return;
-      }
-      /* any other message already shown */
     }
+    try { await this._loadData(); } catch (error) { /* shown on next load */ }
+    this._busy = false;
+    this._message = failure
+      ? { kind: "error", text: `${done.length ? `Confermati ${done.length} su ${ids.length}. ` : ""}${this._friendlyError({ message: failure }, failure)}` }
+      : { kind: "ok", text: `${done.length > 1 ? `${done.length} appuntamenti confermati` : "Appuntamento confermato"}${who ? ` da ${who}` : ""}.` };
+    if (!done.length) { this._render(); return; }
+    // A confirmed booking is owed the summary: ask, listing only what was
+    // confirmed now, and let the desk decide.
+    const confirmed = done.map((id) => (this._data.appointments || []).find((a) => a.id === id)).filter(Boolean);
+    const phone = confirmed.length
+      ? ((confirmed[0].client || this._lookup.client.get(confirmed[0].client_id) || {}).phone || "") : "";
+    if (phone) this._confirmPopup = { step: "send", members: confirmed, ids: done };
+    this._render();
+  }
+
+  _renderConfirmPopup() {
+    const draft = this._confirmPopup;
+    const close = () => { this._confirmPopup = null; this._render(); };
+    const personOf = (a) => a.person || 0;
+    const people = [...new Set(draft.members.map(personOf))].sort((a, b) => a - b);
+    const line = (a) => {
+      const start = parseDate(a.start);
+      return `${start ? timeOf(start) : ""} ${this._treatmentName(a)}${a.operator_id ? ` · ${this._operatorName(a)}` : ""}`;
+    };
+    const who = (a) => `${people.length > 1 ? `Persona ${personOf(a) + 1} · ` : ""}${this._clientName(a)}`;
+    const backdrop = (sheet) => el("div", { class: "detail-backdrop", on: { click: (event) => { if (event.target === event.currentTarget) close(); } } }, sheet);
+
+    if (draft.step === "send") {
+      const sheet = el("div", { class: "detail-sheet cx-sheet" },
+        el("h3", {}, el("ha-icon", { icon: "mdi:whatsapp" }), " Inviare la conferma all'ospite?"),
+        el("p", { class: "dim" }, draft.members.length > 1
+          ? "Il messaggio su WhatsApp riporta solo gli appuntamenti appena confermati:"
+          : "Il messaggio su WhatsApp riporta l'appuntamento appena confermato:"),
+        el("div", { class: "cx-choice" }, draft.members.map((a) =>
+          el("div", { class: "cx-opt on gate-row" }, el("ha-icon", { icon: "mdi:check-circle", class: "cf-ok" }),
+            el("span", { class: "cx-text" }, el("b", {}, who(a)), el("span", { class: "dim small" }, line(a)))))),
+        el("div", { class: "row" }, el("span", { class: "spacer" }),
+          el("button", { class: "btn", on: { click: close } }, "Non inviare"),
+          el("button", { class: "btn primary", disabled: this._busy, on: { click: async () => {
+            const ids = draft.ids;
+            this._confirmPopup = null;
+            try { await this._call("send_guest_summary", { appointment_ids: ids, only: true }); } catch (error) { /* shown */ }
+          } } }, el("ha-icon", { icon: "mdi:send" }), "Invia su WhatsApp")));
+      return backdrop(sheet);
+    }
+
+    const chosen = () => {
+      if (draft.mode === "all") return draft.members.map((a) => a.id);
+      if (draft.mode === "person") return draft.members.filter((a) => personOf(a) === draft.person).map((a) => a.id);
+      return draft.members.filter((a) => draft.picked.has(a.id)).map((a) => a.id);
+    };
+    const ids = chosen();
+    const option = (mode, title, sub) => el("button", {
+      type: "button", class: `cx-opt${draft.mode === mode ? " on" : ""}`,
+      on: { click: () => { draft.mode = mode; this._render(); } },
+    }, el("span", { class: "cx-dot" }), el("span", { class: "cx-text" }, el("b", {}, title), el("span", { class: "dim small" }, sub)));
+    const body = [];
+    if (draft.mode === "person") {
+      body.push(el("div", { class: "cf-people" }, people.map((p) => {
+        const first = draft.members.find((a) => personOf(a) === p);
+        const count = draft.members.filter((a) => personOf(a) === p).length;
+        return el("button", { type: "button", class: `fchip${draft.person === p ? " on" : ""}`,
+          on: { click: () => { draft.person = p; this._render(); } } },
+        `Persona ${p + 1} · ${this._clientName(first)}${count > 1 ? ` (${count})` : ""}`);
+      })));
+      body.push(el("div", { class: "cx-choice" }, draft.members.filter((a) => personOf(a) === draft.person).map((a) =>
+        el("div", { class: "cx-opt on gate-row" }, el("ha-icon", { icon: "mdi:check-circle", class: "cf-ok" }),
+          el("span", { class: "cx-text" }, el("b", {}, this._treatmentName(a)), el("span", { class: "dim small" }, line(a)))))));
+    }
+    if (draft.mode === "items") {
+      body.push(el("div", { class: "cx-choice" }, draft.members.map((a) => {
+        const on = draft.picked.has(a.id);
+        return el("label", { class: `cx-opt gate-row${on ? " on" : ""}` },
+          el("input", { type: "checkbox", checked: on, on: { change: (event) => {
+            if (event.target.checked) draft.picked.add(a.id); else draft.picked.delete(a.id);
+            this._render();
+          } } }),
+          el("span", { class: "cx-text" }, el("b", {}, who(a)), el("span", { class: "dim small" }, line(a))));
+      })));
+    }
+    const sheet = el("div", { class: "detail-sheet cx-sheet" },
+      el("h3", {}, el("ha-icon", { icon: "mdi:check-decagram-outline" }), ` Conferma · prenotazione ${draft.anchor.code || ""}`),
+      el("div", { class: "cx-choice" },
+        option("all", `Tutto il gruppo (${draft.members.length})`, "Conferma ogni persona e ogni trattamento in attesa"),
+        people.length > 1 ? option("person", "Una persona", "Conferma tutti i trattamenti di una sola persona") : null,
+        option("items", "Singoli trattamenti", "Spunta i trattamenti da confermare")),
+      ...body,
+      el("div", { class: "row" }, el("span", { class: "spacer" }),
+        el("button", { class: "btn", on: { click: close } }, "Annulla"),
+        el("button", { class: "btn primary", disabled: this._busy || !ids.length, on: { click: () => {
+          this._confirmPopup = null;
+          this._confirmIds(ids);
+        } } }, el("ha-icon", { icon: "mdi:check" }), `Conferma (${ids.length})`)));
+    return backdrop(sheet);
   }
 
   _appointmentRow(appointment, cancelled) {
@@ -22753,6 +22850,8 @@ class SpaBookingCard extends HTMLElement {
       .cx-opt.on .cx-dot { border-color: var(--primary-color); box-shadow: inset 0 0 0 3px var(--card-background-color); background: var(--primary-color); }
       .cx-text { display: flex; flex-direction: column; gap: 2px; }
       .gate-row input { width: 18px; height: 18px; accent-color: var(--primary-color); flex: none; }
+      .cf-ok { color: var(--sb-ok, #2e9e5b); --mdc-icon-size: 20px; flex: none; }
+      .cf-people { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; }
       .gt h4 { display: flex; align-items: center; gap: 4px; }
       .pk-box { display: flex; flex-direction: column; gap: 8px; padding: 8px 12px; border: 1px solid var(--sb-line); border-radius: 12px; background: color-mix(in srgb, var(--primary-color) 4%, transparent); }
       .pk-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }

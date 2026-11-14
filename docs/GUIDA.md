@@ -132,6 +132,16 @@ la giornata, sul telefono sale dal basso.
 
 ![Entrata di gruppo](anteprime/75-entrata-gruppo.png)
 
+**Confermare una prenotazione di gruppo.** *Conferma* su una prenotazione
+in attesa di più persone o trattamenti apre un popup: **Tutto il gruppo**,
+**Una persona** (scegli quale) o **Singoli trattamenti** (spunta quali).
+Subito dopo Spa Booking chiede se inviare la conferma all'ospite su WhatsApp:
+il messaggio riporta **solo** quello che hai appena confermato.
+
+| | |
+|---|---|
+| ![Conferma di gruppo](anteprime/78-conferma-gruppo.png) | ![Invia la conferma](anteprime/79-conferma-invia.png) |
+
 ### Conto e incassi
 
 Ogni prenotazione ha il riquadro **Conto**: Totale, Pagato, Da saldare e gli
@@ -196,7 +206,10 @@ destra (sul telefono una barra in basso con il totale).
 Dopo il salvataggio Spa Booking chiede cosa mandare all'ospite: il
 **riepilogo** (confermata) o la **richiesta d'acconto** (in attesa). Le
 massaggiatrici ricevono l'**offerta** su WhatsApp o Telegram e rispondono SI o
-NO: se nessuna accetta, la reception viene avvisata.
+NO: se nessuna accetta, la reception viene avvisata. Valgono anche
+«Conferma», «Confermato», «Ok», «Perfetto» e le reazioni ✅ 👍 👌; una sola
+risposta conferma tutti i trattamenti della stessa prenotazione proposti a lei,
+anche se la prenotazione è ancora in attesa dell'ospite.
 
 ### I controlli
 

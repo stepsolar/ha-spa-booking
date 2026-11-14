@@ -1355,6 +1355,9 @@ SEND_GUEST_SUMMARY_SCHEMA = vol.Schema(
     {
         vol.Optional(ATTR_APPOINTMENT_ID): cv.string,
         vol.Optional(ATTR_APPOINTMENT_IDS): vol.All(cv.ensure_list, [cv.string]),
+        # 3.0.1: only the appointments named, not the rest of the party
+        # (a partial confirmation tells the guest only what was confirmed).
+        vol.Optional("only", default=False): cv.boolean,
     },
     extra=vol.PREVENT_EXTRA,
 )
@@ -2009,6 +2012,7 @@ async def _async_send_guest_summary(call: ServiceCall) -> ServiceResponse:
     return await _coordinator(call).async_send_guest_summary(
         call.data.get(ATTR_APPOINTMENT_ID),
         call.data.get(ATTR_APPOINTMENT_IDS),
+        only=bool(call.data.get("only")),
     )
 
 
