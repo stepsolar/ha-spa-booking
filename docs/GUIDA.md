@@ -40,13 +40,14 @@ gruppo, nel passo 1 compare **Pacchetti dello shop**: sono i prodotti dello
 shop online abbinati ai trattamenti in Configurazione › Shop online (con il
 numero di persone, i trattamenti e gli accessori).
 
-- Tocca un pacchetto: va alle prossime persone senza trattamenti, con i
+- Scegli un pacchetto dal menu «Scegli un pacchetto dello shop…»: va alle prossime persone senza trattamenti, con i
   trattamenti uno dopo l'altro (dall'orario del primo trattamento) e gli
   accessori del pacchetto. Se mancano persone, si aggiungono da sole.
-- Due coppie: tocca due pacchetti, anche diversi.
+- Due coppie: scegli due pacchetti, anche diversi; quelli scelti restano
+  come etichette sotto il menu.
 - Il prezzo è quello dello shop, diviso sui trattamenti; gli accessori del
-  pacchetto sono inclusi. Con la ✕ sul pacchetto lo togli (i trattamenti
-  restano, a prezzo di listino).
+  pacchetto sono inclusi. Con la ✕ sull'etichetta togli il pacchetto e le sue
+  persone.
 - Nella scheda dell'appuntamento compare «Pacchetto: … · accessori inclusi».
 
 Anche il **modulo del sito** propone i pacchetti all'ospite quando sceglie 2

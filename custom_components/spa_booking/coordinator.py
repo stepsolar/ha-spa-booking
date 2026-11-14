@@ -2338,6 +2338,8 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             and other["treatment_id"] == appointment["treatment_id"]
             and other["client_id"] == appointment["client_id"]
             and other["start"] == appointment["start"]
+            # 2.8.9: a person split off is a booking of her own.
+            and (other.get("batch_id") or "") == (appointment.get("batch_id") or "")
         ]
 
     def group_size(self, appointment: dict[str, Any]) -> int:
