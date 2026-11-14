@@ -133,6 +133,13 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v2.8.13** — **I pulsanti WhatsApp aprono la chat di Spa Booking** (basta
+  ricaricare la pagina). Il pulsante WhatsApp di clienti, partner, operatori,
+  appuntamenti e contatti apre la scheda WhatsApp della card sulla chat di
+  quel numero, anche se non ci sono ancora messaggi: si scrive e il messaggio
+  parte dal numero dell'hotel e resta nello storico. L'icona «Apri in
+  WhatsApp» nella chat porta comunque a WhatsApp Web o all'app del telefono.
+  Chi non vede la scheda WhatsApp continua ad aprire WhatsApp Web.
 - **v2.8.12** — **Modulo del sito più compatto e ordine personalizzato**
   (serve il riavvio di Home Assistant). Nel modulo del sito pacchetti e
   trattamenti non sono più box: un menu «Scegli un pacchetto…» e, per ogni
