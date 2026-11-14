@@ -81,8 +81,11 @@ L'agenda ha tre viste: **Timeline**, **Elenco** e **Mese**.
 - **In alto**: il giorno per esteso, le frecce, il pulsante **calendario**
   (anche un tocco sulla data apre il calendario), *Oggi*, le tre viste,
   **Stampa** (vedi sotto) e **Nuovo**.
-- **La settimana**: sette riquadri con il numero di appuntamenti e una
-  barretta di quanto è pieno il giorno. Tocca un giorno per aprirlo.
+- **La striscia dei giorni**: sette riquadri alla volta con il numero di
+  appuntamenti e una barretta di quanto è pieno il giorno. Scorre in
+  orizzontale una settimana alla volta (col dito, con la rotellina del mouse
+  o con le frecce ai lati) per vedere le 4 settimane prima e le 12 dopo; il
+  lunedì e il primo del mese mostrano il mese. Tocca un giorno per aprirlo.
 - **Le pillole**: appuntamenti, *in sala ora*, *da confermare*, *da
   incassare*. Toccane una per vedere solo quelli. Accanto, i filtri per
   categoria e per ospite (hotel o esterno).

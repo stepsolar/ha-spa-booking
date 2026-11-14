@@ -37,7 +37,8 @@ card._day = day;
 card._ownsAppointment = () => true;
 
 const page = card._renderAgendaDay();
-assert(byClass(page, "ag-wd").length === 7, "week strip of seven days");
+assert(byClass(page, "ag-wd").length === 7 * 17, "week strip: the shown week and the weeks around it (3.1.1)");
+assert(byClass(page, "ag-wd").filter((n) => String(n.className).includes(" on")).length === 1, "one day selected in the strip");
 assert(byClass(page, "ag-wd on")[0].textContent.includes("14"), "the shown day is selected");
 const lanes = byClass(page, "ag-lane");
 assert(lanes.length === 2, "Maria and the no-operator lane: Marco, free all day, is hidden (2.5.3)");

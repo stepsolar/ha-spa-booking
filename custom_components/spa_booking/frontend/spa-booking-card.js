@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "3.1.0";
+const CARD_VERSION = "3.1.1";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -4105,29 +4105,75 @@ class SpaBookingCard extends HTMLElement {
       }, el("ha-icon", { icon: "mdi:plus" }), el("span", { class: "btn-label" }, "Nuovo")) : null);
   }
 
-  /** The week of the shown day, Monday first: a tap opens a day, a bar shows how busy it is. */
+  /**
+   * The strip of days (3.1.1): seven at a time, Monday first, scrolling
+   * sideways a week at a time through the weeks before and after (swipe,
+   * mouse wheel or the arrows). A tap opens a day, a bar shows how busy it
+   * is. The strip keeps where it was scrolled while the card refreshes.
+   */
   _agWeek(day) {
-    const monday = addDays(day, -((day.getDay() + 6) % 7));
-    const days = Array.from({ length: 7 }, (_, index) => addDays(monday, index));
+    const BEFORE = 4;
+    const AFTER = 12;
+    const mondayOf = (date) => addDays(date, -((date.getDay() + 6) % 7));
+    const monday = mondayOf(day);
+    // The range moves only when the shown day falls out of it, so a tap on
+    // a far day does not make the strip jump.
+    let anchor = this._weekAnchor ? new Date(`${this._weekAnchor}T00:00:00`) : null;
+    const first = anchor ? addDays(anchor, -7 * BEFORE) : null;
+    const last = anchor ? addDays(anchor, 7 * (AFTER + 1) - 1) : null;
+    if (!anchor || day < addDays(first, 7) || day > addDays(last, -7)) {
+      anchor = monday;
+      this._weekAnchor = ymd(anchor);
+      this._weekScroll = null;
+    }
+    const start = addDays(anchor, -7 * BEFORE);
+    const days = Array.from({ length: 7 * (BEFORE + AFTER + 1) }, (_, index) => addDays(start, index));
     const minutes = days.map((date) => this._appointmentsOfDay(ymd(date))
       .reduce((sum, appointment) => sum + (this._durationOf(appointment) || 0), 0));
     const counts = days.map((date) => this._appointmentsOfDay(ymd(date)).length);
     const top = Math.max(1, ...minutes);
     const today = todayStr();
     const names = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"];
-    return el("div", { class: "ag-week" }, days.map((date, index) => {
+    const months = ["gen", "feb", "mar", "apr", "mag", "giu", "lug", "ago", "set", "ott", "nov", "dic"];
+    const strip = el("div", { class: "ag-week", role: "listbox", "aria-label": "Giorni" }, days.map((date, index) => {
       const key = ymd(date);
+      const weekday = (date.getDay() + 6) % 7;
       return el("button", {
-        type: "button",
-        class: `ag-wd${key === this._day ? " on" : ""}${key < today ? " past" : ""}${key === today ? " today" : ""}`,
+        type: "button", "data-day": key,
+        class: `ag-wd${key === this._day ? " on" : ""}${key < today ? " past" : ""}${key === today ? " today" : ""}${weekday === 0 ? " mon" : ""}`,
         title: `${longDay(date)}: ${counts[index]} appuntamenti`,
         on: { click: () => { this._day = key; this._render(); } },
       },
-      el("span", { class: "ag-wd-name" }, names[index]),
+      el("span", { class: "ag-wd-name" }, names[weekday],
+        date.getDate() === 1 || weekday === 0 ? el("em", { class: "ag-wd-month" }, months[date.getMonth()]) : null),
       el("span", { class: "ag-wd-num" }, String(date.getDate())),
       el("span", { class: "ag-wd-count" }, counts[index] ? `${counts[index]} app.` : "libero"),
       el("span", { class: "ag-wd-bar" }, el("i", { style: `width:${Math.round((minutes[index] / top) * 100)}%` })));
     }));
+    strip.addEventListener("scroll", () => { this._weekScroll = strip.scrollLeft; this._weekScrollDay = this._day; }, { passive: true });
+    // A vertical mouse wheel scrolls the strip sideways.
+    strip.addEventListener("wheel", (event) => {
+      if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+      event.preventDefault();
+      strip.scrollBy({ left: event.deltaY > 0 ? strip.clientWidth : -strip.clientWidth, behavior: "smooth" });
+    }, { passive: false });
+    const page = (direction) => strip.scrollBy({ left: direction * (strip.clientWidth + 6), behavior: "smooth" });
+    // Once laid out: back where it was, or on the week of the shown day.
+    (typeof requestAnimationFrame === "function" ? requestAnimationFrame : (fn) => setTimeout(fn, 0))(() => {
+      if (!strip.isConnected) return;
+      if (this._weekScroll != null && this._weekScrollDay === this._day) {
+        strip.scrollLeft = this._weekScroll;
+        return;
+      }
+      const target = strip.querySelector(`[data-day="${ymd(monday)}"]`);
+      if (target) strip.scrollLeft = target.offsetLeft - strip.offsetLeft;
+      this._weekScroll = strip.scrollLeft;
+      this._weekScrollDay = this._day;
+    });
+    return el("div", { class: "ag-week-wrap" },
+      el("button", { type: "button", class: "icon-btn ag-week-arrow", title: "Settimana prima", on: { click: () => page(-1) } }, el("ha-icon", { icon: "mdi:chevron-left" })),
+      strip,
+      el("button", { type: "button", class: "icon-btn ag-week-arrow", title: "Settimana dopo", on: { click: () => page(1) } }, el("ha-icon", { icon: "mdi:chevron-right" })));
   }
 
   /** What still has to be paid on one appointment. */
@@ -22605,7 +22651,15 @@ class SpaBookingCard extends HTMLElement {
       }
       .ag-views ha-icon { --mdc-icon-size: 16px; }
       .ag-views button { display: inline-flex; align-items: center; gap: 6px; }
-      .ag-week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+      .ag-week-wrap { display: flex; align-items: center; gap: 6px; min-width: 0; }
+      .ag-week-arrow { flex: none; width: 30px; height: 30px; }
+      .ag-week { --wd-gap: 6px; flex: 1; min-width: 0; display: grid; grid-auto-flow: column; gap: var(--wd-gap);
+        grid-auto-columns: calc((100% - 6 * var(--wd-gap)) / 7); overflow-x: auto; overscroll-behavior-x: contain;
+        scroll-snap-type: x mandatory; scrollbar-width: none; padding: 3px 0; }
+      .ag-week::-webkit-scrollbar { display: none; }
+      .ag-wd.mon { scroll-snap-align: start; }
+      .ag-wd-month { font-style: normal; margin-left: 4px; padding: 0 5px; border-radius: 6px; font-size: 10px;
+        background: color-mix(in srgb, var(--primary-color) 14%, transparent); color: var(--primary-color); }
       .ag-wd { all: unset; cursor: pointer; display: flex; flex-direction: column; gap: 1px; padding: 8px 10px; border-radius: 12px;
         border: 1px solid var(--sb-line); background: var(--sb-card, var(--card-background-color, #fff)); min-width: 0; }
       .ag-wd:focus-visible { outline: 2px solid var(--primary-color); }
@@ -22698,7 +22752,9 @@ class SpaBookingCard extends HTMLElement {
       @container (max-width: 760px) {
         .ag-main { display: none; }
         .ag-phone { display: flex; }
-        .ag-week { gap: 4px; }
+        .ag-week { --wd-gap: 4px; }
+        .ag-week-arrow { display: none; }
+        .ag-wd-month { display: block; margin: 0; padding: 0; background: none; font-size: 9px; }
         .ag-wd { padding: 6px 2px; align-items: center; }
         .ag-wd-count { display: none; }
         .ag-wd-num { font-size: 16px; }
