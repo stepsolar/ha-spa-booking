@@ -1391,9 +1391,12 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         The exclusion is mutual: a category that declares another protects
         itself too, no matter which side authored the rule. The window is
         exact — pauses only bind the masseuse, never other categories.
+
+        Never forceable (2.9.1): «Prenota comunque» lifts the days and time
+        windows of a category, never this rule — two categories that must not
+        share time (spa privata and spa condivisa) can never be booked over
+        each other.
         """
-        if FORCE_RULES.get():
-            return
         category = self._category(treatment.get("category_id"))
         if not category:
             return

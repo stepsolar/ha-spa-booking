@@ -131,6 +131,14 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v2.9.1** — (serve il riavvio di Home Assistant)
+  - **Categorie che non si accavallano** (es. spa privata e spa condivisa):
+    appena scegli una fascia oraria già occupata dall'altra categoria (ora,
+    giorno, trattamento o pacchetto) compare il popup «Fascia oraria già
+    occupata»; il salvataggio è sempre rifiutato con lo stesso popup, in
+    Nuovo appuntamento, Modifica gruppo e Modifica appuntamento.
+  - Questa regola non si può più forzare con «Prenota comunque» (prima il
+    pulsante la scavalcava): vale anche lato server.
 - **v2.9.0** — (serve il riavvio di Home Assistant)
   - **Entrata e uscita di gruppo**: su una prenotazione di più persone si
     apre un popup per far entrare (o uscire) tutto il gruppo o solo le
