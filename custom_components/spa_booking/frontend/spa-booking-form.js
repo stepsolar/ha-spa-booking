@@ -45,6 +45,7 @@
       voucherOk: "Voucher valido fino al {d}: trattamenti già scelti.", voucherBad: "Voucher non valido o scaduto.",
       treatments: "Trattamenti", time: "Orario", noSlots: "Nessun orario libero in questa data.",
       loading: "Caricamento…", sameAs1: "Come la persona 1", fromVoucher: "dal voucher",
+      choosePkg: "Scegli un pacchetto…", addTreatment: "Scegli un trattamento…", addAnother: "Aggiungi un altro trattamento…",
       packages: "Pacchetti", packagesHint: "Siete in coppia o in gruppo? Scegliete un pacchetto: ogni coppia può prenderne uno diverso.",
       people2: "{n} persone", inPackage: "nel pacchetto", removePkg: "Togli", withExtras: "con {x}",
       first: "Nome", last: "Cognome", phone: "Telefono", phoneHint: "Ti confermiamo l'orario su WhatsApp.",
@@ -71,6 +72,7 @@
       pref: "For the massage you would prefer…", prefAny: "No preference", prefF: "A female therapist", prefM: "A male therapist",
       treatments: "Treatments", time: "Time", noSlots: "No free time on this date.",
       loading: "Loading…", sameAs1: "Same as guest 1", fromVoucher: "from the voucher",
+      choosePkg: "Choose a package…", addTreatment: "Choose a treatment…", addAnother: "Add another treatment…",
       packages: "Packages", packagesHint: "Coming as a couple or a group? Choose a package: each couple can take a different one.",
       people2: "{n} guests", inPackage: "in the package", removePkg: "Remove", withExtras: "with {x}",
       first: "First name", last: "Last name", phone: "Phone", phoneHint: "We confirm the time on WhatsApp.",
@@ -96,6 +98,7 @@
       pref: "Für die Massage bevorzugen Sie…", prefAny: "Egal", prefF: "Eine Masseurin", prefM: "Einen Masseur",
       treatments: "Behandlungen", time: "Uhrzeit", noSlots: "An diesem Tag ist keine Uhrzeit frei.",
       loading: "Wird geladen…", sameAs1: "Wie Person 1", fromVoucher: "aus dem Gutschein",
+      choosePkg: "Paket wählen…", addTreatment: "Behandlung wählen…", addAnother: "Weitere Behandlung hinzufügen…",
       packages: "Pakete", packagesHint: "Zu zweit oder in der Gruppe? Wählen Sie ein Paket: jedes Paar kann ein anderes nehmen.",
       people2: "{n} Personen", inPackage: "im Paket", removePkg: "Entfernen", withExtras: "mit {x}",
       first: "Vorname", last: "Nachname", phone: "Telefon", phoneHint: "Wir bestätigen die Uhrzeit per WhatsApp.",
@@ -321,25 +324,33 @@
     var list = config.packages || [];
     if (state.people < 2 || !list.length) return null;
     var box = h("div", { class: "pkgs" }, h("p", { class: "lbl" }, t("packages")), h("p", { class: "hint" }, t("packagesHint")));
+    box.lastChild.style.margin = "0 0 8px";
     var used = {};
     state.persons.forEach(function (p, i) {
       if (!p.pkg) return;
-      if (!used[p.pkg.group]) used[p.pkg.group] = { name: p.pkg.name, who: [] };
+      if (!used[p.pkg.group]) used[p.pkg.group] = { name: p.pkg.name, key: p.pkg.key, who: [] };
       used[p.pkg.group].who.push(i + 1);
     });
     Object.keys(used).forEach(function (group) {
+      var pkg = list.filter(function (p) { return p.key === used[group].key; })[0];
+      var inside = pkg ? pkg.treatment_ids.map(function (id) { var x = treatment(id); return x ? x.name : ""; }).join(" + ")
+        + (pkg.extras && pkg.extras.length ? " · " + t("withExtras", { x: pkg.extras.join(", ") }) : "") : "";
       box.appendChild(h("div", { class: "pkg-on" },
-        h("span", null, "✓ " + used[group].name + " · " + used[group].who.map(function (n) { return t("person", { n: n }); }).join(", ")),
+        h("span", null, "✓ " + used[group].name + " · " + used[group].who.map(function (n) { return t("person", { n: n }); }).join(", "),
+          inside ? h("small", null, inside) : null),
         h("button", { type: "button", class: "link", onclick: function () { removePackage(group); } }, t("removePkg"))));
     });
-    box.appendChild(h("div", { class: "cards" }, list.map(function (pkg) {
-      var names = pkg.treatment_ids.map(function (id) { var x = treatment(id); return x ? x.name : ""; }).join(" + ");
-      var extra = pkg.extras && pkg.extras.length ? " · " + t("withExtras", { x: pkg.extras.join(", ") }) : "";
-      return h("button", { type: "button", class: "card pkg", onclick: function () { addPackage(pkg); } },
-        pkg.name,
-        h("small", null, t("people2", { n: pkg.people }) + " · " + names + extra
-          + (config.showPrices && pkg.price ? " · " + money(pkg.price) : "")));
-    })));
+    // One menu, however many packages (2.8.12).
+    box.appendChild(h("select", {
+      class: "pick", "aria-label": t("packages"),
+      onchange: function (e) {
+        var pkg = list.filter(function (p) { return p.key === e.target.value; })[0];
+        if (pkg) addPackage(pkg);
+      },
+    }, [h("option", { value: "" }, t("choosePkg"))].concat(list.map(function (pkg) {
+      return h("option", { value: pkg.key }, pkg.name + " · " + t("people2", { n: pkg.people })
+        + (config.showPrices && pkg.price ? " · " + money(pkg.price) : ""));
+    }))));
     return box;
   }
 
@@ -483,6 +494,9 @@
     ".btn.pri{background:var(--a);border-color:var(--a);color:#fff}.btn[disabled]{opacity:.6;cursor:default}",
     ".hint{font-size:13px;color:#5f656b;margin:6px 0 0}.ok{color:#2e7d32}.bad{color:#c62828}",
     ".pkgs{margin:0 0 14px;padding:12px;border-radius:12px;background:#f6f3ee}.pkgs .lbl{margin-top:0}.card.pkg small{white-space:normal}",
+    ".pick{width:100%;box-sizing:border-box;margin:6px 0 0;padding:10px 12px;border:1px solid #cfd5db;border-radius:10px;background:#fff;font:inherit;color:inherit}",
+    ".tname{display:flex;justify-content:space-between;align-items:center;gap:8px}.tname .x{border:none;background:none;font:inherit;color:#8a9097;cursor:pointer;padding:2px 6px;border-radius:6px}.tname .x:hover{background:#eef0f2;color:#c62828}",
+    ".pkg-on small{display:block;font-size:12px;opacity:.8;margin-top:2px}",
     ".pkg-on{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:6px 0;padding:8px 10px;border-radius:10px;background:#e8f3ec;color:#1e5a33;font-size:14px}",
     ".promo{margin:8px 0 4px;padding:10px 12px;border-radius:10px;background:#fff6e0;color:#6b4a00;font-size:14px}",
     ".person{border:1px solid #e3e6ea;border-radius:14px;padding:14px;margin-bottom:12px}",
@@ -617,29 +631,39 @@
             render();
           },
         }, t("sameAs1")) : null));
+      // 2.8.12: the treatments chosen, each with its times, and one menu
+      // (by category, in the spa's order) to add another.
+      var sub = function (item) {
+        return item.duration_min + " " + t("min") + (config.showPrices && item.price ? " · " + money(item.price) : "");
+      };
+      var menu = h("select", {
+        class: "pick", "aria-label": t("addTreatment"),
+        onchange: function (e) {
+          if (!e.target.value) return;
+          person.picks.push({ id: e.target.value, time: "" });
+          state.error = "";
+          render();
+        },
+      }, [h("option", { value: "" }, person.picks.length ? t("addAnother") : t("addTreatment"))]);
       order.forEach(function (cat) {
-        if (order.length > 1 && cat) card.appendChild(h("div", { class: "cat" }, cat));
-        card.appendChild(h("div", { class: "cards" }, groups[cat].map(function (item) {
-          var pick = person.picks.filter(function (p) { return p.id === item.id; })[0];
-          var locked = pick && (pick.voucher || pick.pkg);
-          var sub = item.duration_min + " " + t("min") + (config.showPrices && item.price ? " · " + money(item.price) : "");
-          return h("button", {
-            type: "button", class: "card" + (pick ? " on" : "") + (locked ? " lock" : ""),
-            "aria-pressed": pick ? "true" : "false",
-            onclick: function () {
-              if (locked) return;
-              if (pick) person.picks = person.picks.filter(function (p) { return p !== pick; });
-              else person.picks.push({ id: item.id, time: "" });
-              state.error = "";
-              render();
-            },
-          }, item.name, h("small", null, locked ? t(pick.pkg ? "inPackage" : "fromVoucher") : sub));
-        })));
+        var options = groups[cat].filter(function (item) {
+          return !person.picks.some(function (p) { return p.id === item.id; });
+        }).map(function (item) { return h("option", { value: item.id }, item.name + " · " + sub(item)); });
+        if (!options.length) return;
+        if (order.length > 1 && cat) menu.appendChild(h("optgroup", { label: cat }, options));
+        else options.forEach(function (o) { menu.appendChild(o); });
       });
       person.picks.forEach(function (pick) {
         var item = treatment(pick.id);
         var free = slots(pick.id);
-        var times = h("div", { class: "times" }, h("div", { class: "tname" }, (item ? item.name : "") + " · " + t("time")));
+        var locked = pick.voucher || pick.pkg;
+        var times = h("div", { class: "times" }, h("div", { class: "tname" },
+          h("span", null, (item ? item.name : "") + (item ? " · " + (pick.pkg ? item.duration_min + " " + t("min") : sub(item)) : "")
+            + (locked ? " · " + t(pick.pkg ? "inPackage" : "fromVoucher") : "")),
+          locked ? null : h("button", {
+            type: "button", class: "x", "aria-label": t("removePkg"),
+            onclick: function () { person.picks = person.picks.filter(function (p) { return p !== pick; }); render(); },
+          }, "✕")));
         if (free.loading) times.appendChild(h("p", { class: "hint" }, t("loading")));
         else if (!free.list.length) times.appendChild(h("p", { class: "hint bad" }, t("noSlots")));
         else times.appendChild(h("div", { class: "chips" }, free.list.map(function (slot) {
@@ -651,6 +675,7 @@
         })));
         card.appendChild(times);
       });
+      card.appendChild(menu);
       if (wantsPref(person)) card.appendChild(prefChips(person));
       box.appendChild(card);
     });

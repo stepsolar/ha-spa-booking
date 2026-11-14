@@ -3372,6 +3372,14 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return {"earned": earned, "adjust": adjust, "spent": spent, "balance": earned + adjust - spent,
                 "booked": round(booked, 2), "bookings": bookings}
 
+    def treatment_rank(self) -> tuple[dict[str, int], dict[str, int]]:
+        """Positions of categories and treatments as set in Configurazione › Trattamenti (2.8.12)."""
+        settings = self._data.get(KEY_SETTINGS, {})
+        columns = settings.get("categories_order") or {}
+        cats = [*(columns.get("left") or []), *(columns.get("right") or [])]
+        return ({c: i for i, c in enumerate(cats)},
+                {t: i for i, t in enumerate(settings.get("treatments_order") or [])})
+
     def shop_packages(self, min_people: int = 1) -> list[dict[str, Any]]:
         """The shop products paired with treatments, as bookable packages (2.8.9).
 
@@ -3384,7 +3392,11 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         out = []
         hidden_web = set(settings.get("package_hidden_web") or [])
         hidden_desk = set(settings.get("package_hidden_desk") or [])
-        for product in settings.get("wp_products") or []:
+        # In the order set in Configurazione › Pacchetti (2.8.12).
+        order = list(settings.get("package_order") or [])
+        rank = {key: index for index, key in enumerate(order)}
+        products = sorted(settings.get("wp_products") or [], key=lambda p: rank.get(p.get("key"), len(order)))
+        for product in products:
             entry = mapping.get(product.get("key")) or {}
             treatments = [t for t in entry.get("treatment_ids") or [] if t in known]
             if not treatments or len(treatments) != len(entry.get("treatment_ids") or []):

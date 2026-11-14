@@ -133,6 +133,15 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v2.8.12** — **Modulo del sito più compatto e ordine personalizzato**
+  (serve il riavvio di Home Assistant). Nel modulo del sito pacchetti e
+  trattamenti non sono più box: un menu «Scegli un pacchetto…» e, per ogni
+  persona, i trattamenti scelti con i loro orari e un menu «Aggiungi un
+  trattamento…» diviso per categoria. L'**ordine dei trattamenti** è quello
+  di Configurazione › Trattamenti (matita: trascina categorie e trattamenti),
+  ora usato anche dal sito e da tutti i menu; l'**ordine dei pacchetti** si
+  decide con le frecce in Configurazione › Pacchetti e vale per il sito e per
+  Nuovo appuntamento e richiesta.
 - **v2.8.11** — **Voucher fedeltà a mano e scheda Pacchetti** (serve il
   riavvio di Home Assistant). Nella scheda di ogni cliente e di ogni partner,
   «Invia voucher fedeltà» crea e invia subito un voucher fedeltà (sconto,
