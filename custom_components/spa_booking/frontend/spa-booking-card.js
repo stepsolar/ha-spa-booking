@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "2.8.11";
+const CARD_VERSION = "2.8.12";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -1667,7 +1667,10 @@ class SpaBookingCard extends HTMLElement {
   _shopPackages(minPeople = 1) {
     const settings = (this._data && this._data.settings) || {};
     const mapping = settings.wp_product_map || {};
-    return (settings.wp_products || []).map((product) => {
+    // In the order set in Configurazione › Pacchetti (2.8.12).
+    const order = settings.package_order || [];
+    const rank = (key) => { const i = order.indexOf(key); return i < 0 ? Number.MAX_SAFE_INTEGER : i; };
+    return [...(settings.wp_products || [])].sort((a, b) => rank(a.key) - rank(b.key)).map((product) => {
       const entry = mapping[product.key] || {};
       const ids = (entry.treatment_ids || []).filter(Boolean);
       if (!ids.length || !ids.every((id) => { const t = this._lookup.treatment.get(id); return t && t.active !== false; })) return null;
@@ -5838,9 +5841,9 @@ class SpaBookingCard extends HTMLElement {
         on: { change: (event) => { row.treatment_id = event.target.value; this._render(); } },
       });
       treatmentSelect.appendChild(el("option", { value: "" }, "— Scegli il trattamento —"));
-      const categories = [...this._data.categories].sort((a, b) => a.name.localeCompare(b.name));
+      const categories = this._categoriesInTreatmentOrder();
       const grouped = new Map();
-      treatments.forEach((t) => {
+      [...treatments].sort((a, b) => this._trtRank(a) - this._trtRank(b) || a.name.localeCompare(b.name)).forEach((t) => {
         if (t.category_id && this._lookup.category.has(t.category_id)) {
           if (!grouped.has(t.category_id)) grouped.set(t.category_id, []);
           grouped.get(t.category_id).push(t);
@@ -15928,7 +15931,7 @@ class SpaBookingCard extends HTMLElement {
     const wrap = el("div", { class: "stack" });
     const settings = (this._data && this._data.settings) || {};
     wrap.appendChild(this._sectionHead("mdi:package-variant-closed", "Pacchetti",
-      "I prodotti dello shop abbinati ai trattamenti. Quelli per 2 o più persone si scelgono in Nuovo appuntamento, Nuova richiesta, Modifica gruppo e nel modulo del sito: qui decidi dove si vedono."));
+      "I prodotti dello shop abbinati ai trattamenti. Quelli per 2 o più persone si scelgono in Nuovo appuntamento, Nuova richiesta, Modifica gruppo e nel modulo del sito: qui decidi dove si vedono e, con le frecce, in che ordine."));
     const all = this._shopPackages(1);
     const productsCount = (settings.wp_products || []).length;
     if (!all.length) {
@@ -15949,10 +15952,23 @@ class SpaBookingCard extends HTMLElement {
         on: { change: (event) => toggle(pkg.key, list, !event.target.checked) } }),
       el("span", {}, label));
     const list = el("div", { class: "stack tight" });
-    all.sort((a, b) => b.people - a.people || a.name.localeCompare(b.name, "it")).forEach((pkg) => {
+    // Up and down arrows set the order shown on the website and in the
+    // menu of Nuovo appuntamento / Nuova richiesta (2.8.12).
+    const move = async (index, step) => {
+      const keys = all.map((p) => p.key);
+      const target = index + step;
+      if (target < 0 || target >= keys.length) return;
+      [keys[index], keys[target]] = [keys[target], keys[index]];
+      try { await this._call("update_settings", { package_order: keys }); } catch (error) { /* shown */ }
+    };
+    all.forEach((pkg, index) => {
       const multi = pkg.people >= 2;
       const extras = pkg.extras.map((id) => (this._accessory(id) || {}).label || id);
       list.appendChild(el("div", { class: `pkc-row${pkg.hidden_web && pkg.hidden_desk ? " off" : ""}` },
+        el("div", { class: "pkc-move" },
+          el("button", { class: "icon-btn", title: "Sposta su", disabled: this._busy || index === 0, on: { click: () => move(index, -1) } }, el("ha-icon", { icon: "mdi:chevron-up" })),
+          el("span", { class: "pkc-pos" }, String(index + 1)),
+          el("button", { class: "icon-btn", title: "Sposta giù", disabled: this._busy || index === all.length - 1, on: { click: () => move(index, 1) } }, el("ha-icon", { icon: "mdi:chevron-down" }))),
         pkg.image ? el("img", { class: "pkc-img", src: pkg.image, alt: "" }) : el("span", { class: "pkc-img ph" }, el("ha-icon", { icon: "mdi:package-variant-closed" })),
         el("div", { class: "pkc-main" },
           el("div", {}, el("b", {}, pkg.name), el("span", { class: "dim small" }, ` · ${pkg.people === 1 ? "1 persona" : `${pkg.people} persone`}${pkg.price != null ? ` · ${euro(pkg.price)}` : ""}`)),
@@ -19567,9 +19583,9 @@ class SpaBookingCard extends HTMLElement {
       on: { change: (event) => { draft.treatment_id = event.target.value; this._render(); } },
     });
     treatmentSelect.appendChild(el("option", { value: "" }, "— Scegli il trattamento —"));
-    const categories = [...this._data.categories].sort((a, b) => a.name.localeCompare(b.name));
+    const categories = this._categoriesInTreatmentOrder();
     const grouped = new Map();
-    treatments.forEach((treatment) => {
+    [...treatments].sort((a, b) => this._trtRank(a) - this._trtRank(b) || a.name.localeCompare(b.name)).forEach((treatment) => {
       if (treatment.category_id && this._lookup.category.has(treatment.category_id)) {
         if (!grouped.has(treatment.category_id)) grouped.set(treatment.category_id, []);
         grouped.get(treatment.category_id).push(treatment);
@@ -22298,7 +22314,10 @@ class SpaBookingCard extends HTMLElement {
       .pk-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
       .lv-head { align-items: center; }
       .lv-head h3 { margin: 0; }
-      .pkc-row { display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 12px; border: 1px solid var(--sb-line); border-radius: 12px; background: var(--card-background-color); }
+      .pkc-move { display: flex; flex-direction: column; align-items: center; gap: 0; }
+      .pkc-move .icon-btn { width: 28px; height: 24px; }
+      .pkc-pos { font-size: 12px; font-weight: 700; color: var(--secondary-text-color); }
+      .pkc-row { display: grid; grid-template-columns: 32px 56px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 12px; border: 1px solid var(--sb-line); border-radius: 12px; background: var(--card-background-color); }
       .pkc-row.off { opacity: .6; }
       .pkc-img { width: 56px; height: 56px; border-radius: 10px; object-fit: cover; background: var(--sb-card); display: flex; align-items: center; justify-content: center; }
       .pkc-img.ph ha-icon { --mdc-icon-size: 26px; color: var(--secondary-text-color); }
@@ -22306,7 +22325,7 @@ class SpaBookingCard extends HTMLElement {
       .pkc-switches { display: flex; flex-direction: column; gap: 6px; }
       .pkc-switch { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; white-space: nowrap; }
       .pkc-switch input { width: 18px; height: 18px; accent-color: var(--primary-color); }
-      @media (max-width: 640px) { .pkc-row { grid-template-columns: 48px minmax(0, 1fr); } .pkc-switches { grid-column: 1 / -1; flex-direction: row; flex-wrap: wrap; gap: 14px; } }
+      @media (max-width: 640px) { .pkc-row { grid-template-columns: 32px 48px minmax(0, 1fr); } .pkc-switches { grid-column: 1 / -1; flex-direction: row; flex-wrap: wrap; gap: 14px; } }
       .pk-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
       .pk-line ha-icon { --mdc-icon-size: 20px; color: var(--primary-color); }
       .pk-select { flex: 1; min-width: 220px; max-width: 460px; }

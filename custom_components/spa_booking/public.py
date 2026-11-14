@@ -242,7 +242,13 @@ class SpaBookingPublicTreatmentsView(_PublicView):
                 if show_prices and payload.get("price") is not None:
                     item["price"] = payload["price"]
                 items.append(item)
-            items.sort(key=lambda item: (item["category_name"], item["name"]))
+            # The spa's own order (Configurazione › Trattamenti), 2.8.12.
+            cat_rank, trt_rank = coordinator.treatment_rank()
+            category_of = {t["id"]: t.get("category_id") or "" for t in coordinator.treatments}
+            items.sort(key=lambda item: (
+                cat_rank.get(category_of.get(item["id"], ""), len(cat_rank)), item["category_name"],
+                trt_rank.get(item["id"], len(trt_rank)), item["name"],
+            ))
             # The shop packages for two or more people (2.8.9) whose
             # treatments are all on the site: the guest picks one per couple.
             visible = {item["id"] for item in items}

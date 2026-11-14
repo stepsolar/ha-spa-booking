@@ -1097,6 +1097,7 @@ def _norm_settings(raw: dict[str, Any]) -> dict[str, Any]:
         # form, and off the menu of Nuovo appuntamento / Nuova richiesta.
         "package_hidden_web": sorted({str(k) for k in raw.get("package_hidden_web") or [] if k}),
         "package_hidden_desk": sorted({str(k) for k in raw.get("package_hidden_desk") or [] if k}),
+        "package_order": [str(k) for k in dict.fromkeys(raw.get("package_order") or []) if k][:500],
         # Programma partner (2.8.6): the discount of the guests who book with a
         # partner's link, and the prize the partner's points turn into.
         "partner_discount_pct": _norm_pct(raw.get("partner_discount_pct")),

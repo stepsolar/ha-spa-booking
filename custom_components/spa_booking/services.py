@@ -947,6 +947,7 @@ UPDATE_SETTINGS_SCHEMA = vol.Schema(
         vol.Optional("partner_booking_url"): vol.Any(cv.string, None),
         vol.Optional("package_hidden_web"): vol.Any([cv.string], None),
         vol.Optional("package_hidden_desk"): vol.Any([cv.string], None),
+        vol.Optional("package_order"): vol.Any([cv.string], None),
         vol.Optional("partner_discount_pct"): vol.Any(vol.Coerce(float), None),
         vol.Optional("partner_reward_points"): vol.Any(vol.Coerce(int), None),
         vol.Optional("partner_reward_value"): vol.Any(vol.Coerce(int), None),

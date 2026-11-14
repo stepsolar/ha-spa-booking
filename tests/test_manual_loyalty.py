@@ -41,3 +41,13 @@ def test_hidden_packages(coordinator) -> None:
     packages = {p["key"]: p for p in coordinator.shop_packages()}
     assert packages["1:0"]["hidden_web"] and not packages["1:0"]["hidden_desk"]
     assert packages["2:0"]["hidden_desk"] and not packages["2:0"]["hidden_web"]
+
+
+def test_package_order(coordinator) -> None:
+    settings = coordinator._data["settings"]
+    tid = coordinator.treatments[0]["id"]
+    settings.update(_norm_settings({**settings,
+        "wp_products": [{"product_id": i, "variation_id": 0, "name": n, "price": 100} for i, n in ((1, "A"), (2, "B"), (3, "C"))],
+        "wp_product_map": {f"{i}:0": {"people": 2, "treatment_ids": [tid]} for i in (1, 2, 3)},
+        "package_order": ["3:0", "1:0"]}))
+    assert [p["key"] for p in coordinator.shop_packages()] == ["3:0", "1:0", "2:0"]
