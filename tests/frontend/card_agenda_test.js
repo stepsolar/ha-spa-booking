@@ -59,7 +59,12 @@ card._agQuick = "";
 // The list view is still there.
 card._agendaView = "elenco";
 const list = card._renderAgendaDay();
-assert(byClass(list, "appt").length >= 3, "Elenco keeps the classic rows");
+assert(byClass(list, "ls-row").length >= 3, "Elenco per orario: one row per line (3.1.0)");
+card._lsMode = "operatrice";
+assert(byClass(card._renderAgendaDay(), "ls-col").length >= 2, "Elenco per operatrice: a column each");
+card._lsMode = "prenotazione";
+assert(byClass(card._renderAgendaDay(), "ls-book").length >= 2, "Elenco per prenotazione: a card per code");
+card._lsMode = "ora";
 
 // 2.4.0: on a computer the detail sits beside the day, not in a popup.
 card._agendaView = "timeline";

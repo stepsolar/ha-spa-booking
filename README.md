@@ -5,7 +5,7 @@
 <p align="center"><b>La spa dell'hotel in Home Assistant</b>: agenda, prenotazioni, operatori,
 clienti, voucher, WhatsApp e Telegram, modulo per il sito e shop online, in una sola card.</p>
 
-<p align="center">Versione <b>3.0.0</b> · <a href="docs/GUIDA.md"><b>Guida completa con le immagini</b></a></p>
+<p align="center">Versione <b>3.1.0</b> · <a href="docs/GUIDA.md"><b>Guida completa con le immagini</b></a></p>
 
 ![Agenda](docs/anteprime/v3/v3-01-agenda.png)
 
@@ -111,6 +111,16 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v3.1.0** — (basta ricaricare la pagina)
+  - **Nuova vista Elenco** in agenda, in tre modi: *Per orario* (righe in
+    ordine di ora con la linea dell'ora attuale, stato, da incassare e
+    pulsanti), *Per operatrice* (una colonna ciascuna con le ore libere) e
+    *Per prenotazione* (una scheda per codice con persone, trattamenti,
+    conto e pulsante del momento). La scelta resta ricordata.
+  - **Stampa con menu**: *Foglio della reception* (con caselle Entrata e
+    Uscita, note e totali), *Per operatrice* (il programma di ognuna con la
+    casella «Fatto») e *Planning orizzontale* (grafico delle ore ed elenco
+    completo), tutti con logo e numeri del giorno.
 - **v3.0.2** — (basta ricaricare la pagina)
   - Agenda: accanto alla data c'è il pulsante **calendario** per scegliere il
     giorno da visualizzare; anche un tocco sulla data apre il calendario

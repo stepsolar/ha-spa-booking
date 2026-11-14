@@ -1,6 +1,6 @@
 <p align="center"><img src="anteprime/logo.png" width="120" alt="Spa Booking"></p>
 
-# Spa Booking 3.0 — la guida completa
+# Spa Booking 3.1 — la guida completa
 
 Questa guida spiega **tutto quello che fa Spa Booking**, scheda per scheda:
 dalla prenotazione al banco al modulo del sito, dai messaggi WhatsApp ai
@@ -78,9 +78,9 @@ L'agenda ha tre viste: **Timeline**, **Elenco** e **Mese**.
 
 ![Agenda, vista Timeline](anteprime/v3/v3-01-agenda.png)
 
-- **In alto**: il giorno per esteso (toccalo per scegliere una data), le
-  frecce, *Oggi*, le tre viste, **Stampa** (il foglio della giornata in PDF;
-  prezzi e incassi solo per Manager e Amministratore) e **Nuovo**.
+- **In alto**: il giorno per esteso, le frecce, il pulsante **calendario**
+  (anche un tocco sulla data apre il calendario), *Oggi*, le tre viste,
+  **Stampa** (vedi sotto) e **Nuovo**.
 - **La settimana**: sette riquadri con il numero di appuntamenti e una
   barretta di quanto è pieno il giorno. Tocca un giorno per aprirlo.
 - **Le pillole**: appuntamenti, *in sala ora*, *da confermare*, *da
@@ -92,13 +92,49 @@ L'agenda ha tre viste: **Timeline**, **Elenco** e **Mese**.
   grigio concluso; il tratteggio è la pausa dopo il trattamento, la linea
   rossa è l'ora attuale. A lato: uscite del momento, prossimi arrivi con
   *Entrata* e quelli da confermare.
-- **Elenco**: gli appuntamenti raggruppati per operatrice (o per categoria
-  quando non c'è operatrice), divisi in mattina, pomeriggio e sera, con i
-  pulsanti Entrata, Modifica, Annulla, Chiama e WhatsApp.
+- **Elenco**, in tre modi scelti nella sua barra (la scelta resta
+  ricordata su quel dispositivo):
+  - **Per orario**: una riga per appuntamento in ordine di ora, divisa in
+    mattina, pomeriggio e sera, con la linea rossa dell'ora attuale. Ogni
+    riga ha ora di inizio e fine, il colore della categoria, ospite, persone,
+    codice, trattamento e accessori, operatrice, stato, quanto c'è da
+    incassare e i pulsanti Entrata/Uscita/Conferma, WhatsApp e Modifica.
+  - **Per operatrice**: una colonna per ogni operatrice e per le categorie
+    senza operatrice (Ingresso Spa, Spa privata…), con le **ore libere** tra
+    un appuntamento e l'altro.
+  - **Per prenotazione**: una scheda per codice con telefono, tutte le
+    persone e i trattamenti con i prezzi, totale, da saldare e il pulsante
+    del momento.
+
+  In fondo, richiudibili, gli *Usciti* e gli *Annullati*.
+
+![Elenco per orario](anteprime/v3/v3-02-elenco.png)
 
 | | |
 |---|---|
-| ![Elenco](anteprime/v3/v3-02-elenco.png) | ![Mese](anteprime/v3/v3-03-mese.png) |
+| ![Elenco per operatrice](anteprime/80-elenco-operatrice.png) | ![Elenco per prenotazione](anteprime/81-elenco-prenotazione.png) |
+
+**Stampa.** Il tasto apre un piccolo menu con tre fogli, che si aprono in
+una nuova scheda pronti da stampare o salvare in PDF (seguono i filtri di
+categoria e ospite; importi solo per Manager e Amministratore):
+
+- **Foglio della reception**: logo, data, chi ha stampato, i numeri del
+  giorno (prenotazioni, persone, trattamenti, totale, da incassare), poi una
+  riga per prenotazione con codice, telefono, trattamenti di ogni persona,
+  note, stato, da incassare e le caselle **Entrata** e **Uscita** (già
+  spuntate se registrate). In fondo lo spazio per le note e i totali di
+  contanti, carta e bonifico.
+- **Per operatrice**: il programma di ognuna (e delle categorie senza
+  operatrice) con orari, ospiti, accessori, note e la casella «Fatto».
+- **Planning orizzontale**: foglio orizzontale con il grafico delle ore per
+  operatrice e categoria, e sotto l'elenco completo con i telefoni.
+
+| | |
+|---|---|
+| ![Menu Stampa](anteprime/82-menu-stampa.png) | ![Foglio della reception](anteprime/83-stampa-reception.png) |
+| ![Per operatrice](anteprime/84-stampa-operatrici.png) | ![Planning orizzontale](anteprime/85-stampa-planning.png) |
+
+![Mese](anteprime/v3/v3-03-mese.png)
 
 **Mese.** Ogni giorno mostra i primi appuntamenti (ora e nome, col colore
 della categoria; in arancione quelli da confermare), «+N altri» e una

@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "3.0.2";
+const CARD_VERSION = "3.1.0";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -296,6 +296,49 @@ body { margin: 0; font-family: var(--mdc-typography-font-family, Roboto, Arial, 
   body { margin: 0; }
   .report-page { padding: 0; }
 }
+/* The day sheets (3.1.0). */
+.ds { max-width: 210mm; margin: 0 auto; padding: 16px 20px; font-size: 11.5px; color: #1d2a30;
+      font-family: Roboto, "Segoe UI", Arial, sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.ds.land { max-width: 297mm; }
+.ds-hd { display: flex; align-items: center; gap: 14px; border-bottom: 2px solid #1f9e98; padding-bottom: 10px; }
+.ds-hd .sb-logo, .ds-hd .sb-logo svg { width: 44px; height: 44px; display: block; }
+.ds-hd h1 { margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: 21px; font-weight: 400; }
+.ds-sub, .ds-dim { color: #6b7b82; }
+.ds-r { margin-left: auto; text-align: right; } .ds-r b { font-size: 15px; }
+.ds-kpis { display: flex; gap: 8px; margin: 12px 0; }
+.ds-kpi { flex: 1; border: 1px solid #dfe6e8; border-radius: 10px; padding: 7px 10px; }
+.ds-kpi span { display: block; color: #6b7b82; font-size: 9.5px; text-transform: uppercase; letter-spacing: 1px; }
+.ds-kpi b { font-size: 17px; } .ds-kpi b.due { color: #c0562b; }
+.ds table { width: 100%; border-collapse: collapse; font-size: inherit; }
+.ds th { text-align: left; font-size: 9px; letter-spacing: 1px; text-transform: uppercase; color: #6b7b82;
+         border-bottom: 1.5px solid #1d2a30; padding: 5px 6px; }
+.ds td { padding: 6px; border-bottom: 1px solid #e6ecee; vertical-align: top; }
+.ds tr { page-break-inside: avoid; }
+.ds-mono { font-family: Consolas, "Courier New", monospace; font-weight: 700; }
+.ds-sw { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; }
+.ds-box { display: inline-block; width: 13px; height: 13px; border: 1.5px solid #1d2a30; border-radius: 3px;
+          text-align: center; line-height: 11px; font-size: 11px; font-weight: 700; }
+.ds-st { font-weight: 600; font-size: 10.5px; } .ds-st.wait { color: #b06e0c; } .ds-st.in { color: #23804a; }
+.ds-st.bad { color: #c03a3a; } .ds-st.conf { color: #2f6fa8; } .ds-st.off { color: #6b7b82; }
+.ds-due { text-align: right; font-weight: 700; color: #c0562b; } .ds-paid { text-align: right; font-weight: 700; color: #2e9e5b; }
+.ds-li { margin-bottom: 3px; } .ds-li .ds-dim { padding-left: 13px; display: block; }
+.ds-note { font-style: italic; color: #4b5b62; }
+.ds h2 { font-size: 13px; margin: 16px 0 5px; display: flex; align-items: center; gap: 8px; page-break-after: avoid; }
+.ds h2 .ds-dim { font-weight: 400; font-size: 11px; }
+.ds-sec { page-break-inside: avoid; }
+.ds-notes { border: 1px dashed #b9c6ca; border-radius: 8px; height: 64px; }
+.ds-foot { margin-top: 14px; display: flex; gap: 28px; color: #6b7b82; font-size: 10px; border-top: 1px solid #dfe6e8; padding-top: 7px; }
+.ds-gantt { margin-top: 10px; }
+.ds-gh { position: relative; height: 18px; margin-left: 120px; }
+.ds-gh span { position: absolute; transform: translateX(-50%); font-size: 9.5px; color: #6b7b82; }
+.ds-glane { display: flex; align-items: stretch; min-height: 50px; border-top: 1px solid #e6ecee; page-break-inside: avoid; }
+.ds-gwho { width: 120px; flex: none; font-weight: 700; display: flex; align-items: center; gap: 6px; }
+.ds-gtrack { position: relative; flex: 1; }
+.ds-gev { position: absolute; top: 5px; bottom: 5px; border-radius: 6px; padding: 3px 6px; overflow: hidden; font-size: 9.5px;
+          line-height: 1.25; border-left: 4px solid; }
+.ds-gev b { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ds-empty { color: #6b7b82; margin: 14px 0; }
+@media print { .ds { padding: 0; } }
 `;
 
 // One line under the title of each page, saying what it is for.
@@ -4055,8 +4098,7 @@ class SpaBookingCard extends HTMLElement {
         diff !== 0 ? el("button", { class: "btn small", on: { click: () => go(todayStr()) } }, "Oggi") : null),
       this._agViews(view),
       el("span", { class: "spacer" }),
-      el("button", { class: "btn small ag-print", title: "Stampa PDF", on: { click: () => this._printDay() } },
-        el("ha-icon", { icon: "mdi:printer" }), el("span", { class: "btn-label" }, "Stampa")),
+      this._printButton(),
       this._can("book") ? el("button", {
         class: "btn primary small", title: "Nuovo appuntamento", disabled: this._busy,
         on: { click: () => { this._form.date = this._day; this._tab = "nuovo"; this._nuovoTab = "appuntamento"; this._render(); } },
@@ -4357,226 +4399,298 @@ class SpaBookingCard extends HTMLElement {
     return box;
   }
 
-  /** The «Elenco» view: the working day per masseuse, as before 2.3.12. */
+  /**
+   * The «Elenco» view (3.1.0), in three ways chosen in its bar: by time (one
+   * row per booking line, morning / afternoon / evening, the line of now),
+   * by masseuse (a column each, with her free hours) and by booking (a card
+   * per code with every person, the bill and the action of the moment).
+   */
   _renderAgendaList() {
-    const wrap = el("div", { class: "stack" });
+    const wrap = el("div", { class: "stack ls" });
     const dayList = this._appointmentsOfDay(this._day).filter(
       (appointment) =>
         this._categoryMatch(appointment) && this._guestMatch(appointment) &&
         this._matchesSearch(appointment) && this._agQuickMatch(appointment));
-    // Once the reception has recorded the exit the appointment is over: it
-    // leaves the working agenda and folds into the "Usciti" section below.
     const exited = dayList.filter((appointment) => appointment.checked_out);
-    const allActive = dayList.filter((appointment) => !appointment.checked_out);
-    const list = this._showCheckedIn ? allActive : allActive.filter((appointment) => !appointment.checked_in);
-    const totalMin = list.reduce((sum, item) => sum + (this._durationOf(item) || 0), 0);
-
-
-
-    // Today only: the clients leaving now or shortly, so the reception can
-    // confirm each exit while it happens (or shortly after).
-    if (this._day === todayStr()) {
-      const exits = this._exitAppointments(list);
-      if (exits.length) {
-        const panel = el("div", { class: "exit-panel" });
-        panel.appendChild(
-          el("div", { class: "exit-head" },
-            el("ha-icon", { icon: "mdi:exit-run" }),
-            el("span", {}, `Uscite (${EXIT_LEAD_MIN}′ prima / ${EXIT_GRACE_MIN}′ dopo)`),
-            el("span", { class: "badge" }, String(exits.length)))
-        );
-        exits.forEach((appointment) => {
-          const end = parseDate(appointment.end);
-          panel.appendChild(
-            el("div", { class: "exit-row" },
-              el("span", { class: "exit-time" }, end ? timeOf(end) : "—"),
-              el("span", { class: "grow" },
-                this._clientName(appointment),
-                el("span", { class: "sep" }, "·"),
-                el("span", { class: "dim" }, this._treatmentName(appointment))),
-              el("button", {
-                class: "btn small",
-                disabled: this._busy,
-                style: this._can("day") ? null : "display: none",
-                on: { click: () => this._confirmExit(appointment) },
-              }, "Conferma uscita"))
-          );
-        });
-        wrap.appendChild(panel);
-      }
-    }
+    const list = dayList.filter((appointment) => !appointment.checked_out);
+    const mode = this._listMode();
+    const modes = [["ora", "Per orario", "mdi:clock-outline"], ["operatrice", "Per operatrice", "mdi:account-group-outline"], ["prenotazione", "Per prenotazione", "mdi:ticket-confirmation-outline"]];
+    wrap.appendChild(el("div", { class: "ls-bar" },
+      el("div", { class: "pg-seg ls-modes", role: "radiogroup" }, modes.map(([id, text, icon]) => el("button", {
+        type: "button", class: mode === id ? "on" : "", role: "radio", "aria-checked": mode === id ? "true" : "false",
+        on: { click: () => { this._setListMode(id); } },
+      }, el("ha-icon", { icon }), el("span", { class: "btn-label" }, text)))),
+      el("span", { class: "dim small" }, `${counted(list.length, "appuntamento", "appuntamenti")} · ${minutesLabel(list.reduce((sum, a) => sum + (this._durationOf(a) || 0), 0)) || "0 min"}`)));
 
     if (!dayList.length) {
       wrap.appendChild(el("div", { class: "empty" }, "Nessun appuntamento per questa data."));
     } else if (!list.length) {
-      wrap.appendChild(
-        el("div", { class: "row", style: "margin: 6px 0 10px 0; align-items: center; gap: 8px;" },
-          el("span", { class: "dim", style: "font-size: 13px;" }, "Mostra check-in"),
-          el("button", {
-            class: "btn small",
-            style: "background: #009ac7; color: #fff;",
-            title: this._showCheckedIn ? "Nascondi check-in" : "Mostra check-in",
-            on: { click: () => { this._showCheckedIn = !this._showCheckedIn; this._render(); } },
-          }, el("ha-icon", { icon: this._showCheckedIn ? "mdi:close" : "mdi:check" })))
-      );
-      wrap.appendChild(el("div", { class: "empty" },
-        "Tutti gli appuntamenti di oggi hanno registrato l'uscita."));
+      wrap.appendChild(el("div", { class: "empty" }, "Tutti gli appuntamenti del giorno hanno registrato l'uscita."));
+    } else if (mode === "operatrice") {
+      wrap.appendChild(this._lsByOperator(list));
+    } else if (mode === "prenotazione") {
+      wrap.appendChild(this._lsByBooking(list));
     } else {
-      // Appointments per starting hour, so the desk reads at a glance how the
-      // day is spread and where the next booking lands.
-      const byHour = new Map();
-      list.forEach((appointment) => {
-        const start = parseDate(appointment.start);
-        if (!start) return;
-        const hour = start.getHours();
-        byHour.set(hour, (byHour.get(hour) || 0) + 1);
-      });
-      const hours = [...byHour.keys()].sort((a, b) => a - b);
-
-      wrap.appendChild(
-        el(
-          "div",
-          { class: "meta" },
-          el("span", {},
-            `${list.length} ${list.length === 1 ? "appuntamento" : "appuntamenti"} · ${minutesLabel(totalMin)}`),
-          hours.length
-            ? el("span", { class: "meta-hours" },
-                hours.map((hour) => `${pad(hour)}:00 ×${byHour.get(hour)}`).join("  ·  "))
-            : null
-        )
-      );
-
-      // Toggle to show/hide the appointments that already checked in.
-      wrap.appendChild(
-        el("div", { class: "row", style: "margin: 6px 0 0 0; align-items: center; gap: 8px;" },
-          el("span", { class: "dim", style: "font-size: 13px;" },
-            "Mostra check-in"),
-          el("button", {
-            class: "btn small",
-            style: "background: #009ac7; color: #fff;",
-            title: this._showCheckedIn ? "Nascondi check-in" : "Mostra check-in",
-            on: { click: () => { this._showCheckedIn = !this._showCheckedIn; this._render(); } },
-          },
-            el("ha-icon", { icon: this._showCheckedIn ? "mdi:close" : "mdi:check" }))
-        )
-      );
-
-      // One row per booking group (same treatment, client and slot): the
-      // members are identical, so the row stands for the whole party and a
-      // button next to the pencil opens the single rows underneath. A lone
-      // booking is just its own row.
-      const bookingGroups = [];
-      const seen = new Map();
-      list.forEach((appointment) => {
-        const key = [
-          appointment.treatment_id,
-          appointment.client_id,
-          appointment.start,
-          appointment.operator_id || "",
-          appointment.batch_id || "",
-        ].join("|");
-        if (!seen.has(key)) {
-          seen.set(key, []);
-          bookingGroups.push(seen.get(key));
-        }
-        seen.get(key).push(appointment);
-      });
-
-      const groups = new Map();
-      bookingGroups.forEach((members) => {
-        // 2.9.0: without an operator, grouped (and named) by category.
-        const category = members[0].operator_id ? null
-          : this._categoryOf(this._lookup.treatment.get(members[0].treatment_id));
-        const key = members[0].operator_id || `cat:${category ? category.id : ""}`;
-        if (!groups.has(key)) groups.set(key, []);
-        groups.get(key).push(members);
-      });
-
-      if (!this._expandedGroups) this._expandedGroups = new Set();
-
-      // Two columns: massages (treatments that need an operator) on the right,
-      // everything else on the left.
-      const columns = el("div", { class: "agenda-columns" });
-      const leftCol = el("div", { class: "agenda-column" });
-      const rightCol = el("div", { class: "agenda-column" });
-
-      [...groups.entries()].forEach(([key, partyList]) => {
-        const operator = this._lookup.operator.get(key);
-        const treatment = this._lookup.treatment.get(partyList[0][0].treatment_id);
-        const category = this._categoryOf(treatment);
-        const target = category && category.requires_operator ? rightCol : leftCol;
-        const card = el("div", { class: "group" });
-        card.appendChild(
-          el(
-            "div",
-            { class: "group-head" },
-            el("ha-icon", { icon: operator ? "mdi:account-voice" : "mdi:spa-outline" }),
-            el("span", {}, operator ? operator.name : (category ? category.name : "Altri trattamenti")),
-            el("span", { class: "badge" },
-              String(partyList.reduce((sum, members) => sum + members.length, 0)))
-          )
-        );
-        const partOf = (members) => {
-          const start = parseDate(members[0].start);
-          const hour = start ? start.getHours() : 12;
-          return hour < 13 ? "Mattina" : hour < 18 ? "Pomeriggio" : "Sera";
-        };
-        const parts = new Set(partyList.map(partOf));
-        let lastPart = "";
-        partyList.forEach((members) => {
-          const part = partOf(members);
-          if (parts.size > 1 && part !== lastPart) {
-            card.appendChild(el("div", { class: "daypart" }, part));
-            lastPart = part;
-          }
-          add(card, this._appointmentRow(members[0]));
-          const groupKey = [
-            members[0].treatment_id,
-            members[0].client_id,
-            members[0].start,
-            members[0].operator_id || "",
-            members[0].batch_id || "",
-          ].join("|");
-          if (members.length > 1 && this._expandedGroups.has(groupKey)) {
-            members.slice(1).forEach((appointment) =>
-              add(card, this._appointmentRow(appointment)));
-          }
-        });
-        target.appendChild(card);
-      });
-
-      columns.appendChild(leftCol);
-      columns.appendChild(rightCol);
-      wrap.appendChild(columns);
+      wrap.appendChild(this._lsByTime(list));
     }
 
-    // Clients already gone: kept out of the working list, but still one click
-    // away with their time, so a late correction can still be made.
     if (exited.length) {
-      wrap.appendChild(
-        el("details", { class: "exited-box" },
-          el("summary", {}, `Usciti (${exited.length})`),
-          exited.map((appointment) => this._appointmentRow(appointment))
-        )
-      );
+      wrap.appendChild(el("details", { class: "exited-box" },
+        el("summary", {}, `Usciti (${exited.length})`),
+        el("div", { class: "ls-rows" }, this._agParties(exited).map((members) => this._lsRow(members, true)))));
     }
-
     const past = (this._byDay.get(this._day) || []).filter(
-      (appointment) =>
-        appointment.status === "cancelled" &&
-        this._categoryMatch(appointment) &&
-        this._guestMatch(appointment)
-    );
+      (appointment) => appointment.status === "cancelled" && this._categoryMatch(appointment) && this._guestMatch(appointment));
     if (past.length) {
-      wrap.appendChild(
-        el("details", { class: "cancelled-box" },
-          el("summary", {}, `Annullati (${past.length})`),
-          past.map((appointment) => this._appointmentRow(appointment, true))
-        )
-      );
+      wrap.appendChild(el("details", { class: "cancelled-box" },
+        el("summary", {}, `Annullati (${past.length})`),
+        past.map((appointment) => this._appointmentRow(appointment, true))));
     }
-
     return wrap;
+  }
+
+  /** The chosen way of the list, remembered on this browser. */
+  _listMode() {
+    if (!this._lsMode) {
+      try { this._lsMode = window.localStorage.getItem("spa_booking_list_mode") || ""; } catch (error) { this._lsMode = ""; }
+    }
+    return ["ora", "operatrice", "prenotazione"].includes(this._lsMode) ? this._lsMode : "ora";
+  }
+
+  _setListMode(mode) {
+    this._lsMode = mode;
+    try { window.localStorage.setItem("spa_booking_list_mode", mode); } catch (error) { /* private window */ }
+    this._render();
+  }
+
+  /** How a line stands, as a coloured pill: label and tone. */
+  _lsStatus(appointment) {
+    if (appointment.status === "cancelled") return ["Annullato", "off"];
+    if (appointment.checked_out) return ["Uscito", "off"];
+    if (appointment.checked_in) return ["In sala", "in"];
+    if (appointment.status === "pending") return ["Da confermare", "wait"];
+    if (appointment.offer_state === "unassigned") return ["Da assegnare", "bad"];
+    if (appointment.offer_state === "offered") return ["Attesa operatrice", "wait"];
+    return ["Confermato", "conf"];
+  }
+
+  _lsPill(appointment) {
+    const [text, tone] = this._lsStatus(appointment);
+    return el("span", { class: `ls-pill ${tone}` }, text);
+  }
+
+  _lsColor(appointment) {
+    const category = this._categoryOf(this._lookup.treatment.get(appointment.treatment_id));
+    return (category && category.color) || "var(--sb-accent, var(--primary-color))";
+  }
+
+  /** A round initial for an operator, in the colour of her first category. */
+  _lsAvatar(name, color) {
+    return el("span", { class: "ls-av", style: `background:${color}` }, String(name || "?").trim().charAt(0).toUpperCase());
+  }
+
+  /** Still to pay on these lines, or "" when the desk cannot see money. */
+  _lsMoney(members) {
+    if (!this._can("payments")) return null;
+    const price = members.reduce((sum, a) => sum + (Number(this._lineBreakdown(a).price) || 0), 0);
+    const due = Math.round(members.reduce((sum, a) => sum + this._agDue(a), 0) * 100) / 100;
+    if (!price) return el("span", { class: "ls-money" });
+    return el("span", { class: `ls-money ${due ? "due" : "paid"}`, title: due ? "Da incassare" : "Pagato" }, due ? euro(due) : "Pagato");
+  }
+
+  /** Entrata / Uscita / Conferma, WhatsApp and Modifica. */
+  _lsActions(appointment) {
+    const client = this._lookup.client.get(appointment.client_id);
+    const phone = client ? client.phone : "";
+    const box = el("span", { class: "ls-acts" });
+    box.addEventListener("click", (event) => event.stopPropagation());
+    add(box, this._agMainAction(appointment));
+    if (phone && appointment.status !== "cancelled") {
+      box.appendChild(el("a", { class: "icon-btn ls-ico wa", href: waLink(phone), target: "_blank", rel: "noopener", title: "WhatsApp" },
+        el("ha-icon", { icon: "mdi:whatsapp" })));
+    }
+    if (this._can("book") && this._ownsAppointment(appointment) && appointment.status !== "cancelled") {
+      box.appendChild(el("button", { class: "icon-btn ls-ico", title: "Modifica", on: { click: () => this._openEditAppointment(appointment) } },
+        el("ha-icon", { icon: "mdi:pencil-outline" })));
+    }
+    return box;
+  }
+
+  /** One row of «Per orario»: a party of identical lines. */
+  _lsRow(members, past = false) {
+    const appointment = members[0];
+    const start = parseDate(appointment.start);
+    const end = parseDate(appointment.end);
+    const treatment = this._lookup.treatment.get(appointment.treatment_id);
+    const category = this._categoryOf(treatment);
+    const guest = this._guestMeta(appointment.guest_type);
+    const extras = (appointment.extras || []).map((id) => this._accessory(id).label).filter(Boolean);
+    const operator = this._operatorName(appointment);
+    const color = this._lsColor(appointment);
+    const people = members.length;
+    return el("div", {
+      class: `ls-row${appointment.checked_in && !appointment.checked_out ? " live" : ""}${past ? " past" : ""}`,
+      role: "button", tabindex: "0", "data-appt": appointment.id,
+      on: { click: () => this._openDetail(appointment), keydown: (event) => { if (event.key === "Enter") this._openDetail(appointment); } },
+    },
+    el("span", { class: "ls-time" }, el("b", {}, start ? timeOf(start) : "—"), el("small", {}, end ? `fino ${timeOf(end)}` : "")),
+    el("span", { class: "ls-bar-c", style: `background:${color}` }),
+    el("span", { class: "ls-who" },
+      el("b", {}, this._clientName(appointment)),
+      people > 1 ? el("span", { class: "ls-chip" }, `${people} persone`) : null,
+      el("small", {}, [guest.id === "hotel" ? "Hotel" : "Esterno", appointment.code].filter(Boolean).join(" · "))),
+    el("span", { class: "ls-what" },
+      el("span", {}, this._treatmentName(appointment)),
+      el("small", { style: `color:${color}` }, [category ? category.name : "", ...extras].filter(Boolean).join(" · "))),
+    el("span", { class: "ls-op" }, operator ? this._lsAvatar(operator, color) : null, operator || el("span", { class: "dim" }, "—")),
+    el("span", { class: "ls-st" }, this._lsPill(appointment)),
+    this._lsMoney(members) || el("span", { class: "ls-money" }),
+    past ? el("span", { class: "ls-acts" }) : this._lsActions(appointment));
+  }
+
+  /** «Per orario»: morning, afternoon and evening, with the line of now. */
+  _lsByTime(list) {
+    const box = el("div", { class: "ls-rows" });
+    const parties = this._agParties(list);
+    const partOf = (members) => { const d = parseDate(members[0].start); const h = d ? d.getHours() : 12; return h < 13 ? "Mattina" : h < 18 ? "Pomeriggio" : "Sera"; };
+    const count = new Map();
+    parties.forEach((members) => count.set(partOf(members), (count.get(partOf(members)) || 0) + 1));
+    const now = Date.now();
+    let nowShown = this._day !== todayStr();
+    let lastPart = "";
+    parties.forEach((members) => {
+      const part = partOf(members);
+      if (part !== lastPart) { box.appendChild(el("div", { class: "ls-band" }, `${part} · ${count.get(part)}`)); lastPart = part; }
+      const start = parseDate(members[0].start);
+      if (!nowShown && start && start.getTime() > now) {
+        box.appendChild(el("div", { class: "ls-now" }, `${timeOf(new Date())} adesso`));
+        nowShown = true;
+      }
+      box.appendChild(this._lsRow(members));
+    });
+    return box;
+  }
+
+  /** «Per operatrice»: a column per masseuse (and per category without one), with her free hours. */
+  _lsByOperator(list) {
+    const parties = this._agParties(list);
+    const lanes = new Map();
+    const busy = new Set(parties.map((members) => members[0].operator_id).filter(Boolean));
+    this._data.operators
+      .filter((operator) => busy.has(operator.id))
+      .sort((a, b) => (Number(a.priority) || 0) - (Number(b.priority) || 0) || a.name.localeCompare(b.name))
+      .forEach((operator) => lanes.set(operator.id, { name: operator.name, items: [], operator: true }));
+    const catLanes = new Map();
+    parties.forEach((members) => {
+      const id = members[0].operator_id;
+      if (id && lanes.has(id)) { lanes.get(id).items.push(members); return; }
+      const category = this._categoryOf(this._lookup.treatment.get(members[0].treatment_id));
+      const key = `cat:${category ? category.id : ""}`;
+      if (!catLanes.has(key)) catLanes.set(key, { name: category ? category.name : "Altri trattamenti", items: [], color: category && category.color });
+      catLanes.get(key).items.push(members);
+    });
+    const catRank = new Map(this._categoriesInTreatmentOrder().map((c, i) => [`cat:${c.id}`, i]));
+    [...catLanes.entries()].sort((a, b) => (catRank.has(a[0]) ? catRank.get(a[0]) : 999) - (catRank.has(b[0]) ? catRank.get(b[0]) : 999))
+      .forEach(([key, lane]) => lanes.set(key, lane));
+
+    const minutesOf = (date) => date.getHours() * 60 + date.getMinutes();
+    const hm = (minutes) => `${pad(Math.floor(minutes / 60))}:${pad(minutes % 60)}`;
+    let open = 9 * 60;
+    let close = 20 * 60;
+    parties.forEach((members) => {
+      const s = parseDate(members[0].start); const e = parseDate(members[0].end);
+      if (s) open = Math.min(open, minutesOf(s));
+      if (e) close = Math.max(close, minutesOf(e));
+    });
+    const free = (from, to) => (to - from >= 30 ? el("div", { class: "ls-free" }, `libera ${hm(from)}–${hm(to)}`) : null);
+    const cols = el("div", { class: "ls-cols" });
+    lanes.forEach((lane) => {
+      const color = lane.color || (lane.items[0] ? this._lsColor(lane.items[0][0]) : "#888");
+      const minutes = lane.items.reduce((sum, members) => sum + (this._durationOf(members[0]) || 0), 0);
+      const col = el("div", { class: "ls-col" },
+        el("div", { class: "ls-col-head" },
+          lane.operator ? this._lsAvatar(lane.name, color) : el("span", { class: "ls-av", style: `background:${color}` }, el("ha-icon", { icon: "mdi:spa-outline" })),
+          el("b", {}, lane.name),
+          el("span", { class: "dim small" }, `${lane.items.length} · ${minutesLabel(minutes)}`)));
+      let cursor = open;
+      lane.items.forEach((members) => {
+        const appointment = members[0];
+        const s = parseDate(appointment.start); const e = parseDate(appointment.end);
+        if (s) add(col, free(cursor, minutesOf(s)));
+        if (e) cursor = Math.max(cursor, minutesOf(e) + (lane.operator ? this._pauseOfAppointment(appointment) : 0));
+        const [, tone] = this._lsStatus(appointment);
+        col.appendChild(el("div", {
+          class: `ls-card${appointment.checked_in && !appointment.checked_out ? " live" : ""}`, style: `border-left-color:${this._lsColor(appointment)}`,
+          role: "button", tabindex: "0", "data-appt": appointment.id,
+          on: { click: () => this._openDetail(appointment), keydown: (event) => { if (event.key === "Enter") this._openDetail(appointment); } },
+        },
+        el("div", { class: "ls-card-top" }, el("b", {}, `${s ? timeOf(s) : ""}–${e ? timeOf(e) : ""}`), tone !== "conf" ? this._lsPill(appointment) : null),
+        el("div", {}, el("b", {}, this._clientName(appointment)), members.length > 1 ? el("span", { class: "ls-chip" }, `${members.length} pers.`) : null),
+        el("div", { class: "dim small" }, this._treatmentName(appointment)),
+        el("div", { class: "ls-card-foot" }, this._lsMoney(members), this._lsActions(appointment))));
+      });
+      add(col, free(cursor, close));
+      cols.appendChild(col);
+    });
+    return cols;
+  }
+
+  /** «Per prenotazione»: a card per code, every person and line, the bill and the action of the moment. */
+  _lsByBooking(list) {
+    const groups = new Map();
+    list.forEach((appointment) => {
+      const key = appointment.batch_id || appointment.id;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(appointment);
+    });
+    const at = (items) => Math.min(...items.map((a) => { const d = parseDate(a.start); return d ? d.getTime() : 0; }));
+    const grid = el("div", { class: "ls-books" });
+    [...groups.values()].sort((a, b) => at(a) - at(b)).forEach((items) => {
+      items.sort((a, b) => (parseDate(a.start) || 0) - (parseDate(b.start) || 0) || (a.person || 0) - (b.person || 0));
+      const first = items[0];
+      const client = this._lookup.client.get(first.client_id);
+      const guest = this._guestMeta(first.guest_type);
+      const people = new Set(items.map((a) => a.person || 0)).size;
+      const tones = items.map((a) => this._lsStatus(a)[1]);
+      const lead = items.find((a) => a.checked_in && !a.checked_out)
+        || items.find((a) => a.status === "pending")
+        || items.find((a) => a.offer_state === "offered" || a.offer_state === "unassigned")
+        || first;
+      const start = parseDate(first.start);
+      const price = items.reduce((sum, a) => sum + (Number(this._lineBreakdown(a).price) || 0), 0);
+      const due = Math.round(items.reduce((sum, a) => sum + this._agDue(a), 0) * 100) / 100;
+      const multi = people > 1;
+      grid.appendChild(el("div", { class: `ls-book${tones.includes("in") ? " live" : ""}`, "data-appt": first.id },
+        el("div", { class: "ls-book-head" },
+          el("span", { class: "ls-book-time" }, start ? timeOf(start) : "—"),
+          el("b", { class: "ls-book-name" }, this._clientName(first)),
+          first.code ? el("span", { class: "ls-code" }, first.code) : null,
+          el("span", { class: "spacer" }),
+          this._lsPill(lead)),
+        el("div", { class: "dim small ls-book-sub" },
+          [client && client.phone, guest.id === "hotel" ? "Hotel" : "Esterno", `${people} ${people === 1 ? "persona" : "persone"}`].filter(Boolean).join(" · ")),
+        el("div", { class: "ls-lines" }, items.map((a) => {
+          const s = parseDate(a.start);
+          const extras = (a.extras || []).map((id) => this._accessory(id).label).filter(Boolean);
+          return el("div", { class: "ls-line", role: "button", tabindex: "0",
+            on: { click: () => this._openDetail(a), keydown: (event) => { if (event.key === "Enter") this._openDetail(a); } } },
+          el("b", {}, s ? timeOf(s) : ""),
+          el("span", { class: "ls-dot", style: `background:${this._lsColor(a)}` }),
+          el("span", { class: "ls-line-text" },
+            el("span", {}, `${multi ? `Persona ${(a.person || 0) + 1} · ` : ""}${this._treatmentName(a)}`),
+            el("small", {}, [this._operatorName(a) || (this._categoryOf(this._lookup.treatment.get(a.treatment_id)) || {}).name, ...extras].filter(Boolean).join(" · "))),
+          this._lsStatus(a)[0] !== this._lsStatus(lead)[0] ? this._lsPill(a) : null,
+          this._can("payments") && Number(this._lineBreakdown(a).price) ? el("span", { class: "ls-price" }, euro(Number(this._lineBreakdown(a).price))) : el("span"));
+        })),
+        el("div", { class: "ls-book-foot" },
+          this._can("payments") && price
+            ? el("span", { class: "small" }, el("span", { class: "dim" }, `Totale ${euro(price)} · `),
+                el("b", { class: due ? "due" : "paid" }, due ? `da saldare ${euro(due)}` : "saldato"))
+            : el("span"),
+          el("span", { class: "spacer" }),
+          this._lsActions(lead))));
+    });
+    return grid;
   }
 
   /**
@@ -8005,21 +8119,258 @@ class SpaBookingCard extends HTMLElement {
     input.click();
   }
 
-  _printDay() {
-    this._openHtmlPage(
-      `Spa Booking — Report ${ymd(new Date(`${this._day}T00:00:00`))}`,
-      this._dayReportNode()
-    );
+  /** The sheets of «Stampa» (3.1.0). */
+  _printKinds() {
+    return [
+      ["reception", "Foglio della reception", "mdi:clipboard-list-outline", "Una riga per prenotazione, con caselle Entrata e Uscita"],
+      ["operatrici", "Per operatrice", "mdi:account-group-outline", "Il programma di ognuna, da dare alle operatrici"],
+      ["planning", "Planning orizzontale", "mdi:chart-timeline", "Il grafico delle ore e l'elenco completo"],
+    ];
+  }
+
+  _printDay(kind = "reception") {
+    const date = ymd(new Date(`${this._day}T00:00:00`));
+    const name = (this._printKinds().find((k) => k[0] === kind) || this._printKinds()[0])[1];
+    this._printMenu = false;
+    this._openHtmlPage(`Spa Booking — ${name} ${date}`, this._daySheet(kind), kind === "planning");
+  }
+
+  /** The «Stampa» button and its little menu of sheets. */
+  _printButton() {
+    const box = el("span", { class: "ag-print-wrap" });
+    box.appendChild(el("button", {
+      class: `btn small ag-print${this._printMenu ? " on" : ""}`, title: "Stampa", "aria-haspopup": "menu", "aria-expanded": this._printMenu ? "true" : "false",
+      on: { click: (event) => { event.stopPropagation(); this._printMenu = !this._printMenu; this._render(); } },
+    }, el("ha-icon", { icon: "mdi:printer" }), el("span", { class: "btn-label" }, "Stampa"), el("ha-icon", { class: "ag-print-caret", icon: "mdi:chevron-down" })));
+    if (this._printMenu) {
+      box.appendChild(el("div", { class: "ag-print-shade", on: { click: () => { this._printMenu = false; this._render(); } } }));
+      box.appendChild(el("div", { class: "ag-print-menu", role: "menu" },
+        el("div", { class: "ag-print-title" }, "Cosa vuoi stampare?"),
+        this._printKinds().map(([id, text, icon, hint]) => el("button", {
+          type: "button", role: "menuitem", class: "ag-print-item", on: { click: () => this._printDay(id) },
+        }, el("ha-icon", { icon }), el("span", {}, el("b", {}, text), el("small", {}, hint))))));
+    }
+    return box;
+  }
+
+  /** The day to print: lines of the filters, cancelled left out. */
+  _sheetLines() {
+    return this._appointmentsOfDay(this._day)
+      .filter((a) => a.status !== "cancelled" && this._categoryMatch(a) && this._guestMatch(a))
+      .sort((a, b) => (parseDate(a.start) || 0) - (parseDate(b.start) || 0));
+  }
+
+  /** Bookings of the day: one entry per code (batch), its lines in order. */
+  _sheetBookings(lines) {
+    const groups = new Map();
+    lines.forEach((a) => {
+      const key = a.batch_id || a.id;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(a);
+    });
+    return [...groups.values()];
+  }
+
+  /** Header, logo and the day's numbers, shared by the three sheets. */
+  _sheetHead(subtitle, lines) {
+    const settings = (this._data && this._data.settings) || {};
+    const title = settings.card_title || this._config.title || "Spa Booking";
+    const now = new Date();
+    const who = (this._me && this._me.name) || this._confirmerName();
+    const money = this._can("totals");
+    const price = lines.reduce((sum, a) => sum + (Number(this._lineBreakdown(a).price) || 0), 0);
+    const due = Math.round(lines.reduce((sum, a) => sum + this._agDue(a), 0) * 100) / 100;
+    const people = this._sheetBookings(lines).reduce((sum, items) => sum + new Set(items.map((a) => a.person || 0)).size, 0);
+    const kpi = (label, value, cls = "") => el("div", { class: "ds-kpi" }, el("span", {}, label), el("b", { class: cls }, value));
+    return [
+      el("div", { class: "ds-hd" }, spaLogo(44),
+        el("div", {}, el("h1", {}, title), el("div", { class: "ds-sub" }, subtitle)),
+        el("div", { class: "ds-r" }, el("b", {}, longDay(new Date(`${this._day}T00:00:00`))),
+          el("div", { class: "ds-dim" }, `Stampato il ${pad(now.getDate())}/${pad(now.getMonth() + 1)} alle ${timeOf(now)}${who ? ` da ${who}` : ""}`))),
+      el("div", { class: "ds-kpis" },
+        kpi("Prenotazioni", String(this._sheetBookings(lines).length)),
+        kpi("Persone", String(people)),
+        kpi("Trattamenti", String(lines.length)),
+        money ? kpi("Totale", euro(price)) : null,
+        money ? kpi("Da incassare", euro(due), due ? "due" : "") : null),
+    ];
+  }
+
+  /** The masseuses (then the categories without one) and their lines. */
+  _sheetLanes(lines) {
+    const lanes = new Map();
+    const busy = new Set(lines.map((a) => a.operator_id).filter(Boolean));
+    this._data.operators
+      .filter((operator) => busy.has(operator.id))
+      .sort((a, b) => (Number(a.priority) || 0) - (Number(b.priority) || 0) || a.name.localeCompare(b.name))
+      .forEach((operator) => lanes.set(operator.id, { name: operator.name, items: [], operator: true }));
+    const cats = new Map();
+    this._agParties(lines).forEach((members) => {
+      const id = members[0].operator_id;
+      if (id && lanes.has(id)) { lanes.get(id).items.push(members); return; }
+      const category = this._categoryOf(this._lookup.treatment.get(members[0].treatment_id));
+      const key = `cat:${category ? category.id : ""}`;
+      if (!cats.has(key)) cats.set(key, { name: category ? category.name : "Altri trattamenti", items: [], color: category && category.color });
+      cats.get(key).items.push(members);
+    });
+    const rank = new Map(this._categoriesInTreatmentOrder().map((c, i) => [`cat:${c.id}`, i]));
+    [...cats.entries()].sort((a, b) => (rank.has(a[0]) ? rank.get(a[0]) : 999) - (rank.has(b[0]) ? rank.get(b[0]) : 999))
+      .forEach(([key, lane]) => lanes.set(key, lane));
+    lanes.forEach((lane) => { lane.color = lane.color || (lane.items[0] ? this._lsColor(lane.items[0][0]) : "#888"); });
+    return [...lanes.values()];
+  }
+
+  _sheetStatus(a) {
+    const [text, tone] = this._lsStatus(a);
+    return el("span", { class: `ds-st ${tone}` }, text);
+  }
+
+  _sheetExtras(a) {
+    return (a.extras || []).map((id) => this._accessory(id).label).filter(Boolean);
+  }
+
+  /** One of the three sheets of the day, as a printable node. */
+  _daySheet(kind) {
+    const lines = this._sheetLines();
+    const doc = el("div", { class: `ds${kind === "planning" ? " land" : ""}` });
+    const subtitle = { reception: "Foglio della reception", operatrici: "Programma per operatrice", planning: "Planning della giornata" }[kind] || "Foglio della reception";
+    this._sheetHead(subtitle, lines).forEach((node) => add(doc, node));
+    if (!lines.length) {
+      doc.appendChild(el("div", { class: "ds-empty" }, "Nessun appuntamento registrato per questo giorno."));
+      return doc;
+    }
+    const money = this._can("totals");
+    const guestOf = (a) => {
+      const guest = this._guestMeta(a.guest_type);
+      const found = a.partner_id && (this._data.partners || []).find((p) => p.id === a.partner_id);
+      const partner = found ? ` · partner ${found.company || [found.first_name, found.last_name].filter(Boolean).join(" ")}` : "";
+      return `${guest.id === "hotel" ? "Hotel" : "Esterno"}${partner}`;
+    };
+    const color = (a) => this._lsColor(a);
+
+    if (kind === "operatrici") {
+      this._sheetLanes(lines).forEach((lane) => {
+        const minutes = lane.items.reduce((sum, members) => sum + (this._durationOf(members[0]) || 0), 0);
+        const first = parseDate(lane.items[0][0].start);
+        const last = parseDate(lane.items[lane.items.length - 1][0].end);
+        doc.appendChild(el("div", { class: "ds-sec" },
+          el("h2", {}, el("span", { class: "ds-sw", style: `background:${lane.color};width:12px;height:12px;border-radius:50%` }), lane.name,
+            el("span", { class: "ds-dim" }, `${counted(lane.items.length, "trattamento", "trattamenti")} · ${minutesLabel(minutes)}${first ? ` · dalle ${timeOf(first)}` : ""}${last ? ` alle ${timeOf(last)}` : ""}`)),
+          el("table", {},
+            el("tr", {}, el("th", { style: "width:86px" }, "Orario"), el("th", {}, "Ospite"), el("th", {}, "Trattamento"), el("th", {}, "Accessori"), el("th", {}, "Note"), el("th", { style: "width:44px" }, "Fatto")),
+            lane.items.map((members) => {
+              const a = members[0];
+              const s = parseDate(a.start); const e = parseDate(a.end);
+              const [, tone] = this._lsStatus(a);
+              return el("tr", {},
+                el("td", {}, el("b", {}, `${s ? timeOf(s) : ""}–${e ? timeOf(e) : ""}`)),
+                el("td", {}, el("b", {}, this._clientName(a)), members.length > 1 ? el("span", { class: "ds-dim" }, ` (${members.length} pers.)`) : null,
+                  el("div", { class: "ds-dim" }, [guestOf(a), a.code].filter(Boolean).join(" · "))),
+                el("td", {}, this._treatmentName(a)),
+                el("td", {}, this._sheetExtras(a).join(", ") || "—"),
+                el("td", {}, tone !== "conf" ? this._sheetStatus(a) : null, a.notes ? el("div", { class: "ds-note" }, a.notes) : null),
+                el("td", { style: "text-align:center" }, el("span", { class: "ds-box" }, a.checked_out ? "✓" : "")));
+            }))));
+      });
+      return doc;
+    }
+
+    if (kind === "planning") {
+      const lanes = this._sheetLanes(lines);
+      const minutesOf = (date) => date.getHours() * 60 + date.getMinutes();
+      let from = 9 * 60;
+      let to = 20 * 60;
+      lines.forEach((a) => { const s = parseDate(a.start); const e = parseDate(a.end); if (s) from = Math.min(from, minutesOf(s)); if (e) to = Math.max(to, minutesOf(e)); });
+      from = Math.floor(from / 60) * 60; to = Math.ceil(to / 60) * 60;
+      const pct = (m) => `${((m - from) / (to - from)) * 100}%`;
+      const grid = `background: repeating-linear-gradient(90deg, #eef2f3 0 1px, transparent 1px calc(100% / ${(to - from) / 60}));`;
+      const gantt = el("div", { class: "ds-gantt" });
+      const hours = el("div", { class: "ds-gh" });
+      for (let h = from / 60; h <= to / 60; h += 1) hours.appendChild(el("span", { style: `left:${pct(h * 60)}` }, `${h}:00`));
+      gantt.appendChild(hours);
+      lanes.forEach((lane) => {
+        const track = el("div", { class: "ds-gtrack", style: grid });
+        lane.items.forEach((members) => {
+          const a = members[0];
+          const s = parseDate(a.start); const e = parseDate(a.end);
+          if (!s || !e) return;
+          const c = color(a);
+          track.appendChild(el("div", { class: "ds-gev", style: `left:${pct(minutesOf(s))};width:calc(${pct(minutesOf(e))} - ${pct(minutesOf(s))} - 2px);background:${c}22;border-left-color:${c}` },
+            el("b", {}, `${timeOf(s)} ${this._clientName(a)}${members.length > 1 ? ` ×${members.length}` : ""}`),
+            el("span", { class: "ds-dim" }, this._treatmentName(a))));
+        });
+        gantt.appendChild(el("div", { class: "ds-glane" },
+          el("div", { class: "ds-gwho" }, el("span", { class: "ds-sw", style: `background:${lane.color};width:10px;height:10px;border-radius:50%` }), lane.name), track));
+      });
+      doc.appendChild(gantt);
+      doc.appendChild(el("table", { style: "margin-top:14px" },
+        el("tr", {}, el("th", {}, "Ora"), el("th", {}, "Codice"), el("th", {}, "Ospite"), el("th", {}, "Telefono"), el("th", {}, "Trattamento"), el("th", {}, "Operatrice"), el("th", {}, "Accessori"), el("th", {}, "Stato"),
+          money ? el("th", { style: "text-align:right" }, "Da incassare") : null),
+        this._agParties(lines).map((members) => {
+          const a = members[0];
+          const client = this._lookup.client.get(a.client_id);
+          const due = members.reduce((sum, m) => sum + this._agDue(m), 0);
+          const s = parseDate(a.start);
+          return el("tr", {},
+            el("td", {}, el("b", {}, s ? timeOf(s) : "")), el("td", { class: "ds-mono" }, a.code || ""),
+            el("td", {}, `${this._clientName(a)}${members.length > 1 ? ` (${members.length})` : ""}`),
+            el("td", { class: "ds-dim" }, (client && client.phone) || ""),
+            el("td", {}, el("span", { class: "ds-sw", style: `background:${color(a)}` }), this._treatmentName(a)),
+            el("td", {}, this._operatorName(a) || "—"), el("td", {}, this._sheetExtras(a).join(", ") || "—"),
+            el("td", {}, this._sheetStatus(a)),
+            money ? el("td", { class: due ? "ds-due" : "ds-dim", style: "text-align:right" }, due ? euro(due) : "—") : null);
+        })));
+      return doc;
+    }
+
+    // Foglio della reception: one row per booking.
+    doc.appendChild(el("table", {},
+      el("tr", {}, el("th", {}, "Ora"), el("th", {}, "Codice"), el("th", {}, "Ospite"), el("th", {}, "Trattamenti"), el("th", {}, "Stato"),
+        money ? el("th", { style: "text-align:right" }, "Da incassare") : null,
+        el("th", { style: "text-align:center" }, "Entrata"), el("th", { style: "text-align:center" }, "Uscita")),
+      this._sheetBookings(lines).map((items) => {
+        const first = items[0];
+        const client = this._lookup.client.get(first.client_id);
+        const s = parseDate(first.start);
+        const lead = items.find((a) => a.status === "pending") || items.find((a) => a.offer_state === "unassigned")
+          || items.find((a) => a.offer_state === "offered") || items.find((a) => a.checked_in && !a.checked_out) || first;
+        const due = Math.round(items.reduce((sum, a) => sum + this._agDue(a), 0) * 100) / 100;
+        const price = items.reduce((sum, a) => sum + (Number(this._lineBreakdown(a).price) || 0), 0);
+        const notes = [...new Set(items.map((a) => a.notes).filter(Boolean))];
+        return el("tr", {},
+          el("td", {}, el("b", { style: "font-size:13px" }, s ? timeOf(s) : "")),
+          el("td", { class: "ds-mono" }, first.code || ""),
+          el("td", {}, el("b", {}, this._clientName(first)), el("div", { class: "ds-dim" }, (client && client.phone) || ""), el("div", { class: "ds-dim" }, guestOf(first)),
+            notes.length ? el("div", { class: "ds-note" }, notes.join(" · ")) : null),
+          el("td", {}, this._agParties(items).map((members) => {
+            const a = members[0];
+            const t = parseDate(a.start);
+            return el("div", { class: "ds-li" }, el("span", { class: "ds-sw", style: `background:${color(a)}` }),
+              `${t ? timeOf(t) : ""} ${this._treatmentName(a)}${members.length > 1 ? ` × ${members.length}` : ""}`,
+              el("span", { class: "ds-dim" }, [this._operatorName(a) || (this._categoryOf(this._lookup.treatment.get(a.treatment_id)) || {}).name, ...this._sheetExtras(a)].filter(Boolean).join(" · ")));
+          })),
+          el("td", {}, this._sheetStatus(lead)),
+          money ? el("td", { class: due ? "ds-due" : price ? "ds-paid" : "ds-dim", style: "text-align:right" }, due ? euro(due) : price ? "Pagato" : "—") : null,
+          el("td", { style: "text-align:center" }, el("span", { class: "ds-box" }, items.every((a) => a.checked_in) ? "✓" : "")),
+          el("td", { style: "text-align:center" }, el("span", { class: "ds-box" }, items.every((a) => a.checked_out) ? "✓" : "")));
+      })));
+    doc.appendChild(el("h2", {}, "Note del giorno"));
+    doc.appendChild(el("div", { class: "ds-notes" }));
+    doc.appendChild(el("div", { class: "ds-foot" },
+      money ? el("span", {}, "Contanti ________") : null, money ? el("span", {}, "Carta ________") : null, money ? el("span", {}, "Bonifico ________") : null,
+      el("span", { style: "margin-left:auto" }, `Spa Booking ${CARD_VERSION}`)));
+    return doc;
   }
 
   /**
    * Open a printable document in a new tab: it is the only content, so the
    * print dialog (and "Save as PDF") acts on the report and nothing else.
    */
-  _openHtmlPage(title, bodyNode) {
+  _openHtmlPage(title, bodyNode, landscape = false) {
+    const page = `@page { size: A4 ${landscape ? "landscape" : "portrait"}; margin: 10mm; }`;
     const html =
       "<!DOCTYPE html><html lang=\"it\"><head><meta charset=\"utf-8\">" +
-      `<title>${title}</title><style>${REPORT_CSS}</style></head>` +
+      `<title>${title}</title><style>${page}${REPORT_CSS}</style></head>` +
       `<body>${bodyNode.outerHTML}</body></html>`;
     const win = window.open("", "_blank");
     if (!win) {
@@ -8037,115 +8388,6 @@ class SpaBookingCard extends HTMLElement {
     // A fresh page whose only content is the report: once it has laid out,
     // open the print dialog, where "Save as PDF" is the destination.
     setTimeout(() => { win.focus(); win.print(); }, 250);
-  }
-
-  /** The printable day report: header, summary and the chronological list. */
-  _dayReportNode() {
-    const dayList = this._appointmentsOfDay(this._day).filter(
-      (appointment) =>
-        this._categoryMatch(appointment) && this._guestMatch(appointment));
-    const exited = dayList.filter((appointment) => appointment.checked_out);
-    const list = dayList.filter((appointment) => !appointment.checked_out);
-    const totalMin = list.reduce((sum, item) => sum + (this._durationOf(item) || 0), 0);
-
-    const doc = el("div", { class: "report-page" });
-    doc.appendChild(el("h1", {}, "Spa Booking — Report del giorno"));
-    doc.appendChild(el("div", { class: "report-date" },
-      longDay(new Date(`${this._day}T00:00:00`))));
-
-    doc.appendChild(el("div", { class: "report-summary" },
-      `${counted(list.length, "appuntamento", "appuntamenti")} · ` +
-      `${minutesLabel(totalMin) || "0 min"}` +
-      (exited.length ? ` · ${counted(exited.length, "uscito", "usciti")}` : "")));
-
-    const line = (appointment, persons) => {
-      const start = parseDate(appointment.start);
-      const guest =
-        GUEST_TYPES.find((entry) => entry.id === appointment.guest_type) ||
-        GUEST_TYPES[1];
-      const extras = (appointment.extras || [])
-        .map((id) => this._accessory(id));
-      let status = "Confermata";
-      let statusClass = "";
-      if (appointment.offer_state === "unassigned") {
-        status = "Da assegnare";
-        statusClass = "warn";
-      } else if (appointment.offer_state === "offered") {
-        status = "Proposta in attesa";
-        statusClass = "pending";
-      } else if (appointment.status === "pending") {
-        status = "In attesa di conferma";
-        statusClass = "pending";
-      }
-      // Money is for the manager: the others print the day without it.
-      const payment = this._can("totals") ? (this._paymentSummary(appointment.payment) || "—") : "";
-      return el("div", { class: "report-row" },
-        el("div", { class: "r-time" }, timeOf(start)),
-        el("div", { class: "r-client" },
-          this._clientName(appointment),
-          el("span", { class: "r-guest" }, guest.label)),
-        el("div", { class: "r-treat" },
-          this._treatmentName(appointment),
-          extras.length
-            ? el("div", { class: "r-extras" },
-                `Accessori: ${extras.map((entry) => entry.label).join(", ")}`)
-            : null),
-        el("div", { class: "r-persons" }, String(persons || 1)),
-        el("div", { class: "r-op" },
-          this._operatorName(appointment) || "—"),
-        el("div", { class: "r-pay" }, payment),
-        el("div", { class: `r-status ${statusClass}` }, status));
-    };
-
-    doc.appendChild(
-      el("div", { class: "report-row report-head" },
-        el("div", { class: "r-time" }, "Ora"),
-        el("div", { class: "r-code" }, "Codice"),
-        el("div", { class: "r-client" }, "Cliente"),
-        el("div", { class: "r-treat" }, "Trattamento"),
-        el("div", { class: "r-persons" }, "Persone"),
-        el("div", { class: "r-op" }, "Operatrice"),
-        el("div", { class: "r-pay" }, this._can("totals") ? "Pagamento" : ""),
-        el("div", { class: "r-status" }, "Stato")));
-
-    // One row per booking group (same treatment, client and slot), with the
-    // number of people; a lone booking is one row of one person.
-    const parties = (items) => {
-      const grouped = [];
-      const seen = new Map();
-      items.forEach((appointment) => {
-        const key = [
-          appointment.treatment_id,
-          appointment.client_id,
-          appointment.start,
-          appointment.operator_id || "",
-          appointment.batch_id || "",
-        ].join("|");
-        if (!seen.has(key)) {
-          seen.set(key, []);
-          grouped.push(seen.get(key));
-        }
-        seen.get(key).push(appointment);
-      });
-      return grouped;
-    };
-
-    if (!list.length && !exited.length) {
-      doc.appendChild(el("div", { class: "r-note" },
-        "Nessun appuntamento registrato per questo giorno."));
-    } else {
-      parties(list).forEach((members) =>
-        doc.appendChild(line(members[0], members.length)));
-      if (exited.length) {
-        doc.appendChild(el("h2", { class: "report-section" }, "Usciti"));
-        parties(exited).forEach((members) => {
-          const row = line(members[0], members.length);
-          row.classList.add("exited");
-          doc.appendChild(row);
-        });
-      }
-    }
-    return doc;
   }
 
   /** One person: treatment, masseuse when needed, start time and preview. */
@@ -22294,6 +22536,73 @@ class SpaBookingCard extends HTMLElement {
       .ag-day-rel { font-size: 12px; color: var(--secondary-text-color); }
       .ag-date { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
       .ag-cal { color: var(--sb-accent, var(--primary-color)); }
+      .ag-print-wrap { position: relative; display: inline-flex; }
+      .ag-print-caret { --mdc-icon-size: 16px; margin-left: -2px; opacity: .7; }
+      .ag-print-shade { position: fixed; inset: 0; z-index: 30; }
+      .ag-print-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 31; width: 300px; padding: 6px;
+        background: var(--sb-card, var(--card-background-color, #fff)); border: 1px solid var(--sb-line, var(--divider-color));
+        border-radius: 14px; box-shadow: 0 12px 32px rgba(0,0,0,.18); }
+      .ag-print-title { font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--secondary-text-color); padding: 6px 10px 4px; }
+      .ag-print-item { all: unset; box-sizing: border-box; width: 100%; display: flex; align-items: flex-start; gap: 10px; padding: 9px 10px; border-radius: 10px; cursor: pointer; }
+      .ag-print-item:hover, .ag-print-item:focus-visible { background: var(--sb-soft, rgba(0,0,0,.05)); }
+      .ag-print-item ha-icon { color: var(--sb-accent, var(--primary-color)); --mdc-icon-size: 22px; flex: none; margin-top: 1px; }
+      .ag-print-item span { display: flex; flex-direction: column; } .ag-print-item small { color: var(--secondary-text-color); font-size: 12px; }
+      /* Elenco 3.1.0 */
+      .ls-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: space-between; }
+      .ls-modes ha-icon { --mdc-icon-size: 16px; }
+      .ls-modes button { display: inline-flex; align-items: center; gap: 6px; }
+      .ls-rows { display: flex; flex-direction: column; gap: 8px; }
+      .ls-band { display: flex; align-items: center; gap: 10px; margin: 8px 0 0; font-size: 12px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: var(--secondary-text-color); }
+      .ls-band::after { content: ""; flex: 1; height: 1px; background: var(--sb-line, var(--divider-color)); }
+      .ls-now { display: flex; align-items: center; gap: 8px; color: var(--error-color, #d64545); font-size: 12px; font-weight: 700; }
+      .ls-now::after { content: ""; flex: 1; height: 2px; background: var(--error-color, #d64545); }
+      .ls-row { display: grid; grid-template-columns: 78px 5px minmax(0, 1.4fr) minmax(0, 1.3fr) minmax(0, 130px) 140px 90px 190px; align-items: center; gap: 14px;
+        background: var(--sb-card, var(--card-background-color, #fff)); border: 1px solid var(--sb-line, var(--divider-color)); border-radius: 14px; padding: 10px 14px; cursor: pointer; }
+      .ls-row:hover, .ls-card:hover, .ls-line:hover { border-color: var(--sb-accent, var(--primary-color)); }
+      .ls-row.live, .ls-card.live, .ls-book.live { box-shadow: 0 0 0 2px rgba(46, 158, 91, .35); }
+      .ls-row.past { opacity: .7; }
+      .ls-time { display: flex; flex-direction: column; } .ls-time b { font-size: 17px; } .ls-time small, .ls-who small, .ls-what small { font-size: 12px; color: var(--secondary-text-color); }
+      .ls-bar-c { width: 5px; height: 38px; border-radius: 4px; }
+      .ls-who, .ls-what { display: flex; flex-direction: column; min-width: 0; } .ls-who b, .ls-what span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .ls-who { flex-direction: row; flex-wrap: wrap; align-items: center; column-gap: 6px; } .ls-who small { flex-basis: 100%; }
+      .ls-chip { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; background: var(--sb-soft, rgba(0,0,0,.06)); color: var(--secondary-text-color); margin-left: 4px; }
+      .ls-op { display: flex; align-items: center; gap: 8px; min-width: 0; white-space: nowrap; overflow: hidden; }
+      .ls-av { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; color: #fff; font-size: 12px; font-weight: 700; flex: none; --mdc-icon-size: 15px; }
+      .ls-pill { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+      .ls-pill.conf { background: rgba(59,130,196,.14); color: #2f6fa8; } .ls-pill.wait { background: rgba(217,139,25,.16); color: #b06e0c; }
+      .ls-pill.in { background: rgba(46,158,91,.16); color: #23804a; } .ls-pill.off { background: rgba(0,0,0,.07); color: var(--secondary-text-color); }
+      .ls-pill.bad { background: rgba(214,69,69,.14); color: #c03a3a; }
+      .ls-money { font-weight: 700; text-align: right; white-space: nowrap; } .ls-money.due, .ls-book-foot .due { color: #c0562b; } .ls-money.paid, .ls-book-foot .paid { color: #2e9e5b; }
+      .ls-acts { display: inline-flex; align-items: center; gap: 6px; justify-content: flex-end; }
+      .ls-ico { width: 32px; height: 32px; border-radius: 9px; background: var(--sb-soft, rgba(0,0,0,.05)); display: inline-grid; place-items: center; color: var(--primary-text-color); text-decoration: none; --mdc-icon-size: 18px; }
+      .ls-ico.wa { color: #25a35a; }
+      .ls-cols { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; align-items: start; }
+      .ls-col { background: var(--sb-soft, rgba(0,0,0,.04)); border-radius: 16px; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+      .ls-col-head { display: flex; align-items: center; gap: 8px; padding: 2px 4px 4px; } .ls-col-head .dim { margin-left: auto; }
+      .ls-card { background: var(--sb-card, var(--card-background-color, #fff)); border: 1px solid var(--sb-line, var(--divider-color)); border-left: 5px solid; border-radius: 12px; padding: 9px 11px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; }
+      .ls-card-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+      .ls-card-foot { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-top: 4px; } .ls-card-foot .ls-money { text-align: left; font-size: 13px; }
+      .ls-free { border: 1.5px dashed var(--sb-line, var(--divider-color)); border-radius: 12px; padding: 7px 10px; color: var(--secondary-text-color); font-size: 12px; text-align: center; }
+      .ls-books { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 12px; align-items: start; }
+      .ls-book { background: var(--sb-card, var(--card-background-color, #fff)); border: 1px solid var(--sb-line, var(--divider-color)); border-radius: 16px; padding: 14px 16px; }
+      .ls-book-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; } .ls-book-time { font-size: 18px; font-weight: 800; }
+      .ls-code { font-family: ui-monospace, Consolas, monospace; font-weight: 700; background: var(--sb-soft, rgba(0,0,0,.06)); padding: 2px 8px; border-radius: 7px; font-size: 12px; }
+      .ls-book-sub { margin: 2px 0 6px; }
+      .ls-line { display: grid; grid-template-columns: 48px 8px minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 7px 4px; border-top: 1px solid var(--sb-line, var(--divider-color)); border-radius: 8px; cursor: pointer; }
+      .ls-line-text { display: flex; flex-direction: column; min-width: 0; } .ls-line-text small { color: var(--secondary-text-color); font-size: 12px; }
+      .ls-dot { width: 8px; height: 8px; border-radius: 50%; } .ls-price { text-align: right; white-space: nowrap; }
+      .ls-book-foot { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+      @media (max-width: 900px) {
+        .ls-row { grid-template-columns: 56px 5px minmax(0, 1fr) auto; row-gap: 6px; column-gap: 10px; padding: 10px 12px; }
+        .ls-row .ls-time { grid-column: 1; grid-row: 1 / 3; align-self: start; }
+        .ls-row .ls-bar-c { grid-column: 2; grid-row: 1 / 4; height: auto; align-self: stretch; }
+        .ls-row .ls-who { grid-column: 3; grid-row: 1; } .ls-row .ls-st { grid-column: 4; grid-row: 1; align-self: start; }
+        .ls-row .ls-what { grid-column: 3 / 5; grid-row: 2; } .ls-row .ls-op { display: none; }
+        .ls-row .ls-money { grid-column: 1 / 2; grid-row: 3; text-align: left; font-size: 13px; }
+        .ls-row .ls-acts { grid-column: 3 / 5; grid-row: 3; }
+        .ls-books { grid-template-columns: 1fr; }
+        .ls-modes .btn-label { display: none; }
+      }
       .ag-views ha-icon { --mdc-icon-size: 16px; }
       .ag-views button { display: inline-flex; align-items: center; gap: 6px; }
       .ag-week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
