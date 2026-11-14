@@ -546,12 +546,20 @@ LEGACY_SUMMARY_MESSAGE: Final = "\n".join(
 #: at any length; everything else only counts when the reply is short enough
 #: to actually be an answer, so "Arrivo tra 5 minuti, no?" is not a refusal.
 #: Reactions are matched on the emoji alone, because they carry no text.
+# «Conferma», «confermato», «confermata» are how the masseuses actually
+# answer (3.0.1): before, only «confermo» was read and the offer stayed open.
+# They count in a short reply only, like «sì»: «aspetto conferma» in a long
+# chat message must not close an offer.
 ANSWER_PHRASES_CONFIRM: Final = ("confermo", "va bene", "accetto")
 ANSWER_MAX_WORDS: Final = 5
-ANSWER_WORDS_CONFIRM: Final = ("si", "sì", "ok", "oky", "okay", "certo")
+ANSWER_WORDS_CONFIRM: Final = (
+    "si", "sì", "sii", "ok", "oky", "okay", "okk", "certo", "perfetto", "yes",
+    "conferma", "confermato", "confermata", "confermati", "confermate", "confermiamo",
+    "accettato", "accettata", "daccordo",
+)
 ANSWER_WORDS_DECLINE: Final = ("non", "no")
 ANSWER_WORDS_AVAILABLE: Final = ("disponibile", "libera", "libero", "torno", "rientro")
-ANSWER_EMOJI_CONFIRM: Final = ("✅", "✔️", "👍")
+ANSWER_EMOJI_CONFIRM: Final = ("✅", "✔️", "✔", "👍", "👌", "🆗", "👍🏻", "👍🏼", "👍🏽", "👍🏾", "👍🏿")
 ANSWER_EMOJI_DECLINE: Final = ("❌", "🚫", "👎")
 ANSWER_EMOJI_AVAILABLE: Final = ("🔄", "🔁", "♻️")
 
