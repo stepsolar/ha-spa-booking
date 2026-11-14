@@ -111,6 +111,10 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v3.0.2** — (basta ricaricare la pagina)
+  - Agenda: accanto alla data c'è il pulsante **calendario** per scegliere il
+    giorno da visualizzare; anche un tocco sulla data apre il calendario
+    (prima il selettore c'era ma era invisibile e su Chrome non si apriva).
 - **v3.0.1** — (serve il riavvio di Home Assistant)
   - **Risposte delle operatrici** su WhatsApp: l'offerta restava «in
     attesa di conferma» anche dopo la risposta. Cause corrette:
