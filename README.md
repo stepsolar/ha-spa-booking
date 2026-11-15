@@ -111,6 +111,22 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v3.2.0** — (serve il riavvio di Home Assistant)
+  - Clienti › Partner sul **telefono**: ogni partner è una riga compatta
+    con nome, codice, città e punti, il tasto **Invia email** e **⋮** per le
+    altre azioni (scheda, Chiama, WhatsApp, Locandina A5, Copia il link,
+    Modifica, Elimina). Importa, Modello e Svuota lista sono nel menu **⋯**.
+  - **Invia email** a un singolo partner (anche dal computer e dalla sua
+    scheda): la **locandina A5** per i suoi ospiti oppure una delle
+    campagne partner, inviata solo a lui.
+  - **Locandina A5**: «Spa Sciacca», cosa offre la spa, i prezzi, lo sconto
+    del partner e il **codice QR** che porta gli ospiti alla pagina di
+    prenotazione con il codice del partner già inserito. Nell'email la
+    locandina è un'immagine che, toccata, apre la pagina da **stampare o
+    salvare in PDF**. Nessun logo né nome dell'hotel.
+  - Configurazione › Promo › Programma partner › **5. La locandina**: titolo,
+    testi, voci con icona (fino a 10), prezzi (fino a 4), testo dell'email,
+    **Anteprima locandina** e **Invia prova**.
 - **v3.1.3** — (basta ricaricare la pagina)
   - Agenda: la striscia dei giorni restava sulla prima settimana (quattro
     settimane prima) quando la card si ridisegnava subito dopo l'apertura;

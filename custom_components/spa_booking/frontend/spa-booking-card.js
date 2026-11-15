@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "3.1.3";
+const CARD_VERSION = "3.2.0";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -968,6 +968,14 @@ const nthWeekday = (year, month, weekday, n) => {
 const PROMO_SIGN = "Lo Staff - {hotel}\n📞 +39 0925 992446";
 
 /** The ready text of a new campaign to the partners (2.5.0). */
+/** Icons a poster line can have (3.2.0): Promo › Programma partner › La locandina. */
+const POSTER_ICONS = [
+  ["pool", "Piscina"], ["fire", "Sauna"], ["weather-fog", "Vapore"], ["snowflake", "Ghiaccio"],
+  ["shower-head", "Doccia"], ["tea", "Tisane"], ["hand-heart", "Massaggio"], ["face-woman-shimmer", "Viso"],
+  ["heart-outline", "Coppia"], ["spa", "Spa"], ["leaf", "Natura"], ["flower-outline", "Fiore"],
+  ["candle", "Candela"], ["water", "Acqua"], ["white-balance-sunny", "Sole"], ["cup-outline", "Tazza"],
+];
+
 const PARTNER_REWARD_TEXT = [
   "Gentile {nome}, grazie per averci consigliato ai Suoi ospiti! 🤝",
   "",
@@ -1315,6 +1323,8 @@ class SpaBookingCard extends HTMLElement {
         if (event.key !== "Escape") return;
         if (this._gatePopup) { this._gatePopup = null; this._render(); }
         else if (this._confirmPopup) { this._confirmPopup = null; this._render(); }
+        else if (this._partnerSend) { this._partnerSend = null; this._render(); }
+        else if (this._partnerMenu) { this._partnerMenu = null; this._render(); }
         else if (this._loyaltyPopup) { this._loyaltyPopup = null; this._render(); }
         else if (this._cancelPopup) { this._cancelPopup = null; this._render(); }
         else if (this._overlapPopup) { this._overlapPopup = null; this._render(); }
@@ -3652,6 +3662,8 @@ class SpaBookingCard extends HTMLElement {
     if (this._loyaltyPopup) add(root, this._renderLoyaltyPopup());
     if (this._gatePopup) add(root, this._renderGatePopup());
     if (this._confirmPopup) add(root, this._renderConfirmPopup());
+    if (this._partnerMenu) add(root, this._renderPartnerMenu());
+    if (this._partnerSend) add(root, this._renderPartnerSend());
     if (this._overlapPopup) add(root, this._renderOverlapPopup());
     if (this._proposePopup) add(root, this._renderProposePopup());
     if (this._voucherPin) add(root, this._renderVoucherPinPopup());
@@ -11841,14 +11853,17 @@ class SpaBookingCard extends HTMLElement {
         this._partnerDraft = { first_name: "", last_name: "", company: "", city: "", structure_type: "", phone: "", whatsapp: false, email: "", code: "", notes: "", active: true, subscribed: true };
         this._render();
       } } }, el("ha-icon", { icon: "mdi:plus" }), "Nuovo partner") : null,
-      canEdit && this._can("config") ? el("button", { class: "btn small", title: "Importa un file CSV (Excel › Salva con nome › CSV)", disabled: this._busy,
+      canEdit && this._can("config") ? el("button", { class: "btn small pr-narrow-only", title: "Importa, modello, svuota lista",
+        on: { click: () => { this._partnerMenu = "__list"; this._render(); } } }, el("ha-icon", { icon: "mdi:dots-horizontal" })) : null,
+      canEdit && this._can("config") ? el("button", { class: "btn small pr-wide", title: "Importa un file CSV (Excel › Salva con nome › CSV)", disabled: this._busy,
         on: { click: () => this._partnerImportPick() } }, el("ha-icon", { icon: "mdi:file-upload-outline" }), "Importa file") : null,
-      canEdit && this._can("config") ? el("button", { class: "btn small ghost", title: "Scarica un file d'esempio con le colonne giuste",
+      canEdit && this._can("config") ? el("button", { class: "btn small ghost pr-wide", title: "Scarica un file d'esempio con le colonne giuste",
         on: { click: () => this._partnerTemplate() } }, el("ha-icon", { icon: "mdi:file-download-outline" }), "Modello") : null));
     const subscribed = partners.filter((p) => p.subscribed !== false).length;
     wrap.appendChild(el("div", { class: "pg-sum" }, el("ha-icon", { icon: "mdi:information-outline" }),
       el("span", {}, el("b", {}, `${partners.length} partner · ${subscribed} iscritti a email e promo. `),
-        "Le campagne vanno solo agli iscritti; ogni email ha in fondo il link per cancellarsi. Importa un file CSV con le colonne Nome struttura, Nome, Cognome, Città, Tipo, Telefono, WhatsApp, Email.")));
+        el("span", { class: "pr-wide" }, "Le campagne vanno solo agli iscritti; ogni email ha in fondo il link per cancellarsi. Importa un file CSV con le colonne Nome struttura, Nome, Cognome, Città, Tipo, Telefono, WhatsApp, Email."),
+        el("span", { class: "pr-narrow-only" }, "Tocca un partner per la scheda completa."))));
     const filter = this._partnerFilter || "";
     const cityOf = (p) => String(p.city || "").trim();
     const cityCounts = new Map();
@@ -11862,7 +11877,7 @@ class SpaBookingCard extends HTMLElement {
         ...[...cityCounts.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([name, count]) =>
           el("option", { value: name, selected: city === name }, `${name} (${count})`))) : null,
       el("span", { class: "spacer" }),
-      canEdit && this._can("config") && partners.length ? el("button", { class: "btn small ghost danger", on: { click: () => { this._partnerReset = true; this._render(); } } },
+      canEdit && this._can("config") && partners.length ? el("button", { class: "btn small ghost danger pr-wide", on: { click: () => { this._partnerReset = true; this._render(); } } },
         el("ha-icon", { icon: "mdi:delete-sweep-outline" }), "Svuota lista") : null));
     if (this._partnerReset) {
       wrap.appendChild(el("div", { class: "cfg-box pg-step" },
@@ -11943,7 +11958,13 @@ class SpaBookingCard extends HTMLElement {
     const limit = this._partnerLimit || 100;
     shown.slice(0, limit).forEach((partner, index) => {
       const name = [partner.first_name, partner.last_name].filter(Boolean).join(" ");
-      list.appendChild(el("div", { class: "client-row" },
+      const canMail = partner.subscribed !== false && !!partner.email && this._can("manage_clients");
+      const mailButton = (cls) => el("button", {
+        class: `btn small ${cls}`, disabled: !canMail || this._busy,
+        title: !partner.email ? "Nessuna email" : partner.subscribed === false ? "Ha cancellato l'iscrizione alle email" : `Invia email a ${partner.email}`,
+        on: { click: (event) => { event.stopPropagation(); this._partnerSend = { partner_id: partner.id, kind: "poster", campaign_id: "" }; this._render(); } },
+      }, el("ha-icon", { icon: "mdi:email-fast-outline" }));
+      list.appendChild(el("div", { class: "client-row pr-row" },
         el("span", { class: `user-avatar tone-${(index + 3) % 6}` }, this._initials(partner.company || name)),
         el("div", { class: "client-main partner-open", role: "button", tabindex: "0", title: "Apri la scheda del partner",
           on: { click: () => this._partnerOpen(partner.id), keydown: (event) => { if (event.key === "Enter") this._partnerOpen(partner.id); } } },
@@ -11951,17 +11972,21 @@ class SpaBookingCard extends HTMLElement {
             el("span", { class: "pm-chip info" }, partner.code),
             partner.active === false ? el("span", { class: "pm-chip" }, "Non attivo") : null,
             partner.subscribed === false ? el("span", { class: "pm-chip warn", title: partner.unsubscribed_at ? `Dal ${new Date(partner.unsubscribed_at).toLocaleDateString("it-IT")}` : "" }, "Disiscritto") : null),
-          el("div", { class: "dim small" }, [partner.structure_type, partner.city].filter(Boolean).join(" · ") || null),
-          el("div", { class: "dim small" }, [partner.company ? name : "", partner.phone ? `${partner.phone}${partner.whatsapp ? " (WhatsApp)" : ""}` : "", partner.email].filter(Boolean).join(" · ") || "—"),
-          partner.notes ? el("div", { class: "dim small" }, partner.notes) : null,
+          el("div", { class: "dim small pr-line" }, [partner.structure_type, partner.city].filter(Boolean).join(" · ") || null),
+          el("div", { class: "dim small pr-wide" }, [partner.company ? name : "", partner.phone ? `${partner.phone}${partner.whatsapp ? " (WhatsApp)" : ""}` : "", partner.email].filter(Boolean).join(" · ") || "—"),
+          partner.notes ? el("div", { class: "dim small pr-wide" }, partner.notes) : null,
           (() => {
             const info = ((this._data.partner_points || {})[partner.id]) || { balance: 0, bookings: 0, booked: 0 };
             return el("div", { class: "chips", style: "margin-top:4px" },
               el("span", { class: "lp-chip", title: "Punti del partner" }, el("ha-icon", { icon: "mdi:star-circle" }), `${info.balance} punti`),
-              el("span", { class: "pm-chip" }, `${info.bookings} ${info.bookings === 1 ? "prenotazione" : "prenotazioni"} · ${euro(info.booked)}`),
-              partner.campaigns_sent ? el("span", { class: "pm-chip" }, `${partner.campaigns_sent} email`) : null);
+              el("span", { class: "pm-chip pr-wide" }, `${info.bookings} ${info.bookings === 1 ? "prenotazione" : "prenotazioni"} · ${euro(info.booked)}`),
+              partner.campaigns_sent ? el("span", { class: "pm-chip pr-wide" }, `${partner.campaigns_sent} email`) : null);
           })()),
-        el("div", { class: "appt-actions" },
+        // On a phone (3.2.0): only «Invia email» and a menu with the rest.
+        el("div", { class: "pr-narrow" }, mailButton("pr-mail"),
+          el("button", { class: "btn small", title: "Altre azioni", on: { click: (event) => { event.stopPropagation(); this._partnerMenu = partner.id; this._render(); } } },
+            el("ha-icon", { icon: "mdi:dots-vertical" }))),
+        el("div", { class: "appt-actions pr-wide" }, mailButton("pr-mail"),
           this._partnerLink(partner) ? el("button", { class: "btn small", title: `Copia il link: ${this._partnerLink(partner)}`, on: { click: async () => {
             try { await navigator.clipboard.writeText(this._partnerLink(partner)); this._message = { kind: "ok", text: `Link di ${this._partnerName(partner.id)} copiato.` }; }
             catch (error) { this._message = { kind: "ok", text: this._partnerLink(partner) }; }
@@ -11989,6 +12014,109 @@ class SpaBookingCard extends HTMLElement {
         el("button", { class: "btn small", on: { click: () => { this._partnerLimit = limit + 200; this._render(); } } }, "Mostra altri")));
     }
     return wrap;
+  }
+
+  /**
+   * The A5 poster of a partner (3.2.0) in a new window, to print or save as
+   * PDF; with ``poster`` (texts not saved yet) an example partner's.
+   */
+  async _openPoster(partnerId, poster = null) {
+    // Opened now, filled later: a window opened after an await is blocked.
+    const win = window.open("", "_blank");
+    try {
+      const result = await this._service("partner_poster_preview", { ...(partnerId ? { partner_id: partnerId } : {}), ...(poster ? { poster } : {}) });
+      if (win) {
+        win.document.open();
+        win.document.write(result.html);
+        win.document.close();
+      }
+    } catch (error) {
+      if (win) win.close();
+      this._message = { kind: "error", text: (error && error.message) || String(error) };
+      this._render();
+    }
+  }
+
+  /** «⋮» of a partner on a phone, or «⋯» of the list (3.2.0). */
+  _renderPartnerMenu() {
+    const id = this._partnerMenu;
+    const close = () => { this._partnerMenu = null; this._render(); };
+    const item = (icon, text, onClick, cls = "") => el("button", { type: "button", class: `pm-item ${cls}`, on: { click: () => { this._partnerMenu = null; onClick(); } } },
+      el("ha-icon", { icon }), el("span", {}, text));
+    const items = [];
+    let title = "Partner";
+    if (id === "__list") {
+      title = "Elenco partner";
+      items.push(item("mdi:file-upload-outline", "Importa file CSV", () => this._partnerImportPick()));
+      items.push(item("mdi:file-download-outline", "Scarica il modello", () => this._partnerTemplate()));
+      if ((this._data.partners || []).length) items.push(item("mdi:delete-sweep-outline", "Svuota lista", () => { this._partnerReset = true; this._render(); }, "danger"));
+    } else {
+      const partner = (this._data.partners || []).find((p) => p.id === id);
+      if (!partner) { this._partnerMenu = null; return null; }
+      title = partner.company || [partner.first_name, partner.last_name].filter(Boolean).join(" ") || "Partner";
+      const link = this._partnerLink(partner);
+      items.push(item("mdi:card-account-details-outline", "Apri la scheda", () => this._partnerOpen(partner.id)));
+      if (partner.phone) items.push(el("a", { class: "pm-item", href: telHref(partner.phone), on: { click: close } }, el("ha-icon", { icon: "mdi:phone" }), el("span", {}, "Chiama")));
+      if (partner.phone && waLink(partner.phone)) items.push(el("a", { class: "pm-item wa", href: waLink(partner.phone), target: "_blank", rel: "noopener", on: { click: close } }, el("ha-icon", { icon: "mdi:whatsapp" }), el("span", {}, "WhatsApp")));
+      items.push(item("mdi:printer", "Locandina A5", () => this._openPoster(partner.id)));
+      if (link) items.push(item("mdi:link-variant", "Copia il link", async () => {
+        try { await navigator.clipboard.writeText(link); this._message = { kind: "ok", text: "Link copiato." }; }
+        catch (error) { this._message = { kind: "ok", text: link }; }
+        this._render();
+      }));
+      if (this._can("manage_clients")) {
+        items.push(item("mdi:pencil", "Modifica", () => { this._partnerDraft = { ...partner, discount_pct: partner.discount_pct ?? "" }; this._render(); }));
+        if (this._can("config")) items.push(item("mdi:delete-outline", "Elimina", async () => {
+          if (!window.confirm(`Eliminare il partner «${title}»?`)) return;
+          try { await this._call("delete_partner", { partner_id: partner.id }); } catch (error) { /* shown */ }
+        }, "danger"));
+      }
+    }
+    return el("div", { class: "detail-backdrop", on: { click: (event) => { if (event.target === event.currentTarget) close(); } } },
+      el("div", { class: "detail-sheet cx-sheet pm-sheet" }, el("h3", {}, title), el("div", { class: "pm-list" }, items)));
+  }
+
+  /** «Invia email» of a partner (3.2.0): the A5 poster or one of the campaigns. */
+  _renderPartnerSend() {
+    const draft = this._partnerSend;
+    const partner = (this._data.partners || []).find((p) => p.id === draft.partner_id);
+    const close = () => { this._partnerSend = null; this._render(); };
+    if (!partner) { this._partnerSend = null; return null; }
+    const name = partner.company || [partner.first_name, partner.last_name].filter(Boolean).join(" ");
+    const campaigns = ((this._data.settings || {}).partner_campaigns || []);
+    const last = partner.campaign_last_at ? new Date(partner.campaign_last_at).toLocaleDateString("it-IT", { day: "numeric", month: "long" }) : "";
+    const option = (kind, title, sub) => el("button", {
+      type: "button", class: `cx-opt${draft.kind === kind ? " on" : ""}`, on: { click: () => { draft.kind = kind; this._render(); } },
+    }, el("span", { class: "cx-dot" }), el("span", { class: "cx-text" }, el("b", {}, title), el("span", { class: "dim small" }, sub)));
+    const pct = Number(partner.discount_pct ?? (this._data.settings || {}).partner_discount_pct ?? 0) || 0;
+    const ready = draft.kind === "poster" || (draft.kind === "campaign" && draft.campaign_id);
+    return el("div", { class: "detail-backdrop", on: { click: (event) => { if (event.target === event.currentTarget) close(); } } },
+      el("div", { class: "detail-sheet cx-sheet" },
+        el("h3", {}, el("ha-icon", { icon: "mdi:email-fast-outline" }), ` Invia email · ${name}`),
+        el("p", { class: "dim" }, `A: ${partner.email}${last ? ` · ultima email il ${last}` : ""}`),
+        el("div", { class: "cx-choice" },
+          option("poster", "Locandina A5 per gli ospiti", `Con il codice QR di questo partner${pct ? ` e lo sconto del ${String(pct).replace(".", ",")}%` : ""}`),
+          option("campaign", "Una campagna partner", campaigns.length ? campaigns.map((c) => c.name).slice(0, 3).join(" · ") : "Nessuna campagna: creale in Promo › Campagne partner")),
+        draft.kind === "campaign" && campaigns.length ? el("label", { class: "field" }, el("span", {}, "Campagna"),
+          el("select", { class: "input", on: { change: (event) => { draft.campaign_id = event.target.value; this._render(); } } },
+            el("option", { value: "" }, "Scegli…"),
+            ...campaigns.map((c) => el("option", { value: c.id, selected: draft.campaign_id === c.id }, c.name || c.subject || "Campagna")))) : null,
+        draft.kind === "poster" ? el("div", { class: "ps-prev" },
+          el("ha-icon", { icon: "mdi:image-text" }),
+          el("div", {}, el("b", {}, "Testo dell'email, locandina e link per stamparla"),
+            el("div", { class: "dim small" }, "Il partner tocca la locandina e la stampa in A5 (o la salva in PDF)."),
+            el("button", { class: "btn small", on: { click: () => this._openPoster(partner.id) } }, el("ha-icon", { icon: "mdi:printer" }), "Apri anteprima"))) : null,
+        el("div", { class: "row" }, el("span", { class: "spacer" }),
+          el("button", { class: "btn", on: { click: close } }, "Annulla"),
+          el("button", { class: "btn primary", disabled: this._busy || !ready, on: { click: async () => {
+            try {
+              if (draft.kind === "poster") await this._call("send_partner_poster", { partner_id: partner.id });
+              else await this._call("send_partner_campaign", { campaign_id: draft.campaign_id, partner_id: partner.id });
+              this._partnerSend = null;
+              this._message = { kind: "ok", text: `Email inviata a ${partner.email}.` };
+              this._render();
+            } catch (error) { /* shown */ }
+          } } }, el("ha-icon", { icon: "mdi:send" }), "Invia email"))));
   }
 
   /** Open a partner's card and load what is behind her points (2.8.6). */
@@ -12025,6 +12153,11 @@ class SpaBookingCard extends HTMLElement {
       el("button", { class: "btn small", on: { click: () => { this._partnerSelected = null; this._partnerInfo = null; this._render(); } } },
         el("ha-icon", { icon: "mdi:arrow-left" }), "Tutti i partner"),
       el("span", { class: "spacer" }),
+      canEdit && partner.email && partner.subscribed !== false ? el("button", { class: "btn small primary", title: `Invia email a ${partner.email}`,
+        on: { click: () => { this._partnerSend = { partner_id: partner.id, kind: "poster", campaign_id: "" }; this._render(); } } },
+      el("ha-icon", { icon: "mdi:email-fast-outline" }), el("span", { class: "btn-label" }, "Invia email")) : null,
+      canEdit ? el("button", { class: "btn small", title: "Apri la locandina A5 da stampare", on: { click: () => this._openPoster(partner.id) } },
+        el("ha-icon", { icon: "mdi:printer" }), el("span", { class: "btn-label" }, "Locandina")) : null,
       partner.phone ? el("a", { class: "btn small tel", href: telHref(partner.phone), title: partner.phone }, el("ha-icon", { icon: "mdi:phone" })) : null,
       partner.phone && waLink(partner.phone) ? el("a", { class: "btn small wa", href: waLink(partner.phone), target: "_blank", rel: "noopener", title: "WhatsApp" }, el("ha-icon", { icon: "mdi:whatsapp" })) : null,
       canEdit ? el("button", { class: "btn small", title: "Modifica", on: { click: () => { this._partnerDraft = { ...partner, discount_pct: partner.discount_pct ?? "" }; this._partnerSelected = null; this._render(); } } }, el("ha-icon", { icon: "mdi:pencil" }), "Modifica") : null));
@@ -16658,6 +16791,7 @@ class SpaBookingCard extends HTMLElement {
         partner_points_per_euro: settings.partner_points_per_euro != null ? settings.partner_points_per_euro : 1,
         partner_booking_url: settings.partner_booking_url || "",
         partner_campaigns: JSON.parse(JSON.stringify(settings.partner_campaigns || [])),
+        partner_poster: JSON.parse(JSON.stringify(settings.partner_poster || {})),
         // Programma partner (2.8.6).
         partner_discount_pct: settings.partner_discount_pct != null ? settings.partner_discount_pct : 0,
         partner_reward_points: settings.partner_reward_points != null ? settings.partner_reward_points : 300,
@@ -17290,7 +17424,65 @@ class SpaBookingCard extends HTMLElement {
           .split("{valore}").join(euro(num(draft.partner_reward_value) || 30)).split("{codice}").join("VCH-7K2M9Q4P")
           .split("{scadenza}").join("13/11/2027").split("{hotel}").join(settings.guest_header || "Il Marchese Hotel & Spa"),
         changed)));
+    wrap.appendChild(this._promoPosterStep(draft, changed));
     return wrap;
+  }
+
+  /** Programma partner › 5. La locandina (3.2.0): the A5 poster sent to the partners. */
+  _promoPosterStep(draft, changed) {
+    if (!draft.partner_poster || typeof draft.partner_poster !== "object") draft.partner_poster = {};
+    const poster = draft.partner_poster;
+    if (!Array.isArray(poster.items)) poster.items = [];
+    if (!Array.isArray(poster.prices)) poster.prices = [];
+    const text = (key, label, extra = {}) => el("label", { class: "field" }, el("span", {}, label),
+      el(extra.rows ? "textarea" : "input", { class: "input", ...(extra.rows ? { rows: extra.rows } : { value: poster[key] || "" }),
+        placeholder: extra.placeholder || "", on: { input: (event) => { poster[key] = event.target.value; changed(); } } },
+      extra.rows ? (poster[key] || "") : null));
+    const items = el("div", { class: "stack" },
+      el("div", { class: "pg-step-title small" }, `Cosa offre la spa (${poster.items.length}/10)`),
+      ...poster.items.map((item, index) => el("div", { class: "pp-row" },
+        el("select", { class: "input", on: { change: (event) => { item.icon = event.target.value; changed(); } } },
+          ...POSTER_ICONS.map(([icon, name]) => el("option", { value: icon, selected: item.icon === icon }, name))),
+        el("input", { class: "input", value: item.title || "", placeholder: "Titolo", on: { input: (event) => { item.title = event.target.value; changed(); } } }),
+        el("input", { class: "input", value: item.text || "", placeholder: "Descrizione breve", on: { input: (event) => { item.text = event.target.value; changed(); } } }),
+        el("button", { class: "icon-btn danger", title: "Togli", on: { click: () => { poster.items.splice(index, 1); changed(); this._render(); } } }, el("ha-icon", { icon: "mdi:trash-can-outline" })))),
+      poster.items.length < 10 ? el("div", { class: "row" }, el("button", { class: "btn small", on: { click: () => { poster.items.push({ icon: "spa", title: "", text: "" }); changed(); this._render(); } } },
+        el("ha-icon", { icon: "mdi:plus" }), "Aggiungi")) : null);
+    const prices = el("div", { class: "stack" },
+      el("div", { class: "pg-step-title small" }, `Prezzi (${poster.prices.length}/4, facoltativi)`),
+      ...poster.prices.map((price, index) => el("div", { class: "pp-row price" },
+        el("input", { class: "input", value: price.label || "", placeholder: "Es. Percorso spa 2 ore", on: { input: (event) => { price.label = event.target.value; changed(); } } }),
+        el("input", { class: "input", value: price.price || "", placeholder: "50 €", on: { input: (event) => { price.price = event.target.value; changed(); } } }),
+        el("button", { class: "icon-btn danger", title: "Togli", on: { click: () => { poster.prices.splice(index, 1); changed(); this._render(); } } }, el("ha-icon", { icon: "mdi:trash-can-outline" })))),
+      poster.prices.length < 4 ? el("div", { class: "row" }, el("button", { class: "btn small", on: { click: () => { poster.prices.push({ label: "", price: "" }); changed(); this._render(); } } },
+        el("ha-icon", { icon: "mdi:plus" }), "Aggiungi prezzo")) : null);
+    const tools = el("div", { class: "row" },
+      el("button", { class: "btn small", on: { click: () => this._openPoster("", poster) } }, el("ha-icon", { icon: "mdi:printer" }), "Anteprima locandina"),
+      el("button", { class: "btn small", disabled: this._busy, title: "Salva prima le modifiche: la prova usa i testi salvati", on: { click: async () => {
+        const partner = (this._data.partners || []).find((p) => (p.email || "").includes("@"));
+        if (!partner) { this._message = { kind: "error", text: "Serve almeno un partner con email per la prova." }; this._render(); return; }
+        const to = window.prompt("Invia una prova a (email):", "");
+        if (!to || !to.includes("@")) return;
+        try {
+          await this._service("send_partner_poster", { partner_id: partner.id, test_to: to.trim() });
+          this._message = { kind: "ok", text: `Prova inviata a ${to.trim()} (con il codice di ${partner.company || partner.first_name}).` };
+        } catch (error) { this._message = { kind: "error", text: (error && error.message) || String(error) }; }
+        this._render();
+      } } }, el("ha-icon", { icon: "mdi:email-outline" }), "Invia prova"));
+    return this._pageStep(5, "La locandina",
+      el("div", { class: "hint" }, "Ogni partner la riceve per email con «Invia email» (Clienti › Partner): una locandina A5 con il suo codice QR, che porta i suoi ospiti alla pagina di prenotazione con il suo codice e lo sconto. Toccandola si apre la pagina per stamparla o salvarla in PDF."),
+      text("title", "Titolo", { placeholder: "Spa Sciacca" }),
+      text("kicker", "Sopra il titolo", { placeholder: "Benessere a Sciacca" }),
+      text("tagline", "Sottotitolo", { rows: "2" }),
+      items, prices,
+      text("cta", "Invito sotto al QR"),
+      text("how", "Come funziona ({sconto} = lo sconto del partner)", { rows: "2" }),
+      text("footer", "Piè di pagina"),
+      el("div", { class: "pg-step-title small" }, "L'email al partner"),
+      text("email_subject", "Oggetto ({titolo}, {nome}, {attivita})"),
+      text("email_body", "Testo ({nome}, {attivita}, {sconto}, {codice})", { rows: "6" }),
+      text("email_signature", "Firma"),
+      tools);
   }
 
   /** Promo › Campagne partner (2.5.0): emails that ask the partners to sell the spa to their guests. */
@@ -23268,6 +23460,32 @@ class SpaBookingCard extends HTMLElement {
       .cx-text { display: flex; flex-direction: column; gap: 2px; }
       .gate-row input { width: 18px; height: 18px; accent-color: var(--primary-color); flex: none; }
       .cf-ok { color: var(--sb-ok, #2e9e5b); --mdc-icon-size: 20px; flex: none; }
+      /* Partners on a phone (3.2.0). */
+      .pr-narrow, .pr-narrow-only { display: none; }
+      .pr-mail:not([disabled]) { color: var(--sb-accent, var(--primary-color)); }
+      .pm-sheet h3 { margin: 0 0 8px; }
+      .pm-list { display: flex; flex-direction: column; }
+      .pm-item { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 12px; padding: 12px 10px; border-radius: 10px; cursor: pointer; color: var(--primary-text-color); font-size: 15px; }
+      .pm-item:hover { background: var(--sb-soft, rgba(0,0,0,.05)); }
+      .pm-item ha-icon { --mdc-icon-size: 20px; color: var(--secondary-text-color); }
+      .pm-item.wa ha-icon { color: #25a35a; } .pm-item.danger, .pm-item.danger ha-icon { color: var(--error-color, #c03a3a); }
+      .ps-prev { display: flex; gap: 12px; align-items: flex-start; background: var(--sb-soft, rgba(0,0,0,.04)); border-radius: 12px; padding: 12px; margin: 10px 0; }
+      .ps-prev > ha-icon { --mdc-icon-size: 32px; color: var(--sb-accent, var(--primary-color)); flex: none; }
+      .ps-prev .btn { margin-top: 8px; }
+      .pp-row { display: grid; grid-template-columns: 120px minmax(0, 1fr) minmax(0, 1.4fr) auto; gap: 8px; align-items: center; }
+      .pp-row.price { grid-template-columns: minmax(0, 1.6fr) minmax(0, .8fr) auto; }
+      @media (max-width: 700px) {
+        .pr-row .pr-wide, .stack .pr-wide { display: none !important; }
+        .pr-narrow-only { display: inline-flex; }
+        span.pr-narrow-only { display: inline; }
+        .pr-row .pr-narrow { display: flex; gap: 6px; flex: none; align-self: center; }
+        .pr-row .pr-narrow .btn { width: 40px; height: 40px; padding: 0; justify-content: center; }
+        .pr-row .pr-narrow .pr-mail:not([disabled]) { background: var(--sb-accent, var(--primary-color)); color: #fff; border-color: transparent; }
+        .pr-row { align-items: center; }
+        .pr-row .client-name { flex-wrap: wrap; }
+        .pr-row .client-main { min-width: 0; }
+        .pp-row { grid-template-columns: 1fr 1fr; } .pp-row > :nth-child(3) { grid-column: 1 / -1; }
+      }
       .cf-people { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; }
       .gt h4 { display: flex; align-items: center; gap: 4px; }
       .pk-box { display: flex; flex-direction: column; gap: 8px; padding: 8px 12px; border: 1px solid var(--sb-line); border-radius: 12px; background: color-mix(in srgb, var(--primary-color) 4%, transparent); }

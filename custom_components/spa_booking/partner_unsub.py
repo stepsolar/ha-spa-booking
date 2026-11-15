@@ -60,3 +60,35 @@ class PartnerUnsubscribeView(HomeAssistantView):
         if partner is None:
             return _page("⚠️", "Link non valido", "Questo link di cancellazione non è più valido.", status=404)
         return _page("✅", "Iscrizione cancellata", "Fatto: non riceverai più le nostre email e promozioni. Ci scusiamo per il disturbo.")
+
+
+class PartnerPosterView(HomeAssistantView):
+    """The printable A5 poster of a partner (3.2.0), by the key in the link."""
+
+    url = "/api/spa_booking/partner/poster"
+    name = "api:spa_booking:partner_poster"
+    requires_auth = False
+
+    async def get(self, request: web.Request) -> web.Response:
+        coordinator = request.app[KEY_HASS].data.get(DOMAIN)
+        partner = coordinator.partner_by_poster_token(str(request.query.get("k") or "")) if coordinator else None
+        if partner is None or partner.get("active") is False:
+            return _page("⚠️", "Locandina non disponibile", "Questo link non è più valido.", status=404)
+        return web.Response(text=coordinator.partner_poster_page(partner), content_type="text/html",
+                            headers={"Cache-Control": "no-cache", "X-Robots-Tag": "noindex"})
+
+
+class PartnerQrView(HomeAssistantView):
+    """The QR code of a partner as a PNG, for the poster email (3.2.0)."""
+
+    url = "/api/spa_booking/partner/qr"
+    name = "api:spa_booking:partner_qr"
+    requires_auth = False
+
+    async def get(self, request: web.Request) -> web.Response:
+        coordinator = request.app[KEY_HASS].data.get(DOMAIN)
+        partner = coordinator.partner_by_poster_token(str(request.query.get("k") or "")) if coordinator else None
+        if partner is None:
+            return web.Response(status=404, text="Not found")
+        return web.Response(body=coordinator.partner_qr_png(partner), content_type="image/png",
+                            headers={"Cache-Control": "public, max-age=86400"})

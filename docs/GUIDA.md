@@ -1,6 +1,6 @@
 <p align="center"><img src="anteprime/logo.png" width="120" alt="Spa Booking"></p>
 
-# Spa Booking 3.1 — la guida completa
+# Spa Booking 3.2 — la guida completa
 
 Questa guida spiega **tutto quello che fa Spa Booking**, scheda per scheda:
 dalla prenotazione al banco al modulo del sito, dai messaggi WhatsApp ai
@@ -374,6 +374,35 @@ prenotazioni dei suoi ospiti con importo e punti.
 |---|---|
 | ![Scheda partner](anteprime/68-scheda-partner.png) | ![Programma partner](anteprime/69-programma-partner.png) |
 
+**Sul telefono** (3.2) ogni partner è una riga compatta: nome, codice,
+città e punti, il tasto **Invia email** e **⋮** con le altre azioni (scheda,
+Chiama, WhatsApp, Locandina A5, Copia il link, Modifica, Elimina). Importa,
+Modello e Svuota lista sono nel menu **⋯** accanto a *Nuovo partner*.
+
+**Invia email** (dalla riga, dal ⋮ o dalla scheda) manda a quel solo
+partner:
+
+- la **locandina A5 per i suoi ospiti**, oppure
+- una delle **campagne partner** (solo a lui; la campagna resta da inviare
+  agli altri).
+
+La locandina ha il titolo **Spa Sciacca**, cosa offre la spa, i prezzi, lo
+sconto riservato agli ospiti del partner e il **codice QR**: inquadrandolo,
+l'ospite arriva alla pagina di prenotazione con il codice del partner già
+inserito. Nell'email la locandina è un'immagine: toccandola si apre la
+pagina per **stamparla in A5 o salvarla in PDF**. *Locandina A5* nel menu
+apre la stessa pagina per stamparla subito alla reception.
+
+| | |
+|---|---|
+| ![Partner sul telefono](anteprime/86-partner-telefono.png) | ![Invia email al partner](anteprime/87-partner-invia-email.png) |
+| ![Locandina A5](anteprime/88-locandina-a5.png) | ![Email con la locandina](anteprime/89-locandina-email.png) |
+
+Per l'invio servono: Configurazione › Email attiva, la pagina di
+prenotazione dei partner (Programma partner, passo 1) e l'indirizzo
+pubblico in Impostazioni › Sito web (il QR e il link della locandina devono
+aprirsi da fuori). Ai partner disiscritti o senza email il tasto è spento.
+
 **Programma partner** (Configurazione › Promo › Programma partner):
 
 1. **Il link dei partner**: la pagina del sito con il modulo; ogni partner
@@ -385,6 +414,14 @@ prenotazioni dei suoi ospiti con importo e punti.
 3. **Punti al partner** per ogni euro pagato dai suoi ospiti; un
    appuntamento annullato toglie i suoi punti.
 4. **Il premio**: punti necessari, valore del buono e messaggio.
+5. **La locandina**: titolo, sopratitolo e sottotitolo, le voci di cosa
+   offre la spa (icona, titolo e descrizione, fino a 10), i prezzi (fino a
+   4), l'invito sotto al QR, «come funziona» (`{sconto}` diventa lo sconto
+   del partner), il piè di pagina e il testo dell'email. **Anteprima
+   locandina** la mostra con i testi non ancora salvati; **Invia prova** la
+   manda a un tuo indirizzo.
+
+![Editor della locandina](anteprime/90-locandina-editor.png)
 
 **Campagne partner**: email ai partner già pronte (oggetto e testo con i
 segnaposto), con anteprima, *Invia prova* e invio in un giorno preciso o a

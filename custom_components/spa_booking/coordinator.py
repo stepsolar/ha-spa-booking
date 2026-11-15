@@ -131,7 +131,7 @@ from .exceptions import (
     SpaBookingError,
     ValidationError,
 )
-from . import access, email_sender, gdrive_backup, google_auth, messaging, wp_shop
+from . import access, email_sender, gdrive_backup, google_auth, messaging, poster as poster_mod, qr as qr_mod, wp_shop
 from .waha import WahaAuthenticationError, WahaError
 from .waha_inbound import WahaInbound
 from .wa_bridge import WaBridge
@@ -3700,8 +3700,9 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         body = f"{body.rstrip()}\n\n—\n{footer}"
         return subject, body, _email_html(body)
 
-    async def async_send_partner_campaign(self, campaign_id: str, test_to: str = "") -> dict[str, Any]:
-        """Send a campaign to every active partner with an email, or a test to one address."""
+    async def async_send_partner_campaign(self, campaign_id: str, test_to: str = "", partner_id: str = "") -> dict[str, Any]:
+        """Send a campaign to every active partner with an email, to one
+        partner (3.2.0, from her card), or a test to one address."""
         settings = self._data.get(KEY_SETTINGS, {})
         campaign = next((c for c in settings.get("partner_campaigns") or [] if c["id"] == campaign_id), None)
         if campaign is None:
@@ -3721,8 +3722,16 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Unsubscribed partners (2.6.0) receive nothing at all.
         targets = [p for p in self.partners
                    if p.get("active", True) and p.get("subscribed", True) and "@" in str(p.get("email") or "")]
-        # Only some towns (2.7.3).
         cities = {str(c).strip().lower() for c in campaign.get("cities") or [] if str(c).strip()}
+        if partner_id:
+            one = self._find(self.partners, partner_id, "Partner")
+            if one.get("subscribed") is False:
+                raise ValidationError("Questo partner ha cancellato l'iscrizione alle email")
+            if "@" not in str(one.get("email") or ""):
+                raise ValidationError("Questo partner non ha un indirizzo email")
+            targets = [one]
+            cities = set()
+        # Only some towns (2.7.3).
         if cities:
             targets = [p for p in targets if str(p.get("city") or "").strip().lower() in cities]
         if not targets:
@@ -3744,7 +3753,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 await asyncio.sleep(1)
         async with self._lock:
             for stored in self._data[KEY_SETTINGS].get("partner_campaigns") or []:
-                if stored["id"] == campaign_id:
+                if stored["id"] == campaign_id and not partner_id:
                     stored["sent_at"] = dt_util.utcnow().isoformat()
                     stored["sent_count"] = int(stored.get("sent_count") or 0) + sent
                     stored["last_error"] = errors[0] if errors else ""
@@ -3831,8 +3840,8 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self._async_save()
         return {"added": added, "updated": updated, "skipped": skipped}
 
-    def partner_unsubscribe_url(self, partner: dict[str, Any]) -> str:
-        """The page where a partner stops the emails (2.6.0); "" without a public address."""
+    def public_base_url(self) -> str:
+        """The public address of Spa Booking (Impostazioni › Sito web), or ""."""
         base = str(self._data.get(KEY_SETTINGS, {}).get("web_public_url") or "").strip().rstrip("/")
         if not base:
             try:
@@ -3844,6 +3853,86 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     base = ""
             except ImportError:  # pragma: no cover - old cores
                 base = ""
+        return base
+
+    # ------------------------------------------------ partner poster (3.2.0)
+
+    def poster_settings(self) -> dict[str, Any]:
+        return poster_mod.norm_poster(self._data.get(KEY_SETTINGS, {}).get("partner_poster"))
+
+    def partner_by_poster_token(self, token: str) -> dict[str, Any] | None:
+        token = str(token or "")
+        if len(token) < 16:
+            return None
+        return next((p for p in self.partners if secrets.compare_digest(poster_mod.poster_token(p), token)), None)
+
+    def partner_poster_url(self, partner: dict[str, Any]) -> str:
+        base = self.public_base_url()
+        return f"{base}{poster_mod.POSTER_PATH}?k={poster_mod.poster_token(partner)}" if base else ""
+
+    def partner_qr_url(self, partner: dict[str, Any]) -> str:
+        base = self.public_base_url()
+        return f"{base}{poster_mod.QR_PATH}?k={poster_mod.poster_token(partner)}" if base else ""
+
+    def partner_poster_page(self, partner: dict[str, Any]) -> str:
+        return poster_mod.poster_page(
+            self.poster_settings(), partner, self.partner_link(partner), self.partner_discount_of(partner.get("id") or ""))
+
+    def partner_qr_png(self, partner: dict[str, Any]) -> bytes:
+        return qr_mod.qr_png(self.partner_link(partner) or str(partner.get("code") or ""), scale=8, dark=(11, 61, 72))
+
+    def _poster_sample_partner(self) -> dict[str, Any]:
+        return next((p for p in self.partners if p.get("active", True)), None) or {
+            "id": "", "first_name": "Giulia", "company": "B&B Esempio", "code": "PRT-ESEMPIO", "unsub_token": "esempio"}
+
+    async def async_partner_poster_preview(self, partner_id: str = "", poster: dict[str, Any] | None = None) -> dict[str, Any]:
+        """The printable poster of a partner (or of an example one), for the
+        card; ``poster`` previews texts not saved yet."""
+        partner = self._find(self.partners, partner_id, "Partner") if partner_id else self._poster_sample_partner()
+        settings = poster_mod.norm_poster(poster) if isinstance(poster, dict) else self.poster_settings()
+        page = poster_mod.poster_page(settings, partner, self.partner_link(partner) or "https://example.com/?partner=" + str(partner.get("code") or ""),
+                                      self.partner_discount_of(partner.get("id") or "") or float(self._data.get(KEY_SETTINGS, {}).get("partner_discount_pct") or 0))
+        return {"html": page, "url": self.partner_poster_url(partner) if partner.get("id") else "", "link": self.partner_link(partner)}
+
+    async def async_send_partner_poster(self, partner_id: str, test_to: str = "") -> dict[str, Any]:
+        """Email a partner her A5 poster (3.2.0), or a test of it to one address."""
+        settings = self._data.get(KEY_SETTINGS, {})
+        if not settings.get("email_enabled"):
+            raise ValidationError("L'invio email è spento: attivalo in Configurazione › Email")
+        if not settings.get("partner_booking_url"):
+            raise ValidationError("Indica la pagina di prenotazione in Promo › Programma partner (passo «Il link»): il codice QR porta lì")
+        if not self.public_base_url():
+            raise ValidationError("Serve l'indirizzo pubblico di Spa Booking (Impostazioni › Sito web): la locandina si apre da lì")
+        partner = self._find(self.partners, partner_id, "Partner") if partner_id else self._poster_sample_partner()
+        if not test_to:
+            if partner.get("subscribed") is False:
+                raise ValidationError("Questo partner ha cancellato l'iscrizione alle email")
+            if "@" not in str(partner.get("email") or ""):
+                raise ValidationError("Questo partner non ha un indirizzo email")
+        if not partner.get("unsub_token") and partner.get("id"):
+            async with self._lock:
+                partner["unsub_token"] = secrets.token_urlsafe(24)
+                await self._async_save()
+        subject, body, html = poster_mod.poster_email(
+            self.poster_settings(), partner, self.partner_link(partner), self.partner_discount_of(partner.get("id") or ""),
+            self.partner_poster_url(partner), self.partner_qr_url(partner),
+            self.partner_unsubscribe_url(partner) if partner.get("id") else "",
+        )
+        to = test_to or partner["email"]
+        result = await self._async_deliver_email(to, f"[PROVA] {subject}" if test_to else subject, body, html)
+        if not result.get("sent"):
+            raise ValidationError(result.get("error") or "Email non inviata")
+        if not test_to:
+            async with self._lock:
+                partner["campaigns_sent"] = int(partner.get("campaigns_sent") or 0) + 1
+                partner["campaign_last_at"] = dt_util.utcnow().isoformat()
+                partner["poster_sent_at"] = dt_util.utcnow().isoformat()
+                await self._async_save()
+        return {"sent": 1, "to": result.get("to"), "test": bool(test_to)}
+
+    def partner_unsubscribe_url(self, partner: dict[str, Any]) -> str:
+        """The page where a partner stops the emails (2.6.0); "" without a public address."""
+        base = self.public_base_url()
         if not base or not partner.get("unsub_token"):
             return ""
         return f"{base}/api/spa_booking/partner/unsubscribe?t={partner['unsub_token']}"
