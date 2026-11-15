@@ -834,6 +834,10 @@ def _norm_settings(raw: dict[str, Any]) -> dict[str, Any]:
         # Titolo in testata della card, scritto dalla reception in Impostazioni.
         # Vuoto = usa il valore della configurazione della card (o "Gestione SPA").
         "card_title": str(raw.get("card_title") or DEFAULT_CARD_TITLE).strip(),
+        # 3.5.0: the WhatsApp tab in the menu, and the chat in the cards of
+        # appointments, clients and operators.
+        "whatsapp_tab": bool(raw.get("whatsapp_tab", True)),
+        "chat_in_cards": bool(raw.get("chat_in_cards", True)),
         # Access level per user (Accessi tab). Unknown values are dropped so a
         # bad edit can never grant more than intended.
         KEY_PERMISSIONS: {

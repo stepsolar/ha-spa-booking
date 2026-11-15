@@ -162,6 +162,44 @@ class WahaClient:
             payload["caption"] = caption
         return await self._request("POST", "/api/sendImage", json=payload)
 
+    async def async_send_file(
+        self, chat_id: str, data: bytes, *, mimetype: str, filename: str, caption: str = ""
+    ) -> dict[str, Any]:
+        """A photo or any other file (3.5.0): sendImage or sendFile."""
+        if mimetype.startswith("image/") and mimetype != "image/svg+xml":
+            body = await self.async_send_image(chat_id, data, caption=caption, filename=filename, mimetype=mimetype)
+            if isinstance(body, dict) and "sent" in body:
+                return body
+            sent = _flag_sent(body)
+            return {"sent": sent, "message_id": _message_id(body), "error": "" if sent else "foto non inviata"}
+        if not chat_id:
+            return {"sent": False, "error": "nessun destinatario"}
+        import base64
+
+        payload: dict[str, Any] = {"session": self.session_name, "chatId": chat_id, "file": {
+            "mimetype": mimetype, "filename": filename, "data": base64.b64encode(data).decode("ascii")}}
+        if caption:
+            payload["caption"] = caption
+        result = await self._request("POST", "/api/sendFile", json=payload)
+        sent = _flag_sent(result)
+        return {"sent": sent, "message_id": _message_id(result), "error": "" if sent else "file non inviato"}
+
+    async def async_fetch_media(self, media: dict[str, Any]) -> tuple[bytes, str] | None:
+        """The bytes of a received photo or file (WAHA's media URL, 3.5.0)."""
+        url = str(media.get("url") or "")
+        if not url:
+            return None
+        if url.startswith("/"):
+            url = f"{self.base_url}{url}"
+        headers = {"X-Api-Key": self._api_key} if self._api_key else {}
+        try:
+            async with self._session.get(url, headers=headers, timeout=ClientTimeout(total=60)) as response:
+                if response.status != 200:
+                    return None
+                return await response.read(), response.content_type or str(media.get("mimetype") or "")
+        except Exception:  # noqa: BLE001 - a missing file is not an error worth raising
+            return None
+
     # ------------------------------------------------------------ diagnostic
 
     async def async_resolve_lid(self, lid: str) -> str | None:

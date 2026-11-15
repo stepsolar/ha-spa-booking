@@ -200,7 +200,9 @@ class WahaInbound:
         """Turn an inbound text message into an answer request."""
         if payload.get("hasMedia"):
             # A photo or a voice note is not an answer: the operator has to
-            # type it, like the answer words she already knows.
+            # type it, like the answer words she already knows. It is kept
+            # in the chat, to see it in the card (3.5.0).
+            self._hass.async_create_task(self._coordinator.async_record_incoming_media(chat_id, payload))
             return
         text = payload.get("body")
         if not isinstance(text, str) or not text.strip():

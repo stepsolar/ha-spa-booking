@@ -190,6 +190,9 @@ SERVICE_GDRIVE_LIST = "gdrive_list"
 SERVICE_GDRIVE_RESTORE = "gdrive_restore"
 SERVICE_TEST_EMAIL = "test_email"
 SERVICE_WHATSAPP_CHATS = "whatsapp_chats"
+SERVICE_SEND_CHAT_FILE = "send_chat_file"
+SERVICE_CHAT_MEDIA = "chat_media"
+SERVICE_MARK_CHAT_READ = "mark_chat_read"
 SERVICE_DELETE_WHATSAPP_CHATS = "delete_whatsapp_chats"
 SERVICE_ADD_PAYMENT = "add_payment"
 SERVICE_DELETE_PAYMENT = "delete_payment"
@@ -312,6 +315,9 @@ ALL_SERVICES = (
     SERVICE_GOOGLE_DISCONNECT,
     SERVICE_TEST_EMAIL,
     SERVICE_WHATSAPP_CHATS,
+    SERVICE_SEND_CHAT_FILE,
+    SERVICE_CHAT_MEDIA,
+    SERVICE_MARK_CHAT_READ,
     SERVICE_DELETE_WHATSAPP_CHATS,
     SERVICE_ADD_PAYMENT,
     SERVICE_DELETE_PAYMENT,
@@ -807,6 +813,8 @@ UPDATE_SETTINGS_SCHEMA = vol.Schema(
         vol.Optional("appearance"): vol.Any(vol.In(APPEARANCE_MODES), None),
         # Titolo in testata della card, scritto dalla reception in Impostazioni.
         vol.Optional("card_title"): vol.Any(cv.string, None),
+        vol.Optional("whatsapp_tab"): cv.boolean,
+        vol.Optional("chat_in_cards"): cv.boolean,
         vol.Optional("pin_idle_minutes"): vol.All(vol.Coerce(int), vol.Range(min=1, max=240)),
         # Telecamere tab: one flat, user-ordered tile list (each camera carries
         # its name/icon/visibility/span). A bare entity-id string is accepted
@@ -2120,6 +2128,21 @@ async def _async_whatsapp_chats(call: ServiceCall) -> ServiceResponse:
     return {"chats": _coordinator(call).whatsapp_chats()}
 
 
+async def _async_send_chat_file(call: ServiceCall) -> ServiceResponse:
+    """A photo or file in a WhatsApp chat (3.5.0)."""
+    data = call.data
+    return await _coordinator(call).async_send_chat_file(
+        data[ATTR_CHAT_ID], data["data"], data.get("mimetype") or "", data.get("filename") or "", data.get("text") or "")
+
+
+async def _async_chat_media(call: ServiceCall) -> ServiceResponse:
+    return await _coordinator(call).async_chat_media(call.data["media_id"])
+
+
+async def _async_mark_chat_read(call: ServiceCall) -> ServiceResponse:
+    return await _coordinator(call).async_mark_chat_read(call.data[ATTR_CHAT_ID])
+
+
 async def _async_delete_whatsapp_chats(call: ServiceCall) -> ServiceResponse:
     """Delete one conversation (chat_id) or all of them (all: true)."""
     chat_id = call.data.get("chat_id")
@@ -3355,6 +3378,19 @@ _HANDLERS: dict[str, tuple[Any, Any, SupportsResponse]] = {
     SERVICE_WHATSAPP_CHATS: (
         _async_whatsapp_chats, vol.Schema({}), SupportsResponse.ONLY,
     ),
+    SERVICE_SEND_CHAT_FILE: (
+        _async_send_chat_file,
+        vol.Schema({vol.Required(ATTR_CHAT_ID): cv.string, vol.Required("data"): cv.string,
+                    vol.Optional("mimetype"): cv.string, vol.Optional("filename"): cv.string,
+                    vol.Optional("text"): cv.string}),
+        SupportsResponse.ONLY,
+    ),
+    SERVICE_CHAT_MEDIA: (
+        _async_chat_media, vol.Schema({vol.Required("media_id"): cv.string}), SupportsResponse.ONLY,
+    ),
+    SERVICE_MARK_CHAT_READ: (
+        _async_mark_chat_read, vol.Schema({vol.Required(ATTR_CHAT_ID): cv.string}), SupportsResponse.ONLY,
+    ),
     SERVICE_DELETE_WHATSAPP_CHATS: (
         _async_delete_whatsapp_chats,
         vol.Schema({
@@ -3505,6 +3541,9 @@ SERVICE_LEVELS: dict[str, str] = {
     SERVICE_PROPOSE_REQUEST_DATE: "operator",
     SERVICE_TEST_WEB_NOTICE: "manager",
     SERVICE_WHATSAPP_CHATS: "operator",
+    SERVICE_SEND_CHAT_FILE: "operator",
+    SERVICE_CHAT_MEDIA: "operator",
+    SERVICE_MARK_CHAT_READ: "operator",
     SERVICE_DELETE_WHATSAPP_CHATS: "manager",
     SERVICE_MARK_REQUESTS_SEEN: "operator",
     SERVICE_SEND_GUEST_SUMMARY: "operator",

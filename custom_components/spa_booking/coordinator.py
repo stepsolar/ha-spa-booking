@@ -317,6 +317,8 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # deletes a chat, or all of them.
         self._chats_store: Store = Store(hass, 1, "spa_booking.chats")
         self._chats: dict[str, list[dict[str, Any]]] = {}
+        # When the desk last read each chat (3.5.0): the green dot in the agenda.
+        self._chat_reads: dict[str, str] = {}
         # When a chat last changed: the WhatsApp sensor carries it, so the card
         # reloads the conversations as soon as a message goes out or comes in.
         self._chat_stamp = ""
@@ -404,6 +406,119 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._chat_stamp = dt_util.now().isoformat()
         self.async_update_listeners()
 
+    # ------------------------------------------- photos and files (3.5.0)
+
+    #: The largest file the desk may send (WhatsApp accepts more, Home
+    #: Assistant's websocket does not).
+    CHAT_FILE_MAX = 12 * 1024 * 1024
+
+    def _media_dir(self) -> str:
+        return self.hass.config.path(".storage", "spa_booking_media")
+
+    def _media_write(self, media_id: str, data: bytes) -> None:
+        import os
+
+        folder = self._media_dir()
+        os.makedirs(folder, exist_ok=True)
+        with open(os.path.join(folder, media_id), "wb") as handle:
+            handle.write(data)
+
+    def _media_read(self, media_id: str) -> bytes | None:
+        import os
+
+        if not re.fullmatch(r"[0-9a-f]{16,40}", media_id or ""):
+            return None
+        path = os.path.join(self._media_dir(), media_id)
+        if not os.path.isfile(path):
+            return None
+        with open(path, "rb") as handle:
+            return handle.read()
+
+    async def _async_keep_media(self, data: bytes, mimetype: str, filename: str) -> dict[str, Any]:
+        media_id = secrets.token_hex(12)
+        await self.hass.async_add_executor_job(self._media_write, media_id, data)
+        return {"id": media_id, "mimetype": mimetype or "application/octet-stream",
+                "filename": filename or "", "size": len(data)}
+
+    async def async_chat_media(self, media_id: str) -> dict[str, Any]:
+        """A photo or file of a chat, for the card (base64)."""
+        import base64
+
+        meta = next((m.get("media") for messages in self._chats.values() for m in messages
+                     if isinstance(m.get("media"), dict) and m["media"].get("id") == media_id), None)
+        if meta is None:
+            raise NotFoundError("Allegato non trovato")
+        data = await self.hass.async_add_executor_job(self._media_read, media_id)
+        if data is None:
+            raise NotFoundError("Il file non c'è più")
+        return {**meta, "data": base64.b64encode(data).decode("ascii")}
+
+    async def async_record_incoming_media(self, chat_id: str, payload: dict[str, Any]) -> None:
+        """A photo, voice note or file someone sent: kept and shown in the chat."""
+        media = payload.get("media") if isinstance(payload.get("media"), dict) else {}
+        caption = str(payload.get("body") or "").strip()
+        stored: dict[str, Any] = {"mimetype": str(media.get("mimetype") or ""), "filename": str(media.get("filename") or ""),
+                                  "missing": True}
+        fetched = None
+        client = self.waha
+        if client is not None and hasattr(client, "async_fetch_media") and not media.get("error"):
+            try:
+                fetched = await client.async_fetch_media(media)
+            except Exception:  # noqa: BLE001 - the message is noted even without its file
+                fetched = None
+        if fetched:
+            data, mimetype = fetched
+            stored = await self._async_keep_media(data, mimetype.split(";")[0] or stored["mimetype"], stored["filename"])
+        operator = (messaging.find_operator_by_chat(self.operators, "whatsapp", chat_id) or {}).get("id", "")
+        at = dt_util.now().isoformat()
+        self._chat_add(chat_id, {"dir": "in", "text": caption, "at": at, "media": stored,
+                                 **({"operator_id": operator} if operator else {})})
+        if not operator:
+            label = "📷 Foto" if stored["mimetype"].startswith("image/") else "📎 Allegato"
+            self._external_messages.appendleft({"chat_id": chat_id, "text": caption or label, "received_at": at})
+        self._chat_stamp = at
+        self.async_update_listeners()
+
+    async def async_send_chat_file(self, chat_id: str, data_b64: str, mimetype: str, filename: str,
+                                   text: str = "") -> dict[str, Any]:
+        """Send a photo or any file in a chat (3.5.0) and keep it in the chat."""
+        import base64
+
+        target = messaging.to_whatsapp_chat_id(chat_id)
+        if not target:
+            raise ValidationError("Destinatario non valido")
+        client = self.waha
+        if client is None or not hasattr(client, "async_send_file"):
+            raise ValidationError("Per inviare foto e file serve WhatsApp integrato o WAHA (Configurazione › WhatsApp)")
+        try:
+            data = base64.b64decode(data_b64 or "", validate=False)
+        except (ValueError, TypeError) as err:
+            raise ValidationError("File non valido") from err
+        if not data:
+            raise ValidationError("File vuoto")
+        if len(data) > self.CHAT_FILE_MAX:
+            raise ValidationError("Il file è troppo grande (massimo 12 MB)")
+        mimetype = str(mimetype or "application/octet-stream")[:100]
+        filename = re.sub(r"[\\/\r\n]", "_", str(filename or "allegato"))[:120]
+        try:
+            result = await client.async_send_file(target, data, mimetype=mimetype, filename=filename, caption=str(text or ""))
+        except Exception as err:  # noqa: BLE001 - WahaError and connection failures alike
+            raise ValidationError(f"Invio non riuscito: {err}") from err
+        if not result.get("sent"):
+            raise ValidationError(f"Invio non riuscito: {result.get('error') or 'rifiutato'}")
+        stored = await self._async_keep_media(data, mimetype, filename)
+        self._chat_add(target, {"dir": "out", "text": str(text or ""), "at": dt_util.now().isoformat(),
+                                "by": (ACTOR.get() or ("", ""))[1] or "", "media": stored})
+        self._chat_stamp = dt_util.now().isoformat()
+        self.async_update_listeners()
+        return {"sent": True, "media": stored}
+
+    async def async_mark_chat_read(self, chat_id: str) -> dict[str, Any]:
+        key = self._chat_key(chat_id)
+        self._reads[key] = dt_util.now().isoformat()
+        self._chats_store.async_delay_save(self._chats_payload, 2)
+        return {"chat_id": key, "read_at": self._reads[key]}
+
     async def async_add_external_message(self, chat_id: str, text: str, record: bool = True) -> None:
         """Save an incoming WhatsApp message from a non-operator number.
 
@@ -439,6 +554,8 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for key, messages in self._chats.items():
             messages.sort(key=lambda m: str(m.get("at") or ""))
             self._chats[key] = messages[-CHAT_MAX_MESSAGES:]
+        reads = (stored or {}).get("reads") if isinstance(stored, dict) else None
+        self._chat_reads = {self._chat_key(k): str(v) for k, v in (reads or {}).items() if isinstance(v, str)}
         # The sensor (and automations) see the latest incoming messages again.
         incoming = sorted(
             (
@@ -459,12 +576,20 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         messages.append(message)
         messages.sort(key=lambda m: str(m.get("at") or ""))
         del messages[:-CHAT_MAX_MESSAGES]
-        self._chats_store.async_delay_save(lambda: {"chats": self._chats}, 2)
+        self._chats_store.async_delay_save(self._chats_payload, 2)
+
+    @property
+    def _reads(self) -> dict[str, str]:
+        return self.__dict__.setdefault("_chat_reads", {})
+
+    def _chats_payload(self) -> dict[str, Any]:
+        return {"chats": self._chats, "reads": self._reads}
 
     def whatsapp_chats(self) -> list[dict[str, Any]]:
         """Every conversation, the most recent first, with its messages."""
         chats = [
-            {"chat_id": chat_id, "messages": messages, "last_at": messages[-1].get("at", "") if messages else ""}
+            {"chat_id": chat_id, "messages": messages, "last_at": messages[-1].get("at", "") if messages else "",
+             "read_at": self._reads.get(chat_id, "")}
             for chat_id, messages in self._chats.items()
         ]
         return sorted(chats, key=lambda chat: chat["last_at"], reverse=True)
@@ -480,7 +605,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             kept = [m for m in self._external_messages if m.get("chat_id") != chat_id]
             self._external_messages.clear()
             self._external_messages.extend(kept)
-        await self._chats_store.async_save({"chats": self._chats})
+        await self._chats_store.async_save(self._chats_payload())
         self.async_update_listeners()
         return removed
 

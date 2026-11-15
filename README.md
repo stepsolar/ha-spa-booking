@@ -111,6 +111,18 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v3.5.0** — (serve il riavvio di Home Assistant)
+  - **Chat WhatsApp nelle schede**: nella scheda dell'appuntamento (Cliente
+    e Operatrice), del cliente e dell'operatrice si leggono tutti i messaggi
+    inviati e ricevuti, anche quelli automatici, e si risponde da lì. Un
+    **pallino verde** in agenda segnala un messaggio nuovo del cliente
+    finché qualcuno non apre la chat.
+  - **Foto e file**: con 📎 si invia un'immagine (ridotta a 1600 px) o
+    qualsiasi file fino a 12 MB; foto, documenti, video e vocali ricevuti
+    restano nella chat (le foto si aprono grandi, i file si scaricano).
+    Serve WhatsApp integrato (programma aggiornato) o WAHA.
+  - Impostazioni › Generale › **Chat WhatsApp**: mostrare o nascondere la
+    scheda WhatsApp nel menu in alto e la chat nelle schede.
 - **v3.4.0** — (serve il riavvio di Home Assistant)
   - Configurazione › Categorie › **Capienza**: per ogni categoria
     «Massimo N persone insieme nello stesso orario» (contando tutti i suoi

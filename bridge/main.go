@@ -11,6 +11,8 @@
 //	POST /logout        unlink this device
 //	POST /send/text     {"chat_id", "text"} -> {"sent", "message_id", "error"}
 //	POST /send/image    {"chat_id", "image" (base64), "mimetype", "caption"}
+//	POST /send/document {"chat_id", "data" (base64), "mimetype", "filename", "caption"}
+//	GET  /media?id=...  a received photo or file (kept for 15 minutes)
 //	GET  /lid?lid=...   phone chat id behind a LID, when known
 //	GET  /events        newline-delimited JSON: messages, reactions, state changes
 //
@@ -95,7 +97,21 @@ type bridge struct {
 	subsMu  sync.Mutex
 	subs    map[chan []byte]struct{}
 	started time.Time
+
+	// Photos and files received, until Home Assistant fetches them (3.5.0).
+	mediaMu sync.Mutex
+	media   map[string]mediaEntry
 }
+
+type mediaEntry struct {
+	data     []byte
+	mimetype string
+	filename string
+	at       time.Time
+}
+
+// The largest file kept from a received message.
+const maxMedia = 25 << 20
 
 type onWAEntry struct {
 	on  bool
@@ -288,23 +304,111 @@ func (b *bridge) handleMessage(e *events.Message) {
 	if body == "" {
 		body = msg.GetImageMessage().GetCaption()
 	}
+	if body == "" {
+		body = msg.GetVideoMessage().GetCaption()
+	}
+	if body == "" {
+		body = msg.GetDocumentMessage().GetCaption()
+	}
 	if body == "" && !hasMedia {
 		return
+	}
+	payload := map[string]any{
+		"id":         info.ID,
+		"from":       from,
+		"fromMe":     info.IsFromMe,
+		"body":       body,
+		"hasMedia":   hasMedia,
+		"notifyName": info.PushName,
+		"timestamp":  info.Timestamp.Unix(),
+	}
+	if hasMedia && !info.IsFromMe {
+		if media := b.keepMedia(info.ID, msg); media != nil {
+			payload["media"] = media
+		}
 	}
 	b.publish(map[string]any{
 		"event":   "message",
 		"session": sessionName,
 		"id":      info.ID,
-		"payload": map[string]any{
-			"id":         info.ID,
-			"from":       from,
-			"fromMe":     info.IsFromMe,
-			"body":       body,
-			"hasMedia":   hasMedia,
-			"notifyName": info.PushName,
-			"timestamp":  info.Timestamp.Unix(),
-		},
+		"payload": payload,
 	})
+}
+
+// keepMedia downloads a received photo or file and keeps it for
+// GET /media, so the event stays a short line (3.5.0).
+func (b *bridge) keepMedia(id string, msg *waE2E.Message) map[string]any {
+	var (
+		dl       whatsmeow.DownloadableMessage
+		mimetype string
+		filename string
+		size     uint64
+	)
+	switch {
+	case msg.GetImageMessage() != nil:
+		m := msg.GetImageMessage()
+		dl, mimetype, size = m, m.GetMimetype(), m.GetFileLength()
+	case msg.GetDocumentMessage() != nil:
+		m := msg.GetDocumentMessage()
+		dl, mimetype, filename, size = m, m.GetMimetype(), m.GetFileName(), m.GetFileLength()
+	case msg.GetVideoMessage() != nil:
+		m := msg.GetVideoMessage()
+		dl, mimetype, size = m, m.GetMimetype(), m.GetFileLength()
+	case msg.GetAudioMessage() != nil:
+		m := msg.GetAudioMessage()
+		dl, mimetype, size = m, m.GetMimetype(), m.GetFileLength()
+	case msg.GetStickerMessage() != nil:
+		m := msg.GetStickerMessage()
+		dl, mimetype, size = m, m.GetMimetype(), m.GetFileLength()
+	default:
+		return nil
+	}
+	info := map[string]any{"mimetype": mimetype, "filename": filename, "size": size}
+	if size > maxMedia {
+		info["error"] = "file troppo grande"
+		return info
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	data, err := b.client.Download(ctx, dl)
+	if err != nil {
+		info["error"] = err.Error()
+		return info
+	}
+	if mimetype == "" {
+		mimetype = http.DetectContentType(data)
+		info["mimetype"] = mimetype
+	}
+	b.mediaMu.Lock()
+	defer b.mediaMu.Unlock()
+	if b.media == nil {
+		b.media = map[string]mediaEntry{}
+	}
+	for key, entry := range b.media {
+		if time.Since(entry.at) > 15*time.Minute {
+			delete(b.media, key)
+		}
+	}
+	b.media[id] = mediaEntry{data: data, mimetype: mimetype, filename: filename, at: time.Now()}
+	info["id"] = id
+	info["size"] = len(data)
+	return info
+}
+
+func (b *bridge) serveMedia(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Query().Get("id")
+	b.mediaMu.Lock()
+	entry, ok := b.media[id]
+	b.mediaMu.Unlock()
+	if !ok {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", entry.mimetype)
+	if entry.filename != "" {
+		w.Header().Set("X-Filename", entry.filename)
+	}
+	_, _ = w.Write(entry.data)
 }
 
 // ----------------------------------------------------------------- events
@@ -377,6 +481,8 @@ func (b *bridge) routes() http.Handler {
 	mux.HandleFunc("POST /logout", b.serveLogout)
 	mux.HandleFunc("POST /send/text", b.serveSendText)
 	mux.HandleFunc("POST /send/image", b.serveSendImage)
+	mux.HandleFunc("POST /send/document", b.serveSendDocument)
+	mux.HandleFunc("GET /media", b.serveMedia)
 	mux.HandleFunc("GET /lid", b.serveLID)
 	mux.HandleFunc("GET /events", b.serveEvents)
 	return b.auth(mux)
@@ -400,7 +506,7 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 }
 
 func readJSON(r *http.Request, into any) error {
-	return json.NewDecoder(http.MaxBytesReader(nil, r.Body, 16<<20)).Decode(into)
+	return json.NewDecoder(http.MaxBytesReader(nil, r.Body, 40<<20)).Decode(into)
 }
 
 func (b *bridge) serveStatus(w http.ResponseWriter, _ *http.Request) {
@@ -705,6 +811,49 @@ func (b *bridge) serveSendImage(w http.ResponseWriter, r *http.Request) {
 		return &waE2E.Message{ImageMessage: &waE2E.ImageMessage{
 			Caption:       proto.String(req.Caption),
 			Mimetype:      proto.String(req.Mimetype),
+			URL:           proto.String(up.URL),
+			DirectPath:    proto.String(up.DirectPath),
+			MediaKey:      up.MediaKey,
+			FileEncSHA256: up.FileEncSHA256,
+			FileSHA256:    up.FileSHA256,
+			FileLength:    proto.Uint64(up.FileLength),
+		}}, nil
+	})
+}
+
+func (b *bridge) serveSendDocument(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ChatID   string `json:"chat_id"`
+		Data     string `json:"data"`
+		Mimetype string `json:"mimetype"`
+		Filename string `json:"filename"`
+		Caption  string `json:"caption"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"sent": false, "error": "richiesta non valida"})
+		return
+	}
+	data, err := base64.StdEncoding.DecodeString(req.Data)
+	if err != nil || len(data) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"sent": false, "error": "file non valido"})
+		return
+	}
+	if req.Mimetype == "" {
+		req.Mimetype = http.DetectContentType(data)
+	}
+	if req.Filename == "" {
+		req.Filename = "allegato"
+	}
+	b.send(w, r, req.ChatID, len(req.Caption), func(ctx context.Context) (*waE2E.Message, error) {
+		up, err := b.client.Upload(ctx, data, whatsmeow.MediaDocument)
+		if err != nil {
+			return nil, fmt.Errorf("caricamento file: %w", err)
+		}
+		return &waE2E.Message{DocumentMessage: &waE2E.DocumentMessage{
+			Caption:       proto.String(req.Caption),
+			Mimetype:      proto.String(req.Mimetype),
+			FileName:      proto.String(req.Filename),
+			Title:         proto.String(req.Filename),
 			URL:           proto.String(up.URL),
 			DirectPath:    proto.String(up.DirectPath),
 			MediaKey:      up.MediaKey,

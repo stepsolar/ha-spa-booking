@@ -1,6 +1,6 @@
 <p align="center"><img src="anteprime/logo.png" width="120" alt="Spa Booking"></p>
 
-# Spa Booking 3.4 — la guida completa
+# Spa Booking 3.5 — la guida completa
 
 Questa guida spiega **tutto quello che fa Spa Booking**, scheda per scheda:
 dalla prenotazione al banco al modulo del sito, dai messaggi WhatsApp ai
@@ -513,6 +513,35 @@ pulsante WhatsApp della card (agenda, scheda, clienti) apre qui la chat di
 quel numero, anche se non avete mai scritto prima.
 
 ![WhatsApp](anteprime/v3/v3-13-whatsapp.png)
+
+**La chat nelle schede** (3.5): la stessa conversazione si legge e si
+continua senza cambiare pagina:
+
+- nella **scheda dell'appuntamento**, sezione *Chat WhatsApp*, con due
+  linguette: il **cliente** e l'**operatrice** dell'appuntamento (offerte,
+  conferme e risposte);
+- nella **scheda del cliente** (Clienti) e nella **scheda dell'operatrice**
+  (Configurazione › Operatori).
+
+Quando un cliente scrive, accanto al suo nome in agenda (timeline, schede ed
+elenco) compare un **pallino verde** finché qualcuno non apre la sua chat.
+
+**Foto e file**: con 📎 si allega un'immagine o qualsiasi file (PDF,
+listino, ricevuta… fino a 12 MB; le foto grandi vengono ridotte); il testo
+scritto diventa la didascalia. Le foto, i documenti, i video e i vocali
+ricevuti restano nella chat: la foto si apre grande toccandola, il file si
+scarica. Serve **WhatsApp integrato** o **WAHA** (con il collegamento
+tramite rest_command si inviano solo testi).
+
+In **Impostazioni › Generale › Chat WhatsApp** si sceglie se mostrare la
+scheda WhatsApp nel menu in alto e la chat nelle schede.
+
+| | |
+|---|---|
+| ![Chat con il cliente](anteprime/101-chat-appuntamento.png) | ![Chat con l'operatrice](anteprime/102-chat-operatrice.png) |
+| ![Foto e file](anteprime/103-chat-whatsapp-allegati.png) | ![Foto aperta](anteprime/104-chat-foto.png) |
+
+![Impostazioni della chat](anteprime/105-impostazioni-chat.png)
 
 **Collegamento WhatsApp** (Configurazione › Notifiche › Collegamenti): Spa
 Booking si collega da solo al numero dell'hotel, come WhatsApp Web. Premi

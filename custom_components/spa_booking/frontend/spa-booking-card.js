@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "3.4.0";
+const CARD_VERSION = "3.5.0";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -1323,6 +1323,7 @@ class SpaBookingCard extends HTMLElement {
         if (event.key !== "Escape") return;
         if (this._gatePopup) { this._gatePopup = null; this._render(); }
         else if (this._confirmPopup) { this._confirmPopup = null; this._render(); }
+        else if (this._mediaView) { this._mediaView = null; this._render(); }
         else if (this._partnerSend) { this._partnerSend = null; this._render(); }
         else if (this._siteCampaign) { this._siteCampaign = null; this._render(); }
         else if (this._siteMenu) { this._siteMenu = null; this._render(); }
@@ -1360,6 +1361,10 @@ class SpaBookingCard extends HTMLElement {
   _tick() {
     const root = this.shadowRoot;
     if (!root) return;
+    // A new WhatsApp message: the open chats and the agenda dots follow (3.5.0).
+    if (this._data && (this._tab === "whatsapp" || this._chatVisible || this._tab === "agenda")) {
+      try { this._refreshWaChats(); } catch (error) { /* next tick */ }
+    }
     const time = root.querySelector(".clock-time");
     const date = root.querySelector(".clock-date");
     if (time) time.textContent = this._fmtTime();
@@ -3014,7 +3019,10 @@ class SpaBookingCard extends HTMLElement {
       }[this._userLevel()] || [];
     // Spa Booking Web (3.1.2) has no Home Assistant entities: the Spa tab
     // (lights, climate, cameras) has nothing to show there.
-    return TABS.filter((tab) => allowed.includes(tab.id) && !(tab.id === "spa" && this._webMode()));
+    // The WhatsApp tab can be hidden from the menu (3.5.0).
+    const waHidden = ((this._data && this._data.settings) || {}).whatsapp_tab === false;
+    return TABS.filter((tab) => allowed.includes(tab.id) && !(tab.id === "spa" && this._webMode())
+      && !(tab.id === "whatsapp" && waHidden));
   }
 
   /** Running on Spa Booking Web (the cloud server), not inside Home Assistant. */
@@ -3431,6 +3439,7 @@ class SpaBookingCard extends HTMLElement {
       this._editFormMode = false;
     }
     this._liveExclusionCheck();
+    this._chatVisible = false;
     try {
       this._renderInner();
     } catch (error) {
@@ -3712,6 +3721,7 @@ class SpaBookingCard extends HTMLElement {
     if (this._loyaltyPopup) add(root, this._renderLoyaltyPopup());
     if (this._gatePopup) add(root, this._renderGatePopup());
     if (this._confirmPopup) add(root, this._renderConfirmPopup());
+    if (this._mediaView) add(root, this._renderMediaView());
     if (this._partnerMenu) add(root, this._renderPartnerMenu());
     if (this._partnerSend) add(root, this._renderPartnerSend());
     if (this._siteMenu) add(root, this._renderSiteMenu());
@@ -4419,7 +4429,7 @@ class SpaBookingCard extends HTMLElement {
           title: `${timeOf(start)}–${timeOf(end)} · ${name} · ${this._treatmentName(appointment)}`,
           on: { click: () => this._openDetail(appointment) },
         },
-        el("b", {}, name),
+        el("b", {}, name, this._chatDot(appointment)),
         el("span", {}, `${timeOf(start)} · ${this._treatmentName(appointment)}`));
         track.appendChild(block);
         if (pause > 0) {
@@ -4531,7 +4541,7 @@ class SpaBookingCard extends HTMLElement {
       },
       el("span", { class: "ag-card-time" }, start ? timeOf(start) : "—", el("small", {}, end ? timeOf(end) : "")),
       el("span", { class: "ag-card-body" },
-        el("b", {}, this._clientName(appointment) + (members.length > 1 ? ` (${members.length})` : "")),
+        el("b", {}, this._clientName(appointment) + (members.length > 1 ? ` (${members.length})` : ""), this._chatDot(appointment)),
         el("span", {}, [this._treatmentName(appointment), operator].filter(Boolean).join(" · ")),
         tag ? el("span", { class: `ag-tag ${state}` }, el("ha-icon", { icon: tag[1] }), tag[0]) : null),
       el("span", { class: "ag-card-side" },
@@ -4680,7 +4690,7 @@ class SpaBookingCard extends HTMLElement {
     el("span", { class: "ls-time" }, el("b", {}, start ? timeOf(start) : "—"), el("small", {}, end ? `fino ${timeOf(end)}` : "")),
     el("span", { class: "ls-bar-c", style: `background:${color}` }),
     el("span", { class: "ls-who" },
-      el("b", {}, this._clientName(appointment)),
+      el("b", {}, this._clientName(appointment), this._chatDot(appointment)),
       people > 1 ? el("span", { class: "ls-chip" }, `${people} persone`) : null,
       el("small", {}, [guest.id === "hotel" ? "Hotel" : "Esterno", appointment.code].filter(Boolean).join(" · "))),
     el("span", { class: "ls-what" },
@@ -5472,6 +5482,23 @@ class SpaBookingCard extends HTMLElement {
     // add(), not appendChild: a section with nothing in it returns null, and
     // appending null throws. This is the same trap as the group stepper.
     add(sheet, section("Cliente", ...clientRows));
+    // The WhatsApp chat of the client, and of the masseuse (3.5.0).
+    if (this._chatInCards()) {
+      const operator = appointment.operator_id ? this._lookup.operator.get(appointment.operator_id) : null;
+      const sides = [];
+      if (client && client.phone && this._waChatIdOf(client.phone)) sides.push(["cliente", this._clientName(appointment), this._waChatIdOf(client.phone)]);
+      const opChat = this._chatOfOperator(operator);
+      if (opChat) sides.push(["operatrice", operator.name || "Operatrice", opChat]);
+      if (sides.length) {
+        const pick = sides.find(([id]) => id === this._detailChatSide) || sides[0];
+        add(sheet, section("Chat WhatsApp",
+          sides.length > 1 ? el("div", { class: "nt-tabs chat-sides" }, sides.map(([id, label, chat]) =>
+            el("button", { class: `nt-tab${pick[0] === id ? " on" : ""}`, on: { click: () => { this._detailChatSide = id; this._render(); } } },
+              el("ha-icon", { icon: id === "cliente" ? "mdi:account-outline" : "mdi:account-heart-outline" }), el("span", {}, label),
+              this._chatUnread(chat) && pick[0] !== id ? el("span", { class: "chat-dot" }) : null))) : null,
+          this._chatPanel(pick[2])));
+      }
+    }
     add(
       sheet,
       section(
@@ -11207,7 +11234,7 @@ class SpaBookingCard extends HTMLElement {
     this._service("whatsapp_chats", {}).then((response) => {
       this._waChats = (response && response.chats) || [];
       this._waChatsLoading = false;
-      if (this._tab === "whatsapp") this._render();
+      if (this._tab === "whatsapp" || this._chatVisible || (this._tab === "agenda" && !this._editing)) this._renderKeepingChatFocus();
     }).catch(() => {
       // An older integration: the sensor's last 20 messages, as before.
       const messages = (sensorState && sensorState.attributes && sensorState.attributes.messages) || [];
@@ -11351,33 +11378,11 @@ class SpaBookingCard extends HTMLElement {
         : null));
     const bubbles = el("div", { class: "wa-bubbles" });
     if (!items.length) bubbles.appendChild(el("div", { class: "empty small" }, "Nuova chat: scrivi qui sotto il primo messaggio, parte dal numero dell'hotel."));
-    items.forEach((msg) => bubbles.appendChild(
-      el("div", { class: `bubble ${msg.dir === "out" ? "out" : "in"}` },
-        el("span", {}, msg.text || ""),
-        el("span", { class: "bubble-time" }, [msg.dir === "out" ? (msg.by || "Automatico") : "", this._waTime(msg.received_at)].filter(Boolean).join(" · ")))));
+    items.forEach((msg) => bubbles.appendChild(this._chatBubble(msg)));
     conv.appendChild(bubbles);
-    conv.appendChild(el("div", { class: "wa-compose" },
-      el("input", {
-        class: "input wa-reply-input",
-        type: "text",
-        placeholder: "Scrivi un messaggio",
-        value: this._waReplyTo === chatId ? this._waReplyText || "" : "",
-        on: {
-          input: (event) => { this._waReplyTo = chatId; this._waReplyText = event.target.value; },
-          keydown: (event) => {
-            event.stopPropagation();
-            if (event.key === "Enter" && !this._waBusy && (this._waReplyText || "").trim()) this._sendWaReply(chatId);
-          },
-          keyup: (event) => event.stopPropagation(),
-          keypress: (event) => event.stopPropagation(),
-        },
-      }),
-      el("button", {
-        class: "btn primary wa-send",
-        title: "Invia",
-        disabled: this._waBusy,
-        on: { click: () => { this._waReplyTo = chatId; this._sendWaReply(chatId); } },
-      }, el("ha-icon", { icon: "mdi:send" }))));
+    if (this._chatUnread(chatId)) this._markChatRead(chatId);
+    setTimeout(() => { bubbles.scrollTop = bubbles.scrollHeight; }, 0);
+    conv.appendChild(this._chatCompose(chatId));
     if (!chatOperator && !String(chatId).endsWith("@g.us")) conv.appendChild(el("div", { class: "wa-actions" },
       el("button", {
         class: "btn small",
@@ -11390,6 +11395,278 @@ class SpaBookingCard extends HTMLElement {
     shell.appendChild(conv);
     wrap.appendChild(shell);
     return wrap;
+  }
+
+  // ------------------------------------------------- chats in the cards (3.5.0)
+
+  /** Who may read and write the chats: whoever has the WhatsApp tab's level. */
+  _chatAllowed() {
+    return ["operator", "manager", "admin"].includes(this._userLevel());
+  }
+
+  /** The chat inside appointments, clients and operators (Impostazioni). */
+  _chatInCards() {
+    return this._chatAllowed() && ((this._data && this._data.settings) || {}).chat_in_cards !== false;
+  }
+
+  _chatKeyOf(chatId) {
+    const id = String(chatId || "");
+    if (id.endsWith("@g.us")) return id;
+    const digits = id.split("@")[0].replace(/\D/g, "");
+    return digits ? `${digits}@c.us` : id;
+  }
+
+  _chatOf(chatId) {
+    const key = this._chatKeyOf(chatId);
+    return (this._waChats || []).find((c) => this._chatKeyOf(c.chat_id) === key) || null;
+  }
+
+  _chatOfOperator(operator) {
+    if (!operator) return "";
+    return operator.whatsapp_chat_id || (operator.phone ? this._waChatIdOf(operator.phone) : "");
+  }
+
+  /** Something new in this chat since the desk last opened it. */
+  _chatUnread(chatId) {
+    const chat = this._chatOf(chatId);
+    if (!chat) return false;
+    const lastIn = [...(chat.messages || [])].reverse().find((m) => m.dir === "in");
+    if (!lastIn) return false;
+    const read = String((this._chatReadLocal || {})[this._chatKeyOf(chatId)] || chat.read_at || "");
+    return String(lastIn.at || "") > read;
+  }
+
+  /** The green dot of an appointment whose client wrote (3.5.0). */
+  _chatDot(appointment) {
+    if (!this._chatInCards() || !this._waChats) return null;
+    const client = this._lookup.client.get(appointment.client_id);
+    const chatId = client && client.phone ? this._waChatIdOf(client.phone) : "";
+    return chatId && this._chatUnread(chatId)
+      ? el("span", { class: "chat-dot", title: "Nuovo messaggio WhatsApp" }) : null;
+  }
+
+  _markChatRead(chatId) {
+    const key = this._chatKeyOf(chatId);
+    this._chatReadLocal = { ...(this._chatReadLocal || {}), [key]: new Date().toISOString() };
+    this._service("mark_chat_read", { chat_id: key }).catch(() => {});
+  }
+
+  /** Render, then give the focus back to the message being typed. */
+  _renderKeepingChatFocus() {
+    const active = this.shadowRoot && this.shadowRoot.activeElement;
+    const which = active && active.dataset ? active.dataset.chatInput : "";
+    const caret = which ? active.selectionStart : 0;
+    this._render();
+    if (!which) return;
+    const input = this.shadowRoot.querySelector(`[data-chat-input="${which}"]`);
+    if (input) {
+      input.focus();
+      try { input.setSelectionRange(caret, caret); } catch (error) { /* not a text field */ }
+    }
+  }
+
+  async _loadMedia(media) {
+    this._mediaCache = this._mediaCache || new Map();
+    if (this._mediaCache.has(media.id)) return this._mediaCache.get(media.id);
+    const pending = this._service("chat_media", { media_id: media.id }).then((result) => {
+      const bytes = Uint8Array.from(atob(result.data || ""), (c) => c.charCodeAt(0));
+      const url = URL.createObjectURL(new Blob([bytes], { type: result.mimetype || media.mimetype || "application/octet-stream" }));
+      return { url, mimetype: result.mimetype || media.mimetype, filename: result.filename || media.filename };
+    });
+    this._mediaCache.set(media.id, pending);
+    try {
+      const value = await pending;
+      this._mediaCache.set(media.id, value);
+      return value;
+    } catch (error) {
+      this._mediaCache.delete(media.id);
+      throw error;
+    }
+  }
+
+  /** A photo (thumbnail, tap to enlarge) or a file (tap to open). */
+  _chatMediaEl(media) {
+    if (!media) return null;
+    const name = media.filename || "";
+    const size = media.size ? ` · ${media.size > 1048576 ? `${(media.size / 1048576).toFixed(1).replace(".", ",")} MB` : `${Math.max(1, Math.round(media.size / 1024))} KB`}` : "";
+    if (media.missing || !media.id) {
+      return el("span", { class: "chat-file missing" }, el("ha-icon", { icon: "mdi:paperclip-off" }),
+        (media.mimetype || "").startsWith("image/") ? "Foto non scaricata" : (media.mimetype || "").startsWith("audio/") ? "Messaggio vocale (aprilo sul telefono)" : "Allegato non scaricato");
+    }
+    const open = async (event) => {
+      event.stopPropagation();
+      try {
+        const loaded = await this._loadMedia(media);
+        this._mediaView = { ...media, url: loaded.url };
+        this._render();
+      } catch (error) {
+        this._message = { kind: "error", text: (error && error.message) || "Allegato non disponibile" };
+        this._render();
+      }
+    };
+    if ((media.mimetype || "").startsWith("image/")) {
+      const cached = this._mediaCache && this._mediaCache.get(media.id);
+      const img = el("img", { class: "chat-img", alt: name || "Foto", src: cached && cached.url ? cached.url : "", on: { click: open } });
+      if (!cached || !cached.url) {
+        this._loadMedia(media).then((loaded) => { img.src = loaded.url; }).catch(() => { img.replaceWith(el("span", { class: "chat-file missing" }, "Foto non disponibile")); });
+      }
+      return el("span", { class: "chat-img-wrap" }, img);
+    }
+    const icon = (media.mimetype || "").includes("pdf") ? "mdi:file-pdf-box"
+      : (media.mimetype || "").startsWith("audio/") ? "mdi:microphone"
+      : (media.mimetype || "").startsWith("video/") ? "mdi:filmstrip" : "mdi:file-document-outline";
+    return el("button", { type: "button", class: "chat-file", on: { click: open } },
+      el("ha-icon", { icon }), el("span", {}, (name || "Allegato") + size));
+  }
+
+  _chatBubble(msg) {
+    return el("div", { class: `bubble ${msg.dir === "out" ? "out" : "in"}` },
+      msg.media ? this._chatMediaEl(msg.media) : null,
+      msg.text ? el("span", {}, msg.text) : null,
+      el("span", { class: "bubble-time" }, [msg.dir === "out" ? (msg.by || "Automatico") : "", this._waTime(msg.at || msg.received_at)].filter(Boolean).join(" · ")));
+  }
+
+  /** Large photos are made lighter before they leave (max 1600 px). */
+  async _chatPrepareFile(file) {
+    const asBase64 = (blob) => new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result).split(",")[1] || "");
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(blob);
+    });
+    let blob = file;
+    let mimetype = file.type || "application/octet-stream";
+    let name = file.name || "allegato";
+    if (/^image\/(jpeg|png|webp|heic|heif)$/.test(mimetype) && file.size > 400 * 1024) {
+      try {
+        const bitmap = await createImageBitmap(file);
+        const scale = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(bitmap.width * scale);
+        canvas.height = Math.round(bitmap.height * scale);
+        canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+        blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.85));
+        mimetype = "image/jpeg";
+        name = name.replace(/\.[^.]+$/, "") + ".jpg";
+      } catch (error) { blob = file; }
+    }
+    if (blob.size > 12 * 1024 * 1024) throw new Error("Il file è troppo grande (massimo 12 MB)");
+    return { data: await asBase64(blob), mimetype, filename: name, size: blob.size };
+  }
+
+  async _chatSend(chatId) {
+    const key = this._chatKeyOf(chatId);
+    const text = String((this._chatText || {})[key] || "").trim();
+    const file = (this._chatFile || {})[key];
+    if (!text && !file) return;
+    this._chatBusy = key;
+    this._render();
+    try {
+      if (file) {
+        await this._service("send_chat_file", { chat_id: key, data: file.data, mimetype: file.mimetype, filename: file.filename, text });
+      } else {
+        await this._service("send_external_message", { chat_id: key, text });
+      }
+      this._chatText = { ...(this._chatText || {}), [key]: "" };
+      this._chatFile = { ...(this._chatFile || {}), [key]: null };
+      this._waReplyText = "";
+      this._message = { kind: "ok", text: "Messaggio inviato." };
+    } catch (error) {
+      this._message = { kind: "error", text: (error && error.message) || "Invio non riuscito." };
+    }
+    this._chatBusy = "";
+    this._refreshWaChats(true);
+    this._render();
+  }
+
+  /** Text, 📎 for a photo or a file, and Invia. */
+  _chatCompose(chatId) {
+    const key = this._chatKeyOf(chatId);
+    const file = (this._chatFile || {})[key];
+    const picker = el("input", { type: "file", style: "display:none", on: { change: async (event) => {
+      const chosen = event.target.files && event.target.files[0];
+      if (!chosen) return;
+      try {
+        const ready = await this._chatPrepareFile(chosen);
+        this._chatFile = { ...(this._chatFile || {}), [key]: ready };
+      } catch (error) {
+        this._message = { kind: "error", text: (error && error.message) || String(error) };
+      }
+      this._render();
+    } } });
+    const busy = this._chatBusy === key;
+    const wrap = el("div", { class: "chat-compose-wrap" });
+    if (file) {
+      wrap.appendChild(el("div", { class: "chat-pending" },
+        el("ha-icon", { icon: file.mimetype.startsWith("image/") ? "mdi:image-outline" : "mdi:paperclip" }),
+        el("span", {}, `${file.filename} · ${Math.max(1, Math.round(file.size / 1024))} KB`),
+        el("button", { class: "icon-btn", title: "Togli l'allegato", on: { click: () => { this._chatFile = { ...(this._chatFile || {}), [key]: null }; this._render(); } } },
+          el("ha-icon", { icon: "mdi:close" }))));
+    }
+    wrap.appendChild(el("div", { class: "wa-compose" },
+      picker,
+      el("button", { class: "icon-btn chat-attach", title: "Allega foto o file", disabled: busy, on: { click: () => picker.click() } },
+        el("ha-icon", { icon: "mdi:paperclip" })),
+      el("input", {
+        class: "input wa-reply-input", type: "text", "data-chat-input": key,
+        placeholder: file ? "Aggiungi un testo (facoltativo)" : "Scrivi un messaggio",
+        value: (this._chatText || {})[key] || "",
+        on: {
+          input: (event) => { this._chatText = { ...(this._chatText || {}), [key]: event.target.value }; },
+          keydown: (event) => { event.stopPropagation(); if (event.key === "Enter" && !busy) this._chatSend(key); },
+          keyup: (event) => event.stopPropagation(),
+          keypress: (event) => event.stopPropagation(),
+        },
+      }),
+      el("button", { class: "btn primary wa-send", title: "Invia", disabled: busy, on: { click: () => this._chatSend(key) } },
+        el("ha-icon", { icon: busy ? "mdi:loading" : "mdi:send" }))));
+    return wrap;
+  }
+
+  /**
+   * The WhatsApp chat with one number inside a card (3.5.0): the last
+   * messages, photos and files, and the box to answer.
+   */
+  _chatPanel(chatId, { empty = "Nessun messaggio ancora: scrivi qui sotto il primo." } = {}) {
+    this._chatVisible = true;
+    this._refreshWaChats();
+    const key = this._chatKeyOf(chatId);
+    const chat = this._chatOf(key);
+    const items = (chat && chat.messages) || [];
+    if (this._chatUnread(key)) this._markChatRead(key);
+    const limit = (this._chatShown || {})[key] || 20;
+    const box = el("div", { class: "chat-panel" });
+    const bubbles = el("div", { class: "wa-bubbles chat-bubbles" });
+    if (!this._waChats) bubbles.appendChild(el("div", { class: "empty small" }, "Caricamento…"));
+    else if (!items.length) bubbles.appendChild(el("div", { class: "empty small" }, empty));
+    if (items.length > limit) {
+      bubbles.appendChild(el("button", { class: "btn small wa-more", on: { click: () => {
+        this._chatShown = { ...(this._chatShown || {}), [key]: limit + 40 }; this._render();
+      } } }, `Messaggi precedenti (${items.length - limit})`));
+    }
+    items.slice(-limit).forEach((msg) => bubbles.appendChild(this._chatBubble(msg)));
+    box.appendChild(bubbles);
+    box.appendChild(this._chatCompose(key));
+    // The newest message in view.
+    setTimeout(() => { bubbles.scrollTop = bubbles.scrollHeight; }, 0);
+    return box;
+  }
+
+  _renderMediaView() {
+    const view = this._mediaView;
+    const close = () => { this._mediaView = null; this._render(); };
+    const isImage = (view.mimetype || "").startsWith("image/");
+    return el("div", { class: "detail-backdrop media-backdrop", on: { click: (event) => { if (event.target === event.currentTarget) close(); } } },
+      el("div", { class: "media-view" },
+        isImage ? el("img", { src: view.url, alt: view.filename || "Foto" })
+          : el("div", { class: "media-doc" }, el("ha-icon", { icon: "mdi:file-document-outline" }), el("b", {}, view.filename || "Allegato")),
+        el("div", { class: "row" },
+          el("a", { class: "btn small", href: view.url, download: view.filename || (isImage ? "foto.jpg" : "allegato"), "data-external": "1" },
+            el("ha-icon", { icon: "mdi:download" }), "Scarica"),
+          isImage ? null : el("a", { class: "btn small", href: view.url, target: "_blank", rel: "noopener", "data-external": "1" },
+            el("ha-icon", { icon: "mdi:open-in-new" }), "Apri"),
+          el("span", { class: "spacer" }),
+          el("button", { class: "btn small", on: { click: close } }, "Chiudi"))));
   }
 
   _waTime(value) {
@@ -11486,25 +11763,6 @@ class SpaBookingCard extends HTMLElement {
     this._waReplyTo = chatId;
     this._waReplyText = "";
     this._render();
-  }
-
-  _sendWaReply(chatId) {
-    const text = (this._waReplyText || "").trim();
-    if (!text) return;
-    this._waBusy = true;
-    this._call("send_external_message", { chat_id: chatId, text }).then(() => {
-      // The server keeps the reply in the conversation (2.3.5).
-      this._refreshWaChats(true);
-      this._waReplyTo = null;
-      this._waReplyText = "";
-      this._waBusy = false;
-      this._message = { kind: "ok", text: "Risposta inviata." };
-      this._render();
-    }).catch(() => {
-      this._waBusy = false;
-      this._message = { kind: "error", text: "Invio fallito." };
-      this._render();
-    });
   }
 
   _createRequestFromWhatsapp(chatId) {
@@ -13320,6 +13578,12 @@ class SpaBookingCard extends HTMLElement {
     columns.appendChild(left);
     columns.appendChild(right);
     box.appendChild(columns);
+    // The client's WhatsApp chat (3.5.0).
+    if (this._chatInCards() && client.phone && this._waChatIdOf(client.phone)) {
+      box.appendChild(el("div", { class: "cfg-box" },
+        el("div", { class: "who-title" }, el("ha-icon", { icon: "mdi:whatsapp" }), "Chat WhatsApp"),
+        this._chatPanel(this._waChatIdOf(client.phone))));
+    }
 
     return box;
   }
@@ -13776,6 +14040,8 @@ class SpaBookingCard extends HTMLElement {
         web_public_url: settings.web_public_url || "",
         web_show_prices: !!settings.web_show_prices,
         web_show_packages: settings.web_show_packages !== false,
+        whatsapp_tab: settings.whatsapp_tab !== false,
+        chat_in_cards: settings.chat_in_cards !== false,
         web_accent: settings.web_accent || "#0a84a8",
       };
       this._setBase = JSON.stringify(this._setDraft);
@@ -13880,6 +14146,15 @@ class SpaBookingCard extends HTMLElement {
             placeholder: this._config.title || "Gestione SPA",
             on: { input: (event) => { draft.card_title = event.target.value; changed(); } } })),
         el("div", { class: "dim small" }, "In testata, su tutti i dispositivi. Vuoto = il titolo della configurazione della card.")),
+      // WhatsApp (3.5.0): the tab in the menu and the chat in the cards.
+      el("div", { class: "cfg-box nt-panel" },
+        el("div", { class: "pg-step-head" }, el("span", { class: "nt-icon" }, el("ha-icon", { icon: "mdi:whatsapp" })),
+          el("span", { class: "pg-step-title" }, "Chat WhatsApp")),
+        ...[["whatsapp_tab", "Mostra la scheda WhatsApp nel menu in alto"],
+          ["chat_in_cards", "Mostra la chat nella scheda dell'appuntamento, del cliente e dell'operatrice"]].map(([key, label]) =>
+          el("label", { class: "nt-auto" }, el("input", { type: "checkbox", checked: draft[key] !== false,
+            on: { change: (event) => { draft[key] = event.target.checked; changed(); } } }), el("span", {}, label))),
+        el("div", { class: "dim small" }, "Nella chat si leggono messaggi, foto e file inviati e ricevuti, e si risponde con testo, foto o allegati. Nascondendo la scheda del menu le chat restano nelle schede; nascondendo tutto restano salvate ma non si vedono.")),
       el("div", { class: "cfg-box nt-panel" },
         el("div", { class: "pg-step-head" }, el("span", { class: "nt-icon" }, el("ha-icon", { icon: "mdi:information-outline" })),
           el("span", { class: "pg-step-title" }, "Versione del programma")),
@@ -20574,6 +20849,13 @@ class SpaBookingCard extends HTMLElement {
       wrap.appendChild(cols);
 
       add(wrap, this._saveRow("add_operator", "update_operator", "operator_id", "operatrice"));
+      // Her WhatsApp chat: offers, answers, and anything written by hand (3.5.0).
+      const opChat = this._editing.id && this._chatInCards() ? this._chatOfOperator(this._lookup.operator.get(this._editing.id)) : "";
+      if (opChat) {
+        wrap.appendChild(el("div", { class: "cfg-box" },
+          el("div", { class: "who-title" }, el("ha-icon", { icon: "mdi:whatsapp" }), `Chat WhatsApp con ${draft.name || "l'operatrice"}`),
+          this._chatPanel(opChat)));
+      }
       return wrap;
     }
 
@@ -22723,6 +23005,24 @@ class SpaBookingCard extends HTMLElement {
       .wa-compose { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--sb-line); }
       .wa-compose .input { flex: 1 1 auto; border-radius: 999px; }
       .wa-send { border-radius: 50%; width: 40px; height: 40px; padding: 0; justify-content: center; }
+      /* Chats in the cards, photos and files (3.5.0). */
+      .chat-panel { border: 1px solid var(--sb-line); border-radius: 12px; overflow: hidden; }
+      .chat-bubbles { max-height: 320px; }
+      .chat-sides { margin-bottom: 8px; }
+      .chat-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #25d366; margin-left: 6px; vertical-align: middle; box-shadow: 0 0 0 2px rgba(37,211,102,.25); }
+      .chat-img-wrap { display: block; }
+      .chat-img { display: block; max-width: 220px; max-height: 220px; border-radius: 8px; cursor: zoom-in; background: var(--sb-soft); min-width: 60px; min-height: 40px; object-fit: cover; }
+      .chat-file { all: unset; box-sizing: border-box; display: inline-flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; background: rgba(0,0,0,.05); cursor: pointer; font-size: 13px; max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
+      .chat-file ha-icon { --mdc-icon-size: 22px; flex: none; }
+      .chat-file.missing { cursor: default; opacity: .7; font-style: italic; }
+      .chat-attach { flex: none; }
+      .chat-pending { display: flex; align-items: center; gap: 8px; padding: 8px 12px 0; font-size: 13px; }
+      .chat-pending span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .media-backdrop { align-items: center; }
+      .media-view { background: var(--sb-card, #fff); border-radius: 14px; padding: 12px; max-width: min(92vw, 1000px); max-height: 92vh; display: flex; flex-direction: column; gap: 10px; }
+      .media-view img { max-width: 100%; max-height: 78vh; object-fit: contain; border-radius: 8px; }
+      .media-doc { display: flex; align-items: center; gap: 12px; padding: 30px 20px; }
+      .media-doc ha-icon { --mdc-icon-size: 40px; }
       .wa-conv .wa-actions { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 12px 12px; }
       @media (max-width: 720px) {
         .wa-shell { grid-template-columns: 1fr; }

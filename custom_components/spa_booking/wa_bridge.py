@@ -394,6 +394,34 @@ class WaBridge:
             },
         )
 
+    async def async_send_file(
+        self, chat_id: str, data: bytes, *, mimetype: str, filename: str, caption: str = ""
+    ) -> dict[str, Any]:
+        """A photo (as a picture) or any other file (as a document), 3.5.0."""
+        if mimetype.startswith("image/") and mimetype != "image/svg+xml":
+            return await self.async_send_image(chat_id, data, caption=caption, filename=filename, mimetype=mimetype)
+        if not chat_id:
+            return {"sent": False, "error": "nessun destinatario"}
+        return await self._call("POST", "/send/document", json={
+            "chat_id": chat_id, "data": base64.b64encode(data).decode("ascii"),
+            "mimetype": mimetype, "filename": filename, "caption": caption,
+        })
+
+    async def async_fetch_media(self, media: dict[str, Any]) -> tuple[bytes, str] | None:
+        """The bytes of a received photo or file, kept by the program for a while."""
+        media_id = str(media.get("id") or "")
+        if not media_id or not self.running or self._session is None:
+            return None
+        try:
+            async with self._session.get(
+                f"{self._base}/media", params={"id": media_id}, headers=self._headers, timeout=CALL_TIMEOUT
+            ) as response:
+                if response.status != 200:
+                    return None
+                return await response.read(), response.content_type or str(media.get("mimetype") or "")
+        except (ClientError, TimeoutError):
+            return None
+
     async def async_resolve_lid(self, lid: str) -> str | None:
         """The phone chat id behind a LID, when the session knows it."""
         result = await self._call("GET", "/lid", params={"lid": lid})
