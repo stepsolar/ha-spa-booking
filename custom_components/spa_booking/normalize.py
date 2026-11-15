@@ -22,6 +22,7 @@ from .const import (
     DEFAULT_QUIET_HOURS_START,
     KEY_VOUCHERS,
     KEY_PROMO_VOUCHERS,
+    KEY_SITE_CONTACTS,
     KEY_PARTNERS,
     DEFAULT_LOYALTY_POINTS_PER_EURO,
     DEFAULT_LOYALTY_THRESHOLD,
@@ -125,6 +126,7 @@ from .exceptions import (
 )
 from . import messaging
 from .poster import norm_poster
+from .site_contacts import norm_contact
 
 
 
@@ -298,6 +300,12 @@ def _norm_promo_voucher(raw: Any) -> dict[str, Any]:
         "partner_id": str(raw.get("partner_id") or "").strip(),
         "manual": bool(raw.get("manual", False)),
         "by": str(raw.get("by") or "").strip(),
+        # 3.3.0: a newsletter discount code of the shop (Coupon Box).
+        "source": str(raw.get("source") or "").strip(),
+        "email": str(raw.get("email") or "").strip().lower(),
+        "wp_code": str(raw.get("wp_code") or "").strip(),
+        "wp_used": bool(raw.get("wp_used", False)),
+        "wp_error": str(raw.get("wp_error") or ""),
     }
 
 
@@ -1075,6 +1083,18 @@ def _norm_settings(raw: dict[str, Any]) -> dict[str, Any]:
         "wp_last_sync": str(raw.get("wp_last_sync") or ""),
         "wp_last_error": str(raw.get("wp_last_error") or ""),
         "wp_last_result": str(raw.get("wp_last_result") or ""),
+        # The people of the site (3.3.0).
+        "site_coupon_prefix": str(raw.get("site_coupon_prefix") if raw.get("site_coupon_prefix") is not None else "welcome").strip()[:30],
+        "site_last_sync": str(raw.get("site_last_sync") or ""),
+        "site_last_error": str(raw.get("site_last_error") or ""),
+        "site_last_result": str(raw.get("site_last_result") or ""),
+        "site_campaign_subject": str(raw.get("site_campaign_subject") or "Un momento di relax per te 🌿"),
+        "site_campaign_message": str(raw.get("site_campaign_message") or (
+            "Ciao {nome},\n\nti aspettiamo in spa per qualche ora di puro relax: piscina riscaldata, "
+            "sauna, bagno turco e massaggi.\n\nPrenota online in un minuto: {link_prenota}\n\nA presto!")),
+        "site_campaign_groups": [g for g in (raw.get("site_campaign_groups") or ["newsletter", "shop"])
+                                 if g in ("newsletter", "shop", "web", "coupon")],
+        "site_campaign_last": raw.get("site_campaign_last") if isinstance(raw.get("site_campaign_last"), dict) else {},
         # Billing data (2.5.2): the company printed on receipts.
         "billing_company": str(raw.get("billing_company") or "").strip(),
         "billing_vat_number": str(raw.get("billing_vat_number") or "").strip(),
@@ -1894,6 +1914,8 @@ def _norm_request(raw: dict[str, Any]) -> dict[str, Any]:
         # A gift voucher the guest mentioned, or an outside one the desk will
         # check. Old requests carry no key and simply have none.
         "voucher_code": str(raw.get("voucher_code") or "").strip().upper()[:64],
+        # «Voglio ricevere le offerte» on the website form (3.3.0).
+        "marketing": bool(raw.get("marketing", False)),
         "guest_type": _norm_guest_type(raw.get("guest_type")),
         "status": status,
         # Where the request came from, and whether the desk has opened it yet.
@@ -2090,6 +2112,7 @@ def _normalise(raw: dict[str, Any]) -> dict[str, Any]:
         ],
         KEY_REQUESTS: [_norm_request(r) for r in raw.get(KEY_REQUESTS) or []],
         KEY_PARTNERS: [_norm_partner(p) for p in raw.get(KEY_PARTNERS) or []],
+        KEY_SITE_CONTACTS: [norm_contact(c) for c in raw.get(KEY_SITE_CONTACTS) or [] if isinstance(c, dict)],
         KEY_SETTINGS: _norm_settings(raw.get(KEY_SETTINGS) or {}),
     }
 
@@ -2158,6 +2181,7 @@ def default_data(operator_names: list[str] | None = None) -> dict[str, Any]:
         KEY_VOUCHERS: [],
         KEY_PROMO_VOUCHERS: [],
         KEY_PARTNERS: [],
+        KEY_SITE_CONTACTS: [],
         KEY_SETTINGS: default_settings(),
     }
 

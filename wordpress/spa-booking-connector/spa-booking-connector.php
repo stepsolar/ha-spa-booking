@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: Spa Booking Connector
- * Description: Collega lo shop WooCommerce («Buoni PDF») a Spa Booking su Home Assistant: invia i voucher venduti e segna come riscattati quelli usati in spa.
- * Version: 1.1.0
+ * Description: Collega il sito a Spa Booking: voucher venduti con «Buoni PDF» (riscattati in spa), iscritti alla newsletter, clienti dello shop e codici sconto della newsletter.
+ * Version: 1.2.0
  * Author: Spa Booking
  * Requires PHP: 7.4
  * Text Domain: spa-booking-connector
@@ -13,7 +13,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Spa_Booking_Connector {
-	const VERSION   = '1.1.0';
+	const VERSION   = '1.2.0';
 	const OPTION    = 'spa_booking_connector';
 	const NAMESPACE = 'spa-booking/v1';
 
@@ -80,6 +80,9 @@ final class Spa_Booking_Connector {
 		register_rest_route( self::NAMESPACE, '/products', array( 'methods' => 'GET', 'callback' => array( __CLASS__, 'products' ), 'permission_callback' => $auth ) );
 		register_rest_route( self::NAMESPACE, '/vouchers', array( 'methods' => 'GET', 'callback' => array( __CLASS__, 'vouchers' ), 'permission_callback' => $auth ) );
 		register_rest_route( self::NAMESPACE, '/redeem', array( 'methods' => 'POST', 'callback' => array( __CLASS__, 'redeem' ), 'permission_callback' => $auth ) );
+		// 1.2.0: the people of the site and the newsletter discount codes.
+		register_rest_route( self::NAMESPACE, '/contacts', array( 'methods' => 'GET', 'callback' => array( __CLASS__, 'contacts' ), 'permission_callback' => $auth ) );
+		register_rest_route( self::NAMESPACE, '/coupon-use', array( 'methods' => 'POST', 'callback' => array( __CLASS__, 'coupon_use' ), 'permission_callback' => $auth ) );
 		register_rest_route( self::NAMESPACE, '/diag', array( 'methods' => 'GET', 'callback' => array( __CLASS__, 'diag' ), 'permission_callback' => $auth ) );
 	}
 
@@ -99,6 +102,7 @@ final class Spa_Booking_Connector {
 			'version'     => self::VERSION,
 			'woocommerce' => class_exists( 'WooCommerce' ),
 			'buoni_pdf'   => self::vou_active(),
+			'newsletter'  => self::newsletter_table() !== '',
 			'site'        => get_bloginfo( 'name' ),
 		);
 	}
@@ -220,6 +224,163 @@ final class Spa_Booking_Connector {
 			$meta[ $key ] = maybe_unserialize( $values[0] );
 		}
 		return array( 'found' => true, 'id' => $post->ID, 'status' => $post->post_status, 'parent' => $post->post_parent, 'meta' => $meta );
+	}
+
+	/* ------------------------------------------------- contacts (1.2.0) */
+
+	/**
+	 * The people of the site: newsletter subscribers («Newsletter» plugin),
+	 * the shop's buyers (from the orders) and the newsletter discount codes
+	 * (coupons tied to one e-mail whose code starts with `prefix`).
+	 */
+	public static function contacts( WP_REST_Request $request ) {
+		$prefix = strtolower( trim( (string) ( $request->get_param( 'prefix' ) ?? 'welcome' ) ) );
+		return array(
+			'newsletter' => self::newsletter_people(),
+			'buyers'     => self::buyers(),
+			'coupons'    => self::newsletter_coupons( $prefix ),
+			'prefix'     => $prefix,
+		);
+	}
+
+	private static function newsletter_table() {
+		global $wpdb;
+		$table = $wpdb->prefix . 'newsletter';
+		return $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) === $table ? $table : '';
+	}
+
+	private static function newsletter_people() {
+		global $wpdb;
+		$table = self::newsletter_table();
+		if ( '' === $table ) {
+			return array();
+		}
+		// The phone is one of the profile fields, if the form asked for it.
+		$phone_col = '';
+		$profile   = get_option( 'newsletter_profile', array() );
+		if ( is_array( $profile ) ) {
+			for ( $i = 1; $i <= 20; $i++ ) {
+				$label = strtolower( (string) ( $profile[ 'profile_' . $i ] ?? '' ) );
+				if ( '' !== $label && preg_match( '/tel|cell|phone|whats/', $label ) ) {
+					$phone_col = 'profile_' . $i;
+					break;
+				}
+			}
+		}
+		$columns = $wpdb->get_col( "SHOW COLUMNS FROM `$table`", 0 );
+		$fields  = array( 'email', 'name', 'surname', 'status', 'created' );
+		if ( $phone_col && in_array( $phone_col, $columns, true ) ) {
+			$fields[] = $phone_col;
+		}
+		$fields = array_values( array_intersect( $fields, $columns ) );
+		$rows   = $wpdb->get_results( 'SELECT `' . implode( '`,`', $fields ) . "` FROM `$table` ORDER BY id DESC LIMIT 20000", ARRAY_A );
+		$out    = array();
+		foreach ( (array) $rows as $row ) {
+			$email = sanitize_email( $row['email'] ?? '' );
+			if ( '' === $email ) {
+				continue;
+			}
+			$out[] = array(
+				'email'   => $email,
+				'first'   => (string) ( $row['name'] ?? '' ),
+				'last'    => (string) ( $row['surname'] ?? '' ),
+				'phone'   => $phone_col ? (string) ( $row[ $phone_col ] ?? '' ) : '',
+				// C = confirmed, S = not confirmed yet, U = unsubscribed, B = bounced, P = complained.
+				'status'  => (string) ( $row['status'] ?? '' ),
+				'created' => (string) ( $row['created'] ?? '' ),
+			);
+		}
+		return $out;
+	}
+
+	private static function buyers() {
+		if ( ! function_exists( 'wc_get_orders' ) ) {
+			return array();
+		}
+		$by = array();
+		$page = 1;
+		do {
+			$orders = wc_get_orders( array(
+				'limit'   => 200,
+				'paged'   => $page,
+				'status'  => array( 'processing', 'completed', 'on-hold', 'refunded' ),
+				'orderby' => 'date',
+				'order'   => 'ASC',
+				'type'    => 'shop_order',
+			) );
+			foreach ( $orders as $order ) {
+				$email = strtolower( sanitize_email( $order->get_billing_email() ) );
+				if ( '' === $email ) {
+					continue;
+				}
+				$paid = 'refunded' === $order->get_status() ? 0.0 : (float) $order->get_total() - (float) $order->get_total_refunded();
+				$when = $order->get_date_created() ? $order->get_date_created()->date( 'c' ) : '';
+				if ( ! isset( $by[ $email ] ) ) {
+					$by[ $email ] = array( 'email' => $email, 'orders' => 0, 'total' => 0.0, 'first_order' => $when );
+				}
+				$by[ $email ]['first']      = $order->get_billing_first_name() ?: ( $by[ $email ]['first'] ?? '' );
+				$by[ $email ]['last']       = $order->get_billing_last_name() ?: ( $by[ $email ]['last'] ?? '' );
+				$by[ $email ]['phone']      = $order->get_billing_phone() ?: ( $by[ $email ]['phone'] ?? '' );
+				$by[ $email ]['orders']    += 1;
+				$by[ $email ]['total']     += max( 0.0, $paid );
+				$by[ $email ]['last_order'] = $when;
+			}
+			$page++;
+		} while ( count( $orders ) === 200 && $page < 200 );
+		foreach ( $by as &$row ) {
+			$row['total'] = round( $row['total'], 2 );
+		}
+		unset( $row );
+		return array_values( $by );
+	}
+
+	private static function newsletter_coupons( $prefix ) {
+		$ids = get_posts( array( 'post_type' => 'shop_coupon', 'post_status' => 'publish', 'posts_per_page' => -1, 'fields' => 'ids' ) );
+		$out = array();
+		foreach ( $ids as $id ) {
+			$coupon = new WC_Coupon( $id );
+			$code   = (string) $coupon->get_code();
+			$emails = (array) $coupon->get_email_restrictions();
+			if ( '' === $code || 1 !== count( $emails ) || ( '' !== $prefix && 0 !== strpos( strtolower( $code ), $prefix ) ) ) {
+				continue;
+			}
+			$expires = $coupon->get_date_expires();
+			$limit   = (int) $coupon->get_usage_limit();
+			$per     = (int) $coupon->get_usage_limit_per_user();
+			$count   = (int) $coupon->get_usage_count();
+			$out[]   = array(
+				'id'         => $id,
+				'code'       => $code,
+				'email'      => strtolower( (string) reset( $emails ) ),
+				'type'       => $coupon->get_discount_type(),
+				'amount'     => (float) $coupon->get_amount(),
+				'min_amount' => (float) $coupon->get_minimum_amount(),
+				'expires'    => $expires ? $expires->date( 'Y-m-d' ) : '',
+				'created'    => $coupon->get_date_created() ? $coupon->get_date_created()->date( 'c' ) : '',
+				'used'       => $count > 0 && ( $count >= max( 1, $limit ?: $per ?: 1 ) ),
+				'used_count' => $count,
+			);
+		}
+		return $out;
+	}
+
+	/** The desk used a newsletter code in the spa: it cannot be used again on the shop. */
+	public static function coupon_use( WP_REST_Request $request ) {
+		$code = trim( (string) $request->get_param( 'code' ) );
+		$id   = $code ? wc_get_coupon_id_by_code( $code ) : 0;
+		if ( ! $id ) {
+			return new WP_Error( 'not_found', 'Codice sconto non trovato', array( 'status' => 404 ) );
+		}
+		$coupon = new WC_Coupon( $id );
+		if ( $coupon->get_usage_count() > 0 ) {
+			return array( 'ok' => true, 'already' => true );
+		}
+		$emails = (array) $coupon->get_email_restrictions();
+		$coupon->increase_usage( $emails ? (string) reset( $emails ) : '' );
+		$note = trim( (string) $request->get_param( 'note' ) );
+		$coupon->set_description( trim( $coupon->get_description() . "\nUsato in spa (Spa Booking) " . current_time( 'mysql' ) . ( $note ? ' · ' . $note : '' ) ) );
+		$coupon->save();
+		return array( 'ok' => true, 'code' => $code );
 	}
 
 	/* --------------------------------------------------------- Buoni PDF */

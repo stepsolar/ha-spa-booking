@@ -8,6 +8,7 @@ must not unsubscribe anybody by themselves.
 from __future__ import annotations
 
 import html
+import secrets
 
 from aiohttp import web
 
@@ -92,3 +93,41 @@ class PartnerQrView(HomeAssistantView):
             return web.Response(status=404, text="Not found")
         return web.Response(body=coordinator.partner_qr_png(partner), content_type="image/png",
                             headers={"Cache-Control": "public, max-age=86400"})
+
+
+SITE_UNSUB_PATH = "/api/spa_booking/site/unsubscribe"
+
+
+class SiteUnsubscribeView(HomeAssistantView):
+    """The people of the site stop the offers (3.3.0): GET asks, POST does it."""
+
+    url = SITE_UNSUB_PATH
+    name = "api:spa_booking:site_unsubscribe"
+    requires_auth = False
+
+    def _contact(self, request: web.Request) -> tuple[object, dict | None, str]:
+        coordinator = request.app[KEY_HASS].data.get(DOMAIN)
+        token = str(request.query.get("t") or "")
+        contact = None
+        if coordinator is not None and len(token) >= 16:
+            contact = next((c for c in coordinator.site_contacts if secrets.compare_digest(str(c.get("unsub_token") or ""), token)), None)
+        return coordinator, contact, token
+
+    async def get(self, request: web.Request) -> web.Response:
+        _coordinator, contact, token = self._contact(request)
+        if contact is None:
+            return _page("⚠️", "Link non valido", "Questo link di cancellazione non è più valido.", status=404)
+        if contact.get("unsubscribed"):
+            return _page("✅", "Iscrizione già cancellata", "Non riceverai più le nostre email con offerte e novità.")
+        form = (f'<form method="post" action="{SITE_UNSUB_PATH}?t={html.escape(token)}">'
+                '<button type="submit">Non voglio più ricevere email</button></form>')
+        return _page("✉️", "Cancella l'iscrizione", "Confermi di non voler più ricevere le nostre email con offerte e novità?", form)
+
+    async def post(self, request: web.Request) -> web.Response:
+        coordinator, _contact, token = self._contact(request)
+        if coordinator is None:
+            return web.Response(status=404, text="Not found")
+        contact = await coordinator.async_site_unsubscribe(token)
+        if contact is None:
+            return _page("⚠️", "Link non valido", "Questo link di cancellazione non è più valido.", status=404)
+        return _page("✅", "Iscrizione cancellata", "Fatto: non riceverai più le nostre email con offerte e novità.")

@@ -42,7 +42,7 @@ from aiohttp import web
 from homeassistant.components.http import KEY_HASS, HomeAssistantView
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN, REQUEST_SOURCE_WEB, VOUCHER_ACTIVE, WEB_API_BASE
+from .const import DOMAIN, PROMO_VOUCHER_REDEEMED, REQUEST_SOURCE_WEB, VOUCHER_ACTIVE, WEB_API_BASE
 from .coordinator import SpaBookingCoordinator
 from .normalize import _norm_clock, _norm_date
 from .exceptions import SpaBookingError, ValidationError
@@ -290,6 +290,18 @@ class SpaBookingPublicTreatmentsView(_PublicView):
             if not code:
                 return self.json({"treatments": items, "site": site})
 
+            # A newsletter discount code (3.3.0): the percentage, the minimum
+            # spend and the last day, never whose code it is.
+            promo = next((v for v in coordinator.promo_vouchers
+                          if v.get("source") == "newsletter" and v["code"] == code), None)
+            if promo is not None:
+                if promo["status"] == PROMO_VOUCHER_REDEEMED or coordinator.promo_voucher_payload(promo)["expired"]:
+                    raise ValidationError(f"Il voucher {code} non è valido")
+                return self.json({"treatments": items, "site": site, "discount": {
+                    "code": code, "percent": promo.get("discount_percent") or 0,
+                    "min_spend": promo.get("min_spend") or 0, "expires_on": promo.get("expires_on") or "",
+                }})
+
             voucher = next(
                 (v for v in coordinator.vouchers if str(v.get("code") or "").upper() == code),
                 None,
@@ -480,6 +492,8 @@ class SpaBookingPublicRequestView(_PublicView):
                 else "",
                 # The partner's code from the link the guest came with (2.5.0).
                 partner=str(data.get("partner_code") or "").strip()[:20],
+                # «Voglio ricevere le offerte» (3.3.0).
+                marketing=bool(data.get("marketing")),
             )
             # The payload carries the guest's own card back; the site only
             # needs what it can show as a receipt.
