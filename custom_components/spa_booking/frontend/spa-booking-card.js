@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "3.8.1";
+const CARD_VERSION = "3.9.0";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -14355,7 +14355,8 @@ class SpaBookingCard extends HTMLElement {
         category_ids: [...(data.category_ids || [])],
         status: data.status || "publish", stock_status: data.stock_status || "instock",
         stock_quantity: data.stock_quantity == null ? "" : String(data.stock_quantity),
-        variations: (data.variations || []).map((v) => ({ id: v.id, name: v.name, regular_price: plain(v.regular_price), sale_price: plain(v.sale_price) })),
+        variations: (data.variations || []).map((v) => ({ id: v.id, name: v.name, sku: v.sku || "", regular_price: plain(v.regular_price), sale_price: plain(v.sale_price),
+          stock_status: v.stock_status || "instock", enabled: v.enabled !== false })),
       } };
     } catch (error) {
       this._wpProduct = null;
@@ -14406,11 +14407,23 @@ class SpaBookingCard extends HTMLElement {
         on: { click: () => { draft.category_ids = chosen.has(c.id) ? draft.category_ids.filter((id) => id !== c.id) : [...draft.category_ids, c.id]; this._render(); } },
       }, chosen.has(c.id) ? el("ha-icon", { icon: "mdi:check" }) : null, c.name))) : el("span", { class: "dim small" }, "Nessuna categoria nello shop.")));
     if (variable) {
-      sheet.appendChild(el("div", { class: "field" }, el("span", {}, "Prezzi delle varianti (€)"),
-        el("div", { class: "wpp-vars" }, draft.variations.map((v) => el("div", { class: "wpp-var" },
-          el("span", { class: "grow" }, v.name || `Variante ${v.id}`),
-          el("input", { class: "input", inputmode: "decimal", value: v.regular_price, placeholder: "Prezzo", on: { input: (event) => { v.regular_price = event.target.value; } } }),
-          el("input", { class: "input", inputmode: "decimal", value: v.sale_price, placeholder: "In offerta", on: { input: (event) => { v.sale_price = event.target.value; } } }))))));
+      // Each variation: enabled or not (WooCommerce's «Abilitata»), its stock and prices (3.9.0).
+      const off = draft.variations.filter((v) => !v.enabled).length;
+      sheet.appendChild(el("div", { class: "field" },
+        el("span", {}, `Varianti (${draft.variations.length}${off ? `, ${off} disattivat${off === 1 ? "a" : "e"}` : ""})`),
+        draft.variations.length ? el("div", { class: "wpp-vars" }, draft.variations.map((v) => el("div", { class: `wpp-var${v.enabled ? "" : " off"}` },
+          el("div", { class: "wpp-var-name" },
+            el("b", {}, v.name || `Variante ${v.id}`),
+            el("span", { class: "shop-prod-cats" },
+              el("span", { class: `pm-chip ${v.enabled ? "ok" : ""}` }, v.enabled ? "Attiva" : "Disattivata"),
+              this._wpStockPill(v.stock_status),
+              v.sku ? el("span", { class: "dim small" }, `SKU ${v.sku}`) : null)),
+          el("label", { class: "check wpp-var-on", title: "Abilitata: si può acquistare sul sito" },
+            el("input", { type: "checkbox", checked: v.enabled, on: { change: (event) => { v.enabled = event.target.checked; this._render(); } } }), "Attiva"),
+          el("input", { class: "input", inputmode: "decimal", value: v.regular_price, placeholder: "Prezzo", title: "Prezzo (€)", on: { input: (event) => { v.regular_price = event.target.value; } } }),
+          el("input", { class: "input", inputmode: "decimal", value: v.sale_price, placeholder: "In offerta", title: "Prezzo in offerta (€)", on: { input: (event) => { v.sale_price = event.target.value; } } }))))
+          : el("span", { class: "dim small" }, "Nessuna variante."),
+        el("span", { class: "dim small" }, "Una variante disattivata non si vede e non si compra sul sito (in WooCommerce: «Abilitata»).")));
     } else {
       sheet.appendChild(el("div", { class: "row wpp-prices" },
         field("Prezzo (€)", "regular_price", { inputmode: "decimal", placeholder: "es. 50" }),
@@ -14435,8 +14448,13 @@ class SpaBookingCard extends HTMLElement {
       if (variable) {
         const rows = draft.variations.filter((v) => {
           const old = (data.variations || []).find((o) => o.id === v.id) || {};
-          return plain(v.regular_price) !== plain(old.regular_price) || plain(v.sale_price) !== plain(old.sale_price);
-        }).map((v) => ({ id: v.id, regular_price: v.regular_price.trim().replace(",", "."), sale_price: v.sale_price.trim().replace(",", ".") }));
+          return plain(v.regular_price) !== plain(old.regular_price) || plain(v.sale_price) !== plain(old.sale_price) || v.enabled !== (old.enabled !== false);
+        }).map((v) => {
+          const old = (data.variations || []).find((o) => o.id === v.id) || {};
+          const row = { id: v.id, regular_price: v.regular_price.trim().replace(",", "."), sale_price: v.sale_price.trim().replace(",", ".") };
+          if (v.enabled !== (old.enabled !== false)) row.enabled = v.enabled;
+          return row;
+        });
         if (rows.length) changes.variations = rows;
       }
       if (!Object.keys(changes).length) { close(); return; }
@@ -17976,11 +17994,14 @@ class SpaBookingCard extends HTMLElement {
         stChip("draft", "Bozze", stCount((p) => p.status === "draft")),
         stChip("pending", "In revisione", stCount((p) => p.status === "pending")),
         stChip("private", "Privati", stCount((p) => p.status === "private")),
-        stChip("outofstock", "Esauriti", stCount((p) => p.stock_status === "outofstock"))));
+        stChip("outofstock", "Esauriti", stCount((p) => (p.variation_stock_status || p.stock_status) === "outofstock")),
+        stCount((p) => p.variation_id && p.enabled === false)
+          ? stChip("disabled", "Varianti disattivate", stCount((p) => p.variation_id && p.enabled === false)) : null));
       const shown = products.filter((p) => {
         const entry = draft.wp_product_map[p.key] || {};
         if (onlyFree && isPaired(p.key)) return false;
-        if (stFilter === "outofstock" ? p.stock_status !== "outofstock" : stFilter && (p.status || "publish") !== stFilter) return false;
+        if (stFilter === "disabled") { if (!(p.variation_id && p.enabled === false)) return false; }
+        else if (stFilter === "outofstock" ? (p.variation_stock_status || p.stock_status) !== "outofstock" : stFilter && (p.status || "publish") !== stFilter) return false;
         if (shopCat === "none" && (p.categories || []).length) return false;
         if (shopCat !== "" && shopCat !== "none" && !(p.categories || []).some((c) => String(c.id) === String(shopCat))) return false;
         return !query || [p.name, p.parent_name, p.sku, ...(p.categories || []).map((c) => c.name)].join(" ").toLowerCase().includes(query);
@@ -18006,7 +18027,12 @@ class SpaBookingCard extends HTMLElement {
               el("button", { type: "button", class: "shop-prod-open", title: "Apri la scheda del prodotto", on: { click: () => this._openWpProduct(product.product_id) } },
                 el("b", {}, product.name || product.parent_name), el("ha-icon", { icon: "mdi:pencil-outline" })),
               el("span", { class: "dim small" }, [product.sku, product.price != null ? euro(product.price) : "", product.voucher ? "voucher" : ""].filter(Boolean).join(" · ")),
-              el("span", { class: "shop-prod-cats" }, this._wpStatePill(product.status), this._wpStockPill(product.stock_status)),
+              el("span", { class: "shop-prod-cats" }, this._wpStatePill(product.status),
+                // A variation: enabled or not, and its own stock (plugin 1.6.0).
+                product.variation_id ? el("span", { class: `pm-chip ${product.enabled === false ? "bad" : ""}`,
+                  title: product.enabled === false ? "Non si vede e non si compra sul sito" : "Variante attiva sul sito" },
+                  product.enabled === false ? "Variante disattivata" : "Variante attiva") : null,
+                this._wpStockPill(product.variation_stock_status || product.stock_status)),
               (product.categories || []).length ? el("span", { class: "shop-prod-cats" },
                 product.categories.map((c) => el("span", { class: "pm-chip" }, c.name))) : null),
             el("div", { class: "shop-people" }, el("span", { class: "dim small" }, "Persone"),
@@ -23374,8 +23400,11 @@ class SpaBookingCard extends HTMLElement {
         .wpo-row .wpo-who { grid-column: 1 / -1; grid-row: 2; }
         .wpo-row .pm-chip { justify-self: start; }
       }
-      .wpp-var { display: flex; gap: 8px; align-items: center; }
+      .wpp-var { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 8px 0; border-bottom: 1px solid var(--sb-line, rgba(0,0,0,.06)); }
       .wpp-var .input { width: 110px; }
+      .wpp-var-name { flex: 1 1 220px; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+      .wpp-var-on { white-space: nowrap; }
+      .wpp-var.off .wpp-var-name b { color: var(--secondary-text-color); text-decoration: line-through; text-decoration-thickness: 1px; }
       /* Chats in the cards, photos and files (3.5.0). */
       .chat-panel { border: 1px solid var(--sb-line); border-radius: 12px; overflow: hidden; }
       .chat-bubbles { max-height: 320px; }

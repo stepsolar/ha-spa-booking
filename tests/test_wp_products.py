@@ -80,3 +80,16 @@ def test_orders_status_and_vouchers(coordinator, monkeypatch) -> None:
         run(coordinator.async_wp_order_update(10208))
     run(coordinator.async_wp_order_update(10208, status="completed", note="Verificato in reception"))
     assert sent[0]["status"] == "completed" and sent[0]["note"] == "Verificato in reception"
+
+
+def test_variation_enabled_is_kept() -> None:
+    """3.9.0: a disabled variation (plugin 1.6.0) stays disabled; old plugins mean enabled."""
+    from custom_components.spa_booking.normalize import _norm_settings
+
+    settings = _norm_settings({"wp_products": [
+        {"product_id": 4097, "variation_id": 5118, "name": "senza kit", "enabled": False, "variation_stock_status": "outofstock"},
+        {"product_id": 4097, "variation_id": 5117, "name": "con kit"},
+    ]})
+    off, on = settings["wp_products"]
+    assert off["enabled"] is False and off["variation_stock_status"] == "outofstock"
+    assert on["enabled"] is True and on["variation_stock_status"] == ""

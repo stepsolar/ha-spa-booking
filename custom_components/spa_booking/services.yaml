@@ -1713,7 +1713,8 @@ wp_product_update:
       selector:
         object:
     variations:
-      name: Prezzi delle varianti
+      name: Varianti (prezzi e attivazione)
+      description: "Elenco di varianti: id, regular_price, sale_price, stock_status, enabled (true/false)."
       selector:
         object:
 

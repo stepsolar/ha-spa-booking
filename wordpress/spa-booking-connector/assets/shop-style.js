@@ -7,7 +7,8 @@
 	'use strict';
 
 	var form = document.querySelector('.sbc-style form.cart');
-	if (!form) { return; }
+	if (!form || form.getAttribute('data-sbc-ready')) { return; } // once only
+	form.setAttribute('data-sbc-ready', '1');
 
 	var variations = [];
 	try { variations = JSON.parse(form.getAttribute('data-product_variations') || '[]') || []; } catch (e) { variations = []; }
@@ -31,6 +32,7 @@
 	/* -------------------------------------------- step 1: the formula */
 
 	var table = form.querySelector('table.variations');
+	var syncs = []; // re-run after WooCommerce rebuilds the options
 	if (table) {
 		table.parentNode.insertBefore(step('Scegli la formula', 'sbc-step-formula'), table);
 		var selects = table.querySelectorAll('select');
@@ -74,13 +76,29 @@
 			});
 			sel.classList.add('sbc-hidden');
 			sel.parentNode.insertBefore(box, sel);
+			// Only what can be bought: WooCommerce leaves in the select just the
+			// options of enabled, purchasable variations (a disabled one, «Abilitata»
+			// off, is not in data-product_variations either).
+			function sellable(value) {
+				var opt = Array.prototype.filter.call(sel.options, function (o) { return o.value === value; })[0];
+				if (!opt || opt.disabled) { return false; }
+				if (single && variations.length) {
+					return variations.some(function (x) {
+						return (x.attributes[name] === value || x.attributes[name] === '') && x.variation_is_active !== false && x.variation_is_visible !== false;
+					});
+				}
+				return true;
+			}
 			function sync() {
 				box.querySelectorAll('.sbc-opt').forEach(function (b) {
-					var on = b.getAttribute('data-value') === sel.value;
+					var value = b.getAttribute('data-value');
+					var on = value === sel.value;
+					b.hidden = !sellable(value);
 					b.classList.toggle('on', on);
 					b.setAttribute('aria-pressed', on ? 'true' : 'false');
 				});
 			}
+			syncs.push(sync);
 			$(sel).on('change', sync);
 			sync();
 		});
@@ -197,6 +215,7 @@
 		pending = false;
 		observer.disconnect();
 		decorate();
+		syncs.forEach(function (fn) { fn(); });
 		paint();
 		observer.observe(form, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class'] });
 	}
@@ -209,7 +228,7 @@
 
 	$(form).on('found_variation', function (e, v) { current = v; schedule(); });
 	$(form).on('reset_data hide_variation', function () { current = null; schedule(); });
-	$(form).on('show_variation', schedule);
+	$(form).on('show_variation woocommerce_update_variation_values', schedule);
 	$(form).on('change input', 'input', schedule);
 	run();
 })(jQuery);
