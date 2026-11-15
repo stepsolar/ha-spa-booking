@@ -574,6 +574,17 @@ _WEEKDAYS = vol.All(
     cv.ensure_list, [vol.All(vol.Coerce(int), vol.Range(min=0, max=6))]
 )
 
+#: Capacity of a category (3.4.0): people at once, staggered entries.
+_CAPACITY_FIELDS = {
+    vol.Optional("capacity_max"): vol.Any(vol.All(vol.Coerce(int), vol.Range(min=0, max=1000)), None),
+    vol.Optional("entry_max"): vol.Any(vol.All(vol.Coerce(int), vol.Range(min=0, max=1000)), None),
+    vol.Optional("entry_minutes"): vol.Any(vol.All(vol.Coerce(int), vol.Range(min=5, max=240)), None),
+    vol.Optional("capacity_from"): vol.Any(cv.string, None),
+    vol.Optional("capacity_to"): vol.Any(cv.string, None),
+    vol.Optional("capacity_force"): vol.Any(cv.boolean, None),
+}
+_CAPACITY_KEYS = ("capacity_max", "entry_max", "entry_minutes", "capacity_from", "capacity_to", "capacity_force")
+
 ADD_CATEGORY_SCHEMA = vol.Schema(
     {
         vol.Required("name"): cv.string,
@@ -592,6 +603,7 @@ ADD_CATEGORY_SCHEMA = vol.Schema(
         vol.Optional("exclusive_with", default=list): vol.All(
             cv.ensure_list, [cv.string]
         ),
+        **_CAPACITY_FIELDS,
     }
 )
 
@@ -614,6 +626,7 @@ UPDATE_CATEGORY_SCHEMA = vol.Schema(
         vol.Optional("exclusive_with"): vol.Any(
             vol.All(cv.ensure_list, [cv.string]), None
         ),
+        **_CAPACITY_FIELDS,
     }
 )
 
@@ -2444,6 +2457,7 @@ async def _async_add_category(call: ServiceCall) -> ServiceResponse:
         afternoon_start=data.get("afternoon_start", ""),
         afternoon_end=data.get("afternoon_end", ""),
         exclusive_with=data["exclusive_with"],
+        capacity={k: data[k] for k in _CAPACITY_KEYS if data.get(k) is not None},
     )
     return {"category": category}
 
@@ -2465,6 +2479,7 @@ async def _async_update_category(call: ServiceCall) -> ServiceResponse:
         afternoon_start=data.get("afternoon_start"),
         afternoon_end=data.get("afternoon_end"),
         exclusive_with=data.get("exclusive_with"),
+        capacity={k: data[k] for k in _CAPACITY_KEYS if data.get(k) is not None},
     )
     return {"category": category}
 

@@ -447,6 +447,16 @@ def _norm_category(raw: dict[str, Any]) -> dict[str, Any]:
         # Other categories whose confirmed appointments must never overlap
         # this one. The rule is symmetric and enforced in both directions.
         "exclusive_with": norm_exclusive(),
+        # Capacity (3.4.0): how many people at the same time, and how many
+        # may start within ``entry_minutes`` (staggered entries); 0 = none.
+        # Optional window (HH:MM) of the start times the rules apply to, and
+        # whether the desk may book over them («Prenota comunque»).
+        "capacity_max": _norm_count(raw.get("capacity_max"), 0, 1000, 0),
+        "entry_max": _norm_count(raw.get("entry_max"), 0, 1000, 0),
+        "entry_minutes": _norm_count(raw.get("entry_minutes"), 5, 240, 15),
+        "capacity_from": norm_window("capacity_from"),
+        "capacity_to": norm_window("capacity_to"),
+        "capacity_force": bool(raw.get("capacity_force", False)),
     }
 
 
