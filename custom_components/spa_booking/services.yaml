@@ -2476,6 +2476,53 @@ send_partner_campaign:
       selector:
         text:
 
+send_chat_file:
+  name: Invia foto o file su WhatsApp
+  description: Invia un'immagine o un file in una chat WhatsApp (contenuto in base64).
+  fields:
+    chat_id:
+      name: Chat
+      required: true
+      selector:
+        text:
+    data:
+      name: File (base64)
+      required: true
+      selector:
+        text:
+    mimetype:
+      name: Tipo
+      selector:
+        text:
+    filename:
+      name: Nome del file
+      selector:
+        text:
+    text:
+      name: Didascalia
+      selector:
+        text:
+
+chat_media:
+  name: Allegato di una chat
+  description: Restituisce una foto o un file ricevuto o inviato in una chat WhatsApp.
+  fields:
+    media_id:
+      name: ID allegato
+      required: true
+      selector:
+        text:
+
+mark_chat_read:
+  name: Chat letta
+  description: Segna come letta una chat WhatsApp.
+  fields:
+    chat_id:
+      name: Chat
+      required: true
+      selector:
+        text:
+
 site_sync:
   name: Aggiorna i clienti del sito
   description: Legge dal sito iscritti alla newsletter, clienti dello shop e codici sconto della newsletter.

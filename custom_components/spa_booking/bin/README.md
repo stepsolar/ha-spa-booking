@@ -7,7 +7,7 @@ basati sulla libreria open source [whatsmeow](https://github.com/tulir/whatsmeow
 
 ```bash
 cd bridge
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=2.2.0b1" \
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=3.5.0" \
   -o ../custom_components/spa_booking/bin/spa-wa-bridge-linux-amd64 .
 ```
 
