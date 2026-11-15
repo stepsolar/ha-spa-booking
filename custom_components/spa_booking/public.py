@@ -254,7 +254,8 @@ class SpaBookingPublicTreatmentsView(_PublicView):
             visible = {item["id"] for item in items}
             accessories = {a.get("id"): a for a in coordinator.accessories if isinstance(a, dict)}
             packages = []
-            for package in coordinator.shop_packages(min_people=2):
+            # The whole section can be switched off (3.2.1).
+            for package in (coordinator.shop_packages(min_people=2) if settings.get("web_show_packages", True) else []):
                 # Hidden from the website in Configurazione › Pacchetti (2.8.11).
                 if package.get("hidden_web") or not set(package["treatment_ids"]) <= visible:
                     continue
@@ -436,7 +437,7 @@ class SpaBookingPublicRequestView(_PublicView):
                     item["therapist_preference"] = wish
                 # Part of a shop package the guest chose (2.8.9).
                 package_key = str(entry.get("package_key") or "")[:40]
-                if package_key and package_key in {
+                if package_key and coordinator._web_settings.get("web_show_packages", True) and package_key in {
                     p["key"] for p in coordinator.shop_packages(min_people=2) if not p.get("hidden_web")
                 }:
                     item["package_key"] = package_key
