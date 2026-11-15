@@ -1,6 +1,6 @@
 <p align="center"><img src="anteprime/logo.png" width="120" alt="Spa Booking"></p>
 
-# Spa Booking 3.7 — la guida completa
+# Spa Booking 3.8 — la guida completa
 
 Questa guida spiega **tutto quello che fa Spa Booking**, scheda per scheda:
 dalla prenotazione al banco al modulo del sito, dai messaggi WhatsApp ai
@@ -763,7 +763,7 @@ Booking da soli.
    iscritti alla newsletter, clienti dello shop e codici sconto della
    newsletter (Clienti › Sito); la **1.3.0** permette di modificare i
    prodotti da Spa Booking; la **1.4.0** aggiunge stato e disponibilità dei
-   prodotti e gli ordini.
+   prodotti e gli ordini; la **1.5.0** lo *Stile shop* (vedi sotto).
 2. In Configurazione › Shop online scrivi l'indirizzo del sito, premi
    **Nuova chiave** e copia chiave e indirizzo di notifica in WordPress ›
    WooCommerce › Spa Booking.
@@ -826,6 +826,38 @@ Toccando un ordine si apre la sua scheda:
 | | |
 |---|---|
 | ![Ordini del sito](anteprime/108-shop-ordini.png) | ![Scheda dell'ordine](anteprime/109-shop-ordine.png) |
+
+**Stile shop** (3.8, plugin 1.5.0): rifà lo shop e le schede prodotto del
+sito nello stile del tema, senza toccare il tema né i prodotti. Si attiva in
+WordPress › WooCommerce › Spa Booking › *Stile shop* › **Nuovo stile**;
+togliendo la spunta tutto torna come prima.
+
+- **Titolo** e **Sottotitolo** in cima allo shop.
+- **Categorie in alto**: una per riga, `slug-categoria|Etichetta` (per
+  esempio `rituali-romantici|Rituali di coppia`); diventano le linguette
+  sopra i prodotti e il «tipo» scritto sopra ogni nome.
+- **Prezzi «da»**: per i prodotti con varianti «da 80,00 €» invece di
+  «80,00 € – 100,00 €».
+- **Nota sotto il prezzo** per tutti i prodotti, e **Rassicurazioni** (una
+  per riga) sotto il pulsante del carrello.
+
+In ogni prodotto (Dati prodotto › Generale) ci sono tre campi facoltativi:
+**Riga nello shop** («2 persone · 2 ore»), **In breve** (una voce per riga:
+«2 ore», «Telo piscina incluso»…) e **Nota sotto il prezzo** (vince su
+quella generale).
+
+Nella scheda l'acquisto è in passi numerati: **1. Scegli la formula** (le
+varianti diventano riquadri con il prezzo), **2. Come vuoi pagare** (acconto
+o intero, con l'importo), **3. Il voucher** (i campi di Buoni PDF); il
+pulsante dice quanto si paga ora («Aggiungi al carrello · 40,00 €»). Sotto
+ci sono sempre i moduli originali di WooCommerce, acconti e Buoni PDF: il
+carrello e i voucher funzionano come prima.
+
+| | |
+|---|---|
+| ![Shop con lo stile del sito](anteprime/111-stile-shop.png) | ![Scheda prodotto](anteprime/112-stile-prodotto.png) |
+
+![Scheda prodotto sul telefono](anteprime/113-stile-telefono.png)
 
 ---
 

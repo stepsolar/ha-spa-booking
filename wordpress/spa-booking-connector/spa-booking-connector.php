@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: Spa Booking Connector
- * Description: Collega il sito a Spa Booking: voucher venduti con «Buoni PDF» (riscattati in spa), iscritti alla newsletter, clienti dello shop, codici sconto della newsletter, modifica dei prodotti e ordini dello shop.
- * Version: 1.4.1
+ * Description: Collega il sito a Spa Booking: voucher venduti con «Buoni PDF» (riscattati in spa), iscritti alla newsletter, clienti dello shop, codici sconto della newsletter, modifica dei prodotti e ordini dello shop, stile dello shop e delle schede prodotto.
+ * Version: 1.5.0
  * Author: Spa Booking
  * Requires PHP: 7.4
  * Text Domain: spa-booking-connector
@@ -13,7 +13,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Spa_Booking_Connector {
-	const VERSION   = '1.4.1';
+	const VERSION   = '1.5.0';
 	const OPTION    = 'spa_booking_connector';
 	const NAMESPACE = 'spa-booking/v1';
 
@@ -32,18 +32,18 @@ final class Spa_Booking_Connector {
 
 	public static function options() {
 		$o = get_option( self::OPTION, array() );
-		return wp_parse_args( is_array( $o ) ? $o : array(), array( 'secret' => '', 'notify_url' => '', 'redeem_user' => 0 ) );
+		return wp_parse_args( is_array( $o ) ? $o : array(), array_merge( array( 'secret' => '', 'notify_url' => '', 'redeem_user' => 0 ), Spa_Booking_Shop_Style::defaults() ) );
 	}
 
 	public static function register_settings() {
 		register_setting( 'spa_booking_connector', self::OPTION, array(
 			'type'              => 'array',
 			'sanitize_callback' => function ( $in ) {
-				return array(
+				return array_merge( array(
 					'secret'      => sanitize_text_field( $in['secret'] ?? '' ),
 					'notify_url'  => esc_url_raw( trim( $in['notify_url'] ?? '' ) ),
 					'redeem_user' => absint( $in['redeem_user'] ?? 0 ),
-				);
+				), Spa_Booking_Shop_Style::sanitize( is_array( $in ) ? $in : array() ) );
 			},
 		) );
 	}
@@ -64,6 +64,7 @@ final class Spa_Booking_Connector {
 					<tr><th>Chiave segreta</th><td><input type="text" class="regular-text code" name="<?php echo esc_attr( self::OPTION ); ?>[secret]" value="<?php echo esc_attr( $o['secret'] ); ?>" autocomplete="off"></td></tr>
 					<tr><th>Indirizzo di notifica</th><td><input type="url" class="large-text code" name="<?php echo esc_attr( self::OPTION ); ?>[notify_url]" value="<?php echo esc_attr( $o['notify_url'] ); ?>" placeholder="https://.../api/spa_booking/wp/notify"><p class="description">Facoltativo: senza, Spa Booking controlla gli ordini ogni 15 minuti.</p></td></tr>
 					<tr><th>Utente che riscatta</th><td><?php wp_dropdown_users( array( 'name' => self::OPTION . '[redeem_user]', 'selected' => $o['redeem_user'], 'role__in' => array( 'administrator', 'shop_manager' ), 'show_option_none' => '— utente attuale —', 'option_none_value' => 0 ) ); ?><p class="description">Compare come «riscattato da» nei Buoni PDF.</p></td></tr>
+					<?php Spa_Booking_Shop_Style::settings_rows( $o ); ?>
 				</table>
 				<?php submit_button(); ?>
 			</form>
@@ -800,3 +801,4 @@ final class Spa_Booking_Connector {
 }
 
 Spa_Booking_Connector::init();
+require_once __DIR__ . '/shop-style.php';
