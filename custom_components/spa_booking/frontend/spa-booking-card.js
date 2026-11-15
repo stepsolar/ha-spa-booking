@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "3.5.0";
+const CARD_VERSION = "3.6.0";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -1324,6 +1324,7 @@ class SpaBookingCard extends HTMLElement {
         if (this._gatePopup) { this._gatePopup = null; this._render(); }
         else if (this._confirmPopup) { this._confirmPopup = null; this._render(); }
         else if (this._mediaView) { this._mediaView = null; this._render(); }
+        else if (this._wpProduct) { this._wpProduct = null; this._render(); }
         else if (this._partnerSend) { this._partnerSend = null; this._render(); }
         else if (this._siteCampaign) { this._siteCampaign = null; this._render(); }
         else if (this._siteMenu) { this._siteMenu = null; this._render(); }
@@ -3722,6 +3723,7 @@ class SpaBookingCard extends HTMLElement {
     if (this._gatePopup) add(root, this._renderGatePopup());
     if (this._confirmPopup) add(root, this._renderConfirmPopup());
     if (this._mediaView) add(root, this._renderMediaView());
+    if (this._wpProduct) add(root, this._renderWpProduct());
     if (this._partnerMenu) add(root, this._renderPartnerMenu());
     if (this._partnerSend) add(root, this._renderPartnerSend());
     if (this._siteMenu) add(root, this._renderSiteMenu());
@@ -14163,6 +14165,103 @@ class SpaBookingCard extends HTMLElement {
         line("Home Assistant", (this._hass && this._hass.config && this._hass.config.version) || "—")));
   }
 
+  /** The card of a product of the online shop (3.6.0): read it from the site. */
+  async _openWpProduct(productId) {
+    this._wpProduct = { id: productId, loading: true };
+    this._render();
+    try {
+      const data = await this._service("wp_product", { product_id: productId });
+      if (!this._wpProduct || this._wpProduct.id !== productId) return;
+      const plain = (v) => (v == null ? "" : String(v));
+      this._wpProduct = { id: productId, data, draft: {
+        name: plain(data.name), short_description: plain(data.short_description), description: plain(data.description),
+        regular_price: plain(data.regular_price), sale_price: plain(data.sale_price),
+        category_ids: [...(data.category_ids || [])],
+        variations: (data.variations || []).map((v) => ({ id: v.id, name: v.name, regular_price: plain(v.regular_price), sale_price: plain(v.sale_price) })),
+      } };
+    } catch (error) {
+      this._wpProduct = null;
+      this._message = { kind: "error", text: (error && error.message) || String(error) };
+    }
+    this._render();
+  }
+
+  _renderWpProduct() {
+    const state = this._wpProduct;
+    const close = () => { this._wpProduct = null; this._render(); };
+    const sheet = el("div", { class: "detail-sheet cx-sheet wpp-sheet" });
+    const backdrop = el("div", { class: "detail-backdrop", on: { click: (event) => { if (event.target === event.currentTarget) close(); } } }, sheet);
+    if (state.loading) {
+      sheet.appendChild(el("div", { class: "empty" }, "Lettura del prodotto dal sito…"));
+      return backdrop;
+    }
+    const { data, draft } = state;
+    const field = (label, key, attrs = {}) => el("label", { class: "field" }, el("span", {}, label),
+      el(attrs.rows ? "textarea" : "input", { class: "input", ...(attrs.rows ? { rows: attrs.rows } : { type: attrs.type || "text", value: draft[key] }),
+        ...(attrs.placeholder ? { placeholder: attrs.placeholder } : {}), ...(attrs.inputmode ? { inputmode: attrs.inputmode } : {}),
+        on: { input: (event) => { draft[key] = event.target.value; } } }, attrs.rows ? draft[key] : null));
+    const cats = (data.categories || []).slice().sort((a, b) => a.name.localeCompare(b.name, "it"));
+    const chosen = new Set(draft.category_ids);
+    const variable = data.type === "variable";
+    sheet.appendChild(el("div", { class: "wpp-head" },
+      data.image ? el("img", { class: "wpp-img", src: data.image, alt: "" }) : el("span", { class: "nt-icon" }, el("ha-icon", { icon: "mdi:shopping-outline" })),
+      el("div", { class: "grow" }, el("div", { class: "wpp-title" }, data.name || "Prodotto"),
+        el("div", { class: "dim small" }, [data.sku ? `SKU ${data.sku}` : "", variable ? "con varianti" : "", data.status === "publish" ? "pubblicato" : data.status].filter(Boolean).join(" · "))),
+      el("button", { class: "icon-btn", title: "Chiudi", on: { click: close } }, el("ha-icon", { icon: "mdi:close" }))));
+    sheet.appendChild(field("Nome", "name"));
+    sheet.appendChild(el("div", { class: "field" }, el("span", {}, "Categorie"),
+      cats.length ? el("div", { class: "shop-chips" }, cats.map((c) => el("button", {
+        type: "button", class: `shop-chip${chosen.has(c.id) ? " on" : ""}`,
+        on: { click: () => { draft.category_ids = chosen.has(c.id) ? draft.category_ids.filter((id) => id !== c.id) : [...draft.category_ids, c.id]; this._render(); } },
+      }, chosen.has(c.id) ? el("ha-icon", { icon: "mdi:check" }) : null, c.name))) : el("span", { class: "dim small" }, "Nessuna categoria nello shop.")));
+    if (variable) {
+      sheet.appendChild(el("div", { class: "field" }, el("span", {}, "Prezzi delle varianti (€)"),
+        el("div", { class: "wpp-vars" }, draft.variations.map((v) => el("div", { class: "wpp-var" },
+          el("span", { class: "grow" }, v.name || `Variante ${v.id}`),
+          el("input", { class: "input", inputmode: "decimal", value: v.regular_price, placeholder: "Prezzo", on: { input: (event) => { v.regular_price = event.target.value; } } }),
+          el("input", { class: "input", inputmode: "decimal", value: v.sale_price, placeholder: "In offerta", on: { input: (event) => { v.sale_price = event.target.value; } } }))))));
+    } else {
+      sheet.appendChild(el("div", { class: "row wpp-prices" },
+        field("Prezzo (€)", "regular_price", { inputmode: "decimal", placeholder: "es. 50" }),
+        field("In offerta (€)", "sale_price", { inputmode: "decimal", placeholder: "vuoto = nessuna offerta" })));
+    }
+    sheet.appendChild(field("Descrizione breve", "short_description", { rows: "3" }));
+    sheet.appendChild(field("Descrizione", "description", { rows: "8" }));
+    sheet.appendChild(el("div", { class: "hint" }, "Le descrizioni possono contenere tag HTML (grassetto, elenchi…): lasciali come sono se non sai a cosa servono. Al salvataggio il prodotto cambia subito anche sul sito."));
+    const save = async () => {
+      const plain = (v) => (v == null ? "" : String(v));
+      const changes = {};
+      ["name", "short_description", "description", "regular_price", "sale_price"].forEach((key) => {
+        if (variable && (key === "regular_price" || key === "sale_price")) return;
+        if (plain(draft[key]).trim() !== plain(data[key]).trim()) changes[key] = plain(draft[key]).trim().replace(",", key.endsWith("price") ? "." : ",");
+      });
+      ["short_description", "description"].forEach((key) => { if (key in changes) changes[key] = draft[key]; });
+      const before = [...(data.category_ids || [])].sort().join(",");
+      if ([...draft.category_ids].sort().join(",") !== before) changes.category_ids = draft.category_ids;
+      if (variable) {
+        const rows = draft.variations.filter((v) => {
+          const old = (data.variations || []).find((o) => o.id === v.id) || {};
+          return plain(v.regular_price) !== plain(old.regular_price) || plain(v.sale_price) !== plain(old.sale_price);
+        }).map((v) => ({ id: v.id, regular_price: v.regular_price.trim().replace(",", "."), sale_price: v.sale_price.trim().replace(",", ".") }));
+        if (rows.length) changes.variations = rows;
+      }
+      if (!Object.keys(changes).length) { close(); return; }
+      try {
+        await this._call("wp_product_update", { product_id: state.id, ...changes });
+        this._wpProduct = null;
+        this._message = { kind: "ok", text: "Prodotto aggiornato anche sul sito." };
+        this._render();
+      } catch (error) { /* shown */ }
+    };
+    sheet.appendChild(el("div", { class: "row" },
+      data.url ? el("a", { class: "btn small ghost", href: data.url, target: "_blank", rel: "noopener" }, el("ha-icon", { icon: "mdi:open-in-new" }), "Vedi sul sito") : null,
+      data.edit_url ? el("a", { class: "btn small ghost", href: data.edit_url, target: "_blank", rel: "noopener" }, el("ha-icon", { icon: "mdi:wordpress" }), "Apri in WordPress") : null,
+      el("span", { class: "spacer" }),
+      el("button", { class: "btn", on: { click: close } }, "Annulla"),
+      el("button", { class: "btn primary", disabled: this._busy, on: { click: save } }, el("ha-icon", { icon: "mdi:content-save-outline" }), "Salva sul sito")));
+    return backdrop;
+  }
+
   /** "09:00, 09:30 … 12:30": the starts the site offers in one window. */
   _webSlots(from, to, step) {
     const toMin = (v) => { const [h, m] = String(v || "").split(":").map(Number); return Number.isFinite(h) ? h * 60 + (m || 0) : null; };
@@ -17645,10 +17744,25 @@ class SpaBookingCard extends HTMLElement {
           el("button", { class: "btn small ghost", on: { click: () => { this._cfgTab = "trattamenti"; this._render(); } } }, el("ha-icon", { icon: "mdi:plus" }), "Nuovo trattamento"),
           el("button", { class: "btn small ghost", on: { click: () => { this._cfgTab = "accessori"; this._render(); } } }, el("ha-icon", { icon: "mdi:plus" }), "Nuovo accessorio"),
           el("span", { class: "dim small" }, "(l'abbinamento non salvato resta qui finché torni)")));
+      // The shop's categories (plugin 1.3.0), to filter the list (3.6.0).
+      const catCounts = new Map();
+      products.forEach((p) => (p.categories || []).forEach((c) => catCounts.set(c.id, { name: c.name, n: ((catCounts.get(c.id) || {}).n || 0) + 1 })));
+      const shopCat = this._shopCat ?? "";
+      if (catCounts.size) {
+        const chip = (id, label, n) => el("button", { type: "button", class: `pm-chip${String(shopCat) === String(id) ? " info" : ""}`, style: "cursor:pointer;border:0",
+          on: { click: () => { this._shopCat = id; this._render(); } } }, n == null ? label : `${label} ${n}`);
+        const none = products.filter((p) => !(p.categories || []).length).length;
+        step2.push(el("div", { class: "row chips shop-cats" },
+          chip("", "Tutte le categorie", products.length),
+          ...[...catCounts.entries()].sort((a, b) => a[1].name.localeCompare(b[1].name, "it")).map(([id, c]) => chip(id, c.name, c.n)),
+          none ? chip("none", "Senza categoria", none) : null));
+      }
       const shown = products.filter((p) => {
         const entry = draft.wp_product_map[p.key] || {};
         if (onlyFree && isPaired(p.key)) return false;
-        return !query || [p.name, p.parent_name, p.sku].join(" ").toLowerCase().includes(query);
+        if (shopCat === "none" && (p.categories || []).length) return false;
+        if (shopCat !== "" && shopCat !== "none" && !(p.categories || []).some((c) => String(c.id) === String(shopCat))) return false;
+        return !query || [p.name, p.parent_name, p.sku, ...(p.categories || []).map((c) => c.name)].join(" ").toLowerCase().includes(query);
       });
       shown.forEach((product) => {
         const entry = draft.wp_product_map[product.key] || { people: 1, treatment_ids: [], extras: [], note: "", gift_card_mode: "", gift_card_amount: null };
@@ -17667,8 +17781,13 @@ class SpaBookingCard extends HTMLElement {
         const giftMode = entry.gift_card_mode || "";
         step2.push(el("div", { class: `shop-prod${any || entry.note ? " on" : ""}` },
           el("div", { class: "shop-prod-head" },
-            el("div", { class: "shop-prod-name" }, el("b", {}, product.name || product.parent_name),
-              el("span", { class: "dim small" }, [product.sku, product.price != null ? euro(product.price) : "", product.voucher ? "voucher" : ""].filter(Boolean).join(" · "))),
+            el("div", { class: "shop-prod-name" },
+              el("button", { type: "button", class: "shop-prod-open", title: "Apri la scheda del prodotto", on: { click: () => this._openWpProduct(product.product_id) } },
+                el("b", {}, product.name || product.parent_name), el("ha-icon", { icon: "mdi:pencil-outline" })),
+              el("span", { class: "dim small" }, [product.sku, product.price != null ? euro(product.price) : "", product.voucher ? "voucher" : "",
+                product.status && product.status !== "publish" ? (product.status === "private" ? "privato" : product.status) : ""].filter(Boolean).join(" · ")),
+              (product.categories || []).length ? el("span", { class: "shop-prod-cats" },
+                product.categories.map((c) => el("span", { class: "pm-chip" }, c.name))) : null),
             el("div", { class: "shop-people" }, el("span", { class: "dim small" }, "Persone"),
               el("button", { class: "icon-btn", disabled: (entry.people || 1) <= 1 || !any, on: { click: () => set({ people: (entry.people || 1) - 1 }) } }, el("ha-icon", { icon: "mdi:minus" })),
               el("b", {}, String(entry.people || 1)),
@@ -23005,6 +23124,20 @@ class SpaBookingCard extends HTMLElement {
       .wa-compose { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--sb-line); }
       .wa-compose .input { flex: 1 1 auto; border-radius: 999px; }
       .wa-send { border-radius: 50%; width: 40px; height: 40px; padding: 0; justify-content: center; }
+      /* Products of the online shop (3.6.0). */
+      .shop-prod-open { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+      .shop-prod-open:hover b { text-decoration: underline; }
+      .shop-prod-open ha-icon { --mdc-icon-size: 16px; color: var(--secondary-text-color); }
+      .shop-prod-cats { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+      .shop-cats { margin: 4px 0 8px; }
+      .wpp-sheet { max-width: 720px; }
+      .wpp-head { display: flex; gap: 12px; align-items: center; margin-bottom: 6px; }
+      .wpp-title { font-size: 18px; font-weight: 700; }
+      .wpp-img { width: 64px; height: 64px; border-radius: 10px; object-fit: cover; flex: none; }
+      .wpp-prices > .field { flex: 1; }
+      .wpp-vars { display: grid; gap: 6px; }
+      .wpp-var { display: flex; gap: 8px; align-items: center; }
+      .wpp-var .input { width: 110px; }
       /* Chats in the cards, photos and files (3.5.0). */
       .chat-panel { border: 1px solid var(--sb-line); border-radius: 12px; overflow: hidden; }
       .chat-bubbles { max-height: 320px; }

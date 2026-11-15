@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: Spa Booking Connector
- * Description: Collega il sito a Spa Booking: voucher venduti con «Buoni PDF» (riscattati in spa), iscritti alla newsletter, clienti dello shop e codici sconto della newsletter.
- * Version: 1.2.0
+ * Description: Collega il sito a Spa Booking: voucher venduti con «Buoni PDF» (riscattati in spa), iscritti alla newsletter, clienti dello shop, codici sconto della newsletter e modifica dei prodotti dello shop.
+ * Version: 1.3.0
  * Author: Spa Booking
  * Requires PHP: 7.4
  * Text Domain: spa-booking-connector
@@ -13,7 +13,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Spa_Booking_Connector {
-	const VERSION   = '1.2.0';
+	const VERSION   = '1.3.0';
 	const OPTION    = 'spa_booking_connector';
 	const NAMESPACE = 'spa-booking/v1';
 
@@ -78,6 +78,11 @@ final class Spa_Booking_Connector {
 		$auth = array( __CLASS__, 'allowed' );
 		register_rest_route( self::NAMESPACE, '/status', array( 'methods' => 'GET', 'callback' => array( __CLASS__, 'status' ), 'permission_callback' => $auth ) );
 		register_rest_route( self::NAMESPACE, '/products', array( 'methods' => 'GET', 'callback' => array( __CLASS__, 'products' ), 'permission_callback' => $auth ) );
+		// 1.3.0: one product to read and change, and the shop's categories.
+		register_rest_route( self::NAMESPACE, '/product', array(
+			array( 'methods' => 'GET', 'callback' => array( __CLASS__, 'product' ), 'permission_callback' => $auth ),
+			array( 'methods' => 'POST', 'callback' => array( __CLASS__, 'product_update' ), 'permission_callback' => $auth ),
+		) );
 		register_rest_route( self::NAMESPACE, '/vouchers', array( 'methods' => 'GET', 'callback' => array( __CLASS__, 'vouchers' ), 'permission_callback' => $auth ) );
 		register_rest_route( self::NAMESPACE, '/redeem', array( 'methods' => 'POST', 'callback' => array( __CLASS__, 'redeem' ), 'permission_callback' => $auth ) );
 		// 1.2.0: the people of the site and the newsletter discount codes.
@@ -118,7 +123,9 @@ final class Spa_Booking_Connector {
 			}
 			// 1.1.0: page and picture, so Spa Booking can link a package in a promo.
 			$image = $p->get_image_id() ? wp_get_attachment_image_url( $p->get_image_id(), 'large' ) : '';
-			$base  = array( 'product_id' => $p->get_id(), 'parent_name' => $p->get_name(), 'voucher' => 'yes' === get_post_meta( $p->get_id(), self::meta( 'enable' ), true ), 'url' => get_permalink( $p->get_id() ), 'image' => $image ? $image : '' );
+			$base  = array( 'product_id' => $p->get_id(), 'parent_name' => $p->get_name(), 'voucher' => 'yes' === get_post_meta( $p->get_id(), self::meta( 'enable' ), true ), 'url' => get_permalink( $p->get_id() ), 'image' => $image ? $image : '',
+				// 1.3.0: the categories, to filter the list in Spa Booking.
+				'categories' => self::product_categories( $p->get_id() ), 'status' => $p->get_status() );
 			if ( $p->is_type( 'variable' ) ) {
 				foreach ( $p->get_children() as $vid ) {
 					$v = wc_get_product( $vid );
@@ -131,7 +138,153 @@ final class Spa_Booking_Connector {
 				$out[] = $base + array( 'variation_id' => 0, 'name' => $p->get_name(), 'sku' => $p->get_sku(), 'price' => (float) $p->get_price() );
 			}
 		}
-		return array( 'products' => $out );
+		return array( 'products' => $out, 'categories' => self::all_categories() );
+	}
+
+	/* ---------------------------------------------- products (1.3.0) */
+
+	private static function product_categories( $product_id ) {
+		$terms = get_the_terms( $product_id, 'product_cat' );
+		$out   = array();
+		foreach ( is_array( $terms ) ? $terms : array() as $term ) {
+			$out[] = array( 'id' => (int) $term->term_id, 'name' => html_entity_decode( $term->name ) );
+		}
+		return $out;
+	}
+
+	private static function all_categories() {
+		$terms = get_terms( array( 'taxonomy' => 'product_cat', 'hide_empty' => false ) );
+		$out   = array();
+		foreach ( is_array( $terms ) ? $terms : array() as $term ) {
+			$out[] = array( 'id' => (int) $term->term_id, 'name' => html_entity_decode( $term->name ), 'parent' => (int) $term->parent, 'count' => (int) $term->count );
+		}
+		return $out;
+	}
+
+	/** One product with what Spa Booking lets the desk change. */
+	public static function product( WP_REST_Request $request ) {
+		$p = wc_get_product( absint( $request->get_param( 'id' ) ) );
+		if ( ! $p || $p->is_type( 'variation' ) ) {
+			return new WP_Error( 'not_found', 'Prodotto non trovato', array( 'status' => 404 ) );
+		}
+		$variations = array();
+		if ( $p->is_type( 'variable' ) ) {
+			foreach ( $p->get_children() as $vid ) {
+				$v = wc_get_product( $vid );
+				if ( $v ) {
+					$variations[] = array( 'id' => $vid, 'name' => wc_get_formatted_variation( $v, true, false, false ), 'regular_price' => $v->get_regular_price(), 'sale_price' => $v->get_sale_price() );
+				}
+			}
+		}
+		$image = $p->get_image_id() ? wp_get_attachment_image_url( $p->get_image_id(), 'medium' ) : '';
+		return array(
+			'id'                => $p->get_id(),
+			'type'              => $p->get_type(),
+			'status'            => $p->get_status(),
+			'name'              => $p->get_name(),
+			'short_description' => $p->get_short_description(),
+			'description'       => $p->get_description(),
+			'regular_price'     => $p->get_regular_price(),
+			'sale_price'        => $p->get_sale_price(),
+			'sku'               => $p->get_sku(),
+			'category_ids'      => array_map( 'intval', $p->get_category_ids() ),
+			'variations'        => $variations,
+			'url'               => get_permalink( $p->get_id() ),
+			'edit_url'          => admin_url( 'post.php?post=' . $p->get_id() . '&action=edit' ),
+			'image'             => $image ? $image : '',
+			'categories'        => self::all_categories(),
+		);
+	}
+
+	private static function clean_price( $value ) {
+		if ( null === $value ) {
+			return null;
+		}
+		$value = str_replace( ',', '.', trim( (string) $value ) );
+		if ( '' === $value ) {
+			return '';
+		}
+		if ( ! is_numeric( $value ) || (float) $value < 0 ) {
+			return false;
+		}
+		return wc_format_decimal( $value );
+	}
+
+	/** Change name, texts, prices and categories of a product (from Spa Booking). */
+	public static function product_update( WP_REST_Request $request ) {
+		$p = wc_get_product( absint( $request->get_param( 'id' ) ) );
+		if ( ! $p || $p->is_type( 'variation' ) ) {
+			return new WP_Error( 'not_found', 'Prodotto non trovato', array( 'status' => 404 ) );
+		}
+		$name = $request->get_param( 'name' );
+		if ( null !== $name ) {
+			$name = sanitize_text_field( (string) $name );
+			if ( '' === $name ) {
+				return new WP_Error( 'invalid', 'Il nome non può essere vuoto', array( 'status' => 400 ) );
+			}
+			$p->set_name( $name );
+		}
+		foreach ( array( 'description' => 'set_description', 'short_description' => 'set_short_description' ) as $field => $setter ) {
+			$value = $request->get_param( $field );
+			if ( null !== $value ) {
+				$p->$setter( wp_kses_post( (string) $value ) );
+			}
+		}
+		if ( ! $p->is_type( 'variable' ) ) {
+			$regular = self::clean_price( $request->get_param( 'regular_price' ) );
+			$sale    = self::clean_price( $request->get_param( 'sale_price' ) );
+			if ( false === $regular || false === $sale ) {
+				return new WP_Error( 'invalid', 'Prezzo non valido', array( 'status' => 400 ) );
+			}
+			if ( null !== $regular ) {
+				$p->set_regular_price( $regular );
+			}
+			if ( null !== $sale ) {
+				$p->set_sale_price( $sale );
+			}
+			$r = null !== $regular ? $regular : $p->get_regular_price();
+			$s = null !== $sale ? $sale : $p->get_sale_price();
+			if ( '' !== $s && '' !== $r && (float) $s >= (float) $r ) {
+				return new WP_Error( 'invalid', 'Il prezzo in offerta deve essere più basso del prezzo normale', array( 'status' => 400 ) );
+			}
+		}
+		$cats = $request->get_param( 'category_ids' );
+		if ( is_array( $cats ) ) {
+			$cats = array_values( array_filter( array_map( 'absint', $cats ) ) );
+			$p->set_category_ids( $cats );
+		}
+		$p->save();
+		$variations = $request->get_param( 'variations' );
+		if ( $p->is_type( 'variable' ) && is_array( $variations ) ) {
+			foreach ( $variations as $row ) {
+				$v = wc_get_product( absint( $row['id'] ?? 0 ) );
+				if ( ! $v || $v->get_parent_id() !== $p->get_id() ) {
+					continue;
+				}
+				$regular = self::clean_price( $row['regular_price'] ?? null );
+				$sale    = self::clean_price( $row['sale_price'] ?? null );
+				if ( false === $regular || false === $sale ) {
+					return new WP_Error( 'invalid', 'Prezzo non valido in una variante', array( 'status' => 400 ) );
+				}
+				if ( null !== $regular ) {
+					$v->set_regular_price( $regular );
+				}
+				if ( null !== $sale ) {
+					$v->set_sale_price( $sale );
+				}
+				$v->save();
+			}
+			WC_Product_Variable::sync( $p->get_id() );
+		}
+		wc_delete_product_transients( $p->get_id() );
+		return array_merge( array( 'ok' => true ), self::product_by_id( $p->get_id() ) );
+	}
+
+	private static function product_by_id( $id ) {
+		$request = new WP_REST_Request( 'GET', '' );
+		$request->set_param( 'id', $id );
+		$result = self::product( $request );
+		return is_array( $result ) ? $result : array();
 	}
 
 	/** The voucher codes sold in the last `days` days, with their state. */

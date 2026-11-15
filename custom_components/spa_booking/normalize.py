@@ -1075,10 +1075,21 @@ def _norm_settings(raw: dict[str, Any]) -> dict[str, Any]:
                 # The product page and picture (plugin 1.1.0), for promos.
                 "url": str(p.get("url") or "").strip()[:500],
                 "image": str(p.get("image") or "").strip()[:500],
+                # Its categories on the shop (plugin 1.3.0), to filter the list.
+                "categories": [
+                    {"id": int(c.get("id") or 0), "name": str(c.get("name") or "").strip()[:80]}
+                    for c in (p.get("categories") or []) if isinstance(c, dict) and str(c.get("id") or "").isdigit()
+                ][:20],
+                "status": str(p.get("status") or "").strip()[:20],
             }
             for p in (raw.get("wp_products") or [])
             if isinstance(p, dict) and str(p.get("product_id") or "").isdigit()
         ][:1000],
+        "wp_categories": [
+            {"id": int(c.get("id") or 0), "name": str(c.get("name") or "").strip()[:80],
+             "parent": int(c.get("parent") or 0), "count": int(c.get("count") or 0)}
+            for c in (raw.get("wp_categories") or []) if isinstance(c, dict) and str(c.get("id") or "").isdigit()
+        ][:300],
         "wp_product_map": {
             str(key): {
                 "people": _norm_count((entry or {}).get("people"), 1, 10, 1),

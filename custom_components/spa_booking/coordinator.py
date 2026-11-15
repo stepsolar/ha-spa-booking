@@ -4181,15 +4181,50 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         url, secret = self._wp_settings()
         try:
             info = await wp_shop.status(self._http_session(), url, secret)
-            items = await wp_shop.products(self._http_session(), url, secret)
+            items, categories = await wp_shop.products_and_categories(self._http_session(), url, secret)
         except wp_shop.WpShopError as err:
             raise ValidationError(str(err)) from err
         async with self._lock:
             self._data[KEY_SETTINGS]["wp_products"] = items
+            self._data[KEY_SETTINGS]["wp_categories"] = categories
             self._data[KEY_SETTINGS] = _norm_settings(self._data[KEY_SETTINGS])
             await self._async_save()
         return {"ok": True, "buoni_pdf": bool(info.get("buoni_pdf")), "version": info.get("version"),
                 "site": info.get("site"), "products": len(items)}
+
+    async def async_wp_product(self, product_id: int) -> dict[str, Any]:
+        """One product of the shop to show and change in its card (3.6.0)."""
+        url, secret = self._wp_settings()
+        try:
+            return await wp_shop.product(self._http_session(), url, secret, int(product_id))
+        except wp_shop.WpShopError as err:
+            raise ValidationError(str(err)) from err
+
+    async def async_wp_product_update(self, product_id: int, changes: dict[str, Any]) -> dict[str, Any]:
+        """Change a product on the shop, then read the list again (3.6.0)."""
+        allowed = {"name", "description", "short_description", "regular_price", "sale_price", "category_ids", "variations"}
+        payload = {k: v for k, v in (changes or {}).items() if k in allowed}
+        if "name" in payload and not str(payload["name"] or "").strip():
+            raise ValidationError("Il nome del prodotto non può essere vuoto")
+        for key in ("regular_price", "sale_price"):
+            if key in payload and payload[key] not in (None, ""):
+                try:
+                    if float(str(payload[key]).replace(",", ".")) < 0:
+                        raise ValueError
+                except (TypeError, ValueError) as err:
+                    raise ValidationError("Prezzo non valido") from err
+        url, secret = self._wp_settings()
+        try:
+            result = await wp_shop.product_update(self._http_session(), url, secret, {"id": int(product_id), **payload})
+            items, categories = await wp_shop.products_and_categories(self._http_session(), url, secret)
+        except wp_shop.WpShopError as err:
+            raise ValidationError(str(err)) from err
+        async with self._lock:
+            self._data[KEY_SETTINGS]["wp_products"] = items
+            self._data[KEY_SETTINGS]["wp_categories"] = categories
+            self._data[KEY_SETTINGS] = _norm_settings(self._data[KEY_SETTINGS])
+            await self._async_save()
+        return result
 
     def _wp_people(self, product_id: Any, variation_id: Any, paid: Any = None) -> list[dict[str, Any]]:
         mapping = self._data.get(KEY_SETTINGS, {}).get("wp_product_map") or {}

@@ -91,6 +91,10 @@ async def _request(session: Any, method: str, base: str, secret: str, path: str,
             except ValueError:
                 body = {}
             if response.status == 404 and path != "/redeem":
+                if isinstance(body, dict) and body.get("code") not in (None, "", "rest_no_route"):
+                    raise WpShopError(str(body.get("message") or "Non trovato sul sito"))
+                if path in ("/product", "/contacts", "/coupon-use"):
+                    raise WpShopError("Aggiorna il plugin «Spa Booking Connector» sul sito (serve la versione 1.3.0)")
                 raise WpShopError("Sul sito manca il plugin «Spa Booking Connector» (o non è attivo).")
             if response.status in (401, 403):
                 raise WpShopError("Il sito ha rifiutato la chiave: copia di nuovo la chiave nel plugin su WordPress.")
@@ -109,6 +113,23 @@ async def status(session: Any, base: str, secret: str) -> dict[str, Any]:
 async def products(session: Any, base: str, secret: str) -> list[dict[str, Any]]:
     body = await _request(session, "GET", base, secret, "/products")
     return [p for p in body.get("products") or [] if isinstance(p, dict)]
+
+
+async def products_and_categories(session: Any, base: str, secret: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """The products and the shop's categories (plugin 1.3.0) in one call."""
+    body = await _request(session, "GET", base, secret, "/products")
+    return ([p for p in body.get("products") or [] if isinstance(p, dict)],
+            [c for c in body.get("categories") or [] if isinstance(c, dict)])
+
+
+async def product(session: Any, base: str, secret: str, product_id: int) -> dict[str, Any]:
+    """One product with its texts, prices and categories (plugin 1.3.0)."""
+    return await _request(session, "GET", base, secret, "/product", params={"id": str(int(product_id))})
+
+
+async def product_update(session: Any, base: str, secret: str, changes: dict[str, Any]) -> dict[str, Any]:
+    """Change a product on the shop (plugin 1.3.0)."""
+    return await _request(session, "POST", base, secret, "/product", json=changes)
 
 
 async def vouchers(session: Any, base: str, secret: str, days: int = SYNC_DAYS) -> list[dict[str, Any]]:
