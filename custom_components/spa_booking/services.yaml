@@ -1663,6 +1663,60 @@ wp_sync:
 wp_test:
   name: Prova shop online
   description: Controlla il plugin Spa Booking Connector e legge i prodotti dello shop.
+wp_product:
+  name: Prodotto dello shop
+  description: Legge un prodotto dello shop online (nome, testi, prezzi, categorie).
+  fields:
+    product_id:
+      name: ID prodotto
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+
+wp_product_update:
+  name: Modifica un prodotto dello shop
+  description: Cambia nome, descrizioni, prezzi e categorie di un prodotto su WordPress.
+  fields:
+    product_id:
+      name: ID prodotto
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    name:
+      name: Nome
+      selector:
+        text:
+    short_description:
+      name: Descrizione breve
+      selector:
+        text:
+          multiline: true
+    description:
+      name: Descrizione
+      selector:
+        text:
+          multiline: true
+    regular_price:
+      name: Prezzo
+      selector:
+        text:
+    sale_price:
+      name: Prezzo in offerta
+      selector:
+        text:
+    category_ids:
+      name: Categorie (ID)
+      selector:
+        object:
+    variations:
+      name: Prezzi delle varianti
+      selector:
+        object:
+
 wp_new_secret:
   name: Nuova chiave shop online
   description: Crea una nuova chiave da copiare nel plugin su WordPress.

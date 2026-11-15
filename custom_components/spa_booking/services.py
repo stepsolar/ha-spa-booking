@@ -153,6 +153,8 @@ SERVICE_JOIN_GROUP = "join_group"
 SERVICE_PARTNER_REWARD = "partner_reward"
 SERVICE_WP_SYNC = "wp_sync"
 SERVICE_WP_TEST = "wp_test"
+SERVICE_WP_PRODUCT = "wp_product"
+SERVICE_WP_PRODUCT_UPDATE = "wp_product_update"
 SERVICE_WP_NEW_SECRET = "wp_new_secret"
 SERVICE_WP_REDEEM = "wp_redeem"
 SERVICE_PROMO_VOUCHER_TICK = "promo_voucher_tick"
@@ -281,6 +283,8 @@ ALL_SERVICES = (
     SERVICE_JOIN_GROUP,
     SERVICE_WP_SYNC,
     SERVICE_WP_TEST,
+    SERVICE_WP_PRODUCT,
+    SERVICE_WP_PRODUCT_UPDATE,
     SERVICE_WP_NEW_SECRET,
     SERVICE_WP_REDEEM,
     SERVICE_PROMO_VOUCHER_TICK,
@@ -2185,6 +2189,18 @@ async def _async_gdrive_backup(call: ServiceCall) -> ServiceResponse:
     return await _coordinator(call).async_gdrive_backup(reason="a mano")
 
 
+async def _async_wp_product(call: ServiceCall) -> ServiceResponse:
+    """One product of the online shop, to change it (3.6.0)."""
+    return await _coordinator(call).async_wp_product(call.data["product_id"])
+
+
+async def _async_wp_product_update(call: ServiceCall) -> ServiceResponse:
+    """Change name, texts, prices and categories of a shop product (3.6.0)."""
+    data = dict(call.data)
+    product_id = data.pop("product_id")
+    return await _coordinator(call).async_wp_product_update(product_id, data)
+
+
 async def _async_gdrive_list(call: ServiceCall) -> ServiceResponse:
     """The backups on Google Drive."""
     return await _coordinator(call).async_gdrive_list()
@@ -3266,6 +3282,23 @@ _HANDLERS: dict[str, tuple[Any, Any, SupportsResponse]] = {
     SERVICE_GDRIVE_RESTORE: (_async_gdrive_restore, GDRIVE_RESTORE_SCHEMA, SupportsResponse.ONLY),
     SERVICE_DELETE_ALL_PARTNERS: (_async_delete_all_partners, WP_EMPTY_SCHEMA, SupportsResponse.ONLY),
     SERVICE_WP_TEST: (_async_wp_test, WP_EMPTY_SCHEMA, SupportsResponse.ONLY),
+    SERVICE_WP_PRODUCT: (
+        _async_wp_product, vol.Schema({vol.Required("product_id"): vol.Coerce(int)}), SupportsResponse.ONLY,
+    ),
+    SERVICE_WP_PRODUCT_UPDATE: (
+        _async_wp_product_update,
+        vol.Schema({
+            vol.Required("product_id"): vol.Coerce(int),
+            vol.Optional("name"): cv.string,
+            vol.Optional("description"): vol.Any(str, None),
+            vol.Optional("short_description"): vol.Any(str, None),
+            vol.Optional("regular_price"): vol.Any(str, vol.Coerce(float), None),
+            vol.Optional("sale_price"): vol.Any(str, vol.Coerce(float), None),
+            vol.Optional("category_ids"): vol.All(cv.ensure_list, [vol.Coerce(int)]),
+            vol.Optional("variations"): vol.All(cv.ensure_list, [dict]),
+        }),
+        SupportsResponse.ONLY,
+    ),
     SERVICE_WP_NEW_SECRET: (_async_wp_new_secret, WP_EMPTY_SCHEMA, SupportsResponse.ONLY),
     SERVICE_WP_REDEEM: (_async_wp_redeem, WP_REDEEM_SCHEMA, SupportsResponse.ONLY),
     SERVICE_PARTNER_POINTS_ADJUST: (_async_partner_points_adjust, PARTNER_POINTS_ADJUST_SCHEMA, SupportsResponse.ONLY),
@@ -3572,6 +3605,8 @@ SERVICE_LEVELS: dict[str, str] = {
     SERVICE_GDRIVE_RESTORE: "admin",
     SERVICE_DELETE_ALL_PARTNERS: "manager",
     SERVICE_WP_TEST: "admin",
+    SERVICE_WP_PRODUCT: "admin",
+    SERVICE_WP_PRODUCT_UPDATE: "admin",
     SERVICE_WP_NEW_SECRET: "admin",
     SERVICE_WP_REDEEM: "operator",
     SERVICE_PARTNER_POINTS_ADJUST: "manager",

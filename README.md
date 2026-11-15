@@ -111,6 +111,14 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v3.6.0** — (serve il riavvio di Home Assistant e il plugin WordPress
+  **1.3.0**: `wordpress/spa-booking-connector.zip`)
+  - Configurazione › Shop online: ogni prodotto mostra le sue **categorie**
+    del sito e la lista si filtra per categoria (anche dalla ricerca).
+  - Toccando il nome si apre la **scheda del prodotto**: nome, categorie,
+    prezzo e prezzo in offerta (per ogni variante, se ce ne sono),
+    descrizione breve e descrizione. **Salva sul sito** cambia il prodotto
+    su WordPress e rilegge la lista; *Vedi sul sito* e *Apri in WordPress*.
 - **v3.5.0** — (serve il riavvio di Home Assistant)
   - **Chat WhatsApp nelle schede**: nella scheda dell'appuntamento (Cliente
     e Operatrice), del cliente e dell'operatrice si leggono tutti i messaggi

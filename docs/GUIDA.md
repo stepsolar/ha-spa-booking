@@ -1,6 +1,6 @@
 <p align="center"><img src="anteprime/logo.png" width="120" alt="Spa Booking"></p>
 
-# Spa Booking 3.5 — la guida completa
+# Spa Booking 3.6 — la guida completa
 
 Questa guida spiega **tutto quello che fa Spa Booking**, scheda per scheda:
 dalla prenotazione al banco al modulo del sito, dai messaggi WhatsApp ai
@@ -761,7 +761,8 @@ Booking da soli.
    attivalo (per aggiornarlo: Plugin › Aggiungi nuovo › Carica plugin ›
    «Sostituisci la versione installata»). La versione **1.2.0** passa anche
    iscritti alla newsletter, clienti dello shop e codici sconto della
-   newsletter (Clienti › Sito).
+   newsletter (Clienti › Sito); la **1.3.0** permette di modificare i
+   prodotti da Spa Booking.
 2. In Configurazione › Shop online scrivi l'indirizzo del sito, premi
    **Nuova chiave** e copia chiave e indirizzo di notifica in WordPress ›
    WooCommerce › Spa Booking.
@@ -777,6 +778,26 @@ prenotazioni, modulo del sito e promo.
 | | |
 |---|---|
 | ![Shop online](anteprime/59-shop-online.png) | ![Voucher dal sito](anteprime/60-voucher-sito.png) |
+
+**Categorie e scheda del prodotto** (3.6): accanto a ogni prodotto ci sono
+le sue categorie del sito, e i bottoni sopra la lista la filtrano per
+categoria (la ricerca trova anche il nome della categoria). Toccando il nome
+del prodotto (✏️) si apre la sua scheda, letta dal sito in quel momento:
+
+- **Nome** e **Categorie** (si toccano per aggiungerle o toglierle);
+- **Prezzo** e **In offerta** (vuoto = nessuna offerta); per i prodotti con
+  varianti, i due prezzi di ogni variante;
+- **Descrizione breve** e **Descrizione** (possono contenere tag HTML: si
+  lasciano come sono).
+
+**Salva sul sito** cambia il prodotto su WordPress e rilegge la lista;
+*Vedi sul sito* apre la pagina del prodotto, *Apri in WordPress* l'editor
+completo (foto, varianti, scorte). Serve il plugin 1.3.0 e il livello
+Amministratore.
+
+| | |
+|---|---|
+| ![Categorie dei prodotti](anteprime/106-shop-categorie.png) | ![Scheda del prodotto](anteprime/107-shop-prodotto.png) |
 
 ---
 
