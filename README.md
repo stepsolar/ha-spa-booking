@@ -111,6 +111,26 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v3.3.0** — (serve il riavvio di Home Assistant e il plugin WordPress
+  **1.2.0**: `wordpress/spa-booking-connector.zip`)
+  - Clienti › **Sito**: le persone del sito in un'unica lista (iscritti
+    alla newsletter, clienti dello shop, chi ha prenotato dal modulo del
+    sito), una scheda per persona con da dove arriva, il suo codice sconto
+    e se può ricevere offerte. Si aggiorna da solo ogni ora o con
+    «Aggiorna dal sito».
+  - **Campagne email ai clienti del sito** per gruppi (newsletter,
+    acquisti, prenotazioni dal sito con consenso, codice sconto ancora
+    valido) o a una sola persona, con anteprima, prova e invio in
+    sottofondo; ogni email ha il link per cancellarsi. Segnaposto
+    {nome}, {cognome}, {codice_sconto}, {sconto}, {scadenza_sconto},
+    {link_prenota}.
+  - **Codici sconto della newsletter** (Coupon Box dello shop) in Voucher ›
+    **Newsletter**, con sconto, spesa minima e scadenza. Usati in spa (o in
+    una prenotazione) risultano usati anche sullo shop, e viceversa.
+  - **Modulo del sito**: nel campo voucher vale anche il codice della
+    newsletter (sconto nel totale indicativo, dalla spesa minima); la
+    prenotazione confermata nasce con il prezzo scontato. Nuova spunta
+    facoltativa «Voglio ricevere offerte e novità».
 - **v3.2.1** — (serve il riavvio di Home Assistant)
   - Modulo del sito: la sezione **Pacchetti** si può nascondere con
     «Mostra la sezione Pacchetti» (Configurazione › Impostazioni › Modulo

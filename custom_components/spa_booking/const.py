@@ -64,6 +64,8 @@ VOUCHER_VALID_MONTHS: Final = 6
 KEY_PROMO_VOUCHERS: Final = "promo_vouchers"
 #: The partners who promote the spa (2.4.0), kept apart from the clients.
 KEY_PARTNERS: Final = "partners"
+#: The people of the website (3.3.0): newsletter, shop buyers, web bookings.
+KEY_SITE_CONTACTS: Final = "site_contacts"
 #: Created at check-out, waiting for its message to be sent.
 PROMO_VOUCHER_PENDING: Final = "pending"
 #: The thank-you message has gone out; the code is usable until it expires.

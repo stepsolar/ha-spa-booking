@@ -2476,6 +2476,55 @@ send_partner_campaign:
       selector:
         text:
 
+site_sync:
+  name: Aggiorna i clienti del sito
+  description: Legge dal sito iscritti alla newsletter, clienti dello shop e codici sconto della newsletter.
+
+send_site_campaign:
+  name: Campagna ai clienti del sito
+  description: Invia un'email ai clienti del sito che possono ricevere offerte, per gruppi.
+  fields:
+    subject:
+      name: Oggetto
+      required: true
+      selector:
+        text:
+    message:
+      name: Testo
+      required: true
+      selector:
+        text:
+          multiline: true
+    groups:
+      name: Gruppi (newsletter, shop, web, coupon)
+      selector:
+        select:
+          multiple: true
+          options: [newsletter, shop, web, coupon]
+    test_to:
+      name: Indirizzo per la prova
+      selector:
+        text:
+    contact_id:
+      name: Solo questa persona (ID)
+      selector:
+        text:
+
+site_contact_subscribe:
+  name: Offerte a un cliente del sito
+  description: Ferma o riattiva le email promozionali a una persona del sito.
+  fields:
+    contact_id:
+      name: ID
+      required: true
+      selector:
+        text:
+    subscribed:
+      name: Riceve le offerte
+      required: true
+      selector:
+        boolean:
+
 send_partner_poster:
   name: Invia la locandina A5 a un partner
   description: Invia per email la locandina A5 con il codice QR del partner (o una prova a un indirizzo).

@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "3.2.1";
+const CARD_VERSION = "3.3.0";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -1324,6 +1324,8 @@ class SpaBookingCard extends HTMLElement {
         if (this._gatePopup) { this._gatePopup = null; this._render(); }
         else if (this._confirmPopup) { this._confirmPopup = null; this._render(); }
         else if (this._partnerSend) { this._partnerSend = null; this._render(); }
+        else if (this._siteCampaign) { this._siteCampaign = null; this._render(); }
+        else if (this._siteMenu) { this._siteMenu = null; this._render(); }
         else if (this._partnerMenu) { this._partnerMenu = null; this._render(); }
         else if (this._loyaltyPopup) { this._loyaltyPopup = null; this._render(); }
         else if (this._cancelPopup) { this._cancelPopup = null; this._render(); }
@@ -1457,6 +1459,8 @@ class SpaBookingCard extends HTMLElement {
         // Partners and points (2.4.0) were never copied here: the list
         // stayed empty after every reload (fixed in 2.7.3).
         partners: data.partners || [],
+        // The people of the website (3.3.0).
+        site_contacts: data.site_contacts || [],
         loyalty: data.loyalty || {},
         partner_points: data.partner_points || {},
       };
@@ -3664,6 +3668,8 @@ class SpaBookingCard extends HTMLElement {
     if (this._confirmPopup) add(root, this._renderConfirmPopup());
     if (this._partnerMenu) add(root, this._renderPartnerMenu());
     if (this._partnerSend) add(root, this._renderPartnerSend());
+    if (this._siteMenu) add(root, this._renderSiteMenu());
+    if (this._siteCampaign) add(root, this._renderSiteCampaign());
     if (this._overlapPopup) add(root, this._renderOverlapPopup());
     if (this._proposePopup) add(root, this._renderProposePopup());
     if (this._voucherPin) add(root, this._renderVoucherPinPopup());
@@ -10201,8 +10207,8 @@ class SpaBookingCard extends HTMLElement {
     if (canCreate && draft) wrap.appendChild(this._voucherForm());
     wrap.appendChild(this._voucherStats());
     wrap.appendChild(this._voucherFilters());
-    if (this._voucherFilter === "fedelta") {
-      wrap.appendChild(this._promoVoucherListBox(canManage));
+    if (this._voucherFilter === "fedelta" || this._voucherFilter === "newsletter") {
+      wrap.appendChild(this._promoVoucherListBox(canManage, this._voucherFilter === "newsletter"));
     } else {
       wrap.appendChild(this._voucherListBox(canManage));
     }
@@ -10249,7 +10255,7 @@ class SpaBookingCard extends HTMLElement {
   _voucherFilters() {
     const filters = [
       ["", "Tutti"], ["attivo", "Attivi"], ["scadenza", "In scadenza"],
-      ["riscattato", "Riscattati"], ["scaduto", "Scaduti"], ["fedelta", "Fedeltà"],
+      ["riscattato", "Riscattati"], ["scaduto", "Scaduti"], ["fedelta", "Fedeltà"], ["newsletter", "Newsletter"],
     ];
     const bar = el("div", { class: "filter-bar" });
     const chips = el("div", { class: "chips" }, filters.map(([id, label]) =>
@@ -10259,7 +10265,7 @@ class SpaBookingCard extends HTMLElement {
         on: { click: () => { this._voucherFilter = id; this._render(); } },
       }, label)));
     bar.appendChild(chips);
-    if (this._voucherFilter !== "fedelta") {
+    if (this._voucherFilter !== "fedelta" && this._voucherFilter !== "newsletter") {
       const search = el("input", {
         class: "input voucher-list-search",
         type: "search",
@@ -10914,31 +10920,36 @@ class SpaBookingCard extends HTMLElement {
   // ------------------------------------------------------- voucher fedelta
 
   /** The loyalty vouchers matching the current search, newest first. */
-  _promoVouchersMatching(query) {
+  _promoVouchersMatching(query, newsletter = false) {
     const needle = (query || "").trim().toLowerCase();
     const rows = (this._data.promo_vouchers || [])
-      .slice()
+      .filter((v) => (v.source === "newsletter") === newsletter)
       .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
     if (!needle) return rows;
     return rows.filter((voucher) => {
       const haystack = [
-        voucher.code, voucher.first_name, voucher.last_name, voucher.phone,
+        voucher.code, voucher.first_name, voucher.last_name, voucher.phone, voucher.email,
       ].join(" ").toLowerCase();
       return haystack.includes(needle);
     });
   }
 
   _promoVoucherStatusText(voucher) {
-    if (voucher.status === "redeemed") return "Riscattato";
+    if (voucher.status === "redeemed") return voucher.source === "newsletter" ? "Usato" : "Riscattato";
     if (voucher.expired) return "Scaduto";
+    if (voucher.source === "newsletter") {
+      const days = this._daysTo(voucher.expires_on);
+      return days !== null && days <= 7 ? `Scade tra ${days} ${days === 1 ? "giorno" : "giorni"}` : "Valido";
+    }
     if (voucher.status === "sent") return "Inviato";
     return "Da inviare";
   }
 
-  _promoVoucherListBox(canManage) {
-    const box = el("div", { class: "cfg-box" }, el("h3", {}, "Voucher fedeltà"));
-    box.appendChild(el("div", { class: "hint" },
-      "Codici personali assegnati ai clienti dopo l'uso dei servizi: sconto " +
+  _promoVoucherListBox(canManage, newsletter = false) {
+    const box = el("div", { class: "cfg-box" }, el("h3", {}, newsletter ? "Codici sconto della newsletter" : "Voucher fedeltà"));
+    box.appendChild(el("div", { class: "hint" }, newsletter
+      ? "I codici che il sito regala a chi si iscrive alla newsletter. Valgono anche nel modulo del sito; usati in spa, risultano usati anche sullo shop (e viceversa)."
+      : "Codici personali assegnati ai clienti dopo l'uso dei servizi: sconto " +
       "in percentuale su una spesa minima."));
     const search = el("input", {
       class: "input promo-voucher-list-search",
@@ -10950,9 +10961,9 @@ class SpaBookingCard extends HTMLElement {
       this._promoVoucherQuery = value;
     });
     box.appendChild(search);
-    const list = this._promoVouchersMatching(this._promoVoucherQuery || "");
+    const list = this._promoVouchersMatching(this._promoVoucherQuery || "", newsletter);
     if (!list.length) {
-      box.appendChild(el("div", { class: "hint" }, "Nessun voucher fedeltà."));
+      box.appendChild(el("div", { class: "hint" }, newsletter ? "Nessun codice: Clienti › Sito › «Aggiorna dal sito»." : "Nessun voucher fedeltà."));
       return box;
     }
     list.forEach((voucher) => box.appendChild(this._promoVoucherRow(voucher, canManage)));
@@ -10969,9 +10980,11 @@ class SpaBookingCard extends HTMLElement {
           el("strong", {}, voucher.code), " · ",
           el("span", { class: `chip ${statusClass}` }, this._promoVoucherStatusText(voucher))),
         el("div", { class: "dim small" },
-          `${name}${voucher.phone ? " · " + voucher.phone : ""}`),
-        el("div", { class: "dim small" },
-          `Sconto ${voucher.discount_percent}% · Spesa ${euro(voucher.min_spend)}–${euro(voucher.max_spend)} · Scade ${expires}`)));
+          [name, voucher.email, voucher.phone].filter((x) => x && x !== "—").join(" · ") || "—"),
+        el("div", { class: "dim small" }, voucher.source === "newsletter"
+          ? `Sconto ${voucher.discount_percent}%${voucher.min_spend ? ` · spesa minima ${euro(voucher.min_spend)}` : ""} · Scade ${expires}`
+            + (voucher.status === "redeemed" && !voucher.wp_used ? " · da segnare sullo shop" : "")
+          : `Sconto ${voucher.discount_percent}% · Spesa ${euro(voucher.min_spend)}–${euro(voucher.max_spend)} · Scade ${expires}`)));
     if (canManage) {
       const actions = el("div", { class: "op-actions" });
       if (voucher.status !== "redeemed") {
@@ -11775,13 +11788,268 @@ class SpaBookingCard extends HTMLElement {
     const partners = (this._data.partners || []).length;
     wrap.appendChild(el("div", { class: "nt-tabs", role: "tablist" },
       [["clienti", "mdi:account-multiple-outline", `Clienti (${(this._data.clients || []).length})`],
-        ["partner", "mdi:handshake-outline", `Partner (${partners})`]]
+        ["partner", "mdi:handshake-outline", `Partner (${partners})`],
+        ["sito", "mdi:web", `Sito (${(this._data.site_contacts || []).length})`]]
         .map(([id, icon, label]) => el("button", {
           class: `nt-tab${tab === id ? " on" : ""}`, role: "tab", "aria-selected": tab === id ? "true" : "false",
           on: { click: () => { this._clientsTab = id; this._render(); } },
         }, el("ha-icon", { icon }), el("span", {}, label)))));
-    add(wrap, tab === "partner" ? this._renderPartners() : this._renderClientsList());
+    add(wrap, tab === "partner" ? this._renderPartners() : tab === "sito" ? this._renderSiteContacts() : this._renderClientsList());
     return wrap;
+  }
+
+  /** The newsletter code each e-mail can still use (3.3.0). */
+  _siteValidCodes() {
+    const out = new Map();
+    (this._data.promo_vouchers || []).forEach((v) => {
+      if (v.source !== "newsletter" || v.status === "redeemed" || v.expired || !v.email) return;
+      const days = this._daysTo(v.expires_on);
+      if (days !== null && days < 0) return;
+      const current = out.get(v.email);
+      if (!current || String(v.expires_on || "") > String(current.expires_on || "")) out.set(v.email, v);
+    });
+    return out;
+  }
+
+  /** Same rules as the integration: who may receive an offer. */
+  _siteCanMail(c) {
+    if (c.unsubscribed || !String(c.email || "").includes("@")) return false;
+    return c.newsletter === "C" || (c.shop_orders || 0) > 0 || !!c.web_consent;
+  }
+
+  _siteInGroup(c, group, codes) {
+    if (group === "newsletter") return c.newsletter === "C";
+    if (group === "shop") return (c.shop_orders || 0) > 0;
+    if (group === "web") return (c.web_bookings || 0) > 0 && !!c.web_consent;
+    if (group === "coupon") return codes.has(c.email);
+    return false;
+  }
+
+  /** Clienti › Sito (3.3.0): newsletter, shop buyers and web bookings. */
+  _renderSiteContacts() {
+    const wrap = el("div", { class: "stack" });
+    const settings = this._data.settings || {};
+    const canEdit = this._can("manage_clients");
+    const contacts = this._data.site_contacts || [];
+    const codes = this._siteValidCodes();
+    const allCodes = new Map();
+    (this._data.promo_vouchers || []).filter((v) => v.source === "newsletter" && v.email)
+      .sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")))
+      .forEach((v) => allCodes.set(v.email, v));
+    const mailable = contacts.filter((c) => this._siteCanMail(c)).length;
+    const search = el("input", { class: "input grow site-search", type: "search", value: this._siteQuery || "",
+      placeholder: "Cerca per nome, email, telefono o codice sconto" });
+    this._searchInputRedraw(search, ".site-search", (value) => { this._siteQuery = value; });
+    const last = settings.site_campaign_last || {};
+    wrap.appendChild(el("div", { class: "row" }, search,
+      canEdit ? el("button", { class: "btn small primary", disabled: this._busy || !!last.running, on: { click: () => {
+        this._siteCampaign = { groups: [...(settings.site_campaign_groups || ["newsletter", "shop"])],
+          subject: settings.site_campaign_subject || "", message: settings.site_campaign_message || "", contact_id: "" };
+        this._render();
+      } } }, el("ha-icon", { icon: "mdi:email-fast-outline" }), el("span", { class: "btn-label" }, "Nuova campagna")) : null,
+      canEdit ? el("button", { class: "btn small", disabled: this._busy, title: "Legge ora dal sito iscritti, clienti dello shop e codici sconto",
+        on: { click: async () => {
+          try {
+            const r = await this._call("site_sync", {});
+            this._message = { kind: "ok", text: `Aggiornato: ${(r && r.contacts) || 0} persone dal sito.` };
+            this._render();
+          } catch (error) { /* shown */ }
+        } } }, el("ha-icon", { icon: "mdi:refresh" }), el("span", { class: "btn-label" }, "Aggiorna dal sito")) : null));
+    const synced = settings.site_last_sync ? new Date(settings.site_last_sync).toLocaleString("it-IT", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
+    if (!settings.wp_enabled) {
+      wrap.appendChild(el("div", { class: "pg-sum warn" }, el("ha-icon", { icon: "mdi:link-variant-off" }),
+        el("span", {}, el("b", {}, "Sito non collegato. "), "Collega lo shop in Configurazione › Shop online e aggiorna sul sito il plugin «Spa Booking Connector» alla versione 1.2.0.")));
+    } else if (settings.site_last_error) {
+      wrap.appendChild(el("div", { class: "pg-sum warn" }, el("ha-icon", { icon: "mdi:alert-outline" }),
+        el("span", {}, el("b", {}, "Lettura dal sito non riuscita: "), settings.site_last_error)));
+    }
+    wrap.appendChild(el("div", { class: "pg-sum" }, el("ha-icon", { icon: "mdi:information-outline" }),
+      el("span", {}, el("b", {}, `${contacts.length} persone dal sito · ${mailable} possono ricevere le offerte. `),
+        el("span", { class: "pr-wide" }, "Arrivano dalla newsletter, dagli acquisti nello shop e dalle prenotazioni dal sito; ogni email ha il link per cancellarsi. "),
+        synced ? el("span", { class: "dim" }, `Ultimo aggiornamento: ${synced} · si aggiorna da solo ogni ora.`) : null)));
+    if (last.running || (last.finished_at && this._daysTo(String(last.finished_at).slice(0, 10)) === 0)) {
+      wrap.appendChild(el("div", { class: `pg-sum${last.running ? "" : last.error ? " warn" : " ok"}` },
+        el("ha-icon", { icon: last.running ? "mdi:email-fast-outline" : "mdi:email-check-outline" }),
+        el("span", {}, el("b", {}, last.running ? `Invio in corso: ${last.sent || 0} di ${last.total || 0}` : `Campagna «${last.subject || ""}» inviata a ${last.sent || 0} di ${last.total || 0}`),
+          last.failed ? ` · ${last.failed} non riuscite` : "", last.error ? ` (${last.error})` : "")));
+      if (last.running && !this._sitePoll) {
+        this._sitePoll = setTimeout(async () => { this._sitePoll = null; try { await this._loadData(); } catch (error) { /* next */ } }, 8000);
+      }
+    }
+    const count = (fn) => contacts.filter(fn).length;
+    const filter = this._siteFilter || "";
+    const filters = [["", "Tutti", contacts.length], ["newsletter", "Newsletter", count((c) => c.newsletter === "C")],
+      ["shop", "Acquisti", count((c) => (c.shop_orders || 0) > 0)], ["web", "Prenotazioni dal sito", count((c) => (c.web_bookings || 0) > 0)],
+      ["coupon", "Con codice valido", count((c) => codes.has(c.email))], ["no", "Non ricevono offerte", count((c) => !this._siteCanMail(c))]];
+    wrap.appendChild(el("div", { class: "row chips" }, filters.map(([id, text, n]) =>
+      el("button", { class: `pm-chip${filter === id ? " info" : ""}`, style: "cursor:pointer;border:0", on: { click: () => { this._siteFilter = id; this._siteLimit = 100; this._render(); } } }, `${text} ${n}`))));
+    const query = (this._siteQuery || "").trim().toLowerCase();
+    const shown = contacts.filter((c) => {
+      if (filter === "newsletter" && c.newsletter !== "C") return false;
+      if (filter === "shop" && !(c.shop_orders > 0)) return false;
+      if (filter === "web" && !(c.web_bookings > 0)) return false;
+      if (filter === "coupon" && !codes.has(c.email)) return false;
+      if (filter === "no" && this._siteCanMail(c)) return false;
+      if (!query) return true;
+      const code = allCodes.get(c.email);
+      return [c.first_name, c.last_name, c.email, c.phone, code && code.code].join(" ").toLowerCase().includes(query);
+    });
+    if (!shown.length) {
+      wrap.appendChild(el("div", { class: "empty" }, contacts.length ? "Nessuna persona trovata." : "Nessuna persona ancora: premi «Aggiorna dal sito»."));
+      return wrap;
+    }
+    const day = (iso) => (iso ? new Date(iso).toLocaleDateString("it-IT", { day: "numeric", month: "short" }) : "");
+    const list = el("div", { class: "stack tight client-list cfg-box" });
+    const limit = this._siteLimit || 100;
+    shown.slice(0, limit).forEach((c, index) => {
+      const name = [c.first_name, c.last_name].filter(Boolean).join(" ") || c.email || c.phone || "—";
+      const code = allCodes.get(c.email);
+      const valid = codes.get(c.email);
+      const canMail = this._siteCanMail(c) && canEdit;
+      const chips = [];
+      if (c.newsletter) chips.push(el("span", { class: `pm-chip ${c.newsletter === "C" ? "sc-nl" : "sc-no"}` },
+        el("ha-icon", { icon: "mdi:newspaper-variant-outline" }), c.newsletter === "C" ? `Newsletter${c.newsletter_at ? " · " + day(c.newsletter_at) : ""}` : c.newsletter === "U" ? "Newsletter: disiscritta" : "Newsletter non confermata"));
+      if (c.shop_orders > 0) chips.push(el("span", { class: "pm-chip sc-shop" }, el("ha-icon", { icon: "mdi:cart-outline" }),
+        `${c.shop_orders} ${c.shop_orders === 1 ? "acquisto" : "acquisti"} · ${euro(c.shop_total || 0)}`));
+      if (c.web_bookings > 0) chips.push(el("span", { class: "pm-chip sc-web" }, el("ha-icon", { icon: "mdi:calendar-check-outline" }),
+        `${c.web_bookings === 1 ? "Prenotazione dal sito" : `${c.web_bookings} prenotazioni dal sito`}${c.web_last_at ? " · " + day(c.web_last_at) : ""}`));
+      if (code) chips.push(el("span", { class: `pm-chip ${valid ? "sc-code" : "sc-old"}`, title: "Codice sconto della newsletter" },
+        el("ha-icon", { icon: "mdi:ticket-percent-outline" }),
+        `${code.wp_code || code.code} · ${code.discount_percent}%` + (valid ? ` fino al ${this._dateIt(code.expires_on)}` : code.status === "redeemed" ? " · usato" : " · scaduto")));
+      if (c.unsubscribed) chips.push(el("span", { class: "pm-chip warn" }, "Non vuole offerte"));
+      else if (!this._siteCanMail(c) && c.email) chips.push(el("span", { class: "pm-chip sc-no" }, "Senza consenso alle offerte"));
+      list.appendChild(el("div", { class: "client-row pr-row" },
+        el("span", { class: `user-avatar tone-${(index + 1) % 6}` }, this._initials(name)),
+        el("div", { class: "client-main" },
+          el("div", { class: "client-name" }, name),
+          el("div", { class: "dim small" }, [c.email, c.phone].filter(Boolean).join(" · ") || "—"),
+          el("div", { class: "row chips sc-chips" }, chips)),
+        el("div", { class: "appt-actions sc-actions" },
+          el("button", { class: "btn small pr-mail", disabled: !canMail || this._busy,
+            title: !c.email ? "Nessuna email" : canMail ? `Invia un'email a ${c.email}` : "Non ha dato il consenso alle offerte",
+            on: { click: () => { this._siteCampaign = { groups: [], subject: settings.site_campaign_subject || "", message: settings.site_campaign_message || "", contact_id: c.id }; this._render(); } } },
+          el("ha-icon", { icon: "mdi:email-fast-outline" })),
+          c.phone ? el("a", { class: "btn small tel pr-wide", href: telHref(c.phone), title: c.phone }, el("ha-icon", { icon: "mdi:phone" })) : null,
+          c.phone && waLink(c.phone) ? el("a", { class: "btn small wa pr-wide", href: waLink(c.phone), target: "_blank", rel: "noopener", title: "WhatsApp" }, el("ha-icon", { icon: "mdi:whatsapp" })) : null,
+          el("button", { class: "btn small", title: "Altre azioni", on: { click: () => { this._siteMenu = c.id; this._render(); } } }, el("ha-icon", { icon: "mdi:dots-vertical" })))));
+    });
+    wrap.appendChild(list);
+    if (shown.length > limit) {
+      wrap.appendChild(el("div", { class: "row" }, el("span", { class: "spacer" }),
+        el("button", { class: "btn small", on: { click: () => { this._siteLimit = limit + 200; this._render(); } } },
+          `Mostra altri (${shown.length - limit})`), el("span", { class: "spacer" })));
+    }
+    if (canEdit && this._can("config")) {
+      wrap.appendChild(el("details", { class: "pg-adv" }, el("summary", {}, "Codici sconto della newsletter"),
+        el("div", { class: "stack tight" },
+          el("div", { class: "hint" }, "Spa Booking prende dallo shop i codici sconto personali (un'email per codice) che iniziano così. I codici compaiono in Voucher › Newsletter e valgono anche nel modulo del sito."),
+          el("div", { class: "row" },
+            el("input", { class: "input", style: "max-width:200px", value: settings.site_coupon_prefix ?? "welcome",
+              on: { change: (event) => { this._sitePrefix = event.target.value; } } }),
+            el("button", { class: "btn small", disabled: this._busy, on: { click: async () => {
+              try {
+                await this._call("update_settings", { site_coupon_prefix: String(this._sitePrefix ?? settings.site_coupon_prefix ?? "welcome").trim() });
+                this._message = { kind: "ok", text: "Salvato: premi «Aggiorna dal sito»." };
+                this._render();
+              } catch (error) { /* shown */ }
+            } } }, "Salva")))));
+    }
+    return wrap;
+  }
+
+  /** «⋮» of a person of the site (3.3.0). */
+  _renderSiteMenu() {
+    const contact = (this._data.site_contacts || []).find((c) => c.id === this._siteMenu);
+    const close = () => { this._siteMenu = null; this._render(); };
+    if (!contact) { this._siteMenu = null; return null; }
+    const name = [contact.first_name, contact.last_name].filter(Boolean).join(" ") || contact.email || contact.phone;
+    const item = (icon, text, onClick, cls = "") => el("button", { type: "button", class: `pm-item ${cls}`, on: { click: () => { this._siteMenu = null; onClick(); } } },
+      el("ha-icon", { icon }), el("span", {}, text));
+    const items = [];
+    const client = contact.client_id && (this._data.clients || []).find((c) => c.id === contact.client_id);
+    if (client) items.push(item("mdi:card-account-details-outline", "Apri la scheda cliente", () => { this._clientsTab = "clienti"; this._clientSelected = client.id; this._render(); }));
+    if (contact.phone) items.push(el("a", { class: "pm-item", href: telHref(contact.phone), on: { click: close } }, el("ha-icon", { icon: "mdi:phone" }), el("span", {}, "Chiama")));
+    if (contact.phone && waLink(contact.phone)) items.push(el("a", { class: "pm-item wa", href: waLink(contact.phone), target: "_blank", rel: "noopener", on: { click: close } }, el("ha-icon", { icon: "mdi:whatsapp" }), el("span", {}, "WhatsApp")));
+    if (contact.email) items.push(item("mdi:content-copy", "Copia l'email", async () => {
+      try { await navigator.clipboard.writeText(contact.email); this._message = { kind: "ok", text: "Email copiata." }; }
+      catch (error) { this._message = { kind: "ok", text: contact.email }; }
+      this._render();
+    }));
+    if (this._can("manage_clients") && contact.email) {
+      items.push(contact.unsubscribed
+        ? item("mdi:email-check-outline", "Riattiva le offerte", () => this._call("site_contact_subscribe", { contact_id: contact.id, subscribed: true }).catch(() => {}))
+        : item("mdi:email-off-outline", "Non inviare più offerte", () => this._call("site_contact_subscribe", { contact_id: contact.id, subscribed: false }).catch(() => {}), "danger"));
+    }
+    return el("div", { class: "detail-backdrop", on: { click: (event) => { if (event.target === event.currentTarget) close(); } } },
+      el("div", { class: "detail-sheet cx-sheet pm-sheet" }, el("h3", {}, name), el("div", { class: "pm-list" }, items)));
+  }
+
+  /** «Nuova campagna» to the people of the site (3.3.0). */
+  _renderSiteCampaign() {
+    const draft = this._siteCampaign;
+    const close = () => { this._siteCampaign = null; this._render(); };
+    const contacts = this._data.site_contacts || [];
+    const codes = this._siteValidCodes();
+    const one = draft.contact_id ? contacts.find((c) => c.id === draft.contact_id) : null;
+    const mailable = contacts.filter((c) => this._siteCanMail(c));
+    const inGroup = (g) => mailable.filter((c) => this._siteInGroup(c, g, codes)).length;
+    const targets = one ? [one] : mailable.filter((c) => draft.groups.some((g) => this._siteInGroup(c, g, codes)));
+    const option = (group, title, sub) => el("button", {
+      type: "button", class: `cx-opt sc-opt${draft.groups.includes(group) ? " on" : ""}`,
+      on: { click: () => { draft.groups = draft.groups.includes(group) ? draft.groups.filter((g) => g !== group) : [...draft.groups, group]; this._render(); } },
+    }, el("span", { class: "sc-box" }, draft.groups.includes(group) ? el("ha-icon", { icon: "mdi:check" }) : null),
+    el("span", { class: "cx-text" }, el("b", {}, title), el("span", { class: "dim small" }, sub)), el("b", { class: "sc-n" }, String(inGroup(group))));
+    const text = (key, label, rows) => el("label", { class: "field" }, el("span", {}, label),
+      el(rows ? "textarea" : "input", { class: "input", ...(rows ? { rows } : { value: draft[key] || "" }),
+        on: { input: (event) => { draft[key] = event.target.value; } } }, rows ? (draft[key] || "") : null));
+    const payload = () => ({ subject: draft.subject, message: draft.message, groups: draft.groups, ...(one ? { contact_id: one.id } : {}) });
+    const sample = one || targets[0] || { first_name: "Giulia", email: "" };
+    const preview = () => {
+      const code = codes.get(sample.email);
+      const fill = (t) => String(t || "").split("{nome}").join(sample.first_name || "").split("{cognome}").join(sample.last_name || "")
+        .split("{codice_sconto}").join(code ? (code.wp_code || code.code) : "").split("{sconto}").join(code ? `${code.discount_percent}%` : "")
+        .split("{scadenza_sconto}").join(code && code.expires_on ? this._dateIt(code.expires_on) : "")
+        .split("{link_prenota}").join((this._data.settings || {}).partner_booking_url || "(pagina di prenotazione)");
+      return el("div", { class: "sc-preview" }, el("b", {}, fill(draft.subject)), el("div", {}, fill(draft.message)),
+        el("div", { class: "dim small" }, "— Non vuoi più ricevere queste email? Cancella l'iscrizione: (link)"));
+    };
+    return el("div", { class: "detail-backdrop", on: { click: (event) => { if (event.target === event.currentTarget) close(); } } },
+      el("div", { class: "detail-sheet cx-sheet sc-sheet" },
+        el("h3", {}, el("ha-icon", { icon: "mdi:email-fast-outline" }), one ? ` Email a ${[one.first_name, one.last_name].filter(Boolean).join(" ") || one.email}` : " Nuova campagna ai clienti del sito"),
+        one ? el("p", { class: "dim" }, `A: ${one.email}`) : el("p", { class: "dim" }, "Scegli a chi mandarla: ognuno riceve una sola email, anche se è in più gruppi."),
+        one ? null : el("div", { class: "cx-choice" },
+          option("newsletter", "Iscritti alla newsletter", "hanno dato il consenso alle offerte"),
+          option("shop", "Hanno acquistato nello shop", "offerte su servizi simili, con il link per cancellarsi"),
+          option("web", "Hanno prenotato dal sito e accettato le offerte", "chi ha messo la spunta nel modulo"),
+          option("coupon", "Solo chi ha un codice sconto ancora valido", "es. «il tuo sconto scade tra pochi giorni»")),
+        text("subject", "Oggetto"),
+        text("message", "Testo ({nome}, {cognome}, {codice_sconto}, {sconto}, {scadenza_sconto}, {link_prenota})", "7"),
+        this._siteCampaignPreview ? preview() : null,
+        !one && targets.length > 400 ? el("div", { class: "pg-sum warn" }, el("ha-icon", { icon: "mdi:alert-outline" }),
+          el("span", {}, "Gmail invia al massimo circa 500 email al giorno: con tanti destinatari conviene un account SMTP (Configurazione › Email).")) : null,
+        el("div", { class: "row" },
+          el("span", { class: "dim" }, el("b", {}, String(targets.length)), " destinatari · invio in sottofondo, un'email al secondo"),
+          el("span", { class: "spacer" }),
+          el("button", { class: "btn small", on: { click: () => { this._siteCampaignPreview = !this._siteCampaignPreview; this._render(); } } }, "Anteprima"),
+          el("button", { class: "btn small", disabled: this._busy, on: { click: async () => {
+            const to = window.prompt("Invia una prova a (email):", "");
+            if (!to || !to.includes("@")) return;
+            try {
+              await this._service("send_site_campaign", { ...payload(), test_to: to.trim() });
+              this._message = { kind: "ok", text: `Prova inviata a ${to.trim()}.` };
+            } catch (error) { this._message = { kind: "error", text: (error && error.message) || String(error) }; }
+            this._render();
+          } } }, "Invia prova"),
+          el("button", { class: "btn", on: { click: close } }, "Annulla"),
+          el("button", { class: "btn primary", disabled: this._busy || !targets.length || !draft.subject.trim() || !draft.message.trim(), on: { click: async () => {
+            if (!one && !window.confirm(`Inviare la campagna a ${targets.length} persone?`)) return;
+            try {
+              const r = await this._call("send_site_campaign", payload());
+              this._siteCampaign = null;
+              this._message = { kind: "ok", text: one ? `Email in invio a ${one.email}.` : `Campagna in invio a ${(r && r.queued) || targets.length} persone.` };
+              this._render();
+            } catch (error) { /* shown */ }
+          } } }, el("ha-icon", { icon: "mdi:send" }), "Invia"))));
   }
 
   /** The VAT rate of a treatment: its own, else the default (2.5.1). */
@@ -16823,7 +17091,7 @@ class SpaBookingCard extends HTMLElement {
         }, el("ha-icon", { icon }), el("span", {}, label)))));
 
     const clients = (this._data.clients || []);
-    const vouchers = this._data.promo_vouchers || [];
+    const vouchers = (this._data.promo_vouchers || []).filter((v) => v.source !== "newsletter");
     const sentPromos = clients.reduce((sum, c) => sum + (Number(c.promo_sent_count) || 0), 0);
     const sentLoyalty = vouchers.filter((v) => v.sent_at).length;
     const used = vouchers.filter((v) => v.redeemed_at || v.status === "redeemed").length;
@@ -23470,6 +23738,24 @@ class SpaBookingCard extends HTMLElement {
       .cx-text { display: flex; flex-direction: column; gap: 2px; }
       .gate-row input { width: 18px; height: 18px; accent-color: var(--primary-color); flex: none; }
       .cf-ok { color: var(--sb-ok, #2e9e5b); --mdc-icon-size: 20px; flex: none; }
+      /* Clienti › Sito (3.3.0). */
+      .sc-chips { gap: 5px; margin-top: 4px; }
+      .sc-chips .pm-chip { display: inline-flex; align-items: center; gap: 4px; }
+      .sc-chips .pm-chip ha-icon { --mdc-icon-size: 13px; }
+      .pm-chip.sc-nl { background: rgba(46,158,91,.14); color: #23804a; }
+      .pm-chip.sc-shop { background: rgba(214,140,30,.16); color: #9a6512; }
+      .pm-chip.sc-web { background: rgba(53,87,176,.13); color: #3557b0; }
+      .pm-chip.sc-code { background: rgba(10,132,168,.13); color: #0a7fa6; }
+      .pm-chip.sc-old { text-decoration: line-through; opacity: .7; }
+      .pm-chip.sc-no { background: rgba(192,58,58,.1); color: #b03535; }
+      .sc-actions { flex: none; }
+      .sc-opt { display: flex; align-items: center; gap: 10px; }
+      .sc-box { width: 20px; height: 20px; border-radius: 6px; border: 2px solid var(--secondary-text-color); display: grid; place-items: center; flex: none; }
+      .sc-opt.on .sc-box { background: var(--sb-accent, var(--primary-color)); border-color: transparent; color: #fff; }
+      .sc-box ha-icon { --mdc-icon-size: 16px; }
+      .sc-n { margin-left: auto; color: var(--sb-accent, var(--primary-color)); }
+      .sc-sheet { max-width: 640px; }
+      .sc-preview { border: 1px dashed var(--divider-color, #ccc); border-radius: 10px; padding: 12px; white-space: pre-wrap; display: grid; gap: 8px; margin: 8px 0; }
       /* Partners on a phone (3.2.0). */
       .pr-narrow, .pr-narrow-only { display: none; }
       .pr-mail:not([disabled]) { color: var(--sb-accent, var(--primary-color)); }

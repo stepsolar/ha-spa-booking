@@ -41,7 +41,7 @@
       step: "Passo {n} di 4",
       s1: "Quando vuoi venire?", s2: "Cosa scegliete?", s3: "I tuoi dati", s4: "Controlla e invia",
       date: "Data", people: "Persone", person: "Persona {n}",
-      voucher: "Hai un voucher regalo?", voucherPh: "VCH-7K2M9Q4P", check: "Verifica",
+      voucher: "Hai un voucher o un codice sconto?", codeOk: "Codice valido: sconto del {p}%{m}, fino al {d}.", codeMin: " su una spesa da {x}", codeBelow: "Il codice vale su una spesa da {x}: aggiungi un trattamento per usarlo.", codeRow: "Codice {c}", marketing: "Voglio ricevere per email offerte e novità della spa (facoltativo, puoi cancellarti quando vuoi).", voucherPh: "VCH-7K2M9Q4P", check: "Verifica",
       voucherOk: "Voucher valido fino al {d}: trattamenti già scelti.", voucherBad: "Voucher non valido o scaduto.",
       treatments: "Trattamenti", time: "Orario", noSlots: "Nessun orario libero in questa data.",
       loading: "Caricamento…", sameAs1: "Come la persona 1", fromVoucher: "dal voucher",
@@ -67,7 +67,7 @@
       step: "Step {n} of 4",
       s1: "When would you like to come?", s2: "What would you like?", s3: "Your details", s4: "Check and send",
       date: "Date", people: "Guests", person: "Guest {n}",
-      voucher: "Do you have a gift voucher?", voucherPh: "VCH-7K2M9Q4P", check: "Check",
+      voucher: "Do you have a voucher or a discount code?", codeOk: "Valid code: {p}% off{m}, until {d}.", codeMin: " on a spend of {x} or more", codeBelow: "The code needs a spend of {x}: add a treatment to use it.", codeRow: "Code {c}", marketing: "Send me offers and news from the spa by email (optional, you can unsubscribe at any time).", voucherPh: "VCH-7K2M9Q4P", check: "Check",
       voucherOk: "Voucher valid until {d}: treatments already chosen.", voucherBad: "The voucher is not valid or has expired.",
       pref: "For the massage you would prefer…", prefAny: "No preference", prefF: "A female therapist", prefM: "A male therapist",
       treatments: "Treatments", time: "Time", noSlots: "No free time on this date.",
@@ -93,7 +93,7 @@
       step: "Schritt {n} von 4",
       s1: "Wann möchten Sie kommen?", s2: "Was wünschen Sie?", s3: "Ihre Daten", s4: "Prüfen und senden",
       date: "Datum", people: "Personen", person: "Person {n}",
-      voucher: "Haben Sie einen Gutschein?", voucherPh: "VCH-7K2M9Q4P", check: "Prüfen",
+      voucher: "Haben Sie einen Gutschein oder Rabattcode?", codeOk: "Gültiger Code: {p}% Rabatt{m}, bis {d}.", codeMin: " ab {x}", codeBelow: "Der Code gilt ab {x}: fügen Sie eine Behandlung hinzu.", codeRow: "Code {c}", marketing: "Ich möchte Angebote und Neuigkeiten des Spa per E-Mail erhalten (freiwillig, jederzeit abbestellbar).", voucherPh: "VCH-7K2M9Q4P", check: "Prüfen",
       voucherOk: "Gutschein gültig bis {d}: Behandlungen bereits ausgewählt.", voucherBad: "Der Gutschein ist ungültig oder abgelaufen.",
       pref: "Für die Massage bevorzugen Sie…", prefAny: "Egal", prefF: "Eine Masseurin", prefM: "Einen Masseur",
       treatments: "Behandlungen", time: "Uhrzeit", noSlots: "An diesem Tag ist keine Uhrzeit frei.",
@@ -148,6 +148,9 @@
     voucherCode: "",
     voucher: null,
     voucherMsg: "",
+    // A newsletter discount code (3.3.0) and «Voglio ricevere le offerte».
+    discount: null,
+    marketing: false,
     persons: [{ picks: [] }],
     first: "", last: "", cc: "39", phone: "", email: "", notes: "",
     error: "",
@@ -388,6 +391,16 @@
     state.voucherMsg = t("loading");
     render();
     api("/treatments?code=" + encodeURIComponent(code)).then(function (data) {
+      if (data && data.discount) {
+        state.voucher = null;
+        state.discount = data.discount;
+        var min = Number(data.discount.min_spend) || 0;
+        state.voucherMsg = t("codeOk", { p: pctText(Number(data.discount.percent) || 0),
+          m: min ? t("codeMin", { x: money(min) }) : "", d: plainDate(data.discount.expires_on) || data.discount.expires_on || "" });
+        render();
+        return;
+      }
+      state.discount = null;
       var voucher = data && data.voucher;
       if (!voucher) throw new Error("bad");
       state.voucher = voucher;
@@ -407,6 +420,7 @@
       render();
     }).catch(function () {
       state.voucher = null;
+      state.discount = null;
       state.voucherMsg = t("voucherBad");
       render();
     });
@@ -439,7 +453,8 @@
       phone: phone,
       email: state.email.trim(),
       notes: state.notes.trim(),
-      voucher_code: state.voucher ? state.voucher.code : "",
+      voucher_code: state.voucher ? state.voucher.code : (state.discount ? state.discount.code : ""),
+      marketing: !!state.marketing,
       partner_code: partnerCode(),
       language: state.lang,
     } }).then(function (data) {
@@ -517,6 +532,7 @@
     ".done{text-align:center;padding:12px 0}.tick{width:56px;height:56px;border-radius:50%;background:#e8f5e9;color:#2e7d32;font-size:30px;display:inline-flex;align-items:center;justify-content:center}",
     ".code{display:inline-block;margin:10px 0 16px;padding:8px 20px;font-size:24px;font-weight:700;letter-spacing:.08em;border:2px dashed #cfd5db;border-radius:12px;font-family:ui-monospace,Menlo,monospace}",
     ".ph{flex-wrap:wrap}.ph select{flex:0 0 108px}.ph input{flex:1 1 140px;min-width:0}",
+    ".mk{display:flex;gap:9px;align-items:flex-start;font-size:13px;color:#3c4247;margin:12px 0 0;cursor:pointer}.mk input{width:18px;height:18px;margin:1px 0 0;flex:none;accent-color:var(--sb-accent,#0a84a8)}",
     ".honey{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}",
     "@media(max-width:520px){.sb{padding:18px 14px;border-radius:14px}h2{font-size:18px}.nav .btn{padding:11px 14px}}",
   ].join("\n");
@@ -604,7 +620,7 @@
       }),
       h("button", { type: "button", class: "btn", onclick: checkVoucher }, t("check"))));
     if (state.voucherMsg) {
-      box.appendChild(h("p", { class: "hint " + (state.voucher ? "ok" : "bad") }, state.voucherMsg));
+      box.appendChild(h("p", { class: "hint " + (state.voucher || state.discount ? "ok" : "bad") }, state.voucherMsg));
     }
   }
 
@@ -740,6 +756,9 @@
         rows: "2", maxlength: "1000", placeholder: t("notesPh"), "aria-label": t("notes"),
         oninput: function (e) { state.notes = e.target.value; },
       }, state.notes)));
+    var mk = h("input", { type: "checkbox", onchange: function (e) { state.marketing = e.target.checked; } });
+    mk.checked = !!state.marketing;
+    box.appendChild(h("label", { class: "mk" }, mk, h("span", null, t("marketing"))));
     box.appendChild(h("div", { class: "honey", "aria-hidden": "true" },
       h("input", { id: "sb-website", tabindex: "-1", autocomplete: "off" })));
   }
@@ -761,16 +780,27 @@
     if (config.showPrices && total() > 0) {
       // The partner's guests see their discount (2.8.6).
       var pct = config.partnerDiscount || 0;
-      if (pct > 0) {
+      // A newsletter code (3.3.0): on the treatments, from its minimum spend.
+      var code = state.discount;
+      var codeOk = code && !pct && total() >= (Number(code.min_spend) || 0);
+      if (codeOk) {
+        var off = Math.round((total() - packagesTotal()) * (Number(code.percent) || 0)) / 100;
+        rows.push([t("codeRow", { c: code.code }) + " · " + t("discount", { p: pctText(Number(code.percent) || 0) }), "−" + money(off)]);
+        rows.push([t("total"), money(total() - off)]);
+      } else if (pct > 0) {
         // A package keeps its own price: the discount is on the rest.
         var cut = Math.round((total() - packagesTotal()) * pct) / 100;
         rows.push([t("discount", { p: pctText(pct) }), "−" + money(cut)]);
         rows.push([t("total"), money(total() - cut)]);
       } else rows.push([t("total"), money(total())]);
     }
+    if (state.discount && !config.showPrices) rows.push([t("codeRow", { c: state.discount.code }), t("discount", { p: pctText(Number(state.discount.percent) || 0) })]);
     box.appendChild(h("div", { class: "sum" }, rows.map(function (row) {
       return h("div", null, h("span", null, row[0]), h("span", null, row[1]));
     })));
+    if (state.discount && config.showPrices && !config.partnerDiscount && total() < (Number(state.discount.min_spend) || 0)) {
+      box.appendChild(h("p", { class: "hint bad" }, t("codeBelow", { x: money(Number(state.discount.min_spend) || 0) })));
+    }
     box.appendChild(h("p", { class: "hint" }, t("notYet")));
   }
 
@@ -782,6 +812,8 @@
     state.voucher = null;
     state.voucherCode = "";
     state.voucherMsg = "";
+    state.discount = null;
+    state.marketing = false;
     state.notes = "";
     state.code = "";
     state.error = "";

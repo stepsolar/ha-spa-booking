@@ -1,6 +1,6 @@
 <p align="center"><img src="anteprime/logo.png" width="120" alt="Spa Booking"></p>
 
-# Spa Booking 3.2 — la guida completa
+# Spa Booking 3.3 — la guida completa
 
 Questa guida spiega **tutto quello che fa Spa Booking**, scheda per scheda:
 dalla prenotazione al banco al modulo del sito, dai messaggi WhatsApp ai
@@ -355,6 +355,42 @@ premio, e lo storico degli appuntamenti.
 
 ![Punti nella scheda cliente](anteprime/45-punti-cliente.png)
 
+### Clienti del sito
+
+Clienti › **Sito** (3.3) riunisce le persone che arrivano dal sito, una
+sola volta ciascuna: chi si è **iscritto alla newsletter**, chi ha
+**acquistato nello shop** e chi ha **prenotato dal modulo del sito**.
+Accanto al nome compaiono da dove arriva, gli acquisti, il **codice sconto
+della newsletter** con la scadenza (barrato se usato o scaduto) e se può
+ricevere offerte. I filtri in alto mostrano un gruppo alla volta; ⋮ apre la
+scheda cliente, chiama, scrive su WhatsApp, copia l'email o ferma le
+offerte a quella persona.
+
+L'elenco si aggiorna da solo ogni ora (o con **Aggiorna dal sito**) e
+richiede il plugin WordPress **Spa Booking Connector 1.2.0** (vedi Shop
+online).
+
+**Nuova campagna**: si scelgono i gruppi (iscritti alla newsletter, chi ha
+acquistato, chi ha prenotato dal sito accettando le offerte, chi ha un
+codice sconto ancora valido), oggetto e testo con i segnaposto `{nome}`,
+`{cognome}`, `{codice_sconto}`, `{sconto}`, `{scadenza_sconto}` e
+`{link_prenota}`. *Anteprima*, *Invia prova*, poi **Invia**: le email
+partono in sottofondo, una al secondo, e la barra mostra l'avanzamento.
+Ognuno riceve una sola email anche se è in più gruppi, e in fondo c'è il
+link per cancellarsi. Il tasto ✉ sulla riga manda un'email a quella sola
+persona.
+
+> Ricevono offerte solo gli iscritti alla newsletter, chi ha acquistato
+> (offerte su servizi simili) e chi ha messo la spunta nel modulo; mai chi
+> ha cancellato l'iscrizione. Gmail invia circa 500 email al giorno: per
+> liste più lunghe conviene un account SMTP.
+
+| | |
+|---|---|
+| ![Clienti del sito](anteprime/91-clienti-sito.png) | ![Sul telefono](anteprime/92-clienti-sito-telefono.png) |
+
+![Nuova campagna](anteprime/93-campagna-sito.png)
+
 ---
 
 ## 9. Partner
@@ -438,8 +474,15 @@ mano. Ogni email ha il link «Cancella l'iscrizione».
 
 - **Riepilogo**: attivi, in scadenza nei prossimi 30 giorni, riscattati nel
   mese e (Manager) valore delle gift card attive. Toccando un numero si filtra.
-- **Filtri**: Tutti, Attivi, In scadenza, Riscattati, Scaduti, Fedeltà;
-  la ricerca trova anche chi ha creato il voucher.
+- **Filtri**: Tutti, Attivi, In scadenza, Riscattati, Scaduti, Fedeltà,
+  **Newsletter**; la ricerca trova anche chi ha creato il voucher.
+- **Newsletter** (3.3): i codici sconto che il sito regala a chi si iscrive
+  alla newsletter, con cliente, email, sconto, spesa minima, scadenza e
+  stato (Valido, Scade tra N giorni, Usato, Scaduto). ✓ lo segna usato in
+  spa e lo segna usato anche sullo shop; un codice usato sullo shop risulta
+  usato anche qui.
+
+![Codici della newsletter](anteprime/94-voucher-newsletter.png)
 - **Ogni voucher è un biglietto** colorato secondo lo stato, con codice,
   destinatario, chi l'ha regalato, trattamenti per persona, scadenza e
   **Creato da**. Azioni: *Copia*, *Prenota* (apre la prenotazione già
@@ -632,13 +675,16 @@ modulo vero arriva da Home Assistant, quindi ogni aggiornamento compare sul
 sito da solo, ed è isolato dal tema del sito.
 
 1. **Quando**: data, persone e voucher (un voucher valido sceglie già i suoi
-   trattamenti).
+   trattamenti). Vale anche il **codice sconto della newsletter** (3.3): il
+   modulo mostra lo sconto e la spesa minima, il totale lo toglie e la
+   prenotazione confermata nasce con il prezzo scontato.
 2. **Cosa scegliete**: per ogni persona trattamento e orario (solo quelli
    liberi, rispettando chiusure, regole e categorie che non si accavallano),
    preferenza massaggiatrice/massaggiatore; con 2 o più persone i
    **pacchetti dello shop** (si nasconde tutta la sezione togliendo
    «Mostra la sezione Pacchetti» in Impostazioni › Sito web).
-3. **I tuoi dati**: nome, cognome, telefono con prefisso, email, note.
+3. **I tuoi dati**: nome, cognome, telefono con prefisso, email, note e la
+   spunta facoltativa «Voglio ricevere offerte e novità» (3.3).
 4. **Controlla e invia**: riepilogo e, se attivo, totale indicativo (con lo
    sconto partner).
 
@@ -648,6 +694,7 @@ italiano, inglese e tedesco (dal browser o con IT, EN, DE).
 | | |
 |---|---|
 | ![Passo 1](anteprime/30-sito-f1-quando.png) | ![Pacchetti nel modulo](anteprime/73-pacchetti-sito.png) |
+| ![Codice della newsletter](anteprime/95-sito-codice.png) | ![Sconto nel totale](anteprime/96-sito-codice-totale.png) |
 | ![Dati](anteprime/30-sito-f3-dati-de.png) | ![Inviata](anteprime/30-sito-f5-inviata-en.png) |
 
 ---
@@ -658,7 +705,10 @@ I voucher venduti sullo shop WooCommerce (con «Buoni PDF») arrivano in Spa
 Booking da soli.
 
 1. Carica il plugin `wordpress/spa-booking-connector.zip` in WordPress e
-   attivalo.
+   attivalo (per aggiornarlo: Plugin › Aggiungi nuovo › Carica plugin ›
+   «Sostituisci la versione installata»). La versione **1.2.0** passa anche
+   iscritti alla newsletter, clienti dello shop e codici sconto della
+   newsletter (Clienti › Sito).
 2. In Configurazione › Shop online scrivi l'indirizzo del sito, premi
    **Nuova chiave** e copia chiave e indirizzo di notifica in WordPress ›
    WooCommerce › Spa Booking.

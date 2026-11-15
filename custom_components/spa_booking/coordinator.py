@@ -38,6 +38,7 @@ from .const import (
     KEY_VOUCHERS,
     KEY_PROMO_VOUCHERS,
     KEY_PARTNERS,
+    KEY_SITE_CONTACTS,
     DEFAULT_LOYALTY_MESSAGE,
     DEFAULT_PARTNER_REWARD_MESSAGE,
     PROMO_VOUCHER_PENDING,
@@ -132,6 +133,7 @@ from .exceptions import (
     ValidationError,
 )
 from . import access, email_sender, gdrive_backup, google_auth, messaging, poster as poster_mod, qr as qr_mod, wp_shop
+from . import site_contacts as site_mod
 from .waha import WahaAuthenticationError, WahaError
 from .waha_inbound import WahaInbound
 from .wa_bridge import WaBridge
@@ -2585,6 +2587,8 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # A code can instead be a loyalty voucher ("Voucher fedelta"):
                 # it is redeemed once, on the first booking that uses it.
                 promo = self._promo_voucher_of_rows(rows)
+                if promo is not None and promo.get("source") == "newsletter":
+                    self._apply_newsletter_discount(promo, [item[0] for item in prepared])
 
                 # Everything validated: commit once.
                 for _appointment, client, is_new in prepared:
@@ -2601,6 +2605,8 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # Clear the user_id.
                 self._current_user_id = None
 
+        if promo is not None and promo.get("source") == "newsletter":
+            self.hass.async_create_task(self.async_wp_coupon_use(promo["id"]))
         payloads = [await self._async_announce(item[0]) for item in prepared]
         return {"appointments": payloads, "count": len(payloads)}
 
@@ -4120,7 +4126,10 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return {"skipped": "collegamento spento"}
         if dt_util.now().minute % 15 >= 5:
             return {"skipped": "non ora"}
-        return await self.async_wp_sync()
+        result = await self.async_wp_sync()
+        # The people of the site, once an hour (3.3.0).
+        result["site"] = await self.async_site_tick()
+        return result
 
     async def async_wp_redeem(self, voucher_id: str) -> dict[str, Any]:
         """Tell the shop the voucher was used at the spa (on the guest's arrival)."""
@@ -4147,6 +4156,340 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 voucher["redeemed_at"] = voucher["wp_redeemed_at"]
             await self._async_save()
         return {"ok": True}
+
+    # ------------------------------------------------ the people of the site
+
+    @property
+    def site_contacts(self) -> list[dict[str, Any]]:
+        """Clienti › Sito (3.3.0): newsletter, shop buyers, web bookings."""
+        return self._data.setdefault(KEY_SITE_CONTACTS, [])
+
+    def _web_booking_rows(self) -> list[dict[str, Any]]:
+        """Every request from the website form, with the guest's card."""
+        clients = {c["id"]: c for c in self.clients}
+        rows = []
+        for request in self.requests:
+            if request.get("source") != REQUEST_SOURCE_WEB:
+                continue
+            client = clients.get(request.get("client_id") or "") or {}
+            rows.append({
+                "email": client.get("email") or "", "phone": client.get("phone") or "",
+                "first_name": client.get("first_name") or "", "last_name": client.get("last_name") or "",
+                "client_id": client.get("id") or "", "at": request.get("created_at") or "",
+                "marketing": bool(request.get("marketing")),
+            })
+        return rows
+
+    def _site_contacts_refresh_web(self) -> None:
+        """The web bookings again, keeping what the site said last time."""
+        newsletter = [{"email": c["email"], "phone": c["phone"], "first": c["first_name"], "last": c["last_name"],
+                       "status": c["newsletter"], "created": c["newsletter_at"]}
+                      for c in self.site_contacts if c.get("newsletter")]
+        buyers = [{"email": c["email"], "phone": c["phone"], "first": c["first_name"], "last": c["last_name"],
+                   "orders": c["shop_orders"], "total": c["shop_total"], "last_order": c["shop_last_at"],
+                   "first_order": c["shop_last_at"]}
+                  for c in self.site_contacts if c.get("shop_orders")]
+        self._data[KEY_SITE_CONTACTS] = site_mod.merge(self.site_contacts, newsletter, buyers, self._web_booking_rows())
+        self._site_link_coupons()
+
+    def _site_link_coupons(self) -> None:
+        """Names on the newsletter codes, from the people they belong to."""
+        by_email = {c["email"]: c for c in self.site_contacts if c.get("email")}
+        for voucher in self.promo_vouchers:
+            if voucher.get("source") != "newsletter":
+                continue
+            contact = by_email.get(voucher.get("email") or "")
+            if contact is None:
+                continue
+            for field in ("first_name", "last_name", "phone"):
+                if not voucher.get(field) and contact.get(field):
+                    voucher[field] = contact[field]
+            if not voucher.get("client_id") and contact.get("client_id"):
+                voucher["client_id"] = contact["client_id"]
+
+    async def async_site_sync(self, reason: str = "") -> dict[str, Any]:
+        """Read the people of the site and the newsletter codes again."""
+        settings = self._data.get(KEY_SETTINGS, {})
+        if not settings.get("wp_enabled"):
+            raise ValidationError("Collega prima il sito in Configurazione › Shop online")
+        try:
+            url, secret = self._wp_settings()
+            payload = await wp_shop.contacts(self._http_session(), url, secret, settings.get("site_coupon_prefix", "welcome"))
+        except wp_shop.WpShopError as err:
+            async with self._lock:
+                self._data[KEY_SETTINGS]["site_last_error"] = str(err)
+                self._data[KEY_SETTINGS]["site_last_sync"] = dt_util.utcnow().isoformat()
+                await self._async_save()
+            raise ValidationError(str(err)) from err
+        added = used = 0
+        async with self._lock:
+            self._data[KEY_SITE_CONTACTS] = site_mod.merge(
+                self.site_contacts, payload.get("newsletter") or [], payload.get("buyers") or [], self._web_booking_rows())
+            by_code = {v["code"]: v for v in self.promo_vouchers}
+            for coupon in payload.get("coupons") or []:
+                code = str(coupon.get("code") or "").strip()
+                if not code or coupon.get("type") != "percent":
+                    continue
+                key = code.upper()
+                voucher = by_code.get(key)
+                expires = str(coupon.get("expires") or "")[:10]
+                if voucher is None:
+                    # Used or expired ones too: the list keeps them as history.
+                    voucher = _norm_promo_voucher({
+                        "id": _new_id("pvo"), "code": key, "wp_code": code, "source": "newsletter",
+                        "email": coupon.get("email"), "discount_percent": round(float(coupon.get("amount") or 0)),
+                        "min_spend": round(float(coupon.get("min_amount") or 0)), "max_spend": 0,
+                        "created_at": coupon.get("created") or dt_util.utcnow().isoformat(),
+                        "sent_at": coupon.get("created") or "", "expires_on": expires,
+                        "status": PROMO_VOUCHER_REDEEMED if coupon.get("used") else PROMO_VOUCHER_SENT,
+                        "redeemed_at": dt_util.utcnow().isoformat() if coupon.get("used") else "",
+                        "wp_used": bool(coupon.get("used")), "by": "Newsletter del sito",
+                    })
+                    self.promo_vouchers.append(voucher)
+                    by_code[key] = voucher
+                    added += 1
+                    continue
+                if voucher.get("source") != "newsletter":
+                    continue
+                voucher["expires_on"] = expires or voucher.get("expires_on") or ""
+                if coupon.get("used") and voucher["status"] != PROMO_VOUCHER_REDEEMED:
+                    voucher["status"] = PROMO_VOUCHER_REDEEMED
+                    voucher["redeemed_at"] = dt_util.utcnow().isoformat()
+                    voucher["by"] = "usato sullo shop"
+                    used += 1
+                if coupon.get("used"):
+                    voucher["wp_used"] = True
+            self._site_link_coupons()
+            retry = [v["id"] for v in self.promo_vouchers if v.get("source") == "newsletter"
+                     and v["status"] == PROMO_VOUCHER_REDEEMED and not v.get("wp_used")]
+            settings = self._data[KEY_SETTINGS]
+            settings["site_last_sync"] = dt_util.utcnow().isoformat()
+            settings["site_last_error"] = ""
+            settings["site_last_result"] = (
+                f"{len(self.site_contacts)} persone · {len(payload.get('coupons') or [])} codici sconto"
+                + (f" · {added} nuovi" if added else "") + (f" ({reason})" if reason else ""))
+            await self._async_save()
+        for voucher_id in retry:
+            await self.async_wp_coupon_use(voucher_id)
+        return {"contacts": len(self.site_contacts), "coupons_added": added, "coupons_used_on_site": used}
+
+    async def async_site_tick(self) -> dict[str, Any]:
+        """Once an hour, with the shop connected."""
+        settings = self._data.get(KEY_SETTINGS, {})
+        if not settings.get("wp_enabled"):
+            return {"skipped": "collegamento spento"}
+        last = dt_util.parse_datetime(str(settings.get("site_last_sync") or ""))
+        if last is not None and (dt_util.utcnow() - last).total_seconds() < site_mod.SYNC_EVERY - 60:
+            return {"skipped": "non ora"}
+        try:
+            return await self.async_site_sync()
+        except ValidationError as err:
+            return {"error": str(err)}
+
+    async def async_wp_coupon_use(self, voucher_id: str) -> dict[str, Any]:
+        """Tell the shop a newsletter code was used at the spa (3.3.0)."""
+        voucher = next((v for v in self.promo_vouchers if v["id"] == voucher_id), None)
+        if voucher is None or voucher.get("source") != "newsletter" or voucher.get("wp_used"):
+            return {"ok": True, "skipped": True}
+        try:
+            url, secret = self._wp_settings()
+            await wp_shop.coupon_use(self._http_session(), url, secret, voucher.get("wp_code") or voucher["code"])
+        except (wp_shop.WpShopError, ValidationError) as err:
+            async with self._lock:
+                voucher["wp_error"] = str(err)
+                await self._async_save()
+            return {"ok": False, "error": str(err)}
+        async with self._lock:
+            voucher["wp_used"] = True
+            voucher["wp_error"] = ""
+            await self._async_save()
+        return {"ok": True}
+
+    def _apply_newsletter_discount(self, promo: dict[str, Any], appointments: list[dict[str, Any]]) -> None:
+        """The newsletter code's discount on the booking (3.3.0).
+
+        Only on prices nobody agreed by hand and not on top of a partner's
+        discount; the code asks for a minimum spend on the list prices.
+        """
+        def listed(appointment: dict[str, Any]) -> float:
+            value = appointment.get("list_price")
+            if value is None:
+                treatment = next((t for t in self.treatments if t["id"] == appointment.get("treatment_id")), None)
+                value = (treatment or {}).get("price")
+            try:
+                return max(0.0, float(value or 0))
+            except (TypeError, ValueError):
+                return 0.0
+
+        total = sum(listed(a) for a in appointments)
+        minimum = float(promo.get("min_spend") or 0)
+        if minimum and total < minimum:
+            raise ValidationError(f"Il codice {promo['code']} vale per una spesa da {_money_text(minimum)}: "
+                                  f"questa prenotazione è di {_money_text(total)}")
+        pct = float(promo.get("discount_percent") or 0)
+        for appointment in appointments:
+            if appointment.get("price") is not None or appointment.get("partner_discount_pct"):
+                continue
+            value = listed(appointment)
+            if value <= 0:
+                continue
+            appointment["price"] = round(value * (1 - pct / 100), 2)
+            appointment["promo_discount_pct"] = pct
+            appointment["promo_code"] = promo["code"]
+
+    def site_unsubscribe_url(self, contact: dict[str, Any]) -> str:
+        base = self.public_base_url()
+        return f"{base}/api/spa_booking/site/unsubscribe?t={contact['unsub_token']}" if base and contact.get("unsub_token") else ""
+
+    async def async_site_unsubscribe(self, token: str) -> dict[str, Any] | None:
+        token = str(token or "")
+        if len(token) < 16:
+            return None
+        async with self._lock:
+            contact = next((c for c in self.site_contacts
+                            if secrets.compare_digest(str(c.get("unsub_token") or ""), token)), None)
+            if contact is None:
+                return None
+            if not contact.get("unsubscribed"):
+                contact["unsubscribed"] = True
+                contact["unsubscribed_at"] = dt_util.utcnow().isoformat()
+                await self._async_save()
+        return contact
+
+    async def async_site_contact_subscribe(self, contact_id: str, subscribed: bool) -> dict[str, Any]:
+        """The desk stops (or allows again) the offers to one person."""
+        async with self._lock:
+            contact = self._find(self.site_contacts, contact_id, "Cliente del sito")
+            contact["unsubscribed"] = not subscribed
+            contact["unsubscribed_at"] = "" if subscribed else dt_util.utcnow().isoformat()
+            await self._async_save()
+        return copy.deepcopy(contact)
+
+    def _site_valid_codes(self) -> dict[str, dict[str, Any]]:
+        """The newsletter code still usable by each e-mail."""
+        out: dict[str, dict[str, Any]] = {}
+        for voucher in self.promo_vouchers:
+            if voucher.get("source") != "newsletter" or voucher["status"] == PROMO_VOUCHER_REDEEMED:
+                continue
+            if self.promo_voucher_payload(voucher)["expired"] or not voucher.get("email"):
+                continue
+            current = out.get(voucher["email"])
+            if current is None or str(voucher.get("expires_on") or "") > str(current.get("expires_on") or ""):
+                out[voucher["email"]] = voucher
+        return out
+
+    def site_campaign_targets(self, groups: list[str]) -> list[dict[str, Any]]:
+        codes = set(self._site_valid_codes())
+        return [c for c in self.site_contacts
+                if site_mod.can_mail(c) and any(site_mod.in_group(c, g, codes) for g in groups)]
+
+    def format_site_campaign(self, subject: str, message: str, contact: dict[str, Any]) -> tuple[str, str, str]:
+        """Subject, text and HTML of a campaign for one person of the site."""
+        settings = self._data.get(KEY_SETTINGS, {})
+        code = self._site_valid_codes().get(contact.get("email") or "")
+        expires = ""
+        if code and code.get("expires_on"):
+            expires = datetime.strptime(code["expires_on"], "%Y-%m-%d").strftime("%d/%m/%Y")
+        values = {
+            "{nome}": contact.get("first_name") or "",
+            "{cognome}": contact.get("last_name") or "",
+            "{codice_sconto}": (code or {}).get("wp_code") or (code or {}).get("code") or "",
+            "{sconto}": f"{(code or {}).get('discount_percent')}%" if code else "",
+            "{scadenza_sconto}": expires,
+            "{link_prenota}": str(settings.get("partner_booking_url") or "").strip(),
+        }
+
+        def fill(text: str) -> str:
+            for key, value in values.items():
+                text = text.replace(key, str(value))
+            return re.sub(r"Ciao ,", "Ciao,", text)
+
+        body = fill(message)
+        link = self.site_unsubscribe_url(contact) if contact.get("unsub_token") else ""
+        footer = ("Non vuoi più ricevere queste email? Cancella l'iscrizione: " + link) if link else \
+            "Non vuoi più ricevere queste email? Rispondi «CANCELLAMI» e ti togliamo dall'elenco."
+        body = f"{body.rstrip()}\n\n—\n{footer}"
+        return fill(subject), body, _email_html(body)
+
+    async def async_send_site_campaign(self, subject: str, message: str, groups: list[str], test_to: str = "",
+                                       contact_id: str = "") -> dict[str, Any]:
+        """An e-mail to the people of the site (3.3.0), in the background."""
+        settings = self._data.get(KEY_SETTINGS, {})
+        if not settings.get("email_enabled"):
+            raise ValidationError("L'invio email è spento: attivalo in Configurazione › Email")
+        subject = str(subject or "").strip()
+        message = str(message or "").strip()
+        if not subject or not message:
+            raise ValidationError("Scrivi oggetto e testo dell'email")
+        if "{link_prenota}" in message and not settings.get("partner_booking_url"):
+            raise ValidationError("Manca la pagina di prenotazione del sito (Promo › Programma partner, passo 1)")
+        groups = [g for g in groups or [] if g in site_mod.GROUPS]
+        async with self._lock:
+            settings = self._data[KEY_SETTINGS]
+            settings["site_campaign_subject"] = subject
+            settings["site_campaign_message"] = message
+            if groups:
+                settings["site_campaign_groups"] = groups
+            await self._async_save()
+        if test_to:
+            sample = next((c for c in self.site_campaign_targets(groups or list(site_mod.GROUPS))), None) or \
+                {"first_name": "Giulia", "email": "", "unsub_token": ""}
+            s, body, html = self.format_site_campaign(subject, message, sample)
+            result = await self._async_deliver_email(test_to, f"[PROVA] {s}", body, html)
+            if not result.get("sent"):
+                raise ValidationError(result.get("error") or "Email di prova non inviata")
+            return {"sent": 1, "test": True}
+        if contact_id:
+            one = self._find(self.site_contacts, contact_id, "Cliente del sito")
+            if not site_mod.can_mail(one):
+                raise ValidationError("Questa persona non può ricevere offerte (non iscritta o senza email)")
+            targets = [one]
+        else:
+            if not groups:
+                raise ValidationError("Scegli a chi mandarla")
+            targets = self.site_campaign_targets(groups)
+        if not targets:
+            raise ValidationError("Nessun destinatario nei gruppi scelti")
+        if (settings.get("site_campaign_last") or {}).get("running"):
+            raise ValidationError("C'è già un invio in corso: attendi che finisca")
+        async with self._lock:
+            self._data[KEY_SETTINGS]["site_campaign_last"] = {
+                "subject": subject, "total": len(targets), "sent": 0, "failed": 0, "running": True,
+                "started_at": dt_util.utcnow().isoformat(), "finished_at": "", "error": ""}
+            await self._async_save()
+        ids = [c["id"] for c in targets]
+        self.hass.async_create_task(self._async_site_campaign_run(subject, message, ids))
+        return {"queued": len(ids)}
+
+    async def _async_site_campaign_run(self, subject: str, message: str, ids: list[str]) -> None:
+        status = self._data[KEY_SETTINGS]["site_campaign_last"]
+        errors: list[str] = []
+        try:
+            for index, contact_id in enumerate(ids):
+                contact = next((c for c in self.site_contacts if c["id"] == contact_id), None)
+                if contact is None or not site_mod.can_mail(contact):
+                    continue
+                s, body, html = self.format_site_campaign(subject, message, contact)
+                result = await self._async_deliver_email(contact["email"], s, body, html)
+                if result.get("sent"):
+                    status["sent"] += 1
+                    contact["campaigns_sent"] = int(contact.get("campaigns_sent") or 0) + 1
+                    contact["campaign_last_at"] = dt_util.utcnow().isoformat()
+                else:
+                    status["failed"] += 1
+                    errors.append(str(result.get("error") or "errore"))
+                    if len(errors) >= 3 and not status["sent"]:
+                        break  # the mailbox itself is not working
+                if index % 20 == 19:
+                    await self._async_save()
+                if index + 1 < len(ids):
+                    await asyncio.sleep(1)
+        finally:
+            status["running"] = False
+            status["finished_at"] = dt_util.utcnow().isoformat()
+            status["error"] = errors[0] if errors else ""
+            async with self._lock:
+                await self._async_save()
 
     async def async_delete_all_partners(self) -> dict[str, Any]:
         """Empty the partner list (2.7.3), to import it again from scratch.
@@ -4196,6 +4539,9 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             voucher["status"] = PROMO_VOUCHER_REDEEMED
             voucher["redeemed_at"] = dt_util.utcnow().isoformat()
             await self._async_save()
+        if voucher.get("source") == "newsletter":
+            # Used at the spa: not usable on the shop any more (3.3.0).
+            await self.async_wp_coupon_use(voucher["id"])
         return self.promo_voucher_payload(voucher)
 
     async def async_delete_promo_voucher(self, voucher_id: str) -> dict[str, Any]:
@@ -4551,6 +4897,8 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         day = str(request.get("date") or "")
         rows: list[dict[str, Any]] = []
+        newsletter_code = bool(request.get("voucher_code")) and any(
+            v["code"] == request["voucher_code"] and v.get("source") == "newsletter" for v in self.promo_vouchers)
         for entry in request.get("entries") or []:
             treatment = next((t for t in self.treatments if t["id"] == entry.get("treatment_id")), None)
             # «Automatica»: every able, active masseuse, asked in order.
@@ -4586,6 +4934,8 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             "therapist_preference": entry.get("therapist_preference")
                             or request.get("therapist_preference")
                             or "",
+                            # A newsletter code travels with the booking (3.3.0).
+                            **({"voucher_code": request["voucher_code"]} if newsletter_code else {}),
                         }
                         for person in persons
                     ],
@@ -4889,6 +5239,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         request_id: str | None = None,
         therapist_preference: str = "",
         partner: str | None = None,
+        marketing: bool = False,
     ) -> dict[str, Any]:
         """Take a guest's appointment request and acknowledge it on WhatsApp.
 
@@ -4970,6 +5321,13 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     expires, "%Y-%m-%d"
                 ).date():
                     raise ValidationError(f"Il voucher {code} è scaduto")
+            # A newsletter discount code (3.3.0): used or expired is said now.
+            promo = next((v for v in self.promo_vouchers if v["code"] == code and v.get("source") == "newsletter"), None)
+            if promo is not None:
+                if promo["status"] == PROMO_VOUCHER_REDEEMED:
+                    raise ValidationError(f"Il codice {code} è già stato usato")
+                if self.promo_voucher_payload(promo)["expired"]:
+                    raise ValidationError(f"Il codice {code} è scaduto")
 
         try:
             people = max(1, int(people or 1))
@@ -5034,6 +5392,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "guest_type": _norm_guest_type(guest_type),
                     "therapist_preference": therapist_preference,
                     "partner_id": self._partner_id_of(partner),
+                    "marketing": bool(marketing),
                     "status": REQUEST_PENDING,
                     "source": (
                         REQUEST_SOURCE_WEB
@@ -5052,6 +5411,9 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 }
             )
             self.requests.append(request)
+            if request["source"] == REQUEST_SOURCE_WEB:
+                # The guest joins Clienti › Sito at once (3.3.0).
+                self._site_contacts_refresh_web()
             await self._async_save()
 
         await self._maybe_send_request_message(request)

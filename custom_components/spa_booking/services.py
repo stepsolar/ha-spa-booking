@@ -138,6 +138,9 @@ SERVICE_PARTNER_POINTS_ADJUST = "partner_points_adjust"
 SERVICE_SET_APPOINTMENT_PARTNER = "set_appointment_partner"
 SERVICE_SEND_PARTNER_CAMPAIGN = "send_partner_campaign"
 SERVICE_SEND_PARTNER_POSTER = "send_partner_poster"
+SERVICE_SITE_SYNC = "site_sync"
+SERVICE_SEND_SITE_CAMPAIGN = "send_site_campaign"
+SERVICE_SITE_CONTACT_SUBSCRIBE = "site_contact_subscribe"
 SERVICE_PARTNER_POSTER_PREVIEW = "partner_poster_preview"
 SERVICE_DELETE_PARTNER = "delete_partner"
 SERVICE_IMPORT_PARTNERS = "import_partners"
@@ -261,6 +264,9 @@ ALL_SERVICES = (
     SERVICE_SEND_PARTNER_CAMPAIGN,
     SERVICE_SEND_PARTNER_POSTER,
     SERVICE_PARTNER_POSTER_PREVIEW,
+    SERVICE_SITE_SYNC,
+    SERVICE_SEND_SITE_CAMPAIGN,
+    SERVICE_SITE_CONTACT_SUBSCRIBE,
     SERVICE_DELETE_PARTNER,
     SERVICE_IMPORT_PARTNERS,
     SERVICE_DELETE_ALL_PARTNERS,
@@ -960,6 +966,7 @@ UPDATE_SETTINGS_SCHEMA = vol.Schema(
         vol.Optional("partner_reward_message"): vol.Any(cv.string, None),
         vol.Optional("partner_campaigns"): vol.Any(vol.All(cv.ensure_list, [dict]), None),
         vol.Optional("partner_poster"): vol.Any(dict, None),
+        vol.Optional("site_coupon_prefix"): cv.string,
         # Loyalty points (2.4.0).
         vol.Optional("loyalty_enabled"): vol.Any(cv.boolean, None),
         vol.Optional("loyalty_points_per_euro"): vol.Any(vol.Coerce(float), None),
@@ -1339,6 +1346,18 @@ SEND_PARTNER_CAMPAIGN_SCHEMA = vol.Schema(
     {vol.Required("campaign_id"): cv.string, vol.Optional("test_to"): vol.Any(cv.string, None),
      # 3.2.0: only this partner (the «Invia email» of her card).
      vol.Optional("partner_id"): vol.Any(cv.string, None)},
+    extra=vol.PREVENT_EXTRA,
+)
+
+SEND_SITE_CAMPAIGN_SCHEMA = vol.Schema(
+    {vol.Required("subject"): cv.string, vol.Required("message"): cv.string,
+     vol.Optional("groups"): vol.All(cv.ensure_list, [cv.string]),
+     vol.Optional("test_to"): vol.Any(cv.string, None), vol.Optional("contact_id"): vol.Any(cv.string, None)},
+    extra=vol.PREVENT_EXTRA,
+)
+
+SITE_CONTACT_SUBSCRIBE_SCHEMA = vol.Schema(
+    {vol.Required("contact_id"): cv.string, vol.Required("subscribed"): cv.boolean},
     extra=vol.PREVENT_EXTRA,
 )
 
@@ -1884,6 +1903,22 @@ async def _async_send_partner_campaign(call: ServiceCall) -> ServiceResponse:
     return await _coordinator(call).async_send_partner_campaign(
         call.data["campaign_id"], call.data.get("test_to") or "", call.data.get("partner_id") or ""
     )
+
+
+async def _async_site_sync(call: ServiceCall) -> ServiceResponse:
+    """Read the people of the site and the newsletter codes now (3.3.0)."""
+    return await _coordinator(call).async_site_sync(reason="a mano")
+
+
+async def _async_send_site_campaign(call: ServiceCall) -> ServiceResponse:
+    """An e-mail to the people of the site (3.3.0)."""
+    return await _coordinator(call).async_send_site_campaign(
+        call.data["subject"], call.data["message"], call.data.get("groups") or [],
+        call.data.get("test_to") or "", call.data.get("contact_id") or "")
+
+
+async def _async_site_contact_subscribe(call: ServiceCall) -> ServiceResponse:
+    return await _coordinator(call).async_site_contact_subscribe(call.data["contact_id"], call.data["subscribed"])
 
 
 async def _async_send_partner_poster(call: ServiceCall) -> ServiceResponse:
@@ -3205,6 +3240,9 @@ _HANDLERS: dict[str, tuple[Any, Any, SupportsResponse]] = {
     SERVICE_SET_APPOINTMENT_PARTNER: (_async_set_appointment_partner, SET_APPOINTMENT_PARTNER_SCHEMA, SupportsResponse.ONLY),
     SERVICE_SEND_PARTNER_CAMPAIGN: (_async_send_partner_campaign, SEND_PARTNER_CAMPAIGN_SCHEMA, SupportsResponse.ONLY),
     SERVICE_SEND_PARTNER_POSTER: (_async_send_partner_poster, SEND_PARTNER_POSTER_SCHEMA, SupportsResponse.ONLY),
+    SERVICE_SITE_SYNC: (_async_site_sync, WP_EMPTY_SCHEMA, SupportsResponse.ONLY),
+    SERVICE_SEND_SITE_CAMPAIGN: (_async_send_site_campaign, SEND_SITE_CAMPAIGN_SCHEMA, SupportsResponse.ONLY),
+    SERVICE_SITE_CONTACT_SUBSCRIBE: (_async_site_contact_subscribe, SITE_CONTACT_SUBSCRIBE_SCHEMA, SupportsResponse.ONLY),
     SERVICE_PARTNER_POSTER_PREVIEW: (_async_partner_poster_preview, PARTNER_POSTER_PREVIEW_SCHEMA, SupportsResponse.ONLY),
     SERVICE_DELETE_PROMO_VOUCHER: (
         _async_delete_promo_voucher,
@@ -3492,6 +3530,9 @@ SERVICE_LEVELS: dict[str, str] = {
     SERVICE_SET_APPOINTMENT_PARTNER: "operator",
     SERVICE_SEND_PARTNER_CAMPAIGN: "manager",
     SERVICE_SEND_PARTNER_POSTER: "manager",
+    SERVICE_SITE_SYNC: "manager",
+    SERVICE_SEND_SITE_CAMPAIGN: "manager",
+    SERVICE_SITE_CONTACT_SUBSCRIBE: "manager",
     SERVICE_PARTNER_POSTER_PREVIEW: "manager",
     SERVICE_MERGE_CLIENTS: "manager",
 }

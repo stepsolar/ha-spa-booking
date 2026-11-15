@@ -120,6 +120,21 @@ async def redeem(session: Any, base: str, secret: str, code: str, note: str = ""
     return await _request(session, "POST", base, secret, "/redeem", json={"code": code, "note": note})
 
 
+async def contacts(session: Any, base: str, secret: str, prefix: str = "welcome") -> dict[str, Any]:
+    """Newsletter subscribers, shop buyers and newsletter codes (plugin 1.2.0)."""
+    try:
+        return await _request(session, "GET", base, secret, "/contacts", params={"prefix": prefix or ""})
+    except WpShopError as err:
+        if "manca il plugin" in str(err):
+            raise WpShopError("Aggiorna il plugin «Spa Booking Connector» sul sito alla versione 1.2.0") from err
+        raise
+
+
+async def coupon_use(session: Any, base: str, secret: str, code: str) -> dict[str, Any]:
+    """Mark a newsletter code used on the shop (plugin 1.2.0)."""
+    return await _request(session, "POST", base, secret, "/coupon-use", json={"code": code})
+
+
 def expiry_of(item: dict[str, Any]) -> str:
     """The voucher's last day as YYYY-MM-DD, or ""."""
     text = str(item.get("expires") or "")[:10]
