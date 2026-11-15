@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Spa Booking Connector
  * Description: Collega il sito a Spa Booking: voucher venduti con «Buoni PDF» (riscattati in spa), iscritti alla newsletter, clienti dello shop, codici sconto della newsletter, modifica dei prodotti e ordini dello shop.
- * Version: 1.4.0
+ * Version: 1.4.1
  * Author: Spa Booking
  * Requires PHP: 7.4
  * Text Domain: spa-booking-connector
@@ -13,7 +13,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Spa_Booking_Connector {
-	const VERSION   = '1.4.0';
+	const VERSION   = '1.4.1';
 	const OPTION    = 'spa_booking_connector';
 	const NAMESPACE = 'spa-booking/v1';
 
@@ -414,7 +414,8 @@ final class Spa_Booking_Connector {
 			$coupons[] = $code;
 		}
 		$billing = $order->get_address( 'billing' );
-		return self::order_row( $order ) + array(
+		// array_merge: the full items replace the short names of order_row (1.4.1).
+		return array_merge( self::order_row( $order ), array(
 			'items'          => $items,
 			'subtotal'       => (float) $order->get_subtotal(),
 			'discount'       => (float) $order->get_total_discount(),
@@ -427,7 +428,7 @@ final class Spa_Booking_Connector {
 			'notes'          => $notes,
 			'edit_url'       => $order->get_edit_order_url(),
 			'statuses'       => array_map( 'html_entity_decode', wc_get_order_statuses() ),
-		);
+		) );
 	}
 
 	/** Change the state of an order or add a note to it, from Spa Booking. */

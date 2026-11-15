@@ -4244,7 +4244,10 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except wp_shop.WpShopError as err:
             raise ValidationError(str(err)) from err
         known = {str(v.get("code") or "").upper(): v for v in self.vouchers if v.get("source") == "wordpress"}
-        for item in result.get("items") or []:
+        # Plugin 1.4.0 sent the items as plain names: shown anyway (3.7.1).
+        result["items"] = [i if isinstance(i, dict) else {"name": str(i), "quantity": 1, "total": None, "meta": [], "codes": ""}
+                           for i in result.get("items") or []]
+        for item in result["items"]:
             codes = [c.strip() for c in str(item.get("codes") or "").split(",") if c.strip()]
             item["vouchers"] = [{"code": c, "status": (known.get(c.upper()) or {}).get("status", ""),
                                  "voucher_id": (known.get(c.upper()) or {}).get("id", "")} for c in codes]
