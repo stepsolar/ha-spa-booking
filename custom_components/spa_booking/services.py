@@ -137,6 +137,8 @@ SERVICE_SAVE_PARTNER = "save_partner"
 SERVICE_PARTNER_POINTS_ADJUST = "partner_points_adjust"
 SERVICE_SET_APPOINTMENT_PARTNER = "set_appointment_partner"
 SERVICE_SEND_PARTNER_CAMPAIGN = "send_partner_campaign"
+SERVICE_SEND_PARTNER_POSTER = "send_partner_poster"
+SERVICE_PARTNER_POSTER_PREVIEW = "partner_poster_preview"
 SERVICE_DELETE_PARTNER = "delete_partner"
 SERVICE_IMPORT_PARTNERS = "import_partners"
 SERVICE_DELETE_ALL_PARTNERS = "delete_all_partners"
@@ -257,6 +259,8 @@ ALL_SERVICES = (
     SERVICE_PARTNER_POINTS_ADJUST,
     SERVICE_SET_APPOINTMENT_PARTNER,
     SERVICE_SEND_PARTNER_CAMPAIGN,
+    SERVICE_SEND_PARTNER_POSTER,
+    SERVICE_PARTNER_POSTER_PREVIEW,
     SERVICE_DELETE_PARTNER,
     SERVICE_IMPORT_PARTNERS,
     SERVICE_DELETE_ALL_PARTNERS,
@@ -955,6 +959,7 @@ UPDATE_SETTINGS_SCHEMA = vol.Schema(
         vol.Optional("partner_reward_value"): vol.Any(vol.Coerce(int), None),
         vol.Optional("partner_reward_message"): vol.Any(cv.string, None),
         vol.Optional("partner_campaigns"): vol.Any(vol.All(cv.ensure_list, [dict]), None),
+        vol.Optional("partner_poster"): vol.Any(dict, None),
         # Loyalty points (2.4.0).
         vol.Optional("loyalty_enabled"): vol.Any(cv.boolean, None),
         vol.Optional("loyalty_points_per_euro"): vol.Any(vol.Coerce(float), None),
@@ -1330,7 +1335,19 @@ SET_APPOINTMENT_PARTNER_SCHEMA = vol.Schema(
 )
 
 SEND_PARTNER_CAMPAIGN_SCHEMA = vol.Schema(
-    {vol.Required("campaign_id"): cv.string, vol.Optional("test_to"): vol.Any(cv.string, None)},
+    {vol.Required("campaign_id"): cv.string, vol.Optional("test_to"): vol.Any(cv.string, None),
+     # 3.2.0: only this partner (the «Invia email» of her card).
+     vol.Optional("partner_id"): vol.Any(cv.string, None)},
+    extra=vol.PREVENT_EXTRA,
+)
+
+SEND_PARTNER_POSTER_SCHEMA = vol.Schema(
+    {vol.Optional("partner_id"): vol.Any(cv.string, None), vol.Optional("test_to"): vol.Any(cv.string, None)},
+    extra=vol.PREVENT_EXTRA,
+)
+
+PARTNER_POSTER_PREVIEW_SCHEMA = vol.Schema(
+    {vol.Optional("partner_id"): vol.Any(cv.string, None), vol.Optional("poster"): vol.Any(dict, None)},
     extra=vol.PREVENT_EXTRA,
 )
 
@@ -1864,8 +1881,19 @@ async def _async_set_appointment_partner(call: ServiceCall) -> ServiceResponse:
 async def _async_send_partner_campaign(call: ServiceCall) -> ServiceResponse:
     """Send a partner campaign now, or a test to one address."""
     return await _coordinator(call).async_send_partner_campaign(
-        call.data["campaign_id"], call.data.get("test_to") or ""
+        call.data["campaign_id"], call.data.get("test_to") or "", call.data.get("partner_id") or ""
     )
+
+
+async def _async_send_partner_poster(call: ServiceCall) -> ServiceResponse:
+    """Email a partner her A5 poster with the QR code (3.2.0)."""
+    return await _coordinator(call).async_send_partner_poster(
+        call.data.get("partner_id") or "", call.data.get("test_to") or "")
+
+
+async def _async_partner_poster_preview(call: ServiceCall) -> ServiceResponse:
+    """The printable poster of a partner, or of an example one (3.2.0)."""
+    return await _coordinator(call).async_partner_poster_preview(call.data.get("partner_id") or "", call.data.get("poster"))
 
 
 async def _async_delete_all_partners(call: ServiceCall) -> ServiceResponse:
@@ -3175,6 +3203,8 @@ _HANDLERS: dict[str, tuple[Any, Any, SupportsResponse]] = {
     SERVICE_PARTNER_REWARD: (_async_partner_reward, PARTNER_REWARD_SCHEMA, SupportsResponse.ONLY),
     SERVICE_SET_APPOINTMENT_PARTNER: (_async_set_appointment_partner, SET_APPOINTMENT_PARTNER_SCHEMA, SupportsResponse.ONLY),
     SERVICE_SEND_PARTNER_CAMPAIGN: (_async_send_partner_campaign, SEND_PARTNER_CAMPAIGN_SCHEMA, SupportsResponse.ONLY),
+    SERVICE_SEND_PARTNER_POSTER: (_async_send_partner_poster, SEND_PARTNER_POSTER_SCHEMA, SupportsResponse.ONLY),
+    SERVICE_PARTNER_POSTER_PREVIEW: (_async_partner_poster_preview, PARTNER_POSTER_PREVIEW_SCHEMA, SupportsResponse.ONLY),
     SERVICE_DELETE_PROMO_VOUCHER: (
         _async_delete_promo_voucher,
         DELETE_PROMO_VOUCHER_SCHEMA,
@@ -3460,6 +3490,8 @@ SERVICE_LEVELS: dict[str, str] = {
     SERVICE_PARTNER_REWARD: "manager",
     SERVICE_SET_APPOINTMENT_PARTNER: "operator",
     SERVICE_SEND_PARTNER_CAMPAIGN: "manager",
+    SERVICE_SEND_PARTNER_POSTER: "manager",
+    SERVICE_PARTNER_POSTER_PREVIEW: "manager",
     SERVICE_MERGE_CLIENTS: "manager",
 }
 

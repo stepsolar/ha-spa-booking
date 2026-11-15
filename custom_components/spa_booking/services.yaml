@@ -2471,3 +2471,29 @@ send_partner_campaign:
       name: Indirizzo per la prova (vuoto = invio vero)
       selector:
         text:
+    partner_id:
+      name: Solo questo partner (ID)
+      selector:
+        text:
+
+send_partner_poster:
+  name: Invia la locandina A5 a un partner
+  description: Invia per email la locandina A5 con il codice QR del partner (o una prova a un indirizzo).
+  fields:
+    partner_id:
+      name: ID partner
+      selector:
+        text:
+    test_to:
+      name: Indirizzo per la prova (vuoto = invio vero)
+      selector:
+        text:
+
+partner_poster_preview:
+  name: Anteprima della locandina partner
+  description: La pagina A5 della locandina di un partner (o di uno d'esempio).
+  fields:
+    partner_id:
+      name: ID partner
+      selector:
+        text:

@@ -124,6 +124,7 @@ from .exceptions import (
     ValidationError,
 )
 from . import messaging
+from .poster import norm_poster
 
 
 
@@ -1107,6 +1108,8 @@ def _norm_settings(raw: dict[str, Any]) -> dict[str, Any]:
         "partner_reward_value": _norm_count(raw.get("partner_reward_value"), 1, 100_000, DEFAULT_PARTNER_REWARD_VALUE),
         "partner_reward_message": str(raw.get("partner_reward_message") or DEFAULT_PARTNER_REWARD_MESSAGE),
         "partner_campaigns": [c for c in (_norm_partner_campaign(x) for x in raw.get("partner_campaigns") or []) if c],
+        # The A5 poster of the partners (3.2.0): «Spa Sciacca», offer, prices.
+        "partner_poster": norm_poster(raw.get("partner_poster")),
         # Loyalty points (2.4.0).
         "loyalty_enabled": bool(raw.get("loyalty_enabled", False)),
         "loyalty_points_per_euro": _norm_rate(raw.get("loyalty_points_per_euro")),
@@ -1460,6 +1463,7 @@ def _norm_partner(raw: Any) -> dict[str, Any]:
         # Campaign emails received (2.5.0).
         "campaigns_sent": _norm_count(raw.get("campaigns_sent"), 0, 10**6, 0),
         "campaign_last_at": str(raw.get("campaign_last_at") or ""),
+        "poster_sent_at": str(raw.get("poster_sent_at") or ""),
         # The structure and the newsletter (2.6.0): subscribed unless they opt out.
         "city": str(raw.get("city") or "").strip(),
         "structure_type": str(raw.get("structure_type") or "").strip(),

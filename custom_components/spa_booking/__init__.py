@@ -94,9 +94,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # The unsubscribe page of the partner campaigns (2.6.0).
     if not hass.data.get(f"{DOMAIN}_unsub_view"):
-        from .partner_unsub import PartnerUnsubscribeView
+        from .partner_unsub import PartnerPosterView, PartnerQrView, PartnerUnsubscribeView
 
         hass.http.register_view(PartnerUnsubscribeView())
+        hass.http.register_view(PartnerPosterView())
+        hass.http.register_view(PartnerQrView())
         hass.data[f"{DOMAIN}_unsub_view"] = True
 
     add_extra_js_url(hass, coordinator.card_js_url())
