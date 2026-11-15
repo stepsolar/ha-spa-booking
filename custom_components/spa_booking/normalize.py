@@ -1169,6 +1169,8 @@ def _norm_settings(raw: dict[str, Any]) -> dict[str, Any]:
         # total, the main colour, and the public address of Home Assistant the
         # two-line code loads the form from ("" = the one of the old snippet).
         "web_show_prices": bool(raw.get("web_show_prices", False)),
+        # The «Pacchetti» section of the website form (3.2.1).
+        "web_show_packages": bool(raw.get("web_show_packages", True)),
         "web_accent": _norm_color(raw.get("web_accent")),
         "web_public_url": str(raw.get("web_public_url") or "").strip().rstrip("/"),
         # Internal timers (scheduler.py): reminders, offer expiry, review

@@ -51,3 +51,9 @@ def test_package_order(coordinator) -> None:
         "wp_product_map": {f"{i}:0": {"people": 2, "treatment_ids": [tid]} for i in (1, 2, 3)},
         "package_order": ["3:0", "1:0"]}))
     assert [p["key"] for p in coordinator.shop_packages()] == ["3:0", "1:0", "2:0"]
+
+
+def test_packages_section_switch() -> None:
+    """3.2.1: the «Pacchetti» section of the website form can be switched off."""
+    assert _norm_settings({})["web_show_packages"] is True
+    assert _norm_settings({"web_show_packages": False})["web_show_packages"] is False

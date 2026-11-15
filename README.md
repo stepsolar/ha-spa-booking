@@ -111,6 +111,11 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v3.2.1** — (serve il riavvio di Home Assistant)
+  - Modulo del sito: la sezione **Pacchetti** si può nascondere con
+    «Mostra la sezione Pacchetti» (Configurazione › Impostazioni › Modulo
+    sul sito). Spenta, il modulo non mostra i pacchetti e non li accetta
+    nelle richieste; i trattamenti restano prenotabili.
 - **v3.2.0** — (serve il riavvio di Home Assistant)
   - Clienti › Partner sul **telefono**: ogni partner è una riga compatta
     con nome, codice, città e punti, il tasto **Invia email** e **⋮** per le

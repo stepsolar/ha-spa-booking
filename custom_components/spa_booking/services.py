@@ -994,6 +994,7 @@ UPDATE_SETTINGS_SCHEMA = vol.Schema(
         # dal sito (vuoto = nessun avviso).
         vol.Optional("web_notify_whatsapp"): vol.Any(cv.string, None),
         vol.Optional("web_show_prices"): cv.boolean,
+        vol.Optional("web_show_packages"): cv.boolean,
         vol.Optional("web_accent"): vol.Any(cv.string, None),
         vol.Optional("web_public_url"): vol.Any(cv.string, None),
         vol.Optional("whatsapp_engine"): vol.In(["integrated"]),

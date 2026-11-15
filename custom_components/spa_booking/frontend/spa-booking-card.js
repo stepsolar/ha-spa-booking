@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "3.2.0";
+const CARD_VERSION = "3.2.1";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -13361,6 +13361,7 @@ class SpaBookingCard extends HTMLElement {
     };
     const publicUrl = draft.public_url != null ? draft.public_url : (settings.web_public_url || "");
     const showPrices = draft.show_prices != null ? draft.show_prices : !!settings.web_show_prices;
+    const showPackages = draft.show_packages != null ? draft.show_packages : settings.web_show_packages !== false;
     const accent = draft.accent != null ? draft.accent : (settings.web_accent || "");
     box.appendChild(el("div", { class: "web-form-box" },
       el("div", { class: "who-title" }, el("ha-icon", { icon: "mdi:form-select" }), "Modulo sul sito"),
@@ -13378,6 +13379,9 @@ class SpaBookingCard extends HTMLElement {
         el("label", { class: "check" },
           el("input", { type: "checkbox", checked: showPrices, on: { change: (event) => { draft.show_prices = event.target.checked; } } }),
           el("span", {}, "Mostra prezzi e totale indicativo")),
+        el("label", { class: "check" },
+          el("input", { type: "checkbox", checked: showPackages, on: { change: (event) => { draft.show_packages = event.target.checked; } } }),
+          el("span", {}, "Mostra la sezione Pacchetti")),
         el("label", { class: "field inline" },
           el("span", {}, "Colore"),
           el("input", {
@@ -13392,6 +13396,7 @@ class SpaBookingCard extends HTMLElement {
               await this._call("update_settings", {
                 web_public_url: (draft.public_url != null ? draft.public_url : publicUrl).trim(),
                 web_show_prices: draft.show_prices != null ? draft.show_prices : showPrices,
+                web_show_packages: draft.show_packages != null ? draft.show_packages : showPackages,
                 web_accent: draft.accent != null ? draft.accent : accent,
               });
               this._message = { kind: "ok", text: "Aspetto del modulo salvato." };
@@ -13447,6 +13452,7 @@ class SpaBookingCard extends HTMLElement {
         web_notify_whatsapp: settings.web_notify_whatsapp || "",
         web_public_url: settings.web_public_url || "",
         web_show_prices: !!settings.web_show_prices,
+        web_show_packages: settings.web_show_packages !== false,
         web_accent: settings.web_accent || "#0a84a8",
       };
       this._setBase = JSON.stringify(this._setDraft);
@@ -13686,7 +13692,11 @@ class SpaBookingCard extends HTMLElement {
         el("label", { class: "nt-auto" },
           el("input", { type: "checkbox", checked: draft.web_show_prices,
             on: { change: (event) => { draft.web_show_prices = event.target.checked; changed(); } } }),
-          el("span", {}, "Mostra prezzi e totale"))),
+          el("span", {}, "Mostra prezzi e totale")),
+        el("label", { class: "nt-auto" },
+          el("input", { type: "checkbox", checked: draft.web_show_packages !== false,
+            on: { change: (event) => { draft.web_show_packages = event.target.checked; changed(); } } }),
+          el("span", {}, "Mostra la sezione Pacchetti"))),
       el("div", { class: "nt-label" }, "Codice da incollare in WordPress (blocco «HTML personalizzato»)"),
       el("pre", { class: "pg-code" }, snippet),
       el("div", { class: "dim small" }, "Il modulo arriva da Home Assistant: ogni aggiornamento di Spa Booking compare sul sito senza toccare WordPress. È a passi, in italiano, inglese e tedesco."),

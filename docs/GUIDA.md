@@ -525,7 +525,9 @@ chiudere). L'ordine vale per il sito e per tutti i menu.
 I pacchetti dello shop abbinati ai trattamenti: persone, trattamenti per
 persona, accessori e prezzo. Due spunte decidono dove si vedono (**Modulo
 web**, **Nuovo appuntamento e richiesta**) e si trascinano per cambiare
-l'ordine. Gli abbinamenti si cambiano in Shop online.
+l'ordine. Gli abbinamenti si cambiano in Shop online. Per togliere dal
+modulo del sito l'intera sezione Pacchetti c'è «Mostra la sezione
+Pacchetti» in Impostazioni › Sito web.
 
 ![Pacchetti](anteprime/74-config-pacchetti.png)
 
@@ -634,7 +636,8 @@ sito da solo, ed è isolato dal tema del sito.
 2. **Cosa scegliete**: per ogni persona trattamento e orario (solo quelli
    liberi, rispettando chiusure, regole e categorie che non si accavallano),
    preferenza massaggiatrice/massaggiatore; con 2 o più persone i
-   **pacchetti dello shop**.
+   **pacchetti dello shop** (si nasconde tutta la sezione togliendo
+   «Mostra la sezione Pacchetti» in Impostazioni › Sito web).
 3. **I tuoi dati**: nome, cognome, telefono con prefisso, email, note.
 4. **Controlla e invia**: riepilogo e, se attivo, totale indicativo (con lo
    sconto partner).
