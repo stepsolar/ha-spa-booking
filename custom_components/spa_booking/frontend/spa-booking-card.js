@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "3.6.0";
+const CARD_VERSION = "3.7.0";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -1325,6 +1325,7 @@ class SpaBookingCard extends HTMLElement {
         else if (this._confirmPopup) { this._confirmPopup = null; this._render(); }
         else if (this._mediaView) { this._mediaView = null; this._render(); }
         else if (this._wpProduct) { this._wpProduct = null; this._render(); }
+        else if (this._wpOrder) { this._wpOrder = null; this._render(); }
         else if (this._partnerSend) { this._partnerSend = null; this._render(); }
         else if (this._siteCampaign) { this._siteCampaign = null; this._render(); }
         else if (this._siteMenu) { this._siteMenu = null; this._render(); }
@@ -3724,6 +3725,7 @@ class SpaBookingCard extends HTMLElement {
     if (this._confirmPopup) add(root, this._renderConfirmPopup());
     if (this._mediaView) add(root, this._renderMediaView());
     if (this._wpProduct) add(root, this._renderWpProduct());
+    if (this._wpOrder) add(root, this._renderWpOrder());
     if (this._partnerMenu) add(root, this._renderPartnerMenu());
     if (this._partnerSend) add(root, this._renderPartnerSend());
     if (this._siteMenu) add(root, this._renderSiteMenu());
@@ -14165,6 +14167,180 @@ class SpaBookingCard extends HTMLElement {
         line("Home Assistant", (this._hass && this._hass.config && this._hass.config.version) || "—")));
   }
 
+  _wpStatePill(status) {
+    const st = status || "publish";
+    const [label, cls] = { publish: ["Pubblicato", "ok"], draft: ["Bozza", ""], pending: ["In revisione", "warn"], private: ["Privato", "info"] }[st] || [st, ""];
+    return el("span", { class: `pm-chip ${cls}` }, label);
+  }
+
+  _wpStockPill(stock) {
+    if (stock === "outofstock") return el("span", { class: "pm-chip bad" }, "Esaurito");
+    if (stock === "onbackorder") return el("span", { class: "pm-chip warn" }, "Su ordinazione");
+    return null;
+  }
+
+  // ------------------------------------------------- orders of the shop (3.7.0)
+
+  async _loadShopOrders(patch = {}) {
+    const state = this._shopOrders = { page: 1, status: "", search: "", ...(this._shopOrders || {}), ...patch, loading: true };
+    this._render();
+    try {
+      const data = await this._service("wp_orders", { page: state.page, status: state.status, search: state.search });
+      this._shopOrders = { ...state, data, loading: false, error: "" };
+    } catch (error) {
+      this._shopOrders = { ...state, loading: false, error: (error && error.message) || String(error) };
+    }
+    this._render();
+  }
+
+  _wpOrderStatusLabel(status, statuses) {
+    const map = statuses || ((this._shopOrders && this._shopOrders.data) || {}).statuses || {};
+    return map[`wc-${status}`] || { pending: "In attesa di pagamento", processing: "In lavorazione", "on-hold": "In sospeso",
+      completed: "Completato", cancelled: "Annullato", refunded: "Rimborsato", failed: "Non riuscito", "checkout-draft": "Bozza" }[status] || status;
+  }
+
+  _wpOrderPill(status, statuses) {
+    const cls = { processing: "info", completed: "ok", "on-hold": "warn", pending: "warn", cancelled: "bad", refunded: "bad", failed: "bad" }[status] || "";
+    return el("span", { class: `pm-chip ${cls}` }, this._wpOrderStatusLabel(status, statuses));
+  }
+
+  _renderShopOrders() {
+    const wrap = el("div", { class: "stack" });
+    const state = this._shopOrders;
+    if (!state) { setTimeout(() => this._loadShopOrders(), 0); wrap.appendChild(el("div", { class: "empty" }, "Lettura degli ordini dal sito…")); return wrap; }
+    const data = state.data || {};
+    const counts = data.counts || {};
+    const money = (v) => euro(Number(v) || 0);
+    const search = el("input", { class: "input grow", type: "search", value: state.search || "", placeholder: "Cerca numero ordine, nome o email (Invio)",
+      on: { keydown: (event) => { event.stopPropagation(); if (event.key === "Enter") this._loadShopOrders({ search: event.target.value.trim(), page: 1 }); } } });
+    wrap.appendChild(el("div", { class: "row" }, search,
+      el("button", { class: "btn small", disabled: state.loading, on: { click: () => this._loadShopOrders() } }, el("ha-icon", { icon: "mdi:refresh" }), el("span", { class: "btn-label" }, "Aggiorna"))));
+    const order = ["processing", "on-hold", "pending", "completed", "cancelled", "refunded", "failed"];
+    const total = Object.values(counts).reduce((a, b) => a + (Number(b) || 0), 0);
+    wrap.appendChild(el("div", { class: "row chips shop-cats" },
+      el("button", { type: "button", class: `pm-chip${!state.status ? " info" : ""}`, style: "cursor:pointer;border:0", on: { click: () => this._loadShopOrders({ status: "", page: 1 }) } }, `Tutti ${total || ""}`),
+      ...order.filter((st) => counts[st]).map((st) => el("button", { type: "button", class: `pm-chip${state.status === st ? " info" : ""}`, style: "cursor:pointer;border:0",
+        on: { click: () => this._loadShopOrders({ status: st, page: 1 }) } }, `${this._wpOrderStatusLabel(st, data.statuses)} ${counts[st]}`))));
+    if (state.error) wrap.appendChild(el("div", { class: "pg-sum warn" }, el("ha-icon", { icon: "mdi:alert-outline" }), el("span", {}, state.error)));
+    if (state.loading && !state.data) { wrap.appendChild(el("div", { class: "empty" }, "Lettura degli ordini dal sito…")); return wrap; }
+    const rows = data.orders || [];
+    if (!rows.length) { wrap.appendChild(el("div", { class: "empty" }, "Nessun ordine con questo filtro.")); return wrap; }
+    const list = el("div", { class: "stack tight cfg-box wpo-list" });
+    rows.forEach((o) => {
+      const when = o.date ? new Date(o.date).toLocaleString("it-IT", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
+      list.appendChild(el("button", { type: "button", class: "wpo-row", on: { click: () => this._openWpOrder(o.id) } },
+        el("span", { class: "wpo-num" }, el("b", {}, `#${o.number || o.id}`), el("small", {}, when)),
+        el("span", { class: "wpo-who" }, el("b", {}, o.name || o.email || "—"), el("small", {}, (o.items || []).join(", "))),
+        el("span", { class: "wpo-tot" }, el("b", {}, money(o.total)), o.refunded ? el("small", {}, `rimborsati ${money(o.refunded)}`) : el("small", {}, o.payment || "")),
+        this._wpOrderPill(o.status, data.statuses)));
+    });
+    wrap.appendChild(list);
+    if ((data.pages || 1) > 1) {
+      wrap.appendChild(el("div", { class: "row" }, el("span", { class: "spacer" }),
+        el("button", { class: "btn small", disabled: state.loading || state.page <= 1, on: { click: () => this._loadShopOrders({ page: state.page - 1 }) } }, el("ha-icon", { icon: "mdi:chevron-left" })),
+        el("span", { class: "dim small" }, `Pagina ${state.page} di ${data.pages} · ${data.total} ordini`),
+        el("button", { class: "btn small", disabled: state.loading || state.page >= data.pages, on: { click: () => this._loadShopOrders({ page: state.page + 1 }) } }, el("ha-icon", { icon: "mdi:chevron-right" })),
+        el("span", { class: "spacer" })));
+    }
+    return wrap;
+  }
+
+  async _openWpOrder(orderId) {
+    this._wpOrder = { id: orderId, loading: true };
+    this._render();
+    try {
+      const data = await this._service("wp_order", { order_id: orderId });
+      if (!this._wpOrder || this._wpOrder.id !== orderId) return;
+      this._wpOrder = { id: orderId, data, status: data.status, note: "", customerNote: false };
+    } catch (error) {
+      this._wpOrder = null;
+      this._message = { kind: "error", text: (error && error.message) || String(error) };
+    }
+    this._render();
+  }
+
+  _renderWpOrder() {
+    const state = this._wpOrder;
+    const close = () => { this._wpOrder = null; this._render(); };
+    const sheet = el("div", { class: "detail-sheet cx-sheet wpp-sheet" });
+    const backdrop = el("div", { class: "detail-backdrop", on: { click: (event) => { if (event.target === event.currentTarget) close(); } } }, sheet);
+    if (state.loading) { sheet.appendChild(el("div", { class: "empty" }, "Lettura dell'ordine dal sito…")); return backdrop; }
+    const o = state.data;
+    const money = (v) => euro(Number(v) || 0);
+    const when = (iso) => (iso ? new Date(iso).toLocaleString("it-IT", { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—");
+    const line = (label, value) => value ? el("div", { class: "detail-line" }, el("span", { class: "detail-label" }, label), el("span", { class: "detail-value" }, value)) : null;
+    const section = (title, ...children) => el("div", { class: "detail-section" }, el("h4", {}, title), ...children);
+    sheet.appendChild(el("div", { class: "wpp-head" },
+      el("span", { class: "nt-icon" }, el("ha-icon", { icon: "mdi:receipt-text-outline" })),
+      el("div", { class: "grow" }, el("div", { class: "wpp-title" }, `Ordine #${o.number || o.id}`),
+        el("div", { class: "dim small" }, when(o.date)), el("div", { class: "shop-prod-cats" }, this._wpOrderPill(o.status, o.statuses))),
+      el("button", { class: "icon-btn", title: "Chiudi", on: { click: close } }, el("ha-icon", { icon: "mdi:close" }))));
+    const b = o.billing || {};
+    sheet.appendChild(section("Cliente",
+      line("Nome", [b.first_name, b.last_name].filter(Boolean).join(" ") || o.name),
+      line("Email", o.email ? el("a", { href: `mailto:${o.email}` }, o.email) : ""),
+      line("Telefono", o.phone ? el("span", {}, o.phone, " ",
+        el("a", { class: "btn small tel", href: telHref(o.phone), title: "Chiama" }, el("ha-icon", { icon: "mdi:phone" })), " ",
+        waLink(o.phone) ? el("a", { class: "btn small wa", href: waLink(o.phone), target: "_blank", rel: "noopener", title: "WhatsApp" }, el("ha-icon", { icon: "mdi:whatsapp" })) : null) : ""),
+      line("Indirizzo", [b.address_1, b.postcode, b.city, b.state].filter(Boolean).join(", ")),
+      line("Azienda", [b.company, b.vat || ""].filter(Boolean).join(" · ")),
+      o.customer_note ? line("Nota del cliente", o.customer_note) : null));
+    sheet.appendChild(section("Articoli", ...(o.items || []).map((item) => el("div", { class: "wpo-item" },
+      el("div", { class: "row" }, el("b", { class: "grow" }, `${item.quantity > 1 ? item.quantity + " × " : ""}${item.name}`), el("b", {}, money(item.total))),
+      ...(item.meta || []).filter((m) => m.value && !/^_/.test(m.key)).slice(0, 8).map((m) => el("div", { class: "dim small" }, `${m.key}: ${m.value}`)),
+      (item.vouchers || []).length ? el("div", { class: "shop-prod-cats" }, item.vouchers.map((v) => el("span", {
+        class: `pm-chip ${v.status === "redeemed" ? "" : v.status ? "ok" : "warn"}`, title: v.status ? "In Spa Booking" : "Non ancora in Spa Booking: arriva con la prossima sincronizzazione" },
+        el("ha-icon", { icon: "mdi:ticket-confirmation-outline" }), ` ${v.code}${v.status === "redeemed" ? " · usato" : v.status ? " · in Spa Booking" : " · da leggere"}`))) : null))));
+    sheet.appendChild(section("Pagamento",
+      line("Subtotale", money(o.subtotal)),
+      o.discount ? line("Sconto", `−${money(o.discount)}${(o.coupons || []).length ? ` (${o.coupons.join(", ")})` : ""}`) : null,
+      o.shipping ? line("Spedizione", money(o.shipping)) : null,
+      o.tax ? line("di cui IVA", money(o.tax)) : null,
+      line("Totale", el("b", {}, money(o.total))),
+      o.refunded ? line("Rimborsato", money(o.refunded)) : null,
+      line("Metodo", o.payment || "—"),
+      line("Pagato il", o.paid ? when(o.paid) : "non ancora"),
+      line("Transazione", o.transaction_id || "")));
+    const statuses = ["pending", "processing", "on-hold", "completed", "cancelled"];
+    const update = async (payload, done) => {
+      try {
+        const data = await this._service("wp_order_update", { order_id: o.id, ...payload });
+        this._wpOrder = { ...state, data, status: data.status, note: "", customerNote: false };
+        this._message = { kind: "ok", text: done };
+        if (this._shopOrders) this._loadShopOrders();
+      } catch (error) { this._message = { kind: "error", text: (error && error.message) || String(error) }; }
+      this._render();
+    };
+    sheet.appendChild(section("Verifica",
+      el("div", { class: "row" },
+        el("select", { class: "input", style: "max-width:260px", on: { change: (event) => { state.status = event.target.value; this._render(); } } },
+          (statuses.includes(o.status) ? statuses : [o.status, ...statuses]).map((st) => el("option", { value: st, selected: state.status === st }, this._wpOrderStatusLabel(st, o.statuses)))),
+        el("button", { class: "btn small primary", disabled: this._busy || state.status === o.status || !statuses.includes(state.status), on: { click: () => {
+          if (state.status === "cancelled" && !window.confirm(`Annullare l'ordine #${o.number || o.id}? Il rimborso, se serve, va fatto da WordPress.`)) return;
+          update({ status: state.status }, "Stato dell'ordine aggiornato sul sito.");
+        } } }, "Cambia stato")),
+      el("div", { class: "dim small" }, "I rimborsi muovono denaro: si fanno da WordPress (Apri in WordPress)."),
+      el("textarea", { class: "input", rows: "2", placeholder: "Aggiungi una nota all'ordine (es. Verificato in reception)",
+        on: { input: (event) => { state.note = event.target.value; } } }, state.note || ""),
+      el("div", { class: "row" },
+        el("label", { class: "check" }, el("input", { type: "checkbox", checked: !!state.customerNote, on: { change: (event) => { state.customerNote = event.target.checked; } } }),
+          el("span", {}, "Visibile al cliente (gli arriva per email)")),
+        el("span", { class: "spacer" }),
+        el("button", { class: "btn small", disabled: this._busy, on: { click: () => {
+          if (!String(state.note || "").trim()) return;
+          update({ note: state.note, customer_note: !!state.customerNote }, "Nota aggiunta all'ordine.");
+        } } }, el("ha-icon", { icon: "mdi:note-plus-outline" }), "Aggiungi nota"))));
+    if ((o.notes || []).length) {
+      sheet.appendChild(section("Note dell'ordine", ...o.notes.map((n) => el("div", { class: "wpo-note" },
+        el("div", {}, n.text), el("div", { class: "dim small" }, [when(n.date), n.by || "", n.customer ? "inviata al cliente" : ""].filter(Boolean).join(" · "))))));
+    }
+    sheet.appendChild(el("div", { class: "row" },
+      o.edit_url ? el("a", { class: "btn small ghost", href: o.edit_url, target: "_blank", rel: "noopener" }, el("ha-icon", { icon: "mdi:wordpress" }), "Apri in WordPress") : null,
+      el("span", { class: "spacer" }),
+      el("button", { class: "btn", on: { click: close } }, "Chiudi")));
+    return backdrop;
+  }
+
   /** The card of a product of the online shop (3.6.0): read it from the site. */
   async _openWpProduct(productId) {
     this._wpProduct = { id: productId, loading: true };
@@ -14177,6 +14353,8 @@ class SpaBookingCard extends HTMLElement {
         name: plain(data.name), short_description: plain(data.short_description), description: plain(data.description),
         regular_price: plain(data.regular_price), sale_price: plain(data.sale_price),
         category_ids: [...(data.category_ids || [])],
+        status: data.status || "publish", stock_status: data.stock_status || "instock",
+        stock_quantity: data.stock_quantity == null ? "" : String(data.stock_quantity),
         variations: (data.variations || []).map((v) => ({ id: v.id, name: v.name, regular_price: plain(v.regular_price), sale_price: plain(v.sale_price) })),
       } };
     } catch (error) {
@@ -14206,9 +14384,22 @@ class SpaBookingCard extends HTMLElement {
     sheet.appendChild(el("div", { class: "wpp-head" },
       data.image ? el("img", { class: "wpp-img", src: data.image, alt: "" }) : el("span", { class: "nt-icon" }, el("ha-icon", { icon: "mdi:shopping-outline" })),
       el("div", { class: "grow" }, el("div", { class: "wpp-title" }, data.name || "Prodotto"),
-        el("div", { class: "dim small" }, [data.sku ? `SKU ${data.sku}` : "", variable ? "con varianti" : "", data.status === "publish" ? "pubblicato" : data.status].filter(Boolean).join(" · "))),
+        el("div", { class: "dim small" }, [data.sku ? `SKU ${data.sku}` : "", variable ? "con varianti" : ""].filter(Boolean).join(" · ")),
+        el("div", { class: "shop-prod-cats" }, this._wpStatePill(data.status), this._wpStockPill(data.stock_status))),
       el("button", { class: "icon-btn", title: "Chiudi", on: { click: close } }, el("ha-icon", { icon: "mdi:close" }))));
     sheet.appendChild(field("Nome", "name"));
+    // Who sees it on the site, and whether it can be bought (3.7.0).
+    const seg = (key, options) => el("div", { class: "pg-seg wpp-seg" }, options.map(([id, label]) => el("button", {
+      type: "button", class: draft[key] === id ? "on" : "", on: { click: () => { draft[key] = id; this._render(); } } }, label)));
+    sheet.appendChild(el("div", { class: "field" }, el("span", {}, "Stato sul sito"),
+      seg("status", [["publish", "Pubblicato"], ["draft", "Bozza"], ["pending", "In revisione"], ["private", "Privato"]]),
+      el("span", { class: "dim small" }, { publish: "Visibile e acquistabile sul sito.", draft: "Non visibile sul sito: si può finire di prepararlo.",
+        pending: "In attesa di revisione: non visibile finché non viene pubblicato.", private: "Visibile solo agli amministratori del sito." }[draft.status] || "")));
+    sheet.appendChild(el("div", { class: "field" }, el("span", {}, "Disponibilità"),
+      data.manage_stock
+        ? el("div", { class: "row" }, el("input", { class: "input", type: "number", min: "0", style: "max-width:120px", value: draft.stock_quantity ?? "",
+            on: { input: (event) => { draft.stock_quantity = event.target.value; } } }), el("span", { class: "dim small" }, "pezzi in magazzino (a 0 risulta esaurito)"))
+        : seg("stock_status", [["instock", "Disponibile"], ["outofstock", "Esaurito"], ["onbackorder", "Su ordinazione"]])));
     sheet.appendChild(el("div", { class: "field" }, el("span", {}, "Categorie"),
       cats.length ? el("div", { class: "shop-chips" }, cats.map((c) => el("button", {
         type: "button", class: `shop-chip${chosen.has(c.id) ? " on" : ""}`,
@@ -14236,6 +14427,9 @@ class SpaBookingCard extends HTMLElement {
         if (plain(draft[key]).trim() !== plain(data[key]).trim()) changes[key] = plain(draft[key]).trim().replace(",", key.endsWith("price") ? "." : ",");
       });
       ["short_description", "description"].forEach((key) => { if (key in changes) changes[key] = draft[key]; });
+      if (draft.status !== (data.status || "publish")) changes.status = draft.status;
+      if (!data.manage_stock && draft.stock_status !== (data.stock_status || "instock")) changes.stock_status = draft.stock_status;
+      if (data.manage_stock && plain(draft.stock_quantity) !== plain(data.stock_quantity) && draft.stock_quantity !== "") changes.stock_quantity = Number(draft.stock_quantity);
       const before = [...(data.category_ids || [])].sort().join(",");
       if ([...draft.category_ids].sort().join(",") !== before) changes.category_ids = draft.category_ids;
       if (variable) {
@@ -17657,6 +17851,20 @@ class SpaBookingCard extends HTMLElement {
     const wrap = el("div", { class: "stack nt" });
     wrap.appendChild(this._sectionHead("mdi:storefront-outline", "Shop online",
       "I voucher venduti sul sito (WooCommerce · Buoni PDF): arrivano qui da soli e, all'arrivo del cliente, risultano riscattati anche sul sito."));
+    // 3.7.0: the orders of the site in their own tab.
+    const shopTab = this._shopTab || "prodotti";
+    if (settings.wp_enabled) {
+      wrap.appendChild(el("div", { class: "nt-tabs", role: "tablist" },
+        [["prodotti", "mdi:link-variant", "Collegamento e prodotti"], ["ordini", "mdi:receipt-text-outline", "Ordini"]]
+          .map(([id, icon, label]) => el("button", {
+            class: `nt-tab${shopTab === id ? " on" : ""}`, role: "tab", "aria-selected": shopTab === id ? "true" : "false",
+            on: { click: () => { this._shopTab = id; this._render(); } },
+          }, el("ha-icon", { icon }), el("span", {}, label)))));
+      if (shopTab === "ordini") {
+        wrap.appendChild(this._renderShopOrders());
+        return wrap;
+      }
+    }
 
     const copy = async (text, what) => {
       try { await navigator.clipboard.writeText(text); this._message = { kind: "ok", text: `${what} copiato.` }; }
@@ -17757,9 +17965,22 @@ class SpaBookingCard extends HTMLElement {
           ...[...catCounts.entries()].sort((a, b) => a[1].name.localeCompare(b[1].name, "it")).map(([id, c]) => chip(id, c.name, c.n)),
           none ? chip("none", "Senza categoria", none) : null));
       }
+      // Published, drafts, waiting for review, sold out (3.7.0).
+      const stFilter = this._shopState || "";
+      const stCount = (fn) => products.filter(fn).length;
+      const stChip = (id, label, n) => el("button", { type: "button", class: `pm-chip${stFilter === id ? " info" : ""}`, style: "cursor:pointer;border:0",
+        on: { click: () => { this._shopState = id; this._render(); } } }, `${label} ${n}`);
+      step2.push(el("div", { class: "row chips shop-cats" },
+        stChip("", "Tutti", products.length),
+        stChip("publish", "Pubblicati", stCount((p) => (p.status || "publish") === "publish")),
+        stChip("draft", "Bozze", stCount((p) => p.status === "draft")),
+        stChip("pending", "In revisione", stCount((p) => p.status === "pending")),
+        stChip("private", "Privati", stCount((p) => p.status === "private")),
+        stChip("outofstock", "Esauriti", stCount((p) => p.stock_status === "outofstock"))));
       const shown = products.filter((p) => {
         const entry = draft.wp_product_map[p.key] || {};
         if (onlyFree && isPaired(p.key)) return false;
+        if (stFilter === "outofstock" ? p.stock_status !== "outofstock" : stFilter && (p.status || "publish") !== stFilter) return false;
         if (shopCat === "none" && (p.categories || []).length) return false;
         if (shopCat !== "" && shopCat !== "none" && !(p.categories || []).some((c) => String(c.id) === String(shopCat))) return false;
         return !query || [p.name, p.parent_name, p.sku, ...(p.categories || []).map((c) => c.name)].join(" ").toLowerCase().includes(query);
@@ -17784,8 +18005,8 @@ class SpaBookingCard extends HTMLElement {
             el("div", { class: "shop-prod-name" },
               el("button", { type: "button", class: "shop-prod-open", title: "Apri la scheda del prodotto", on: { click: () => this._openWpProduct(product.product_id) } },
                 el("b", {}, product.name || product.parent_name), el("ha-icon", { icon: "mdi:pencil-outline" })),
-              el("span", { class: "dim small" }, [product.sku, product.price != null ? euro(product.price) : "", product.voucher ? "voucher" : "",
-                product.status && product.status !== "publish" ? (product.status === "private" ? "privato" : product.status) : ""].filter(Boolean).join(" · ")),
+              el("span", { class: "dim small" }, [product.sku, product.price != null ? euro(product.price) : "", product.voucher ? "voucher" : ""].filter(Boolean).join(" · ")),
+              el("span", { class: "shop-prod-cats" }, this._wpStatePill(product.status), this._wpStockPill(product.stock_status)),
               (product.categories || []).length ? el("span", { class: "shop-prod-cats" },
                 product.categories.map((c) => el("span", { class: "pm-chip" }, c.name))) : null),
             el("div", { class: "shop-people" }, el("span", { class: "dim small" }, "Persone"),
@@ -23136,6 +23357,23 @@ class SpaBookingCard extends HTMLElement {
       .wpp-img { width: 64px; height: 64px; border-radius: 10px; object-fit: cover; flex: none; }
       .wpp-prices > .field { flex: 1; }
       .wpp-vars { display: grid; gap: 6px; }
+      .wpp-seg { flex-wrap: wrap; }
+      .pm-chip.bad { background: rgba(192,58,58,.12); color: #b03535; }
+      .wpo-list { padding: 4px; }
+      .wpo-row { all: unset; box-sizing: border-box; display: grid; grid-template-columns: 130px minmax(0,1fr) 120px 150px; gap: 12px; align-items: center; padding: 10px 12px; border-radius: 10px; cursor: pointer; }
+      .wpo-row:hover { background: var(--sb-soft, rgba(0,0,0,.04)); }
+      .wpo-row + .wpo-row { border-top: 1px solid var(--sb-line, rgba(0,0,0,.06)); }
+      .wpo-row span { display: flex; flex-direction: column; min-width: 0; }
+      .wpo-row small { color: var(--secondary-text-color); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .wpo-row .pm-chip { display: inline-flex; flex-direction: row; justify-self: end; }
+      .wpo-tot { text-align: right; }
+      .wpo-item { padding: 8px 0; border-bottom: 1px solid var(--sb-line, rgba(0,0,0,.06)); display: grid; gap: 4px; }
+      .wpo-note { padding: 6px 0; border-bottom: 1px dashed var(--sb-line, rgba(0,0,0,.08)); }
+      @media (max-width: 700px) {
+        .wpo-row { grid-template-columns: minmax(0,1fr) auto; }
+        .wpo-row .wpo-who { grid-column: 1 / -1; grid-row: 2; }
+        .wpo-row .pm-chip { justify-self: start; }
+      }
       .wpp-var { display: flex; gap: 8px; align-items: center; }
       .wpp-var .input { width: 110px; }
       /* Chats in the cards, photos and files (3.5.0). */

@@ -4202,7 +4202,8 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def async_wp_product_update(self, product_id: int, changes: dict[str, Any]) -> dict[str, Any]:
         """Change a product on the shop, then read the list again (3.6.0)."""
-        allowed = {"name", "description", "short_description", "regular_price", "sale_price", "category_ids", "variations"}
+        allowed = {"name", "description", "short_description", "regular_price", "sale_price", "category_ids", "variations",
+                   "status", "stock_status", "stock_quantity"}
         payload = {k: v for k, v in (changes or {}).items() if k in allowed}
         if "name" in payload and not str(payload["name"] or "").strip():
             raise ValidationError("Il nome del prodotto non può essere vuoto")
@@ -4224,6 +4225,50 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._data[KEY_SETTINGS]["wp_categories"] = categories
             self._data[KEY_SETTINGS] = _norm_settings(self._data[KEY_SETTINGS])
             await self._async_save()
+        return result
+
+    async def async_wp_orders(self, page: int = 1, status: str = "", search: str = "") -> dict[str, Any]:
+        """A page of the shop's orders (3.7.0)."""
+        url, secret = self._wp_settings()
+        try:
+            return await wp_shop.orders(self._http_session(), url, secret, page=max(1, int(page or 1)), per_page=30,
+                                        status=str(status or "").strip(), search=str(search or "").strip()[:80])
+        except wp_shop.WpShopError as err:
+            raise ValidationError(str(err)) from err
+
+    async def async_wp_order(self, order_id: int) -> dict[str, Any]:
+        """One order of the shop, with the voucher codes already in Spa Booking."""
+        url, secret = self._wp_settings()
+        try:
+            result = await wp_shop.order(self._http_session(), url, secret, int(order_id))
+        except wp_shop.WpShopError as err:
+            raise ValidationError(str(err)) from err
+        known = {str(v.get("code") or "").upper(): v for v in self.vouchers if v.get("source") == "wordpress"}
+        for item in result.get("items") or []:
+            codes = [c.strip() for c in str(item.get("codes") or "").split(",") if c.strip()]
+            item["vouchers"] = [{"code": c, "status": (known.get(c.upper()) or {}).get("status", ""),
+                                 "voucher_id": (known.get(c.upper()) or {}).get("id", "")} for c in codes]
+        return result
+
+    async def async_wp_order_update(self, order_id: int, status: str = "", note: str = "",
+                                    customer_note: bool = False) -> dict[str, Any]:
+        """Change an order's state or add a note to it (3.7.0); refunds stay in WordPress."""
+        status = str(status or "").strip()
+        if status and status not in ("pending", "processing", "on-hold", "completed", "cancelled"):
+            raise ValidationError("Stato non consentito: i rimborsi si fanno da WordPress")
+        if not status and not str(note or "").strip():
+            raise ValidationError("Niente da cambiare")
+        url, secret = self._wp_settings()
+        by = (ACTOR.get() or ("", ""))[1] or ""
+        try:
+            result = await wp_shop.order_update(self._http_session(), url, secret, {
+                "id": int(order_id), "status": status, "note": str(note or "").strip()[:2000],
+                "customer_note": bool(customer_note), "by": by})
+        except wp_shop.WpShopError as err:
+            raise ValidationError(str(err)) from err
+        if status in ("completed", "processing"):
+            # A paid order may bring new voucher codes: read them now.
+            self.hass.async_create_task(self.async_wp_sync())
         return result
 
     def _wp_people(self, product_id: Any, variation_id: Any, paid: Any = None) -> list[dict[str, Any]]:

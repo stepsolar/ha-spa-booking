@@ -1,6 +1,6 @@
 <p align="center"><img src="anteprime/logo.png" width="120" alt="Spa Booking"></p>
 
-# Spa Booking 3.6 — la guida completa
+# Spa Booking 3.7 — la guida completa
 
 Questa guida spiega **tutto quello che fa Spa Booking**, scheda per scheda:
 dalla prenotazione al banco al modulo del sito, dai messaggi WhatsApp ai
@@ -762,7 +762,8 @@ Booking da soli.
    «Sostituisci la versione installata»). La versione **1.2.0** passa anche
    iscritti alla newsletter, clienti dello shop e codici sconto della
    newsletter (Clienti › Sito); la **1.3.0** permette di modificare i
-   prodotti da Spa Booking.
+   prodotti da Spa Booking; la **1.4.0** aggiunge stato e disponibilità dei
+   prodotti e gli ordini.
 2. In Configurazione › Shop online scrivi l'indirizzo del sito, premi
    **Nuova chiave** e copia chiave e indirizzo di notifica in WordPress ›
    WooCommerce › Spa Booking.
@@ -798,6 +799,33 @@ Amministratore.
 | | |
 |---|---|
 | ![Categorie dei prodotti](anteprime/106-shop-categorie.png) | ![Scheda del prodotto](anteprime/107-shop-prodotto.png) |
+
+**Stato e disponibilità** (3.7): ogni prodotto mostra se è *Pubblicato*,
+*Bozza*, *In revisione* o *Privato*, e se è *Esaurito* o *Su ordinazione*;
+i bottoni sopra la lista filtrano per stato. Nella scheda si sceglie lo
+**Stato sul sito** (pubblicarlo o rimetterlo in bozza) e la
+**Disponibilità** (o i pezzi in magazzino, se il prodotto li conta).
+
+![Stato del prodotto](anteprime/110-shop-stato-prodotto.png)
+
+**Ordini** (3.7): la linguetta *Ordini* di Shop online elenca gli ordini del
+sito, i più recenti prima, con filtri per stato (In lavorazione,
+Completato, In sospeso…), ricerca per numero, nome o email e pagine da 30.
+Toccando un ordine si apre la sua scheda:
+
+- **Cliente**: nome, email, telefono (chiama o WhatsApp), indirizzo, nota;
+- **Articoli** con le opzioni scelte e i **codici voucher** (verde = già in
+  Spa Booking, «da leggere» = arriva con la prossima sincronizzazione);
+- **Pagamento**: subtotale, sconti e codici sconto, IVA, totale, metodo,
+  data e transazione;
+- **Verifica**: cambia lo stato (In attesa di pagamento, In lavorazione,
+  In sospeso, Completato, Annullato) e aggiungi una nota, anche visibile al
+  cliente. I **rimborsi** muovono denaro e si fanno da WordPress (*Apri in
+  WordPress*).
+
+| | |
+|---|---|
+| ![Ordini del sito](anteprime/108-shop-ordini.png) | ![Scheda dell'ordine](anteprime/109-shop-ordine.png) |
 
 ---
 

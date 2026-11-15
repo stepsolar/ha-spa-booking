@@ -41,3 +41,36 @@ def test_change_a_product_and_read_the_list_again(coordinator, monkeypatch) -> N
     assert product["name"] == "Percorso Spa 2 ore" and product["price"] == 55.0
     assert product["categories"] == [{"id": 3, "name": "Percorsi"}]
     assert [c["name"] for c in settings["wp_categories"]] == ["Percorsi", "Coppia"]
+
+
+def test_orders_status_and_vouchers(coordinator, monkeypatch) -> None:
+    """3.7.0: orders of the shop, their codes, and what may be changed from here."""
+    sent = []
+
+    async def order(session, base, secret, order_id):
+        return {"id": order_id, "status": "processing", "items": [{"name": "Massaggio Relax", "codes": "ABC123, XYZ999"}]}
+
+    async def order_update(session, base, secret, changes):
+        sent.append(changes)
+        return {"id": changes["id"], "status": changes["status"] or "processing"}
+
+    async def nothing():
+        return {}
+
+    monkeypatch.setattr(wp_shop, "order", order)
+    monkeypatch.setattr(wp_shop, "order_update", order_update)
+    monkeypatch.setattr(coordinator, "_http_session", lambda: None)
+    monkeypatch.setattr(coordinator, "async_wp_sync", nothing)
+    coordinator.hass.async_create_task = lambda coro: coro.close()
+    run(coordinator.async_update_settings(wp_enabled=True, wp_url="benessere.example.it"))
+    run(coordinator.async_wp_new_secret())
+    coordinator.vouchers.append({"id": "v1", "code": "ABC123", "source": "wordpress", "status": "active"})
+    got = run(coordinator.async_wp_order(10208))
+    assert got["items"][0]["vouchers"] == [{"code": "ABC123", "status": "active", "voucher_id": "v1"},
+                                           {"code": "XYZ999", "status": "", "voucher_id": ""}]
+    with pytest.raises(ValidationError, match="rimborsi"):
+        run(coordinator.async_wp_order_update(10208, status="refunded"))
+    with pytest.raises(ValidationError, match="Niente"):
+        run(coordinator.async_wp_order_update(10208))
+    run(coordinator.async_wp_order_update(10208, status="completed", note="Verificato in reception"))
+    assert sent[0]["status"] == "completed" and sent[0]["note"] == "Verificato in reception"

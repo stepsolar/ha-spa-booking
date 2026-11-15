@@ -111,6 +111,18 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v3.7.0** — (serve il riavvio di Home Assistant e il plugin WordPress
+  **1.4.0**: `wordpress/spa-booking-connector.zip`)
+  - Prodotti dello shop: **stato** (Pubblicato, Bozza, In revisione,
+    Privato) e **disponibilità** (Esaurito, Su ordinazione) su ogni prodotto,
+    con i filtri; nella scheda si cambiano stato e disponibilità (o i pezzi
+    in magazzino). La lista comprende anche bozze e prodotti in revisione.
+  - Shop online › **Ordini**: tutti gli ordini del sito, per stato, con
+    ricerca per numero, nome o email e pagine da 30. La **scheda
+    dell'ordine** mostra cliente, articoli con i codici voucher (e se sono
+    già in Spa Booking), sconti, pagamento, note; si cambia lo stato
+    (non i rimborsi, che restano su WordPress) e si aggiunge una nota,
+    anche visibile al cliente.
 - **v3.6.0** — (serve il riavvio di Home Assistant e il plugin WordPress
   **1.3.0**: `wordpress/spa-booking-connector.zip`)
   - Configurazione › Shop online: ogni prodotto mostra le sue **categorie**

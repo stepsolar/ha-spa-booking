@@ -1081,6 +1081,7 @@ def _norm_settings(raw: dict[str, Any]) -> dict[str, Any]:
                     for c in (p.get("categories") or []) if isinstance(c, dict) and str(c.get("id") or "").isdigit()
                 ][:20],
                 "status": str(p.get("status") or "").strip()[:20],
+                "stock_status": str(p.get("stock_status") or "").strip()[:20],
             }
             for p in (raw.get("wp_products") or [])
             if isinstance(p, dict) and str(p.get("product_id") or "").isdigit()
