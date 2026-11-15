@@ -336,6 +336,7 @@
 	box-shadow: inset 0 0 0 1px var(--sbc-acc);
 }
 .sbc-style .sbc-opt[disabled] { opacity: .45; cursor: not-allowed; }
+.sbc-style .sbc-opt[hidden] { display: none !important; }
 .sbc-style .sbc-opt em,
 .sbc-style .awcdp-radio .sbc-amt {
 	font-style: normal;

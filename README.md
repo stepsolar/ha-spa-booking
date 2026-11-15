@@ -111,6 +111,16 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v3.9.0** — (serve il riavvio di Home Assistant e il plugin WordPress
+  **1.6.0**)
+  - Shop online: per ogni variante si vede se è **attiva** o
+    **disattivata** (in WooCommerce: «Abilitata»), con la sua disponibilità;
+    nella lista c'è il filtro «Varianti disattivate».
+  - Nella scheda del prodotto ogni variante ha l'interruttore **Attiva**,
+    oltre ai prezzi: al salvataggio la variante si accende o si spegne
+    anche sul sito.
+  - Stile shop: nella scheda del sito non compaiono più i riquadri delle
+    varianti disattivate (es. «Relax 30'» del Massaggio Relax You&Me).
 - **v3.8.1** — (solo il plugin WordPress **1.5.1**; Home Assistant non va
   riavviato)
   - Stile shop, scheda prodotto: i campi del voucher (Dedicato a, email,

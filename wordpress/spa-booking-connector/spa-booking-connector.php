@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Spa Booking Connector
  * Description: Collega il sito a Spa Booking: voucher venduti con «Buoni PDF» (riscattati in spa), iscritti alla newsletter, clienti dello shop, codici sconto della newsletter, modifica dei prodotti e ordini dello shop, stile dello shop e delle schede prodotto.
- * Version: 1.5.1
+ * Version: 1.6.0
  * Author: Spa Booking
  * Requires PHP: 7.4
  * Text Domain: spa-booking-connector
@@ -13,7 +13,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Spa_Booking_Connector {
-	const VERSION   = '1.5.1';
+	const VERSION   = '1.6.0';
 	const OPTION    = 'spa_booking_connector';
 	const NAMESPACE = 'spa-booking/v1';
 
@@ -140,7 +140,9 @@ final class Spa_Booking_Connector {
 					if ( ! $v ) {
 						continue;
 					}
-					$out[] = $base + array( 'variation_id' => $vid, 'name' => $v->get_name(), 'sku' => $v->get_sku(), 'price' => (float) $v->get_price() );
+					// 1.6.0: whether the variation is enabled (sold on the site) and its own stock.
+					$out[] = $base + array( 'variation_id' => $vid, 'name' => $v->get_name(), 'sku' => $v->get_sku(), 'price' => (float) $v->get_price(),
+						'enabled' => 'publish' === $v->get_status(), 'variation_stock_status' => $v->get_stock_status() );
 				}
 			} else {
 				$out[] = $base + array( 'variation_id' => 0, 'name' => $p->get_name(), 'sku' => $p->get_sku(), 'price' => (float) $p->get_price() );
@@ -180,7 +182,9 @@ final class Spa_Booking_Connector {
 			foreach ( $p->get_children() as $vid ) {
 				$v = wc_get_product( $vid );
 				if ( $v ) {
-					$variations[] = array( 'id' => $vid, 'name' => wc_get_formatted_variation( $v, true, false, false ), 'regular_price' => $v->get_regular_price(), 'sale_price' => $v->get_sale_price(), 'stock_status' => $v->get_stock_status() );
+					$variations[] = array( 'id' => $vid, 'name' => wc_get_formatted_variation( $v, true, false, false ), 'regular_price' => $v->get_regular_price(), 'sale_price' => $v->get_sale_price(), 'stock_status' => $v->get_stock_status(),
+						// 1.6.0: «Abilitata» in WooCommerce (a disabled variation is not sold).
+						'enabled' => 'publish' === $v->get_status(), 'sku' => $v->get_sku() );
 				}
 			}
 		}
@@ -314,6 +318,10 @@ final class Spa_Booking_Connector {
 				}
 				if ( isset( $row['stock_status'] ) && in_array( $row['stock_status'], array( 'instock', 'outofstock', 'onbackorder' ), true ) && ! $v->get_manage_stock() ) {
 					$v->set_stock_status( $row['stock_status'] );
+				}
+				// 1.6.0: enable or disable the variation, as its «Abilitata» box.
+				if ( isset( $row['enabled'] ) ) {
+					$v->set_status( rest_sanitize_boolean( $row['enabled'] ) ? 'publish' : 'private' );
 				}
 				$v->save();
 			}

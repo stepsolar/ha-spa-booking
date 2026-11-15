@@ -1,6 +1,6 @@
 <p align="center"><img src="anteprime/logo.png" width="120" alt="Spa Booking"></p>
 
-# Spa Booking 3.8 — la guida completa
+# Spa Booking 3.9 — la guida completa
 
 Questa guida spiega **tutto quello che fa Spa Booking**, scheda per scheda:
 dalla prenotazione al banco al modulo del sito, dai messaggi WhatsApp ai
@@ -763,7 +763,8 @@ Booking da soli.
    iscritti alla newsletter, clienti dello shop e codici sconto della
    newsletter (Clienti › Sito); la **1.3.0** permette di modificare i
    prodotti da Spa Booking; la **1.4.0** aggiunge stato e disponibilità dei
-   prodotti e gli ordini; la **1.5.0** lo *Stile shop* (vedi sotto).
+   prodotti e gli ordini; la **1.5.0** lo *Stile shop* (vedi sotto); la **1.6.0** le varianti attive o
+   disattivate.
 2. In Configurazione › Shop online scrivi l'indirizzo del sito, premi
    **Nuova chiave** e copia chiave e indirizzo di notifica in WordPress ›
    WooCommerce › Spa Booking.
@@ -826,6 +827,15 @@ Toccando un ordine si apre la sua scheda:
 | | |
 |---|---|
 | ![Ordini del sito](anteprime/108-shop-ordini.png) | ![Scheda dell'ordine](anteprime/109-shop-ordine.png) |
+
+**Varianti attive e disattivate** (3.9, plugin 1.6.0): molti prodotti sono
+varianti (es. Relax 30′ / Relax 60′). Nella lista ogni variante dice se è
+*Variante attiva* o *Variante disattivata* (in WooCommerce: «Abilitata») e
+se è esaurita; il filtro **Varianti disattivate** le raccoglie. Nella scheda
+del prodotto ogni variante ha l'interruttore **Attiva** accanto ai prezzi:
+una variante disattivata non si vede e non si compra sul sito.
+
+![Varianti nella scheda del prodotto](anteprime/114-shop-varianti.png)
 
 **Stile shop** (3.8, plugin 1.5.0): rifà lo shop e le schede prodotto del
 sito nello stile del tema, senza toccare il tema né i prodotti. Si attiva in
