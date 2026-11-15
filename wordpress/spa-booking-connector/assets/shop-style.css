@@ -375,17 +375,51 @@
 .sbc-style .awcdp-deposits-option .awcdp-radio label small { display: block; color: #aaa; font-size: 11.5px; margin-top: 2px; }
 .sbc-style .awcdp-deposits-description { display: none !important; }
 
-/* Voucher fields: two columns, thin borders. */
+/* Voucher fields: one column, every field the full width, label above,
+   help text below. Buoni PDF prints them as a table (one per variation). */
+.sbc-style .woo-vou-fields-main-wrapper .vou-clearfix,
+.sbc-style .woo-vou-fields-main-wrapper .woo-vou-fields-wrapper,
+.sbc-style .woo-vou-fields-main-wrapper .woo-vou-fields-wrapper-variation {
+	float: none !important;
+	width: 100% !important;
+	max-width: none !important;
+	margin: 0 !important;
+	padding: 0 !important;
+	clear: both;
+}
 .sbc-style .woo-vou-recipient-fields,
-.sbc-style .woo-vou-recipient-fields tbody { display: block; width: 100%; border: 0 !important; margin: 0 !important; }
-.sbc-style .woo-vou-recipient-fields tbody { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.sbc-style .woo-vou-recipient-fields tr { display: block; border: 0 !important; }
-.sbc-style .woo-vou-recipient-fields td { display: block; padding: 0 !important; border: 0 !important; background: none !important; }
-.sbc-style .woo-vou-recipient-fields tr:has(textarea) { grid-column: 1 / -1; }
-.sbc-style .woo-vou-recipient-fields label { font-size: 11.5px; color: #888; font-weight: 400; margin: 0 0 5px; display: block; }
+.sbc-style .woo-vou-recipient-fields tbody,
+.sbc-style .woo-vou-recipient-fields tr,
+.sbc-style .woo-vou-recipient-fields th,
+.sbc-style .woo-vou-recipient-fields td {
+	display: block; /* not !important: rows the plugin hides stay hidden */
+	width: 100% !important;
+	max-width: none !important;
+	float: none !important;
+	border: 0 !important;
+	background: none !important;
+	padding: 0 !important;
+	margin: 0 !important;
+	text-align: left !important;
+	box-sizing: border-box;
+}
+.sbc-style .woo-vou-recipient-fields tr { margin: 0 0 16px !important; }
+.sbc-style .woo-vou-recipient-fields tr:last-child { margin-bottom: 0 !important; }
+.sbc-style .woo-vou-recipient-fields label {
+	font-size: 11.5px !important;
+	color: #888 !important;
+	font-weight: 400 !important;
+	line-height: 1.4 !important;
+	margin: 0 0 5px !important;
+	padding: 0 !important;
+	display: block !important;
+}
 .sbc-style .woo-vou-recipient-fields input[type=text],
 .sbc-style .woo-vou-recipient-fields input[type=email],
+.sbc-style .woo-vou-recipient-fields input[type=tel],
 .sbc-style .woo-vou-recipient-fields input[type=date],
+.sbc-style .woo-vou-recipient-fields input[type=datetime-local],
+.sbc-style .woo-vou-recipient-fields select,
 .sbc-style .woo-vou-recipient-fields textarea,
 .sbc-style form.cart div.quantity input.qty {
 	border: 1px solid var(--sbc-line) !important;
@@ -395,11 +429,24 @@
 	font-size: 13px !important;
 	padding: 10px 12px !important;
 	width: 100% !important;
+	max-width: none !important;
+	margin: 0 !important;
+	box-sizing: border-box !important;
 	color: #444;
 }
 .sbc-style .woo-vou-recipient-fields textarea { min-height: 70px; }
 .sbc-style .woo-vou-recipient-fields .description,
-.sbc-style .woo-vou-recipient-fields .woo-vou-recipient-desc { font-size: 11px; color: #aaa; line-height: 1.5; display: block; margin-top: 4px; }
+.sbc-style .woo-vou-recipient-fields .woo-vou-recipient-desc,
+.sbc-style .woo-vou-recipient-fields small,
+.sbc-style .woo-vou-recipient-fields p {
+	font-size: 11px !important;
+	color: #aaa !important;
+	line-height: 1.5 !important;
+	display: block;
+	margin: 5px 0 0 !important;
+	padding: 0 !important;
+	text-align: left !important;
+}
 .sbc-style .woo-vou-preview-pdf-wrap { margin: 8px 0 0; }
 .sbc-style a.woo_vou_preview_pdf {
 	font-size: 11px;
@@ -523,7 +570,6 @@
 	.sbc-style.single-product div.product .product_title { font-size: 26px !important; }
 	.sbc-style .sbc-opts,
 	.sbc-style .awcdp-deposits-option,
-	.sbc-style .woo-vou-recipient-fields tbody { grid-template-columns: 1fr; }
 	.sbc-style div.product .woocommerce-tabs ul.tabs { gap: 20px; }
 	.sbc-style form.cart .single_add_to_cart_button { letter-spacing: .1em !important; padding: 12px 14px !important; }
 }

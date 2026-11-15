@@ -111,6 +111,12 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v3.8.1** — (solo il plugin WordPress **1.5.1**; Home Assistant non va
+  riavviato)
+  - Stile shop, scheda prodotto: i campi del voucher (Dedicato a, email,
+    dedica, data d'arrivo) ora sono uno sotto l'altro, tutti larghi uguali,
+    con l'etichetta sopra e la spiegazione sotto; prima, su due colonne,
+    restavano disallineati.
 - **v3.8.0** — (solo il plugin WordPress **1.5.0**:
   `wordpress/spa-booking-connector.zip`; Home Assistant non va riavviato)
   - **Stile shop**: shop, categorie e schede prodotto del sito nello stile

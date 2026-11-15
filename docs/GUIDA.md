@@ -848,7 +848,7 @@ quella generale).
 
 Nella scheda l'acquisto è in passi numerati: **1. Scegli la formula** (le
 varianti diventano riquadri con il prezzo), **2. Come vuoi pagare** (acconto
-o intero, con l'importo), **3. Il voucher** (i campi di Buoni PDF); il
+o intero, con l'importo), **3. Il voucher** (i campi di Buoni PDF, uno sotto l'altro); il
 pulsante dice quanto si paga ora («Aggiungi al carrello · 40,00 €»). Sotto
 ci sono sempre i moduli originali di WooCommerce, acconti e Buoni PDF: il
 carrello e i voucher funzionano come prima.
