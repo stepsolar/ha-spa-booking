@@ -111,6 +111,19 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v3.8.0** — (solo il plugin WordPress **1.5.0**:
+  `wordpress/spa-booking-connector.zip`; Home Assistant non va riavviato)
+  - **Stile shop**: shop, categorie e schede prodotto del sito nello stile
+    del tema (bianco, Rubik, salmone, linee sottili). Si accende e si spegne
+    in WooCommerce › Spa Booking; spento, le pagine tornano come prima.
+  - Shop: titolo e sottotitolo, categorie in alto come linguette (scelte e
+    rinominabili), griglia a 3 colonne (2 sul telefono), tipo del prodotto,
+    riga breve facoltativa, prezzi «da 80,00 €», pulsante «Scegli» a filo.
+  - Scheda prodotto: percorso, tipo, punti «in breve» e nota sotto il
+    prezzo, acquisto in passi numerati (1. formula a riquadri con il prezzo,
+    2. acconto o intero con l'importo, 3. dati del voucher), il pulsante
+    mostra quanto si paga, rassicurazioni sotto; linguette sottolineate.
+    I moduli di WooCommerce, acconti e Buoni PDF restano gli stessi.
 - **v3.7.1** — (serve il riavvio di Home Assistant e il plugin WordPress
   **1.4.1**)
   - Shop online › Ordini: aprire un ordine dava l'errore «'str' object has
