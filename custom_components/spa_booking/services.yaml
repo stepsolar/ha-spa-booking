@@ -1717,6 +1717,63 @@ wp_product_update:
       selector:
         object:
 
+wp_orders:
+  name: Ordini dello shop
+  description: Una pagina degli ordini ricevuti dallo shop online.
+  fields:
+    page:
+      name: Pagina
+      selector:
+        number:
+          min: 1
+          mode: box
+    status:
+      name: Stato
+      selector:
+        text:
+    search:
+      name: Cerca
+      selector:
+        text:
+
+wp_order:
+  name: Ordine dello shop
+  description: Un ordine dello shop online con articoli, cliente, pagamento e note.
+  fields:
+    order_id:
+      name: Numero ordine
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+
+wp_order_update:
+  name: Aggiorna un ordine dello shop
+  description: Cambia lo stato di un ordine (non i rimborsi) o aggiunge una nota.
+  fields:
+    order_id:
+      name: Numero ordine
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    status:
+      name: Stato
+      selector:
+        select:
+          options: [pending, processing, on-hold, completed, cancelled]
+    note:
+      name: Nota
+      selector:
+        text:
+          multiline: true
+    customer_note:
+      name: Nota visibile al cliente
+      selector:
+        boolean:
+
 wp_new_secret:
   name: Nuova chiave shop online
   description: Crea una nuova chiave da copiare nel plugin su WordPress.

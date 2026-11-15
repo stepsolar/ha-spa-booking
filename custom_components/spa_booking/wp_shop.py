@@ -93,6 +93,8 @@ async def _request(session: Any, method: str, base: str, secret: str, path: str,
             if response.status == 404 and path != "/redeem":
                 if isinstance(body, dict) and body.get("code") not in (None, "", "rest_no_route"):
                     raise WpShopError(str(body.get("message") or "Non trovato sul sito"))
+                if path in ("/orders", "/order"):
+                    raise WpShopError("Aggiorna il plugin «Spa Booking Connector» sul sito (serve la versione 1.4.0)")
                 if path in ("/product", "/contacts", "/coupon-use"):
                     raise WpShopError("Aggiorna il plugin «Spa Booking Connector» sul sito (serve la versione 1.3.0)")
                 raise WpShopError("Sul sito manca il plugin «Spa Booking Connector» (o non è attivo).")
@@ -130,6 +132,20 @@ async def product(session: Any, base: str, secret: str, product_id: int) -> dict
 async def product_update(session: Any, base: str, secret: str, changes: dict[str, Any]) -> dict[str, Any]:
     """Change a product on the shop (plugin 1.3.0)."""
     return await _request(session, "POST", base, secret, "/product", json=changes)
+
+
+async def orders(session: Any, base: str, secret: str, **params: Any) -> dict[str, Any]:
+    """A page of the shop's orders (plugin 1.4.0)."""
+    clean = {k: str(v) for k, v in params.items() if v not in (None, "")}
+    return await _request(session, "GET", base, secret, "/orders", params=clean)
+
+
+async def order(session: Any, base: str, secret: str, order_id: int) -> dict[str, Any]:
+    return await _request(session, "GET", base, secret, "/order", params={"id": str(int(order_id))})
+
+
+async def order_update(session: Any, base: str, secret: str, changes: dict[str, Any]) -> dict[str, Any]:
+    return await _request(session, "POST", base, secret, "/order", json=changes)
 
 
 async def vouchers(session: Any, base: str, secret: str, days: int = SYNC_DAYS) -> list[dict[str, Any]]:

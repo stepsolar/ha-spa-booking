@@ -155,6 +155,9 @@ SERVICE_WP_SYNC = "wp_sync"
 SERVICE_WP_TEST = "wp_test"
 SERVICE_WP_PRODUCT = "wp_product"
 SERVICE_WP_PRODUCT_UPDATE = "wp_product_update"
+SERVICE_WP_ORDERS = "wp_orders"
+SERVICE_WP_ORDER = "wp_order"
+SERVICE_WP_ORDER_UPDATE = "wp_order_update"
 SERVICE_WP_NEW_SECRET = "wp_new_secret"
 SERVICE_WP_REDEEM = "wp_redeem"
 SERVICE_PROMO_VOUCHER_TICK = "promo_voucher_tick"
@@ -285,6 +288,9 @@ ALL_SERVICES = (
     SERVICE_WP_TEST,
     SERVICE_WP_PRODUCT,
     SERVICE_WP_PRODUCT_UPDATE,
+    SERVICE_WP_ORDERS,
+    SERVICE_WP_ORDER,
+    SERVICE_WP_ORDER_UPDATE,
     SERVICE_WP_NEW_SECRET,
     SERVICE_WP_REDEEM,
     SERVICE_PROMO_VOUCHER_TICK,
@@ -2201,6 +2207,22 @@ async def _async_wp_product_update(call: ServiceCall) -> ServiceResponse:
     return await _coordinator(call).async_wp_product_update(product_id, data)
 
 
+async def _async_wp_orders(call: ServiceCall) -> ServiceResponse:
+    """A page of the online shop's orders (3.7.0)."""
+    data = call.data
+    return await _coordinator(call).async_wp_orders(data.get("page", 1), data.get("status", ""), data.get("search", ""))
+
+
+async def _async_wp_order(call: ServiceCall) -> ServiceResponse:
+    return await _coordinator(call).async_wp_order(call.data["order_id"])
+
+
+async def _async_wp_order_update(call: ServiceCall) -> ServiceResponse:
+    data = call.data
+    return await _coordinator(call).async_wp_order_update(
+        data["order_id"], data.get("status", ""), data.get("note", ""), data.get("customer_note", False))
+
+
 async def _async_gdrive_list(call: ServiceCall) -> ServiceResponse:
     """The backups on Google Drive."""
     return await _coordinator(call).async_gdrive_list()
@@ -3296,7 +3318,25 @@ _HANDLERS: dict[str, tuple[Any, Any, SupportsResponse]] = {
             vol.Optional("sale_price"): vol.Any(str, vol.Coerce(float), None),
             vol.Optional("category_ids"): vol.All(cv.ensure_list, [vol.Coerce(int)]),
             vol.Optional("variations"): vol.All(cv.ensure_list, [dict]),
+            vol.Optional("status"): vol.In(["publish", "draft", "pending", "private"]),
+            vol.Optional("stock_status"): vol.In(["instock", "outofstock", "onbackorder"]),
+            vol.Optional("stock_quantity"): vol.All(vol.Coerce(int), vol.Range(min=0)),
         }),
+        SupportsResponse.ONLY,
+    ),
+    SERVICE_WP_ORDERS: (
+        _async_wp_orders,
+        vol.Schema({vol.Optional("page"): vol.Coerce(int), vol.Optional("status"): vol.Any(cv.string, None),
+                    vol.Optional("search"): vol.Any(cv.string, None)}),
+        SupportsResponse.ONLY,
+    ),
+    SERVICE_WP_ORDER: (
+        _async_wp_order, vol.Schema({vol.Required("order_id"): vol.Coerce(int)}), SupportsResponse.ONLY,
+    ),
+    SERVICE_WP_ORDER_UPDATE: (
+        _async_wp_order_update,
+        vol.Schema({vol.Required("order_id"): vol.Coerce(int), vol.Optional("status"): vol.Any(cv.string, None),
+                    vol.Optional("note"): vol.Any(cv.string, None), vol.Optional("customer_note"): cv.boolean}),
         SupportsResponse.ONLY,
     ),
     SERVICE_WP_NEW_SECRET: (_async_wp_new_secret, WP_EMPTY_SCHEMA, SupportsResponse.ONLY),
@@ -3607,6 +3647,9 @@ SERVICE_LEVELS: dict[str, str] = {
     SERVICE_WP_TEST: "admin",
     SERVICE_WP_PRODUCT: "admin",
     SERVICE_WP_PRODUCT_UPDATE: "admin",
+    SERVICE_WP_ORDERS: "admin",
+    SERVICE_WP_ORDER: "admin",
+    SERVICE_WP_ORDER_UPDATE: "admin",
     SERVICE_WP_NEW_SECRET: "admin",
     SERVICE_WP_REDEEM: "operator",
     SERVICE_PARTNER_POINTS_ADJUST: "manager",

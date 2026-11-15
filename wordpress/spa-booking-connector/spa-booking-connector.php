@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: Spa Booking Connector
- * Description: Collega il sito a Spa Booking: voucher venduti con «Buoni PDF» (riscattati in spa), iscritti alla newsletter, clienti dello shop, codici sconto della newsletter e modifica dei prodotti dello shop.
- * Version: 1.3.0
+ * Description: Collega il sito a Spa Booking: voucher venduti con «Buoni PDF» (riscattati in spa), iscritti alla newsletter, clienti dello shop, codici sconto della newsletter, modifica dei prodotti e ordini dello shop.
+ * Version: 1.4.0
  * Author: Spa Booking
  * Requires PHP: 7.4
  * Text Domain: spa-booking-connector
@@ -13,7 +13,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Spa_Booking_Connector {
-	const VERSION   = '1.3.0';
+	const VERSION   = '1.4.0';
 	const OPTION    = 'spa_booking_connector';
 	const NAMESPACE = 'spa-booking/v1';
 
@@ -83,6 +83,12 @@ final class Spa_Booking_Connector {
 			array( 'methods' => 'GET', 'callback' => array( __CLASS__, 'product' ), 'permission_callback' => $auth ),
 			array( 'methods' => 'POST', 'callback' => array( __CLASS__, 'product_update' ), 'permission_callback' => $auth ),
 		) );
+		// 1.4.0: the shop's orders.
+		register_rest_route( self::NAMESPACE, '/orders', array( 'methods' => 'GET', 'callback' => array( __CLASS__, 'orders' ), 'permission_callback' => $auth ) );
+		register_rest_route( self::NAMESPACE, '/order', array(
+			array( 'methods' => 'GET', 'callback' => array( __CLASS__, 'order' ), 'permission_callback' => $auth ),
+			array( 'methods' => 'POST', 'callback' => array( __CLASS__, 'order_update' ), 'permission_callback' => $auth ),
+		) );
 		register_rest_route( self::NAMESPACE, '/vouchers', array( 'methods' => 'GET', 'callback' => array( __CLASS__, 'vouchers' ), 'permission_callback' => $auth ) );
 		register_rest_route( self::NAMESPACE, '/redeem', array( 'methods' => 'POST', 'callback' => array( __CLASS__, 'redeem' ), 'permission_callback' => $auth ) );
 		// 1.2.0: the people of the site and the newsletter discount codes.
@@ -115,7 +121,8 @@ final class Spa_Booking_Connector {
 	/** Every product and variation, to pair with the treatments. */
 	public static function products() {
 		$out = array();
-		$ids = wc_get_products( array( 'status' => array( 'publish', 'private' ), 'limit' => 500, 'return' => 'ids' ) );
+		// 1.4.0: drafts and products waiting for review too, to publish them from Spa Booking.
+		$ids = wc_get_products( array( 'status' => array( 'publish', 'private', 'draft', 'pending' ), 'limit' => 500, 'return' => 'ids' ) );
 		foreach ( $ids as $id ) {
 			$p = wc_get_product( $id );
 			if ( ! $p ) {
@@ -125,7 +132,7 @@ final class Spa_Booking_Connector {
 			$image = $p->get_image_id() ? wp_get_attachment_image_url( $p->get_image_id(), 'large' ) : '';
 			$base  = array( 'product_id' => $p->get_id(), 'parent_name' => $p->get_name(), 'voucher' => 'yes' === get_post_meta( $p->get_id(), self::meta( 'enable' ), true ), 'url' => get_permalink( $p->get_id() ), 'image' => $image ? $image : '',
 				// 1.3.0: the categories, to filter the list in Spa Booking.
-				'categories' => self::product_categories( $p->get_id() ), 'status' => $p->get_status() );
+				'categories' => self::product_categories( $p->get_id() ), 'status' => $p->get_status(), 'stock_status' => $p->get_stock_status() );
 			if ( $p->is_type( 'variable' ) ) {
 				foreach ( $p->get_children() as $vid ) {
 					$v = wc_get_product( $vid );
@@ -172,7 +179,7 @@ final class Spa_Booking_Connector {
 			foreach ( $p->get_children() as $vid ) {
 				$v = wc_get_product( $vid );
 				if ( $v ) {
-					$variations[] = array( 'id' => $vid, 'name' => wc_get_formatted_variation( $v, true, false, false ), 'regular_price' => $v->get_regular_price(), 'sale_price' => $v->get_sale_price() );
+					$variations[] = array( 'id' => $vid, 'name' => wc_get_formatted_variation( $v, true, false, false ), 'regular_price' => $v->get_regular_price(), 'sale_price' => $v->get_sale_price(), 'stock_status' => $v->get_stock_status() );
 				}
 			}
 		}
@@ -188,6 +195,9 @@ final class Spa_Booking_Connector {
 			'sale_price'        => $p->get_sale_price(),
 			'sku'               => $p->get_sku(),
 			'category_ids'      => array_map( 'intval', $p->get_category_ids() ),
+			'stock_status'      => $p->get_stock_status(),
+			'manage_stock'      => (bool) $p->get_manage_stock(),
+			'stock_quantity'    => $p->get_stock_quantity(),
 			'variations'        => $variations,
 			'url'               => get_permalink( $p->get_id() ),
 			'edit_url'          => admin_url( 'post.php?post=' . $p->get_id() . '&action=edit' ),
@@ -248,6 +258,35 @@ final class Spa_Booking_Connector {
 				return new WP_Error( 'invalid', 'Il prezzo in offerta deve essere più basso del prezzo normale', array( 'status' => 400 ) );
 			}
 		}
+		// 1.4.0: published, draft, waiting for review or private; in stock or sold out.
+		$status = $request->get_param( 'status' );
+		if ( null !== $status ) {
+			if ( ! in_array( $status, array( 'publish', 'draft', 'pending', 'private' ), true ) ) {
+				return new WP_Error( 'invalid', 'Stato non valido', array( 'status' => 400 ) );
+			}
+			$p->set_status( $status );
+		}
+		$stock = $request->get_param( 'stock_status' );
+		if ( null !== $stock ) {
+			if ( ! in_array( $stock, array( 'instock', 'outofstock', 'onbackorder' ), true ) ) {
+				return new WP_Error( 'invalid', 'Disponibilità non valida', array( 'status' => 400 ) );
+			}
+			if ( $p->is_type( 'variable' ) ) {
+				foreach ( $p->get_children() as $vid ) {
+					$v = wc_get_product( $vid );
+					if ( $v && ! $v->get_manage_stock() ) {
+						$v->set_stock_status( $stock );
+						$v->save();
+					}
+				}
+			} elseif ( ! $p->get_manage_stock() ) {
+				$p->set_stock_status( $stock );
+			}
+		}
+		$quantity = $request->get_param( 'stock_quantity' );
+		if ( null !== $quantity && $p->get_manage_stock() ) {
+			$p->set_stock_quantity( max( 0, (int) $quantity ) );
+		}
 		$cats = $request->get_param( 'category_ids' );
 		if ( is_array( $cats ) ) {
 			$cats = array_values( array_filter( array_map( 'absint', $cats ) ) );
@@ -272,12 +311,146 @@ final class Spa_Booking_Connector {
 				if ( null !== $sale ) {
 					$v->set_sale_price( $sale );
 				}
+				if ( isset( $row['stock_status'] ) && in_array( $row['stock_status'], array( 'instock', 'outofstock', 'onbackorder' ), true ) && ! $v->get_manage_stock() ) {
+					$v->set_stock_status( $row['stock_status'] );
+				}
 				$v->save();
 			}
 			WC_Product_Variable::sync( $p->get_id() );
 		}
 		wc_delete_product_transients( $p->get_id() );
 		return array_merge( array( 'ok' => true ), self::product_by_id( $p->get_id() ) );
+	}
+
+	/* ------------------------------------------------- orders (1.4.0) */
+
+	private static function order_row( $order ) {
+		$items = array();
+		foreach ( $order->get_items() as $item ) {
+			$items[] = $item->get_name() . ( $item->get_quantity() > 1 ? ' ×' . $item->get_quantity() : '' );
+		}
+		return array(
+			'id'       => $order->get_id(),
+			'number'   => $order->get_order_number(),
+			'status'   => $order->get_status(),
+			'date'     => $order->get_date_created() ? $order->get_date_created()->date( 'c' ) : '',
+			'paid'     => $order->get_date_paid() ? $order->get_date_paid()->date( 'c' ) : '',
+			'total'    => (float) $order->get_total(),
+			'refunded' => (float) $order->get_total_refunded(),
+			'currency' => $order->get_currency(),
+			'name'     => trim( $order->get_billing_first_name() . ' ' . $order->get_billing_last_name() ),
+			'email'    => $order->get_billing_email(),
+			'phone'    => $order->get_billing_phone(),
+			'payment'  => $order->get_payment_method_title(),
+			'items'    => $items,
+		);
+	}
+
+	/** The orders of the shop, newest first, a page at a time. */
+	public static function orders( WP_REST_Request $request ) {
+		$per    = max( 5, min( 100, absint( $request->get_param( 'per_page' ) ?: 30 ) ) );
+		$page   = max( 1, absint( $request->get_param( 'page' ) ?: 1 ) );
+		$status = sanitize_key( (string) $request->get_param( 'status' ) );
+		$search = trim( (string) $request->get_param( 'search' ) );
+		$args   = array( 'limit' => $per, 'paged' => $page, 'orderby' => 'date', 'order' => 'DESC', 'paginate' => true, 'type' => 'shop_order' );
+		$args['status'] = $status ? array( $status ) : array_keys( wc_get_order_statuses() );
+		$counts = array();
+		foreach ( array_keys( wc_get_order_statuses() ) as $key ) {
+			$counts[ substr( $key, 3 ) ] = (int) wc_orders_count( substr( $key, 3 ) );
+		}
+		$statuses = array_map( 'html_entity_decode', wc_get_order_statuses() );
+		if ( '' !== $search && ctype_digit( ltrim( $search, '#' ) ) ) {
+			// An order number: that order alone.
+			$one = wc_get_order( absint( ltrim( $search, '#' ) ) );
+			$rows = $one && 'shop_order' === $one->get_type() ? array( self::order_row( $one ) ) : array();
+			return array( 'orders' => $rows, 'total' => count( $rows ), 'pages' => 1, 'page' => 1, 'counts' => $counts, 'statuses' => $statuses );
+		}
+		if ( '' !== $search ) {
+			if ( is_email( $search ) ) {
+				$args['billing_email'] = $search;
+			} else {
+				$args['s'] = $search;
+			}
+		}
+		$result = wc_get_orders( $args );
+		return array(
+			'orders' => array_map( array( __CLASS__, 'order_row' ), $result->orders ),
+			'total'  => (int) $result->total,
+			'pages'  => (int) $result->max_num_pages,
+			'page'   => $page,
+			'counts' => $counts,
+			'statuses' => $statuses,
+		);
+	}
+
+	/** One order with everything to check it. */
+	public static function order( WP_REST_Request $request ) {
+		$order = wc_get_order( absint( $request->get_param( 'id' ) ) );
+		if ( ! $order || 'shop_order' !== $order->get_type() ) {
+			return new WP_Error( 'not_found', 'Ordine non trovato', array( 'status' => 404 ) );
+		}
+		$items = array();
+		foreach ( $order->get_items() as $item_id => $item ) {
+			$meta = array();
+			foreach ( $item->get_formatted_meta_data( '_', true ) as $m ) {
+				$meta[] = array( 'key' => wp_strip_all_tags( $m->display_key ), 'value' => wp_strip_all_tags( $m->display_value ) );
+			}
+			$items[] = array(
+				'name'       => $item->get_name(),
+				'quantity'   => (int) $item->get_quantity(),
+				'total'      => (float) $item->get_total() + (float) $item->get_total_tax(),
+				'product_id' => $item->get_product_id(),
+				'variation_id' => $item->get_variation_id(),
+				'codes'      => (string) $item->get_meta( self::meta( 'codes' ) ),
+				'meta'       => $meta,
+			);
+		}
+		$notes = array();
+		foreach ( wc_get_order_notes( array( 'order_id' => $order->get_id(), 'limit' => 30 ) ) as $note ) {
+			$notes[] = array( 'text' => wp_strip_all_tags( $note->content ), 'date' => $note->date_created ? $note->date_created->date( 'c' ) : '', 'customer' => (bool) $note->customer_note, 'by' => $note->added_by );
+		}
+		$coupons = array();
+		foreach ( $order->get_coupon_codes() as $code ) {
+			$coupons[] = $code;
+		}
+		$billing = $order->get_address( 'billing' );
+		return self::order_row( $order ) + array(
+			'items'          => $items,
+			'subtotal'       => (float) $order->get_subtotal(),
+			'discount'       => (float) $order->get_total_discount(),
+			'tax'            => (float) $order->get_total_tax(),
+			'shipping'       => (float) $order->get_shipping_total(),
+			'coupons'        => $coupons,
+			'billing'        => array_map( 'strval', $billing ),
+			'customer_note'  => $order->get_customer_note(),
+			'transaction_id' => $order->get_transaction_id(),
+			'notes'          => $notes,
+			'edit_url'       => $order->get_edit_order_url(),
+			'statuses'       => array_map( 'html_entity_decode', wc_get_order_statuses() ),
+		);
+	}
+
+	/** Change the state of an order or add a note to it, from Spa Booking. */
+	public static function order_update( WP_REST_Request $request ) {
+		$order = wc_get_order( absint( $request->get_param( 'id' ) ) );
+		if ( ! $order || 'shop_order' !== $order->get_type() ) {
+			return new WP_Error( 'not_found', 'Ordine non trovato', array( 'status' => 404 ) );
+		}
+		$by     = sanitize_text_field( (string) $request->get_param( 'by' ) );
+		$status = sanitize_key( (string) $request->get_param( 'status' ) );
+		if ( '' !== $status ) {
+			// Refunds move money: they stay in WordPress.
+			if ( ! in_array( $status, array( 'pending', 'processing', 'on-hold', 'completed', 'cancelled' ), true ) ) {
+				return new WP_Error( 'invalid', 'Stato non consentito da Spa Booking', array( 'status' => 400 ) );
+			}
+			$order->update_status( $status, 'Spa Booking' . ( $by ? ' (' . $by . ')' : '' ) . ': ' );
+		}
+		$note = trim( wp_strip_all_tags( (string) $request->get_param( 'note' ) ) );
+		if ( '' !== $note ) {
+			$order->add_order_note( $note . ( $by ? ' — ' . $by : '' ), (bool) $request->get_param( 'customer_note' ) );
+		}
+		$request->set_param( 'id', $order->get_id() );
+		return self::order( $request );
 	}
 
 	private static function product_by_id( $id ) {
