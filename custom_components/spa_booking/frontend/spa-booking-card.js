@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "3.3.0";
+const CARD_VERSION = "3.4.0";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -3475,6 +3475,52 @@ class SpaBookingCard extends HTMLElement {
           return `La categoria '${item.category.name}' non può sovrapporsi a '${peer.category.name}' nella stessa prenotazione.`;
         }
       }
+    }
+    // A rigid capacity (3.4.0): said as soon as the time is chosen.
+    const clash = this._capacityClash(planned, skipIds);
+    return clash;
+  }
+
+  /** The first rigid capacity rule the planned entries break, or "". */
+  _capacityClash(planned, skipIds) {
+    const pad = (n) => String(n).padStart(2, "0");
+    const hm = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    const earlier = [];
+    for (const item of planned) {
+      const category = item.category;
+      const cap = Number(category.capacity_max) || 0;
+      const entries = Number(category.entry_max) || 0;
+      if ((!cap && !entries) || category.capacity_force) { earlier.push(item); continue; }
+      const clock = hm(item.start);
+      if ((category.capacity_from && clock < category.capacity_from) || (category.capacity_to && clock >= category.capacity_to)) { earlier.push(item); continue; }
+      const spans = [];
+      for (const appointment of this._data.appointments || []) {
+        if (skipIds.has(appointment.id)) continue;
+        if (appointment.status !== "confirmed" && appointment.status !== "pending") continue;
+        const t = this._lookup.treatment.get(appointment.treatment_id);
+        if (!t || t.category_id !== category.id) continue;
+        spans.push([parseDate(appointment.start), parseDate(appointment.end)]);
+      }
+      earlier.filter((p) => p.category.id === category.id).forEach((p) => spans.push([p.start, p.end]));
+      if (cap) {
+        const moments = [item.start, ...spans.map(([s]) => s).filter((s) => s > item.start && s < item.end)];
+        for (const moment of moments) {
+          const here = spans.filter(([s, e]) => s <= moment && moment < e).length;
+          if (here + 1 > cap) return `La categoria '${category.name}' è al completo alle ${hm(moment)}, massimo ${cap} persone insieme`;
+        }
+      }
+      if (entries) {
+        const span = (Number(category.entry_minutes) || 15) * 60000;
+        const starts = [...spans.map(([s]) => s), item.start].sort((a, b) => a - b);
+        for (const first of starts) {
+          if (!(first > item.start - span && first <= item.start)) continue;
+          const count = starts.filter((s) => s >= first && s < first.getTime() + span).length;
+          if (count > entries) {
+            return `La categoria '${category.name}' ha già ${entries} ingressi in ${span / 60000} minuti dalle ${hm(first)}, il prossimo ingresso è alle ${hm(new Date(first.getTime() + span))}`;
+          }
+        }
+      }
+      earlier.push(item);
     }
     return "";
   }
@@ -9347,12 +9393,18 @@ class SpaBookingCard extends HTMLElement {
    * categories that must not overlap): the desk can book anyway.
    */
   _isCategoryRule(text) {
-    return /^La categoria '.*' (accetta|non può sovrapporsi)/.test(String(text || ""));
+    return /^La categoria '.*' (accetta|non può sovrapporsi|è al completo|ha già \d+ ingressi)/.test(String(text || ""));
   }
 
   /** Mutually exclusive categories: never forceable (2.9.1). */
   _isExclusionRule(text) {
-    return /^La categoria '.*' non può sovrapporsi/.test(String(text || ""));
+    const value = String(text || "");
+    if (/^La categoria '.*' non può sovrapporsi/.test(value)) return true;
+    // A capacity rule (3.4.0) is rigid unless its category may be forced.
+    const match = value.match(/^La categoria '(.*)' (è al completo|ha già \d+ ingressi)/);
+    if (!match) return false;
+    const category = (this._data.categories || []).find((c) => c.name === match[1]);
+    return !(category && category.capacity_force);
   }
 
   /** The overlap question, over a backdrop like the other popups. */
@@ -9381,8 +9433,9 @@ class SpaBookingCard extends HTMLElement {
         // The server names the appointment in the way after a colon: the
         // popup only says which categories clash (3.0.0).
         el("div", { class: "detail-text overlap-text" }, String(draft.message || "").replace(/:\s[\s\S]*$/, ".")),
-        el("div", { class: "hint" },
-          "Queste categorie non possono mai accavallarsi, quindi l'appuntamento non può essere salvato in questa fascia. Cambia orario, giorno o trattamento."),
+        el("div", { class: "hint" }, /non può sovrapporsi/.test(String(draft.message || ""))
+          ? "Queste categorie non possono mai accavallarsi, quindi l'appuntamento non può essere salvato in questa fascia. Cambia orario, giorno o trattamento."
+          : "La capienza della categoria è al massimo in questa fascia (Configurazione › Categorie › Capienza), quindi l'appuntamento non può essere salvato. Cambia orario, giorno o trattamento."),
         el("div", { class: "row" }, el("div", { class: "spacer" }),
           el("button", { class: "btn primary", on: { click: close } }, "Cambia orario")));
       return el("div", { class: "detail-backdrop", on: { click: (event) => { if (event.target === event.currentTarget) close(); } } }, sheet);
@@ -9393,7 +9446,9 @@ class SpaBookingCard extends HTMLElement {
     const sheet = el("div", { class: `detail-sheet overlap-sheet${rules ? " rules" : ""}` },
       el("div", { class: "overlap-icon" },
         el("ha-icon", { icon: rules ? "mdi:calendar-clock" : "mdi:alert-octagon-outline" })),
-      el("h3", { class: "overlap-title" }, rules ? "Fuori dalle regole della categoria" : "Sovrapposizione cliente"),
+      el("h3", { class: "overlap-title" }, rules
+        ? (/è al completo|ingressi/.test(String(draft.message || "")) ? "Capienza al massimo" : "Fuori dalle regole della categoria")
+        : "Sovrapposizione cliente"),
       el("div", { class: "detail-text overlap-text" }, draft.message || ""),
       el("div", { class: "hint" },
         rules
@@ -18699,6 +18754,31 @@ class SpaBookingCard extends HTMLElement {
   }
 
   /** One-line calendar/overlap summary of a category, for its list row. */
+  /** Configurazione › Categorie › Capienza (3.4.0). */
+  _categoryCapacityBox(draft) {
+    const num = (key, attrs = {}) => el("input", {
+      class: "input narrow", type: "number", min: "0", step: "1", value: draft[key] || "", placeholder: "—", ...attrs,
+      on: { input: (event) => { draft[key] = Math.max(0, parseInt(event.target.value, 10) || 0); } },
+    });
+    const time = (key) => el("input", { class: "input", type: "time", value: draft[key] || "",
+      on: { change: (event) => { draft[key] = event.target.value || ""; } } });
+    return el("div", { class: "cfg-box cap-box" },
+      el("div", { class: "who-title" }, el("ha-icon", { icon: "mdi:account-group-outline" }), "Capienza"),
+      el("div", { class: "cap-line" }, el("span", {}, "Massimo"), num("capacity_max"), el("span", {}, "persone insieme nello stesso orario")),
+      el("div", { class: "cap-line" }, el("span", {}, "Ingressi: massimo"), num("entry_max"), el("span", {}, "persone ogni"),
+        el("select", { class: "input narrow", on: { change: (event) => { draft.entry_minutes = Number(event.target.value) || 15; } } },
+          [5, 10, 15, 20, 30, 45, 60].map((m) => el("option", { value: String(m), selected: Number(draft.entry_minutes || 15) === m }, String(m)))),
+        el("span", {}, "minuti")),
+      el("div", { class: "cap-line" }, el("span", {}, "Vale per gli inizi dalle"), time("capacity_from"), el("span", {}, "alle"), time("capacity_to")),
+      el("label", { class: "check" }, el("input", { type: "checkbox", checked: !!draft.capacity_force,
+        on: { change: (event) => { draft.capacity_force = event.target.checked; } } }),
+      el("span", {}, "La reception può forzare («Prenota comunque»), es. per un gruppo che entra insieme")),
+      el("div", { class: "hint" },
+        "Ogni persona conta uno, per tutti i trattamenti della categoria. Vuoto = nessun limite; fascia vuota = tutto il giorno. " +
+        "Esempio Spa: massimo 16 insieme, ingressi 6 ogni 15 minuti (16:00 sei persone, 16:15 altre sei, 16:30 le ultime quattro). " +
+        "Senza la spunta il limite è rigido: l'orario pieno non si può prenotare. Il modulo del sito non mostra mai gli orari pieni."));
+  }
+
   _categorySummary(category) {
     const parts = [];
     const label = (days) => days.map((day) => GIORNI[day]).join(" · ");
@@ -18716,6 +18796,8 @@ class SpaBookingCard extends HTMLElement {
       .filter(([start, end]) => start || end)
       .map(([start, end]) => `${start || "--:--"}-${end || "--:--"}`);
     if (windows.length) parts.push(`fasce ${windows.join(" / ")}`);
+    if (category.capacity_max) parts.push(`max ${category.capacity_max} insieme`);
+    if (category.entry_max) parts.push(`ingressi ${category.entry_max} ogni ${category.entry_minutes || 15}′`);
     const names = (category.exclusive_with || [])
       .map((id) => this._lookup.category.get(id))
       .filter(Boolean)
@@ -18841,6 +18923,7 @@ class SpaBookingCard extends HTMLElement {
         );
         wrap.appendChild(el("div", { class: "hint" }, "L'esclusione vale in entrambe le direzioni: nessuna sovrapposizione di orario tra le due categorie."));
       }
+      wrap.appendChild(this._categoryCapacityBox(draft));
       add(wrap, this._saveRow("add_category", "update_category", "category_id", "categoria"));
       return wrap;
     }
@@ -18851,7 +18934,8 @@ class SpaBookingCard extends HTMLElement {
         class: "btn primary",
         on: {
           click: () => {
-            this._editing = { kind: "category", id: null, draft: { name: "", requires_operator: false, color: "", pause_min: 10, days: [], morning_days: [], afternoon_days: [], morning_start: "", morning_end: "", afternoon_start: "", afternoon_end: "", exclusive_with: [] } };
+            this._editing = { kind: "category", id: null, draft: { name: "", requires_operator: false, color: "", pause_min: 10, days: [], morning_days: [], afternoon_days: [], morning_start: "", morning_end: "", afternoon_start: "", afternoon_end: "", exclusive_with: [],
+              capacity_max: 0, entry_max: 0, entry_minutes: 15, capacity_from: "", capacity_to: "", capacity_force: false } };
             this._render();
           },
         },
@@ -18897,6 +18981,12 @@ class SpaBookingCard extends HTMLElement {
                     afternoon_start: category.afternoon_start || "",
                     afternoon_end: category.afternoon_end || "",
                     exclusive_with: [...(category.exclusive_with || [])],
+                    capacity_max: category.capacity_max || 0,
+                    entry_max: category.entry_max || 0,
+                    entry_minutes: category.entry_minutes || 15,
+                    capacity_from: category.capacity_from || "",
+                    capacity_to: category.capacity_to || "",
+                    capacity_force: !!category.capacity_force,
                   },
                 };
                 this._render();
@@ -23747,6 +23837,10 @@ class SpaBookingCard extends HTMLElement {
       .pm-chip.sc-web { background: rgba(53,87,176,.13); color: #3557b0; }
       .pm-chip.sc-code { background: rgba(10,132,168,.13); color: #0a7fa6; }
       .pm-chip.sc-old { text-decoration: line-through; opacity: .7; }
+      .cap-box { margin-top: 8px; }
+      .cap-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 6px 0; }
+      .cap-line .input.narrow { width: 84px; }
+      .cap-line .input[type=time] { width: 120px; }
       .pm-chip.sc-no { background: rgba(192,58,58,.1); color: #b03535; }
       .sc-actions { flex: none; }
       .sc-opt { display: flex; align-items: center; gap: 10px; }

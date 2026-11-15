@@ -1435,6 +1435,72 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         f"{self._summary(self.appointment_payload(appointment))}"
                     )
 
+    def _category_capacity(
+        self,
+        treatment: dict[str, Any],
+        start_dt: datetime,
+        end_dt: datetime,
+        planned: list[dict[str, Any]] | None,
+        allow_force: bool = True,
+    ) -> None:
+        """How many people a category holds at once, and its entries (3.4.0).
+
+        ``capacity_max``: at no moment of the new appointment may the
+        category hold more people than this. ``entry_max`` every
+        ``entry_minutes``: within any such span no more people may start.
+        Each appointment is one person. With ``capacity_force`` the desk may
+        book over the rules (a group entering together); otherwise they are
+        as rigid as the exclusive categories.
+        """
+        category = self._category(treatment.get("category_id"))
+        if not category:
+            return
+        cap = int(category.get("capacity_max") or 0)
+        entries = int(category.get("entry_max") or 0)
+        if not cap and not entries:
+            return
+        forceable = bool(category.get("capacity_force"))
+        if forceable and allow_force and FORCE_RULES.get():
+            return
+        local_start = dt_util.as_local(start_dt)
+        clock = f"{local_start:%H:%M}"
+        lo, hi = category.get("capacity_from") or "", category.get("capacity_to") or ""
+        if (lo and clock < lo) or (hi and clock >= hi):
+            return
+        in_category = {t["id"] for t in self.treatments if t.get("category_id") == category["id"]}
+        spans: list[tuple[datetime, datetime]] = []
+        for appointment in list(self.appointments) + list(planned or []):
+            if appointment.get("treatment_id") not in in_category or not occupies_slot(appointment):
+                continue
+            other_start = dt_util.parse_datetime(str(appointment.get("start") or ""))
+            other_end = dt_util.parse_datetime(str(appointment.get("end") or ""))
+            if other_start and other_end:
+                spans.append((other_start, other_end))
+        error = CategoryRuleError if forceable and allow_force else ValidationError
+        name = category["name"]
+        if cap:
+            # The peak during the new appointment: people are counted at
+            # every moment one of them (or the new one) starts.
+            moments = [start_dt] + [s for s, _e in spans if start_dt < s < end_dt]
+            for moment in moments:
+                here = sum(1 for s, e in spans if s <= moment < e)
+                if here + 1 > cap:
+                    when = f"{dt_util.as_local(moment):%H:%M}"
+                    raise error(f"La categoria '{name}' è al completo alle {when}, massimo {cap} persone insieme")
+        if entries:
+            span = timedelta(minutes=int(category.get("entry_minutes") or 15))
+            starts = sorted([s for s, _e in spans] + [start_dt])
+            for first in starts:
+                if not (start_dt - span < first <= start_dt):
+                    continue
+                count = sum(1 for s in starts if first <= s < first + span)
+                if count > entries:
+                    following = f"{dt_util.as_local(first + span):%H:%M}"
+                    minutes = int(span.total_seconds() // 60)
+                    raise error(
+                        f"La categoria '{name}' ha già {entries} ingressi in {minutes} minuti "
+                        f"dalle {dt_util.as_local(first):%H:%M}, il prossimo ingresso è alle {following}")
+
     @staticmethod
     def _closure_days(closure: dict[str, Any]) -> list[str]:
         """Every calendar day a closure covers, as "YYYY-MM-DD".
@@ -1909,6 +1975,10 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         # Categories declared mutually exclusive must never run at the same time.
         self._category_exclusion(treatment, start_dt, end_dt, planned)
+        # How many people at once and how many entries (3.4.0); an edit that
+        # keeps its slot is not checked again (a forced group stays as it is).
+        if forward_pause:
+            self._category_capacity(treatment, start_dt, end_dt, planned)
 
         # A booking can be taken and left waiting. Handing over money is a
         # confirmation in itself, so a booking with any money on it is never
@@ -5647,6 +5717,8 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._category(treatment.get("category_id")), start, end
             )
             self._category_exclusion(treatment, start, end, planned)
+            # The website never books over the capacity, forceable or not.
+            self._category_capacity(treatment, start, end, planned, allow_force=False)
         except ValidationError:
             return False
         return True
@@ -8069,6 +8141,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         afternoon_start: str = "",
         afternoon_end: str = "",
         exclusive_with: list[str] | None = None,
+        capacity: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Create a category."""
         if not name.strip():
@@ -8087,6 +8160,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "afternoon_start": afternoon_start,
                 "afternoon_end": afternoon_end,
                 "exclusive_with": excluded,
+                **(capacity or {}),
             }
             if pause_min is not None:
                 payload["pause_min"] = pause_min
@@ -8121,6 +8195,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         afternoon_start: str | None = None,
         afternoon_end: str | None = None,
         exclusive_with: list[str] | None = None,
+        capacity: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Update a category."""
         async with self._lock:
@@ -8166,6 +8241,10 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 category["exclusive_with"] = _norm_category(
                     {**category, "exclusive_with": excluded}
                 )["exclusive_with"]
+            if capacity:
+                clean = _norm_category({**category, **capacity})
+                for key in capacity:
+                    category[key] = clean[key]
             await self._async_save()
         return category
 

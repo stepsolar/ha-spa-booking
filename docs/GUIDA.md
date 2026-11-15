@@ -1,6 +1,6 @@
 <p align="center"><img src="anteprime/logo.png" width="120" alt="Spa Booking"></p>
 
-# Spa Booking 3.3 — la guida completa
+# Spa Booking 3.4 — la guida completa
 
 Questa guida spiega **tutto quello che fa Spa Booking**, scheda per scheda:
 dalla prenotazione al banco al modulo del sito, dai messaggi WhatsApp ai
@@ -550,6 +550,30 @@ accetta prenotazioni, e **Non sovrapporre con**: le categorie con cui non
 deve mai condividere l'orario (vale nei due sensi e non si può forzare).
 
 ![Categorie](anteprime/v3/v3-14-categorie.png)
+
+**Capienza** (3.4), in fondo alla scheda della categoria:
+
+- **Massimo N persone insieme nello stesso orario**: conta tutti i
+  trattamenti della categoria, una persona per appuntamento, in ogni
+  momento dell'appuntamento (es. Massaggi: 3; se alle 17 ci sono già tre
+  massaggi, il quarto non entra finché uno non finisce).
+- **Ingressi: massimo N persone ogni 5, 10, 15… minuti**: in qualsiasi
+  intervallo di quella durata possono iniziare al massimo N persone (es.
+  Spa: 6 ogni 15 minuti, quindi 16:00 sei persone, 16:15 altre sei, 16:30
+  le ultime quattro fino a 16 insieme).
+- **Vale per gli inizi dalle … alle …**: facoltativo; vuoto = tutto il giorno.
+- **La reception può forzare**: senza la spunta il limite è rigido e
+  l'orario pieno mostra subito il popup «Fascia oraria già occupata»; con la
+  spunta il popup «Capienza al massimo» offre **Prenota comunque**, per far
+  entrare un gruppo intero alla stessa ora (anche più di 16 persone).
+
+Il modulo del sito non mostra mai gli orari pieni. Spostare o modificare
+un appuntamento senza cambiare orario non rifà il controllo.
+
+| | |
+|---|---|
+| ![Capienza della categoria](anteprime/97-capienza-categoria.png) | ![Le regole nelle categorie](anteprime/98-capienza-categorie.png) |
+| ![Orario pieno](anteprime/99-capienza-piena.png) | ![Prenota comunque](anteprime/100-capienza-forza.png) |
 
 ### Trattamenti
 

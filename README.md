@@ -111,6 +111,16 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v3.4.0** — (serve il riavvio di Home Assistant)
+  - Configurazione › Categorie › **Capienza**: per ogni categoria
+    «Massimo N persone insieme nello stesso orario» (contando tutti i suoi
+    trattamenti) e **ingressi scaglionati** «massimo N persone ogni 5, 10,
+    15… minuti», con una fascia oraria facoltativa in cui valgono.
+  - Senza la spunta «La reception può forzare» il limite è rigido (es.
+    Massaggi: 3 insieme): l'orario pieno mostra subito il popup e non si
+    salva. Con la spunta (es. Spa: 16 insieme, 6 ingressi ogni 15 minuti) la
+    reception può fare entrare un gruppo intero con **Prenota comunque**.
+  - Il modulo del sito non offre mai gli orari pieni.
 - **v3.3.0** — (serve il riavvio di Home Assistant e il plugin WordPress
   **1.2.0**: `wordpress/spa-booking-connector.zip`)
   - Clienti › **Sito**: le persone del sito in un'unica lista (iscritti
