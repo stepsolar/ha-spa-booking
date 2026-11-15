@@ -68,6 +68,12 @@ def test_orders_status_and_vouchers(coordinator, monkeypatch) -> None:
     got = run(coordinator.async_wp_order(10208))
     assert got["items"][0]["vouchers"] == [{"code": "ABC123", "status": "active", "voucher_id": "v1"},
                                            {"code": "XYZ999", "status": "", "voucher_id": ""}]
+    # Plugin 1.4.0 sent the items as plain names (3.7.1).
+    async def old_order(session, base, secret, order_id):
+        return {"id": order_id, "status": "processing", "items": ["Massaggio Relax ×2"]}
+
+    monkeypatch.setattr(wp_shop, "order", old_order)
+    assert run(coordinator.async_wp_order(10208))["items"][0]["name"] == "Massaggio Relax ×2"
     with pytest.raises(ValidationError, match="rimborsi"):
         run(coordinator.async_wp_order_update(10208, status="refunded"))
     with pytest.raises(ValidationError, match="Niente"):

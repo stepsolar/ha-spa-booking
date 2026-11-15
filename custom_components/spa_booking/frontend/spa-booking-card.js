@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "3.7.0";
+const CARD_VERSION = "3.7.1";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -14286,7 +14286,7 @@ class SpaBookingCard extends HTMLElement {
       line("Azienda", [b.company, b.vat || ""].filter(Boolean).join(" · ")),
       o.customer_note ? line("Nota del cliente", o.customer_note) : null));
     sheet.appendChild(section("Articoli", ...(o.items || []).map((item) => el("div", { class: "wpo-item" },
-      el("div", { class: "row" }, el("b", { class: "grow" }, `${item.quantity > 1 ? item.quantity + " × " : ""}${item.name}`), el("b", {}, money(item.total))),
+      el("div", { class: "row" }, el("b", { class: "grow" }, `${item.quantity > 1 ? item.quantity + " × " : ""}${item.name}`), el("b", {}, item.total == null ? "" : money(item.total))),
       ...(item.meta || []).filter((m) => m.value && !/^_/.test(m.key)).slice(0, 8).map((m) => el("div", { class: "dim small" }, `${m.key}: ${m.value}`)),
       (item.vouchers || []).length ? el("div", { class: "shop-prod-cats" }, item.vouchers.map((v) => el("span", {
         class: `pm-chip ${v.status === "redeemed" ? "" : v.status ? "ok" : "warn"}`, title: v.status ? "In Spa Booking" : "Non ancora in Spa Booking: arriva con la prossima sincronizzazione" },

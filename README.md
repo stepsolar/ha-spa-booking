@@ -111,6 +111,12 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v3.7.1** — (serve il riavvio di Home Assistant e il plugin WordPress
+  **1.4.1**)
+  - Shop online › Ordini: aprire un ordine dava l'errore «'str' object has
+    no attribute 'get'». Il plugin 1.4.0 mandava gli articoli solo come
+    nomi; ora (1.4.1) li manda completi, e Spa Booking mostra l'ordine
+    anche con il plugin vecchio.
 - **v3.7.0** — (serve il riavvio di Home Assistant e il plugin WordPress
   **1.4.0**: `wordpress/spa-booking-connector.zip`)
   - Prodotti dello shop: **stato** (Pubblicato, Bozza, In revisione,
