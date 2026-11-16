@@ -392,6 +392,48 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._chat_stamp = dt_util.now().isoformat()
         self.async_update_listeners()
 
+    #: How long a reply typed on the phone may repeat one the desk just sent
+    #: and still be the same message (a WAHA server echoes its own sends).
+    PHONE_ECHO_SECONDS = 120
+
+    async def async_record_phone_reply(self, chat_id: str, payload: dict[str, Any]) -> None:
+        """A message written on the hotel's phone (3.11.0): in the chat, as sent.
+
+        It reads «Dal telefono» in the card; whoever answered from the phone
+        has read the chat, so it stops counting as unread.
+        """
+        text = str(payload.get("body") or "").strip()
+        has_media = bool(payload.get("hasMedia"))
+        if not chat_id or (not text and not has_media):
+            return
+        now = dt_util.now()
+        recent = self._chats.get(self._chat_key(chat_id), [])[-5:]
+        for message in recent:
+            if message.get("dir") != "out" or str(message.get("text") or "").strip() != text or not text:
+                continue
+            at = dt_util.parse_datetime(str(message.get("at") or ""))
+            if at is not None and (now - at).total_seconds() <= self.PHONE_ECHO_SECONDS:
+                return  # the desk's own message, already in the chat
+        entry: dict[str, Any] = {"dir": "out", "text": text, "at": now.isoformat(), "by": "Dal telefono", "phone": True}
+        if has_media:
+            media = payload.get("media") if isinstance(payload.get("media"), dict) else {}
+            stored: dict[str, Any] = {"mimetype": str(media.get("mimetype") or ""), "filename": str(media.get("filename") or ""),
+                                      "missing": True}
+            client = self.waha
+            if media and client is not None and hasattr(client, "async_fetch_media") and not media.get("error"):
+                try:
+                    fetched = await client.async_fetch_media(media)
+                except Exception:  # noqa: BLE001 - the message is noted even without its file
+                    fetched = None
+                if fetched:
+                    data, mimetype = fetched
+                    stored = await self._async_keep_media(data, mimetype.split(";")[0] or stored["mimetype"], stored["filename"])
+            entry["media"] = stored
+        self._chat_add(chat_id, entry)
+        self._reads[self._chat_key(chat_id)] = entry["at"]
+        self._chat_stamp = entry["at"]
+        self.async_update_listeners()
+
     def record_incoming_whatsapp(self, chat_id: str, text: str, operator_id: str = "") -> None:
         """Note a WhatsApp received (2.8.4), operators' answers included."""
         if not chat_id or not text:

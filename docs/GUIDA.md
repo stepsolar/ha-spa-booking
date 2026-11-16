@@ -1,6 +1,6 @@
 <p align="center"><img src="anteprime/logo.png" width="120" alt="Spa Booking"></p>
 
-# Spa Booking 3.10 — la guida completa
+# Spa Booking 3.11 — la guida completa
 
 Questa guida spiega **tutto quello che fa Spa Booking**, scheda per scheda:
 dalla prenotazione al banco al modulo del sito, dai messaggi WhatsApp ai
@@ -530,6 +530,13 @@ Quando un cliente scrive, accanto al suo nome in agenda (timeline, schede ed
 elenco) compare un **pallino verde** finché qualcuno non apre la sua chat.
 Il riquadro della chat ha il bordo verde WhatsApp e il pulsante d'invio è
 tondo e verde (3.10).
+
+**Risposte dal telefono** (3.11): quello che scrivi dal cellulare (o da
+WhatsApp Web) sul numero della SPA compare anche nella chat di Spa Booking,
+con la scritta *Dal telefono*, foto comprese; e la chat risulta letta. Con
+WhatsApp integrato funziona da sé; con un server WAHA va aggiunto l'evento
+`message.any` al webhook della sessione in WAHA. I messaggi scritti prima dell'aggiornamento
+non vengono recuperati.
 
 ![Chat nella scheda](anteprime/117-chat-verde.png)
 

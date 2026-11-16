@@ -111,6 +111,16 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v3.11.0** — (serve il riavvio di Home Assistant)
+  - **Risposte dal telefono**: i messaggi scritti dal cellulare (o da
+    WhatsApp Web) sul numero della SPA compaiono anche nelle chat di Spa
+    Booking, con «Dal telefono», foto e file compresi; la chat risulta letta.
+    Prima venivano scartati, perché il programma li riconosceva come
+    «inviati da noi».
+  - WhatsApp integrato: il programma (`bin/spa-wa-bridge-linux-amd64`) è
+    ricompilato e riporta a chi è andato un messaggio partito dal telefono.
+  - Con un server WAHA: aggiungere l'evento `message.any` al webhook della
+    sessione (se ne usano solo i messaggi partiti dal telefono).
 - **v3.10.1** — (serve il riavvio di Home Assistant)
   - Shop online e Partner si aprono molto più in fretta. Erano lente perché
     disegnavano migliaia di elementi (le icone costano tempo a Home

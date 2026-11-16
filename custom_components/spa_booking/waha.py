@@ -287,7 +287,7 @@ class WahaClient:
         # nothing unrelated ever reaches this integration.
         desired = {
             "url": url,
-            "events": ["message", "message.reaction"],
+            "events": ["message", "message.reaction", "message.any"],
             "hmac": {"key": hmac_key},
             "retries": {"policy": "constant", "delaySeconds": 1, "attempts": 3},
         }

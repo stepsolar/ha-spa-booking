@@ -44,7 +44,10 @@ _LOGGER = logging.getLogger(__name__)
 MAX_BODY_BYTES = 256 * 1024
 
 #: The two events this integration understands. Everything else is ignored.
-SUPPORTED_EVENTS = ("message", "message.reaction")
+#: «message.any» (3.11.0) only for what the hotel's phone sent: WAHA's
+#: «message» leaves those out, and every received message is already in
+#: «message».
+SUPPORTED_EVENTS = ("message", "message.reaction", "message.any")
 
 #: Only these reactions answer an offer. A heart on a message is a thank you,
 #: not a confirmation, and must not move a booking.
@@ -166,8 +169,13 @@ class WahaInbound:
         if not isinstance(payload, dict):
             return
         # A message the SPA number itself sent (a confirmation we just gave
-        # an operator) must never come back as her answer.
+        # an operator) must never come back as her answer. One typed on the
+        # hotel's phone is still noted in the chat, as a reply (3.11.0).
         if payload.get("fromMe") is not False:
+            if payload.get("fromMe") is True and event in ("message", "message.any"):
+                await self._async_handle_own(data, payload)
+            return
+        if event == "message.any":
             return
         chat_id = payload.get("from")
         if not isinstance(chat_id, str) or not _DIRECT_CHAT.fullmatch(chat_id):
@@ -180,6 +188,18 @@ class WahaInbound:
             self._handle_text(payload, chat_id)
         else:
             self._handle_reaction(payload, chat_id)
+
+    async def _async_handle_own(self, data: dict[str, Any], payload: dict[str, Any]) -> None:
+        """A message written on the hotel's phone: shown in the chat as sent."""
+        chat_id = payload.get("to")
+        if not isinstance(chat_id, str) or not _DIRECT_CHAT.fullmatch(chat_id):
+            return
+        chat_id = await self._async_resolve_sender(chat_id)
+        if not self._claim_event(data, payload):
+            return
+        record = getattr(self._coordinator, "async_record_phone_reply", None)
+        if record is not None:
+            await record(chat_id, payload)
 
     async def _async_resolve_sender(self, chat_id: str) -> str:
         """Map a LID sender to her phone chat id through the WAHA server.

@@ -267,6 +267,25 @@ func (b *bridge) senderOf(info types.MessageInfo) types.JID {
 	return sender
 }
 
+// partnerOf is the other person of a direct chat, as a phone number when one
+// is known: for a message sent from the phone (fromMe) the sender is the
+// hotel itself, so the chat — or, for a LID chat, the recipient's phone
+// number — is who it went to (3.11.0).
+func (b *bridge) partnerOf(info types.MessageInfo) types.JID {
+	chat := info.Chat
+	if chat.Server == types.HiddenUserServer {
+		if !info.RecipientAlt.IsEmpty() && info.RecipientAlt.Server == types.DefaultUserServer {
+			return info.RecipientAlt
+		}
+		if b.client.Store.LIDs != nil {
+			if pn, err := b.client.Store.LIDs.GetPNForLID(context.Background(), chat.ToNonAD()); err == nil && !pn.IsEmpty() {
+				return pn
+			}
+		}
+	}
+	return chat
+}
+
 func (b *bridge) handleMessage(e *events.Message) {
 	info := e.Info
 	if info.IsGroup || info.Chat.Server == types.BroadcastServer || info.Chat.Server == types.NewsletterServer {
@@ -322,7 +341,13 @@ func (b *bridge) handleMessage(e *events.Message) {
 		"notifyName": info.PushName,
 		"timestamp":  info.Timestamp.Unix(),
 	}
-	if hasMedia && !info.IsFromMe {
+	if info.IsFromMe {
+		// Sent from the hotel's phone (or WhatsApp Web): who it went to, so
+		// the desk sees the reply in the chat (3.11.0). Messages this bridge
+		// sends itself never come back as events.
+		payload["to"] = chatID(b.partnerOf(info))
+	}
+	if hasMedia {
 		if media := b.keepMedia(info.ID, msg); media != nil {
 			payload["media"] = media
 		}
