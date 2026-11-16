@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "3.9.0";
+const CARD_VERSION = "3.10.0";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -1324,6 +1324,7 @@ class SpaBookingCard extends HTMLElement {
         if (this._gatePopup) { this._gatePopup = null; this._render(); }
         else if (this._confirmPopup) { this._confirmPopup = null; this._render(); }
         else if (this._mediaView) { this._mediaView = null; this._render(); }
+        else if (this._noticePanel) { this._noticePanel = false; this._render(); }
         else if (this._wpProduct) { this._wpProduct = null; this._render(); }
         else if (this._wpOrder) { this._wpOrder = null; this._render(); }
         else if (this._partnerSend) { this._partnerSend = null; this._render(); }
@@ -1364,7 +1365,7 @@ class SpaBookingCard extends HTMLElement {
     const root = this.shadowRoot;
     if (!root) return;
     // A new WhatsApp message: the open chats and the agenda dots follow (3.5.0).
-    if (this._data && (this._tab === "whatsapp" || this._chatVisible || this._tab === "agenda")) {
+    if (this._data && (this._tab === "whatsapp" || this._chatVisible || this._tab === "agenda" || this._chatAllowed())) {
       try { this._refreshWaChats(); } catch (error) { /* next tick */ }
     }
     const time = root.querySelector(".clock-time");
@@ -3724,6 +3725,7 @@ class SpaBookingCard extends HTMLElement {
     if (this._gatePopup) add(root, this._renderGatePopup());
     if (this._confirmPopup) add(root, this._renderConfirmPopup());
     if (this._mediaView) add(root, this._renderMediaView());
+    if (this._noticePanel) add(root, this._renderNoticePanel());
     if (this._wpProduct) add(root, this._renderWpProduct());
     if (this._wpOrder) add(root, this._renderWpOrder());
     if (this._partnerMenu) add(root, this._renderPartnerMenu());
@@ -3995,19 +3997,19 @@ class SpaBookingCard extends HTMLElement {
           if (query !== null) { this._searchQuery = query.trim(); this._render(); }
         } },
       }, el("ha-icon", { icon: "mdi:magnify" })));
-    // Bell: the requests that arrived from the website and nobody has opened
-    // yet. Hidden for the accounts that cannot reach the request list at all.
-    if (this._visibleNuovoTabs().some((tab) => tab.id === "lista")) {
-      const unread = this._webUnreadCount();
+    // Bell (3.10.0): every new notice in one list — the website's requests
+    // nobody opened yet and the WhatsApp chats with unread messages. Hidden
+    // for the accounts that can see neither.
+    if (this._noticesAllowed()) {
+      const notices = this._notices();
+      this._noticeCountShown = notices.length;
       const bell = el("button", {
-        class: "icon-btn notify-btn",
-        title: unread
-          ? `${unread} richieste dal sito non ancora viste`
-          : "Richieste dal sito",
-        on: { click: () => this._openWebRequests() },
-      }, el("ha-icon", { icon: "mdi:bell-outline" }));
-      if (unread) {
-        bell.appendChild(el("span", { class: "notify-badge" }, String(unread)));
+        class: `icon-btn notify-btn${notices.length ? " has" : ""}`,
+        title: notices.length ? `${notices.length} nuovi avvisi` : "Avvisi",
+        on: { click: () => { this._noticePanel = !this._noticePanel; this._refreshWaChats(true); this._render(); } },
+      }, el("ha-icon", { icon: notices.length ? "mdi:bell-ring-outline" : "mdi:bell-outline" }));
+      if (notices.length) {
+        bell.appendChild(el("span", { class: "notify-badge" }, notices.length > 99 ? "99+" : String(notices.length)));
       }
       head.appendChild(bell);
     }
@@ -11239,6 +11241,8 @@ class SpaBookingCard extends HTMLElement {
       this._waChats = (response && response.chats) || [];
       this._waChatsLoading = false;
       if (this._tab === "whatsapp" || this._chatVisible || (this._tab === "agenda" && !this._editing)) this._renderKeepingChatFocus();
+      // The bell follows the new messages wherever the desk is (3.10.0).
+      else if (!this._editing && (this._noticePanel || this._noticeCountShown !== this._notices().length)) this._renderKeepingChatFocus();
     }).catch(() => {
       // An older integration: the sensor's last 20 messages, as before.
       const messages = (sensorState && sensorState.attributes && sensorState.attributes.messages) || [];
@@ -11818,6 +11822,110 @@ class SpaBookingCard extends HTMLElement {
     }).catch(() => {
       this._message = { kind: "error", text: "Salvataggio fallito." };
     });
+  }
+
+  // --------------------------------------------- notices, the bell (3.10.0)
+
+  _noticesAllowed() {
+    return this._visibleNuovoTabs().some((tab) => tab.id === "lista") || this._chatAllowed();
+  }
+
+  /** Who a WhatsApp chat is: an operator, a client, a group or the number. */
+  _chatName(chatId, items) {
+    const operator = this._operatorByChat(chatId, items);
+    if (operator) return operator.name || "Operatrice";
+    const client = this._clientByChat(chatId);
+    if (client) return this._clientName({ client_id: client.id });
+    return String(chatId).endsWith("@g.us") ? "Gruppo WhatsApp" : this._chatLabel(chatId);
+  }
+
+  /** Every new notice, the newest first. */
+  _notices() {
+    const out = [];
+    if (!this._data) return out;
+    if (this._visibleNuovoTabs().some((tab) => tab.id === "lista")) {
+      (this._data.requests || []).filter((req) => req.source === "web" && !req.seen).forEach((req) => {
+        const client = this._lookup.client.get(req.client_id);
+        const who = client ? [client.first_name, client.last_name].filter(Boolean).join(" ") : "";
+        const what = (req.entries || []).map((e) => (this._lookup.treatment.get(e.treatment_id) || {}).name).filter(Boolean);
+        out.push({
+          key: `req:${req.id}`, kind: "request", icon: "mdi:web", at: req.created_at || "",
+          title: who ? `Richiesta dal sito · ${who}` : "Nuova richiesta dal sito",
+          text: [what.slice(0, 2).join(", ") + (what.length > 2 ? ` +${what.length - 2}` : ""), req.date ? this._dateIt(req.date) : ""].filter(Boolean).join(" · "),
+          open: () => this._openWebRequests(),
+        });
+      });
+    }
+    if (this._chatAllowed()) {
+      (this._waChats || []).forEach((chat) => {
+        if (!this._chatUnread(chat.chat_id)) return;
+        const key = this._chatKeyOf(chat.chat_id);
+        const read = String((this._chatReadLocal || {})[key] || chat.read_at || "");
+        const fresh = (chat.messages || []).filter((m) => m.dir === "in" && String(m.at || "") > read);
+        const last = fresh[fresh.length - 1] || {};
+        const media = last.media ? ((last.media.mimetype || "").startsWith("image/") ? "📷 Foto" : "📎 Allegato") : "";
+        out.push({
+          key: `wa:${key}`, kind: "whatsapp", icon: "mdi:whatsapp", at: last.at || chat.last_at || "",
+          title: this._chatName(chat.chat_id, chat.messages),
+          text: [media, last.text || ""].filter(Boolean).join(" ") || "Nuovo messaggio",
+          count: fresh.length,
+          chatId: chat.chat_id,
+          open: () => this._openWaChat(chat.chat_id),
+        });
+      });
+    }
+    return out.sort((a, b) => String(b.at).localeCompare(String(a.at)));
+  }
+
+  _noticeAgo(value) {
+    const date = value ? parseDate(value) : null;
+    if (!date || Number.isNaN(date.getTime())) return "";
+    const minutes = Math.round((Date.now() - date.getTime()) / 60000);
+    if (minutes < 1) return "ora";
+    if (minutes < 60) return `${minutes} min fa`;
+    if (ymd(date) === todayStr()) return timeOf(date);
+    return `${pad(date.getDate())}/${pad(date.getMonth() + 1)} ${timeOf(date)}`;
+  }
+
+  async _noticesAllRead(notices) {
+    notices.filter((n) => n.kind === "whatsapp").forEach((n) => this._markChatRead(n.chatId));
+    if (notices.some((n) => n.kind === "request")) {
+      try { await this._service("mark_requests_seen", {}); await this._loadData(); } catch (error) { /* retried next time */ }
+    }
+    this._render();
+  }
+
+  _renderNoticePanel() {
+    const close = () => { this._noticePanel = false; this._render(); };
+    const notices = this._notices();
+    const filter = this._noticeFilter || "tutti";
+    const shown = notices.filter((n) => filter === "tutti" || n.kind === filter);
+    const counts = { tutti: notices.length, request: notices.filter((n) => n.kind === "request").length, whatsapp: notices.filter((n) => n.kind === "whatsapp").length };
+    const chip = (id, label) => el("button", { class: `nt-tab${filter === id ? " on" : ""}`, on: { click: () => { this._noticeFilter = id; this._render(); } } },
+      el("span", {}, label), counts[id] ? el("span", { class: "notice-n" }, String(counts[id])) : null);
+    const sheet = el("div", { class: "detail-sheet notice-sheet", role: "dialog", "aria-label": "Avvisi" },
+      el("div", { class: "notice-head" },
+        el("ha-icon", { icon: "mdi:bell-outline" }),
+        el("b", { class: "grow" }, "Avvisi"),
+        notices.length ? el("button", { class: "btn small", on: { click: () => this._noticesAllRead(notices) } },
+          el("ha-icon", { icon: "mdi:check-all" }), "Segna tutto come letto") : null,
+        el("button", { class: "icon-btn", title: "Chiudi", on: { click: close } }, el("ha-icon", { icon: "mdi:close" }))),
+      el("div", { class: "nt-tabs notice-tabs" },
+        chip("tutti", "Tutti"),
+        this._visibleNuovoTabs().some((tab) => tab.id === "lista") ? chip("request", "Richieste dal sito") : null,
+        this._chatAllowed() ? chip("whatsapp", "WhatsApp") : null),
+      shown.length
+        ? el("div", { class: "notice-list" }, shown.map((n) => el("button", {
+          class: `notice-row ${n.kind}`,
+          on: { click: () => { this._noticePanel = false; n.open(); } },
+        },
+          el("span", { class: "notice-ic" }, el("ha-icon", { icon: n.icon })),
+          el("span", { class: "notice-body" },
+            el("span", { class: "notice-title" }, el("b", {}, n.title), el("small", {}, this._noticeAgo(n.at))),
+            el("span", { class: "notice-text" }, n.text)),
+          n.count > 1 ? el("span", { class: "notice-n" }, String(n.count)) : null)))
+        : el("div", { class: "empty" }, filter === "tutti" ? "Nessun nuovo avviso." : "Niente di nuovo qui."));
+    return el("div", { class: "detail-backdrop notice-backdrop", on: { click: (event) => { if (event.target === event.currentTarget) close(); } } }, sheet);
   }
 
   /** How many requests arrived from the website and nobody has opened yet. */
@@ -23370,7 +23478,38 @@ class SpaBookingCard extends HTMLElement {
       .bubble-time { align-self: flex-end; font-size: 10px; color: var(--secondary-text-color); }
       .wa-compose { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--sb-line); }
       .wa-compose .input { flex: 1 1 auto; border-radius: 999px; }
-      .wa-send { border-radius: 50%; width: 40px; height: 40px; padding: 0; justify-content: center; }
+      /* The send button: a round WhatsApp-green button (3.10.0). */
+      .wa-compose { align-items: center; }
+      .wa-send, .btn.primary.wa-send {
+        flex: 0 0 40px; width: 40px; min-width: 40px; max-width: 40px; height: 40px; min-height: 40px;
+        padding: 0; border-radius: 50%; aspect-ratio: 1; justify-content: center; align-self: center;
+        background: #25d366; border-color: #25d366; color: #fff; box-shadow: none;
+      }
+      .wa-send:hover:not([disabled]) { background: #1ebe5b; border-color: #1ebe5b; }
+      .wa-send[disabled] { opacity: .6; }
+      .wa-send ha-icon { --mdc-icon-size: 20px; margin: 0; }
+      .chat-attach { flex: none; }
+      /* Bell and notices (3.10.0). */
+      .notify-btn.has ha-icon { color: var(--primary-color); }
+      .notice-backdrop { align-items: flex-start; justify-content: flex-end; }
+      .notice-sheet { width: min(440px, calc(100vw - 24px)); max-height: calc(100vh - 90px); margin: 64px 12px 12px auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+      .notice-head { display: flex; align-items: center; gap: 8px; }
+      .notice-head b { font-size: 16px; }
+      .notice-tabs { flex-wrap: wrap; }
+      .notice-list { display: flex; flex-direction: column; overflow-y: auto; margin: 0 -6px; }
+      .notice-row { all: unset; box-sizing: border-box; display: flex; gap: 10px; align-items: center; padding: 10px 8px; border-radius: 10px; cursor: pointer; }
+      .notice-row:hover, .notice-row:focus-visible { background: var(--sb-soft, rgba(0,0,0,.04)); }
+      .notice-row + .notice-row { border-top: 1px solid var(--sb-line, rgba(0,0,0,.06)); }
+      .notice-ic { flex: none; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: var(--sb-soft, rgba(0,0,0,.05)); color: var(--primary-color); }
+      .notice-row.whatsapp .notice-ic { background: rgba(37,211,102,.14); color: #1da851; }
+      .notice-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+      .notice-title { display: flex; gap: 8px; align-items: baseline; }
+      .notice-title b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+      .notice-title small { color: var(--secondary-text-color); font-size: 11px; white-space: nowrap; }
+      .notice-text { color: var(--secondary-text-color); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .notice-n { min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; background: #25d366; color: #fff; font-size: 11px; font-weight: 600; display: inline-grid; place-items: center; }
+      .nt-tab .notice-n { background: var(--primary-color); margin-left: 4px; }
+      @media (max-width: 600px) { .notice-sheet { margin: 56px 8px 8px; width: auto; } }
       /* Products of the online shop (3.6.0). */
       .shop-prod-open { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
       .shop-prod-open:hover b { text-decoration: underline; }
@@ -23406,7 +23545,8 @@ class SpaBookingCard extends HTMLElement {
       .wpp-var-on { white-space: nowrap; }
       .wpp-var.off .wpp-var-name b { color: var(--secondary-text-color); text-decoration: line-through; text-decoration-thickness: 1px; }
       /* Chats in the cards, photos and files (3.5.0). */
-      .chat-panel { border: 1px solid var(--sb-line); border-radius: 12px; overflow: hidden; }
+      .chat-panel { border: 1.5px solid #25d366; border-radius: 12px; overflow: hidden; }
+      .chat-panel .wa-compose { border-top-color: rgba(37,211,102,.35); }
       .chat-bubbles { max-height: 320px; }
       .chat-sides { margin-bottom: 8px; }
       .chat-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #25d366; margin-left: 6px; vertical-align: middle; box-shadow: 0 0 0 2px rgba(37,211,102,.25); }
