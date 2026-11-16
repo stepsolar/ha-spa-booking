@@ -38,6 +38,8 @@ from .const import (
     VOUCHER_ACTIVE,
     VOUCHER_REDEEMED,
     APPEARANCE_MODES,
+    SUBMENU_STYLES,
+    SUBMENU_TABS,
     CARD_JS_VERSION,
     CLOSURE_SCOPES,
     DEFAULT_APPEARANCE,
@@ -826,6 +828,14 @@ def _norm_settings(raw: dict[str, Any]) -> dict[str, Any]:
             in APPEARANCE_MODES
             else DEFAULT_APPEARANCE
         ),
+        # How each tab's sub-menu looks on a phone (3.12.0): "vertical" (the
+        # strip of icons on the left, as before), "pills" (a row that scrolls)
+        # or "bar" (all the items, the full width). Unknown values are dropped.
+        "submenu_styles": {
+            tab: style
+            for tab, style in (raw.get("submenu_styles") if isinstance(raw.get("submenu_styles"), dict) else {}).items()
+            if tab in SUBMENU_TABS and style in SUBMENU_STYLES
+        },
         # Version of the served booking card: bump it to force every browser to
         # refetch the JS file (see async_reload_card).
         "card_js_version": str(

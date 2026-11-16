@@ -25,6 +25,8 @@ from homeassistant.helpers import config_validation as cv
 from .const import (
     APPEARANCE_MODES,
     CLOSURE_SCOPES,
+    SUBMENU_STYLES,
+    SUBMENU_TABS,
     ATTR_APPOINTMENT_ID,
     ATTR_APPOINTMENT_IDS,
     ATTR_CATEGORY_ID,
@@ -821,6 +823,7 @@ UPDATE_SETTINGS_SCHEMA = vol.Schema(
         vol.Optional("offer_timeout_hours"): vol.Any(cv.positive_int, None),
         vol.Optional("offer_reminder_hours"): vol.Any(int, None),
         vol.Optional("appearance"): vol.Any(vol.In(APPEARANCE_MODES), None),
+        vol.Optional("submenu_styles"): vol.Any({vol.In(SUBMENU_TABS): vol.In(SUBMENU_STYLES)}, None),
         # Titolo in testata della card, scritto dalla reception in Impostazioni.
         vol.Optional("card_title"): vol.Any(cv.string, None),
         vol.Optional("whatsapp_tab"): cv.boolean,

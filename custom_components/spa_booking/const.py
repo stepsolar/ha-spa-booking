@@ -27,6 +27,9 @@ DEFAULT_CATEGORY_PAUSE_MIN: Final = 10
 #: Stored in the settings, therefore shared by every device of the spa.
 APPEARANCE_MODES: Final = ("auto", "light", "dark")
 DEFAULT_APPEARANCE: Final = "auto"
+#: The tabs whose sub-menu can change look on a phone, and the looks (3.12.0).
+SUBMENU_TABS: Final = ("nuovo", "spa", "config")
+SUBMENU_STYLES: Final = ("vertical", "pills", "bar")
 
 STORAGE_KEY: Final = "spa_booking.json"
 STORAGE_VERSION: Final = 1

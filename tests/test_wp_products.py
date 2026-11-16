@@ -93,3 +93,12 @@ def test_variation_enabled_is_kept() -> None:
     off, on = settings["wp_products"]
     assert off["enabled"] is False and off["variation_stock_status"] == "outofstock"
     assert on["enabled"] is True and on["variation_stock_status"] == ""
+
+
+def test_submenu_styles() -> None:
+    """3.12.0: the look of each tab's sub-menu on a phone; unknown values dropped."""
+    from custom_components.spa_booking.normalize import _norm_settings
+
+    styles = _norm_settings({"submenu_styles": {"nuovo": "bar", "spa": "pills", "config": "wavy", "agenda": "bar"}})["submenu_styles"]
+    assert styles == {"nuovo": "bar", "spa": "pills"}
+    assert _norm_settings({})["submenu_styles"] == {}
