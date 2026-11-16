@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "3.10.0";
+const CARD_VERSION = "3.10.1";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -12647,8 +12647,11 @@ class SpaBookingCard extends HTMLElement {
       return wrap;
     }
     const list = el("div", { class: "stack tight client-list cfg-box" });
-    // Hundreds of partners: draw them a page at a time (2.7.3).
-    const limit = this._partnerLimit || 100;
+    // Hundreds of partners: draw them a page at a time (2.7.3); 40 at first
+    // and only the buttons of the screen size in use (3.10.1) — each icon
+    // costs Home Assistant time, and a long list made the tab slow to open.
+    const limit = this._partnerLimit || 40;
+    const narrow = typeof window !== "undefined" && window.matchMedia ? window.matchMedia("(max-width: 700px)").matches : false;
     shown.slice(0, limit).forEach((partner, index) => {
       const name = [partner.first_name, partner.last_name].filter(Boolean).join(" ");
       const canMail = partner.subscribed !== false && !!partner.email && this._can("manage_clients");
@@ -12676,10 +12679,10 @@ class SpaBookingCard extends HTMLElement {
               partner.campaigns_sent ? el("span", { class: "pm-chip pr-wide" }, `${partner.campaigns_sent} email`) : null);
           })()),
         // On a phone (3.2.0): only «Invia email» and a menu with the rest.
-        el("div", { class: "pr-narrow" }, mailButton("pr-mail"),
+        narrow ? el("div", { class: "pr-narrow" }, mailButton("pr-mail"),
           el("button", { class: "btn small", title: "Altre azioni", on: { click: (event) => { event.stopPropagation(); this._partnerMenu = partner.id; this._render(); } } },
-            el("ha-icon", { icon: "mdi:dots-vertical" }))),
-        el("div", { class: "appt-actions pr-wide" }, mailButton("pr-mail"),
+            el("ha-icon", { icon: "mdi:dots-vertical" }))) : null,
+        narrow ? null : el("div", { class: "appt-actions pr-wide" }, mailButton("pr-mail"),
           this._partnerLink(partner) ? el("button", { class: "btn small", title: `Copia il link: ${this._partnerLink(partner)}`, on: { click: async () => {
             try { await navigator.clipboard.writeText(this._partnerLink(partner)); this._message = { kind: "ok", text: `Link di ${this._partnerName(partner.id)} copiato.` }; }
             catch (error) { this._message = { kind: "ok", text: this._partnerLink(partner) }; }
@@ -12704,7 +12707,8 @@ class SpaBookingCard extends HTMLElement {
     wrap.appendChild(list);
     if (shown.length > limit) {
       wrap.appendChild(el("div", { class: "row" }, el("span", { class: "dim small" }, `${limit} di ${shown.length} mostrati`),
-        el("button", { class: "btn small", on: { click: () => { this._partnerLimit = limit + 200; this._render(); } } }, "Mostra altri")));
+        el("button", { class: "btn small", on: { click: () => { this._partnerLimit = limit + 100; this._render(); } } }, `Mostra altri ${Math.min(100, shown.length - limit)}`),
+        shown.length - limit > 100 ? el("button", { class: "btn small ghost", on: { click: () => { this._partnerLimit = shown.length; this._render(); } } }, "Mostra tutti") : null));
     }
     return wrap;
   }
@@ -18129,6 +18133,13 @@ class SpaBookingCard extends HTMLElement {
         const chosenExtras = new Set(entry.extras || []);
         const any = chosen.size || chosenExtras.size;
         const giftMode = entry.gift_card_mode || "";
+        const open = this._shopOpenKey === product.key;
+        const summary = [
+          chosen.size ? treatments.filter((t) => chosen.has(t.id)).map((t) => t.name).join(", ") : "",
+          chosenExtras.size ? `+ ${accessories.filter((x) => chosenExtras.has(x.id)).map((x) => x.label).join(", ")}` : "",
+          giftMode === "paid" ? "gift card: prezzo pagato" : giftMode === "fixed" ? `gift card: ${euro(entry.gift_card_amount || 0)}` : "",
+          entry.note || "",
+        ].filter(Boolean).join(" · ") || "Non abbinato: il voucher arriva senza trattamenti.";
         step2.push(el("div", { class: `shop-prod${any || entry.note ? " on" : ""}` },
           el("div", { class: "shop-prod-head" },
             el("div", { class: "shop-prod-name" },
@@ -18143,10 +18154,15 @@ class SpaBookingCard extends HTMLElement {
                 this._wpStockPill(product.variation_stock_status || product.stock_status)),
               (product.categories || []).length ? el("span", { class: "shop-prod-cats" },
                 product.categories.map((c) => el("span", { class: "pm-chip" }, c.name))) : null),
-            el("div", { class: "shop-people" }, el("span", { class: "dim small" }, "Persone"),
+            open ? el("div", { class: "shop-people" }, el("span", { class: "dim small" }, "Persone"),
               el("button", { class: "icon-btn", disabled: (entry.people || 1) <= 1 || !any, on: { click: () => set({ people: (entry.people || 1) - 1 }) } }, el("ha-icon", { icon: "mdi:minus" })),
               el("b", {}, String(entry.people || 1)),
-              el("button", { class: "icon-btn", disabled: (entry.people || 1) >= 10 || !any, on: { click: () => set({ people: (entry.people || 1) + 1 }) } }, el("ha-icon", { icon: "mdi:plus" })))),
+              el("button", { class: "icon-btn", disabled: (entry.people || 1) >= 10 || !any, on: { click: () => set({ people: (entry.people || 1) + 1 }) } }, el("ha-icon", { icon: "mdi:plus" })))
+              : any && (entry.people || 1) > 1 ? el("span", { class: "pm-chip" }, `${entry.people} persone`) : null),
+          // Collapsed (3.10.1): what the product includes in one line; the
+          // treatment and accessory chips — dozens per product — only for the
+          // product being matched, one at a time. The tab opens much faster.
+          ...(open ? [
           el("div", { class: "shop-label" }, "Trattamenti"),
           el("div", { class: "shop-chips" }, treatments.map((t) => el("button", {
             type: "button", class: `shop-chip${chosen.has(t.id) ? " on" : ""}`,
@@ -18169,7 +18185,13 @@ class SpaBookingCard extends HTMLElement {
                 on: { input: (event) => set({ gift_card_amount: event.target.value === "" ? null : Number(event.target.value) }, false) } })) : null,
             giftMode === "paid" ? el("span", { class: "dim small" }, "Il credito è quanto il cliente ha pagato sul sito (utile per le gift card a importo libero).") : null),
           el("input", { class: "input shop-note", value: entry.note || "", placeholder: "Altro incluso nel pacchetto (es. calice di prosecco, frutta) — facoltativo",
-            on: { input: (event) => set({ note: event.target.value }, false), change: () => this._render() } })));
+            on: { input: (event) => set({ note: event.target.value }, false), change: () => this._render() } }),
+          el("div", { class: "row" }, el("span", { class: "spacer" }),
+            el("button", { class: "btn small", on: { click: () => { this._shopOpenKey = null; this._render(); } } }, el("ha-icon", { icon: "mdi:check" }), "Fatto"))]
+            : [el("div", { class: "shop-sum" },
+              el("span", { class: `grow ${any || entry.note || giftMode ? "" : "dim"}` }, summary),
+              el("button", { class: "btn small", on: { click: () => { this._shopOpenKey = product.key; this._render(); } } },
+                el("ha-icon", { icon: any ? "mdi:pencil-outline" : "mdi:link-variant-plus" }), any ? "Modifica" : "Abbina"))])));
       });
       if (!shown.length) step2.push(el("div", { class: "empty" }, "Nessun prodotto con questo filtro."));
     }
@@ -24264,6 +24286,8 @@ class SpaBookingCard extends HTMLElement {
       .shop-prod { border: 1px solid var(--sb-line); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 10px; background: var(--sb-card, #fff); }
       .shop-prod.on { border-color: color-mix(in srgb, var(--primary-color) 45%, var(--sb-line)); }
       .shop-prod-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+      .shop-sum { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+      .shop-sum .grow { min-width: 0; }
       .shop-prod-name { display: flex; flex-direction: column; flex: 1 1 260px; min-width: 0; }
       .shop-people { display: inline-flex; align-items: center; gap: 6px; }
       .shop-people .icon-btn { width: 30px; height: 30px; border: 1px solid var(--sb-line); border-radius: 8px; }

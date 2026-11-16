@@ -21,6 +21,14 @@ card._data = {
 let page = card._renderShop();
 assert(page.textContent.includes("0 di 2 prodotti abbinati"), "nothing paired yet");
 assert(page.textContent.includes("abc") && page.textContent.includes("/api/spa_booking/wp/notify"), "key and notify address for the admin");
+// 3.10.1: products start collapsed — a summary and «Abbina»; the chips only
+// for the product being matched.
+assert(page.textContent.includes("Non abbinato") && page.textContent.includes("Abbina"), "collapsed rows");
+assert(!all(page).some((n) => n.attrs && n.attrs.class && String(n.attrs.class).startsWith("shop-chip")), "no chips while collapsed");
+const abbina = all(page).find((n) => n.tagName === "BUTTON" && n.textContent === "Abbina");
+abbina.listeners.click[0]();
+assert(card._shopOpenKey === "4097:5118", "«Abbina» opens that product");
+page = card._renderShop();
 // Pair the package with two treatments and two people.
 const chip = (name) => all(page).find((n) => n.attrs && n.attrs.class && n.attrs.class.startsWith("shop-chip") && n.textContent === name);
 chip("Ingresso Spa 90").listeners.click[0]();
@@ -29,6 +37,10 @@ chip("Massaggio schiena").listeners.click[0]();
 assert(JSON.stringify(card._shopDraft.wp_product_map["4097:5118"].treatment_ids) === '["t1","t2"]', "more treatments for one product");
 page = card._renderShop();
 assert(page.textContent.includes("1 di 2 prodotti abbinati"), "count updated");
+card._shopOpenKey = null;
+page = card._renderShop();
+assert(page.textContent.includes("Ingresso Spa 90, Massaggio schiena") && page.textContent.includes("Modifica"), "the summary of a matched product");
+card._shopOpenKey = "4097:5118";
 // The voucher from the site shows its badge and value.
 const row = card._voucherRow(card._data.vouchers[0], true);
 assert(row.textContent.includes("Sito") && row.textContent.includes("da abbinare"), "site badge and unpaired product");
