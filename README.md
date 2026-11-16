@@ -111,6 +111,16 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v3.10.1** — (serve il riavvio di Home Assistant)
+  - Shop online e Partner si aprono molto più in fretta. Erano lente perché
+    disegnavano migliaia di elementi (le icone costano tempo a Home
+    Assistant): nello shop ogni prodotto mostrava i pulsanti di tutti i
+    trattamenti, nei partner ogni riga aveva i pulsanti sia per il telefono
+    sia per il computer, 100 righe alla volta.
+  - Shop: ogni prodotto è una riga con il riassunto di cosa include e
+    **Abbina / Modifica**; si apre un prodotto alla volta.
+  - Partner: 40 alla volta (*Mostra altri 100*, *Mostra tutti*) e solo i
+    pulsanti dello schermo in uso.
 - **v3.10.0** — (serve il riavvio di Home Assistant)
   - **Avvisi**: la campanella in alto conta e apre l'elenco di tutti i nuovi
     avvisi — richieste dal sito non aperte e chat WhatsApp con messaggi non

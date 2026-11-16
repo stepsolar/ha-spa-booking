@@ -399,7 +399,9 @@ persona.
 In Clienti › **Partner** ci sono le strutture e le persone che portano
 ospiti (hotel, agenzie, B&B…). *Nuovo partner* o **Importa file** (CSV da
 Excel; *Modello* scarica un esempio; chi ha la stessa email non viene
-duplicato).
+duplicato). La lista mostra 40 partner alla volta (*Mostra altri 100*,
+*Mostra tutti*): con centinaia di partner la scheda si apre subito; la
+ricerca e i filtri cercano sempre in tutti.
 
 Toccando un partner si apre la sua **scheda**: link da copiare, punti con la
 barra verso il premio, **Genera voucher e invia** (crea una gift card del
@@ -790,8 +792,13 @@ Booking da soli.
    **Nuova chiave** e copia chiave e indirizzo di notifica in WordPress ›
    WooCommerce › Spa Booking.
 3. *Leggi i voucher dal sito*, **Salva**, **Prova collegamento**.
-4. **Abbina i prodotti**: per ogni prodotto i trattamenti, le persone, gli
-   accessori inclusi; per le gift card *Valore fisso* o *Prezzo pagato*.
+4. **Abbina i prodotti**: ogni prodotto mostra in una riga cosa include;
+   **Abbina** (o *Modifica*) apre quel prodotto: i trattamenti, le persone,
+   gli accessori inclusi; per le gift card *Valore fisso* o *Prezzo pagato*;
+   **Fatto** lo richiude. Un prodotto aperto alla volta tiene la pagina
+   veloce anche con molti prodotti e trattamenti (3.10.1).
+
+   ![Prodotti in righe compatte](anteprime/118-shop-compatto.png)
 
 Ogni 15 minuti (e subito a ogni ordine pagato) i nuovi codici diventano
 voucher «Sito»; all'**Entrata** del cliente il voucher risulta riscattato
