@@ -111,6 +111,13 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v3.10.0** — (serve il riavvio di Home Assistant)
+  - **Avvisi**: la campanella in alto conta e apre l'elenco di tutti i nuovi
+    avvisi — richieste dal sito non aperte e chat WhatsApp con messaggi non
+    letti — con filtro, «Segna tutto come letto» e apertura diretta della
+    richiesta o della chat.
+  - Chat nelle schede (prenotazione, cliente, operatrice): pulsante d'invio
+    tondo e verde WhatsApp, bordo verde del riquadro.
 - **v3.9.0** — (serve il riavvio di Home Assistant e il plugin WordPress
   **1.6.0**)
   - Shop online: per ogni variante si vede se è **attiva** o

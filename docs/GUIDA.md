@@ -1,6 +1,6 @@
 <p align="center"><img src="anteprime/logo.png" width="120" alt="Spa Booking"></p>
 
-# Spa Booking 3.9 — la guida completa
+# Spa Booking 3.10 — la guida completa
 
 Questa guida spiega **tutto quello che fa Spa Booking**, scheda per scheda:
 dalla prenotazione al banco al modulo del sito, dai messaggi WhatsApp ai
@@ -283,7 +283,8 @@ l'ospite riceve la conferma di ricezione su WhatsApp.
 **Lista richieste**: numeri in alto (da confermare, dal sito, confermate),
 poi una scheda per richiesta con ospite, provenienza, «Nuova», voucher,
 codice, persone e trattamenti, note. La campanella in alto conta le
-richieste dal sito non ancora aperte.
+richieste dal sito non ancora aperte (dalla 3.10, insieme ai messaggi
+WhatsApp: vedi *Avvisi*).
 
 - **Conferma** apre la richiesta in Nuovo appuntamento già compilata: cambi
   quello che serve, scegli chi fa i massaggi (la preferenza dell'ospite è già
@@ -525,6 +526,26 @@ continua senza cambiare pagina:
 
 Quando un cliente scrive, accanto al suo nome in agenda (timeline, schede ed
 elenco) compare un **pallino verde** finché qualcuno non apre la sua chat.
+Il riquadro della chat ha il bordo verde WhatsApp e il pulsante d'invio è
+tondo e verde (3.10).
+
+![Chat nella scheda](anteprime/117-chat-verde.png)
+
+**Avvisi, la campanella** (3.10): la campanella in alto conta tutti i nuovi
+avvisi e, toccata, apre l'elenco **Avvisi**, il più recente in cima:
+
+- le **richieste dal sito** non ancora aperte (chi, cosa, per che giorno);
+- le **chat WhatsApp** con messaggi non letti (ospiti, operatrici e gruppi),
+  con l'ultimo messaggio e quanti ne sono arrivati.
+
+Le linguette *Tutti · Richieste dal sito · WhatsApp* filtrano; toccando un
+avviso si apre la richiesta o la chat, e l'avviso sparisce. **Segna tutto
+come letto** svuota l'elenco. Chi non vede le richieste o la chat non ne
+riceve gli avvisi.
+
+| | |
+|---|---|
+| ![Avvisi](anteprime/115-avvisi.png) | ![Avvisi sul telefono](anteprime/116-avvisi-telefono.png) |
 
 **Foto e file**: con 📎 si allega un'immagine o qualsiasi file (PDF,
 listino, ricevuta… fino a 12 MB; le foto grandi vengono ridotte); il testo
