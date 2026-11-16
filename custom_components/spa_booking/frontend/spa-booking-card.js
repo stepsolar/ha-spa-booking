@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "3.11.0";
+const CARD_VERSION = "3.12.0";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -6695,7 +6695,7 @@ class SpaBookingCard extends HTMLElement {
     if (!allowed.some((tab) => tab.id === this._nuovoTab)) {
       this._nuovoTab = allowed.length ? allowed[0].id : "appuntamento";
     }
-    const wrap = el("div", { class: "stack nuovo" });
+    const wrap = el("div", { class: `stack nuovo${this._subStyle("nuovo")}` });
     if (allowed.length > 1) {
       const subTabs = el("div", { class: "tabs tight" });
       allowed.forEach((tab) => {
@@ -13766,8 +13766,6 @@ class SpaBookingCard extends HTMLElement {
             try {
               await this._call("update_settings", {
                 card_title: (draft.card_title || "").trim(),
-        billing_province: String(draft.billing_province || "").trim().toUpperCase(),
-        vat_default: Number(draft.vat_default),
               });
               this._appearanceDraft = null;
               this._message = { kind: "ok", text: "Titolo salvato." };
@@ -13779,6 +13777,12 @@ class SpaBookingCard extends HTMLElement {
       "Il titolo in testata della card, su tutti i dispositivi. Lascia vuoto " +
       "per tornare al titolo della configurazione della card."));
     return box;
+  }
+
+  /** The class of a tab's sub-menu look on a phone (3.12.0): "" = vertical. */
+  _subStyle(tab) {
+    const style = ((this._data && this._data.settings && this._data.settings.submenu_styles) || {})[tab];
+    return style === "pills" ? " sub-pills" : style === "bar" ? " sub-bar" : "";
   }
 
   /**
@@ -14159,6 +14163,7 @@ class SpaBookingCard extends HTMLElement {
         whatsapp_tab: settings.whatsapp_tab !== false,
         chat_in_cards: settings.chat_in_cards !== false,
         web_accent: settings.web_accent || "#0a84a8",
+        submenu_styles: { nuovo: "vertical", spa: "vertical", config: "vertical", ...(settings.submenu_styles || {}) },
       };
       this._setBase = JSON.stringify(this._setDraft);
       this._setNumbers = null;
@@ -14261,7 +14266,18 @@ class SpaBookingCard extends HTMLElement {
           el("input", { class: "input", type: "text", maxlength: "60", value: draft.card_title,
             placeholder: this._config.title || "Gestione SPA",
             on: { input: (event) => { draft.card_title = event.target.value; changed(); } } })),
-        el("div", { class: "dim small" }, "In testata, su tutti i dispositivi. Vuoto = il titolo della configurazione della card.")),
+        el("div", { class: "dim small" }, "In testata, su tutti i dispositivi. Vuoto = il titolo della configurazione della card."),
+        // Sub-menus on a phone (3.12.0): one look per tab.
+        el("div", { class: "field" }, el("span", {}, "Sottomenu sul telefono"),
+          el("div", { class: "submenu-pick" }, [["nuovo", "Nuovo appuntamento", "mdi:calendar-plus"],
+            ["spa", "Spa", "mdi:spa"], ["config", "Configurazione", "mdi:cog"]].map(([tab, label, icon]) => el("div", { class: "submenu-row" },
+            el("span", { class: "submenu-tab" }, el("ha-icon", { icon }), label),
+            el("div", { class: "pg-seg" }, [["vertical", "Verticale"], ["pills", "Pillole"], ["bar", "Barra"]].map(([id, name]) => el("button", {
+              type: "button", class: ((draft.submenu_styles || {})[tab] || "vertical") === id ? "on" : "",
+              title: { vertical: "Icone in colonna a sinistra", pills: "Riga scorrevole con icona e nome", bar: "Tutte le voci a tutta larghezza" }[id],
+              on: { click: () => { draft.submenu_styles = { ...(draft.submenu_styles || {}), [tab]: id }; changed(); this._render(); } },
+            }, name))))))),
+        el("div", { class: "dim small" }, "Come si vede il menu interno di ogni scheda sugli schermi stretti; sul computer resta in riga.")),
       // WhatsApp (3.5.0): the tab in the menu and the chat in the cards.
       el("div", { class: "cfg-box nt-panel" },
         el("div", { class: "pg-step-head" }, el("span", { class: "nt-icon" }, el("ha-icon", { icon: "mdi:whatsapp" })),
@@ -15658,7 +15674,7 @@ class SpaBookingCard extends HTMLElement {
    * bar turns into a vertical icon strip on the left (see the CSS below).
    */
   _renderSpa() {
-    const wrap = el("div", { class: "stack spa" });
+    const wrap = el("div", { class: `stack spa${this._subStyle("spa")}` });
 
     // A sub-tab an account may not see must not stay selected; fall back to
     // the first one it is allowed to see.
@@ -16962,7 +16978,7 @@ class SpaBookingCard extends HTMLElement {
   // ------------------------------------------------------------ CONFIGURAZIONE
 
   _renderConfig() {
-    const wrap = el("div", { class: "stack config cfg-shell" });
+    const wrap = el("div", { class: `stack config cfg-shell${this._subStyle("config")}` });
 
     // The configuration, the Accessi tab included, is for card administrators:
     // the level the Accessi tab itself hands out. A Home Assistant admin who is
@@ -22547,7 +22563,26 @@ class SpaBookingCard extends HTMLElement {
         .stack.config > .tabs .tab .tab-label, .stack.spa > .tabs .tab .tab-label, .stack.agenda > .tabs .tab .tab-label, .stack.nuovo > .tabs .tab .tab-label { display: none; }
         .stack.config > *:not(.tabs), .stack.spa > *:not(.tabs), .stack.agenda > *:not(.tabs), .stack.nuovo > *:not(.tabs) { flex: 1 1 auto; min-width: 0;
           display: flex; flex-direction: column; align-items: stretch; }
+        /* Sub-menu in a row instead (3.12.0, Configurazione › Aspetto). */
+        .stack.sub-pills, .stack.sub-bar { flex-direction: column; gap: 10px; }
+        .stack.sub-pills > .tabs, .stack.sub-bar > .tabs { flex-direction: row; flex-wrap: nowrap; min-width: 0; }
+        .stack.sub-pills > .tabs { overflow-x: auto; gap: 6px; padding: 0 0 4px; scrollbar-width: none; scroll-snap-type: x proximity; }
+        .stack.sub-pills > .tabs::-webkit-scrollbar { display: none; }
+        .stack.sub-pills > .tabs .tab { flex: 0 0 auto; width: auto; flex-direction: row; gap: 6px; padding: 8px 14px;
+          border-radius: 999px; white-space: nowrap; scroll-snap-align: start; }
+        .stack.sub-pills > .tabs .tab .tab-label { display: inline; }
+        .stack.sub-bar > .tabs { align-self: stretch; width: 100%; box-sizing: border-box; gap: 2px; padding: 4px;
+          border-radius: 14px; background: var(--sb-soft, rgba(0,0,0,.05)); }
+        .stack.sub-bar > .tabs .tab { flex: 1 1 0; min-width: 0; width: auto; flex-direction: column; gap: 2px; padding: 7px 2px;
+          border: 0; border-radius: 10px; background: transparent; }
+        .stack.sub-bar > .tabs .tab.active { background: var(--card-background-color, #fff); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+        .stack.sub-bar > .tabs .tab .tab-label { display: block; font-size: 10.5px; line-height: 1.2; max-width: 100%;
+          overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       }
+      .submenu-pick { display: flex; flex-direction: column; gap: 8px; }
+      .submenu-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: space-between; }
+      .submenu-tab { display: inline-flex; align-items: center; gap: 8px; font-weight: 500; min-width: 170px; }
+      .submenu-tab ha-icon { --mdc-icon-size: 18px; color: var(--secondary-text-color); }
       h3 { margin: 6px 0 0; font-size: 12px; font-weight: 600; letter-spacing: .06em;
            text-transform: uppercase; color: var(--secondary-text-color); }
       .dim { color: var(--secondary-text-color); }
