@@ -734,7 +734,19 @@ inattività del tablet.
 ### Impostazioni
 
 - **Generale**: aspetto (Segui Home Assistant, Chiaro, Scuro), titolo della
-  card, versione.
+  card, **sottomenu sul telefono**, chat WhatsApp, versione.
+
+  **Sottomenu sul telefono** (3.12): per *Nuovo appuntamento*, *Spa* e
+  *Configurazione* si sceglie come appare il menu interno sugli schermi
+  stretti: **Verticale** (le icone in colonna a sinistra, come prima),
+  **Pillole** (una riga in alto con icona e nome, che si scorre col dito) o
+  **Barra** (tutte le voci in alto, larghe uguali, il nome sotto l'icona).
+  Vale per tutti i dispositivi; si salva con *Salva* in basso. Sul computer
+  il menu resta come sempre.
+
+  ![Sottomenu sul telefono in Impostazioni](anteprime/119-sottomenu-impostazioni.png)
+
+  ![Verticale, Pillole e Barra sul telefono](anteprime/120-sottomenu-telefono.png)
 - **Dati fatturazione**: aliquota IVA predefinita e dati dell'azienda per la
   ricevuta.
 - **Sito web**: richieste dal sito, orari proposti, numeri della reception
