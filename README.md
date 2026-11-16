@@ -111,6 +111,12 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v3.12.0** — (serve il riavvio di Home Assistant)
+  - **Sottomenu sul telefono**: in Configurazione › Impostazioni › Generale
+    si sceglie, per Nuovo appuntamento, Spa e Configurazione, come appare il
+    menu interno sugli schermi stretti: *Verticale* (come prima), *Pillole*
+    (riga scorrevole con icona e nome) o *Barra* (tutte le voci a tutta
+    larghezza). Sul computer non cambia nulla.
 - **v3.11.0** — (serve il riavvio di Home Assistant)
   - **Risposte dal telefono**: i messaggi scritti dal cellulare (o da
     WhatsApp Web) sul numero della SPA compaiono anche nelle chat di Spa
