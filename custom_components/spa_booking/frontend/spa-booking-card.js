@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "3.12.0";
+const CARD_VERSION = "3.13.0";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -10886,6 +10886,9 @@ class SpaBookingCard extends HTMLElement {
             } catch (error) { /* shown */ }
           } },
         }, el("ha-icon", { icon: "mdi:content-save" }), "Salva scadenza")));
+      if (voucher.source === "wordpress") {
+        main.appendChild(el("div", { class: "dim small" }, "Venduto sul sito: la nuova data si salva anche in WordPress (Buoni PDF), anche se è già scaduto."));
+      }
     }
     if (this._voucherSend === voucher.id) main.appendChild(this._voucherSendPanel(voucher));
     return ticket;

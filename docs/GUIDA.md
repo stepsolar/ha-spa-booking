@@ -1,6 +1,6 @@
 <p align="center"><img src="anteprime/logo.png" width="120" alt="Spa Booking"></p>
 
-# Spa Booking 3.12 — la guida completa
+# Spa Booking 3.13 — la guida completa
 
 Questa guida spiega **tutto quello che fa Spa Booking**, scheda per scheda:
 dalla prenotazione al banco al modulo del sito, dai messaggi WhatsApp ai
@@ -490,6 +490,10 @@ mano. Ogni email ha il link «Cancella l'iscrizione».
   destinatario, chi l'ha regalato, trattamenti per persona, scadenza e
   **Creato da**. Azioni: *Copia*, *Prenota* (apre la prenotazione già
   compilata), *Invia* su WhatsApp, *Scadenza* ed *Elimina* (Manager).
+  Per un voucher venduto sul sito *Scadenza* salva la nuova data anche in
+  WordPress (Buoni PDF), anche se è già scaduto, e lascia una nota
+  nell'ordine (3.13, plugin 1.7.0); i voucher del sito già scaduti compaiono
+  tra gli *Scaduti* proprio per poterli prorogare.
 
 **Nuovo voucher in tre passi**: acquirente e destinatario; persone,
 trattamenti, accessori e gift card in euro; riepilogo. *Crea voucher* chiede

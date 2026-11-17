@@ -93,6 +93,8 @@ async def _request(session: Any, method: str, base: str, secret: str, path: str,
             if response.status == 404 and path != "/redeem":
                 if isinstance(body, dict) and body.get("code") not in (None, "", "rest_no_route"):
                     raise WpShopError(str(body.get("message") or "Non trovato sul sito"))
+                if path == "/voucher-expiry":
+                    raise WpShopError("Aggiorna il plugin «Spa Booking Connector» sul sito (serve la versione 1.7.0)")
                 if path in ("/orders", "/order"):
                     raise WpShopError("Aggiorna il plugin «Spa Booking Connector» sul sito (serve la versione 1.4.0)")
                 if path in ("/product", "/contacts", "/coupon-use"):
@@ -155,6 +157,11 @@ async def vouchers(session: Any, base: str, secret: str, days: int = SYNC_DAYS) 
 
 async def redeem(session: Any, base: str, secret: str, code: str, note: str = "") -> dict[str, Any]:
     return await _request(session, "POST", base, secret, "/redeem", json={"code": code, "note": note})
+
+
+async def voucher_expiry(session: Any, base: str, secret: str, code: str, expires: str, by: str = "") -> dict[str, Any]:
+    """A new expiry date for a code of «Buoni PDF», expired or not (plugin 1.7.0)."""
+    return await _request(session, "POST", base, secret, "/voucher-expiry", json={"code": code, "expires": expires, "by": by})
 
 
 async def contacts(session: Any, base: str, secret: str, prefix: str = "welcome") -> dict[str, Any]:

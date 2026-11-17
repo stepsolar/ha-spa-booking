@@ -111,6 +111,17 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v3.13.0** — (serve il riavvio di Home Assistant e il plugin WordPress
+  **1.7.0**)
+  - **Scadenza dei voucher del sito**: «Scadenza» su un voucher venduto sul
+    sito salva la nuova data anche in WordPress (Buoni PDF), come «Estendi la
+    data di scadenza», anche per un voucher già scaduto; nell'ordine resta una
+    nota. Prima la data cambiava solo in Spa Booking e la sincronizzazione
+    successiva rimetteva quella vecchia.
+  - I voucher del sito già scaduti (non usati) entrano in Spa Booking come
+    *scaduti*, così si possono prorogare.
+  - Plugin 1.7.0: la scadenza letta è quella del singolo codice in Buoni PDF
+    (quella che un'estensione cambia), poi quella dell'ordine.
 - **v3.12.0** — (serve il riavvio di Home Assistant)
   - **Sottomenu sul telefono**: in Configurazione › Impostazioni › Generale
     si sceglie, per Nuovo appuntamento, Spa e Configurazione, come appare il
