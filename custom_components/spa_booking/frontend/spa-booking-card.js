@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "3.15.0";
+const CARD_VERSION = "3.15.1";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -206,17 +206,34 @@ const NOTIFY_MESSAGES = [
 const OP_CHIPS = [["{operatrice}", "Nome dell'operatrice"], ["{cliente}", "Nome e cognome del cliente"], ["{codice}", "Codice"],
   ["{trattamento}", "Trattamento"], ["{durata}", "Minuti"], ["{data}", "Giorno 14-11-2026"], ["{giorno}", "Giorno «sabato 14 novembre»"],
   ["{ora}", "Inizio"], ["{fine}", "Fine"], ["{note}", "Note dell'appuntamento"], ["{note_cliente}", "Note del cliente"]];
+// The offer settings sit in the messages they drive (3.15.1).
+const NOTIFY_HOURS = (draft, key, fallback, min, changed) => el("input", {
+  class: "input", type: "number", min: String(min), step: "1", value: draft[key] != null ? draft[key] : fallback,
+  on: { input: (event) => { draft[key] = event.target.value; changed(); } },
+});
 const OPERATOR_MESSAGES = [
   { id: "op_offer", group: "Turni da confermare", icon: "mdi:hand-heart", title: "Proposta di turno", key: "op_offer_message",
-    when: () => "Nuovo massaggio da accettare", auto: () => true,
-    description: "Il massaggio proposto all'operatrice, che risponde CONFERMO, NON DISPONIBILE o DISPONIBILE DI NUOVO.", chips: OP_CHIPS },
+    when: (draft) => `Risposta entro ${draft.offer_timeout_hours != null ? draft.offer_timeout_hours : 24} ore`, auto: () => true,
+    description: "Il massaggio proposto all'operatrice, che risponde CONFERMO, NON DISPONIBILE o DISPONIBILE DI NUOVO.", chips: OP_CHIPS,
+    options: (draft, changed) => [
+      NOTIFY_FIELD("Tempo per rispondere (ore)", NOTIFY_HOURS(draft, "offer_timeout_hours", 24, 1, changed),
+        "Scaduto il tempo, la proposta passa alla successiva."),
+    ],
+    after: () => el("div", { class: "nt-flow" },
+      el("div", { class: "nt-flow-step" }, el("b", {}, "1"), "La proposta va alla massaggiatrice libera con la priorità più bassa (Configurazione › Operatori)."),
+      el("div", { class: "nt-flow-step" }, el("b", {}, "2"), "Se rifiuta, passa subito alla successiva; per quella fascia non viene più ricontattata."),
+      el("div", { class: "nt-flow-step" }, el("b", {}, "3"), "Se non risponde, riceve il promemoria; alla scadenza la proposta passa alla successiva."),
+      el("div", { class: "nt-flow-step" }, el("b", {}, "4"), "Se nessuna accetta, la reception riceve un WhatsApp (numeri «WhatsApp avvisi dal sito» in Impostazioni) e una notifica in Home Assistant.")) },
   { id: "op_change_offer", group: "Turni da confermare", icon: "mdi:calendar-sync", title: "Appuntamento spostato", key: "op_change_offer_message",
     when: () => "Cambiano giorno, ora o trattamento", auto: () => true,
     description: "Una sua prenotazione è stata modificata: le si chiede di confermare il nuovo orario.",
     chips: [...OP_CHIPS, ["{prima}", "Giorno e ora di prima"]] },
   { id: "op_offer_reminder", group: "Turni da confermare", icon: "mdi:alarm", title: "Promemoria di risposta", key: "op_offer_reminder_message",
     when: (draft) => `${draft.offer_reminder_hours != null ? draft.offer_reminder_hours : 2} ore prima della scadenza`, auto: (draft) => Number(draft.offer_reminder_hours ?? 2) > 0,
-    description: "Se non ha ancora risposto alla proposta.", chips: [["{riepilogo}", "Cliente, trattamento, giorno e ora"], ...OP_CHIPS] },
+    description: "Se non ha ancora risposto alla proposta.", chips: [["{riepilogo}", "Cliente, trattamento, giorno e ora"], ...OP_CHIPS],
+    options: (draft, changed) => [
+      NOTIFY_FIELD("Ore prima della scadenza", NOTIFY_HOURS(draft, "offer_reminder_hours", 2, 0, changed), "0 = nessun promemoria."),
+    ] },
   { id: "op_new", group: "Avvisi", icon: "mdi:calendar-plus", title: "Nuovo appuntamento", key: "op_new_message",
     when: () => "Assegnato senza conferma", auto: () => true,
     description: "Quando un massaggio le viene assegnato direttamente, senza chiederle di accettarlo.", chips: OP_CHIPS },
@@ -17655,13 +17672,8 @@ class SpaBookingCard extends HTMLElement {
   }
 
   _notifyOperators(draft) {
-    const changed = () => this._notifySyncSave();
-    const number = (key, fallback, min) => el("input", {
-      class: "input", type: "number", min: String(min), step: "1",
-      value: draft[key] != null ? draft[key] : fallback,
-      on: { input: (event) => { draft[key] = event.target.value; changed(); } },
-    });
-    // The messages they receive (3.15.0): list and editor, as for the guests.
+    // The messages they receive (3.15.0): list and editor, as for the guests;
+    // the offer's hours live in «Proposta di turno» and «Promemoria» (3.15.1).
     const current = OPERATOR_MESSAGES.find((m) => m.id === this._notifyOpMsg) || OPERATOR_MESSAGES[0];
     const grid = el("div", { class: `nt-grid${this._notifyMsgOpen ? " open" : ""}` });
     const list = el("div", { class: "nt-list" });
@@ -17684,22 +17696,7 @@ class SpaBookingCard extends HTMLElement {
     });
     grid.appendChild(list);
     grid.appendChild(this._notifyEditor(current, draft));
-    return el("div", { class: "stack" }, grid, el("div", { class: "nt-panels" },
-      el("div", { class: "cfg-box nt-panel" },
-        el("div", { class: "nt-panel-head" },
-          el("span", { class: "nt-icon" }, el("ha-icon", { icon: "mdi:hand-heart" })),
-          el("div", {},
-            el("div", { class: "nt-ed-title" }, "Offerte alle massaggiatrici"),
-            el("div", { class: "dim small" }, "Come vengono proposti i massaggi a chi li fa."))),
-        el("div", { class: "nt-flow" },
-          el("div", { class: "nt-flow-step" }, el("b", {}, "1"), "La proposta va alla massaggiatrice libera con la priorità più bassa (Configurazione › Operatori)."),
-          el("div", { class: "nt-flow-step" }, el("b", {}, "2"), "Se rifiuta, passa subito alla successiva; per quella fascia non viene più ricontattata."),
-          el("div", { class: "nt-flow-step" }, el("b", {}, "3"), "Se non risponde, riceve un promemoria; alla scadenza la proposta passa alla successiva."),
-          el("div", { class: "nt-flow-step" }, el("b", {}, "4"), "Se nessuna accetta, la reception riceve un WhatsApp (numeri «WhatsApp avvisi dal sito» in Impostazioni) e una notifica in Home Assistant.")),
-        el("div", { class: "row" },
-          el("label", { class: "field" }, el("span", {}, "Tempo per rispondere (ore)"), number("offer_timeout_hours", 24, 1)),
-          el("label", { class: "field" }, el("span", {}, "Promemoria prima della scadenza (ore)"), number("offer_reminder_hours", 2, 0))),
-        el("div", { class: "hint" }, "Promemoria 0 = nessun promemoria."))));
+    return grid;
   }
 
   _notifyReport(draft) {
@@ -17767,7 +17764,9 @@ class SpaBookingCard extends HTMLElement {
    */
   _telegramBox(box, settings) {
     const status = this._tgStatus;
-    if (!status && !this._tgLoading) this._tgRefresh();
+    // Checked again every 30 s while the box is open (3.15.1), so a state
+    // read once does not stay on screen after the bot recovered.
+    if ((!status || Date.now() - (this._tgStamp || 0) > 30000) && !this._tgLoading) this._tgRefresh();
     const tokenInput = el("input", {
       class: "input", type: "password", autocomplete: "new-password",
       placeholder: settings.telegram_bot_token ? "•••••• token salvato" : "123456789:AA…",
@@ -17780,9 +17779,7 @@ class SpaBookingCard extends HTMLElement {
             el("ha-icon", { icon: status.ok ? "mdi:check-circle" : "mdi:alert-circle" }),
             el("span", {}, status.ok ? `Attivo · @${status.username}` : "Non raggiungibile"))
         : el("div", { class: "wa-state" }, el("ha-icon", { icon: "mdi:robot-off-outline" }), el("span", {}, "Nessun bot collegato")),
-      status && status.error ? el("div", { class: "hint" }, /409|Conflict/i.test(status.error)
-        ? "Un altro programma legge lo stesso bot (di solito l'integrazione Telegram di Home Assistant): rimuovila, oppure usa un bot diverso."
-        : status.error) : null,
+      status && status.error ? el("div", { class: "hint" }, status.error) : null,
       el("label", { class: "field" }, el("span", {}, "Token del bot (da @BotFather)"), tokenInput),
       el("div", { class: "row tight" },
         el("button", { class: "btn small primary", disabled: this._busy, on: { click: async () => {
@@ -17816,7 +17813,7 @@ class SpaBookingCard extends HTMLElement {
   async _tgRefresh() {
     if (this._tgLoading) return;
     this._tgLoading = true;
-    try { this._tgStatus = await this._service("telegram_status", {}); }
+    try { this._tgStatus = await this._service("telegram_status", {}); this._tgStamp = Date.now(); }
     catch (error) { this._tgStatus = { configured: false, ok: false, error: this._friendlyError(error, ""), recent: [] }; }
     finally { this._tgLoading = false; this._render(); }
   }

@@ -601,7 +601,11 @@ con il numero). *Prova WhatsApp* manda un messaggio di prova.
 
 Le offerte arrivano con i pulsanti Accetto / Rifiuto. Un bot si legge da un
 solo programma: se era usato dall'integrazione Telegram di Home Assistant,
-rimuovila (la card lo segnala).
+rimuovila (la card lo segnala). Dalla 3.15.1 lo stato si aggiorna da solo
+ogni 30 secondi, un rallentamento della rete non viene più mostrato come
+errore, e l'errore dice cosa fare: *un altro programma legge lo stesso bot*
+(integrazione Telegram di Home Assistant o una seconda copia di Spa Booking,
+come Spa Booking Web), *token non valido*, *Telegram chiede di rallentare*.
 
 ![Collegamenti](anteprime/v3/v3-18-collegamenti.png)
 
@@ -708,8 +712,9 @@ giorni (es. tutto novembre chiuso tranne i sabati).
   `{durata}`, `{data}` (14-11-2026), `{giorno}` (sabato 14 novembre),
   `{ora}`, `{fine}`, `{note}`, `{note_cliente}`, `{prima}`, `{motivo}`,
   `{riepilogo}`. Una riga i cui segnaposto restano vuoti (per esempio
-  *Note:* senza note) non viene inviata. Sotto: tempo per rispondere
-  all'offerta e promemoria.
+  *Note:* senza note) non viene inviata. Il **tempo per rispondere** e i
+  passi della proposta sono in *Proposta di turno*, le ore del promemoria
+  in *Promemoria di risposta* (3.15.1).
 
   | | |
   |---|---|

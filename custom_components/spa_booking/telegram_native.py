@@ -34,8 +34,27 @@ API = "https://api.telegram.org/bot{token}/{method}"
 POLL_TIMEOUT = 25
 
 
+#: Failed polls in a row before the card shows the bot as not working
+#: (3.15.1): one slow answer or a network hiccup is retried, not an error.
+FAILURES_BEFORE_ERROR = 3
+
+
 class TelegramError(Exception):
     """Telegram answered an error, or could not be reached."""
+
+
+def explain(error: str) -> str:
+    """What a Telegram error means for the desk (3.15.1)."""
+    text = str(error or "")
+    if "Conflict" in text or "409" in text:
+        return ("Un altro programma sta leggendo lo stesso bot: di solito l'integrazione Telegram di "
+                "Home Assistant (Impostazioni › Dispositivi e servizi) o una seconda copia di Spa Booking "
+                "(es. Spa Booking Web). Toglila, oppure usa un bot diverso.")
+    if "Unauthorized" in text or "401" in text or "Not Found" in text or "404" in text:
+        return "Token non valido o bot eliminato: copia di nuovo il token da @BotFather."
+    if "Too Many Requests" in text or "429" in text:
+        return "Telegram chiede di rallentare: riprova tra qualche minuto."
+    return text
 
 
 class TelegramBot:
@@ -54,6 +73,7 @@ class TelegramBot:
         self._offset = 0
         self.me: dict[str, Any] = {}
         self.error = ""
+        self.failures = 0
         self.running = False
         #: The last chats that wrote to the bot: id, name, username.
         self.recent: deque[dict[str, Any]] = deque(maxlen=20)
@@ -124,13 +144,18 @@ class TelegramBot:
                     wait=POLL_TIMEOUT,
                 ) or []
                 self.error = ""
+                self.failures = 0
                 backoff = 5
             except asyncio.CancelledError:
                 raise
             except TelegramError as err:
                 # 409: another program reads the same bot (Home Assistant's
-                # Telegram integration): say so, and keep trying.
-                self.error = str(err)
+                # Telegram integration): say so, and keep trying. A network
+                # hiccup only counts after a few in a row (3.15.1).
+                self.failures += 1
+                text = str(err)
+                if self.failures >= FAILURES_BEFORE_ERROR or "Conflict" in text or "Unauthorized" in text:
+                    self.error = text
                 _LOGGER.debug("Telegram getUpdates: %s", err)
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, 120)
@@ -202,6 +227,6 @@ class TelegramBot:
             "ok": bool(self.me) and not self.error,
             "username": str(self.me.get("username") or ""),
             "name": str(self.me.get("first_name") or ""),
-            "error": self.error,
+            "error": explain(self.error),
             "recent": list(self.recent),
         }
