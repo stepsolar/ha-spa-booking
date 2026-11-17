@@ -3086,11 +3086,23 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self._async_save()
         return self.voucher_payload(voucher)
 
-    async def async_extend_voucher(self, voucher_id: str, expires_on: str) -> dict[str, Any]:
-        """Give a voucher a new expiry date, with no limit on how far it goes."""
+    async def async_extend_voucher(self, voucher_id: str, expires_on: str, by: str = "") -> dict[str, Any]:
+        """Give a voucher a new expiry date, with no limit on how far it goes.
+
+        A voucher sold on the website (3.13.0) gets it on the website first, in
+        «Buoni PDF», even when it has already expired: otherwise the next sync
+        would bring the old date back, and the site would refuse the code.
+        """
         new_date = _norm_date(expires_on)
         if not new_date:
             raise ValidationError("Data di scadenza non valida")
+        voucher = self._find(self.vouchers, voucher_id, "Voucher")
+        if voucher.get("source") == "wordpress":
+            try:
+                url, secret = self._wp_settings()
+                await wp_shop.voucher_expiry(self._http_session(), url, secret, voucher.get("wp_code") or voucher["code"], new_date, by=by)
+            except wp_shop.WpShopError as err:
+                raise ValidationError(f"Scadenza non cambiata: {err}") from err
         async with self._lock:
             voucher = self._find(self.vouchers, voucher_id, "Voucher")
             voucher["expires_on"] = new_date
@@ -4362,7 +4374,6 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._data[KEY_SETTINGS]["wp_last_error"] = str(err)
                 await self._async_save()
             return {"error": str(err)}
-        today = dt_util.now().date().isoformat()
         added = updated = used = 0
         async with self._lock:
             by_code = {v["code"]: v for v in self.vouchers}
@@ -4374,7 +4385,9 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 people = self._wp_people(item.get("product_id"), item.get("variation_id"), item.get("value"))
                 voucher = by_code.get(key)
                 if voucher is None:
-                    if item.get("used") or not order_ok or (expires and expires < today):
+                    # An expired one comes in too (3.13.0): it shows as expired
+                    # and its date can be moved on, here and on the site.
+                    if item.get("used") or not order_ok:
                         continue
                     buyer = " ".join(str(item.get(k) or "").strip() for k in ("buyer_first", "buyer_last")).strip()
                     voucher = _norm_voucher({

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Spa Booking Connector
  * Description: Collega il sito a Spa Booking: voucher venduti con «Buoni PDF» (riscattati in spa), iscritti alla newsletter, clienti dello shop, codici sconto della newsletter, modifica dei prodotti e ordini dello shop, stile dello shop e delle schede prodotto.
- * Version: 1.6.0
+ * Version: 1.7.0
  * Author: Spa Booking
  * Requires PHP: 7.4
  * Text Domain: spa-booking-connector
@@ -13,7 +13,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Spa_Booking_Connector {
-	const VERSION   = '1.6.0';
+	const VERSION   = '1.7.0';
 	const OPTION    = 'spa_booking_connector';
 	const NAMESPACE = 'spa-booking/v1';
 
@@ -95,6 +95,8 @@ final class Spa_Booking_Connector {
 		// 1.2.0: the people of the site and the newsletter discount codes.
 		register_rest_route( self::NAMESPACE, '/contacts', array( 'methods' => 'GET', 'callback' => array( __CLASS__, 'contacts' ), 'permission_callback' => $auth ) );
 		register_rest_route( self::NAMESPACE, '/coupon-use', array( 'methods' => 'POST', 'callback' => array( __CLASS__, 'coupon_use' ), 'permission_callback' => $auth ) );
+		// 1.7.0: a new expiry date for a code, expired or not.
+		register_rest_route( self::NAMESPACE, '/voucher-expiry', array( 'methods' => 'POST', 'callback' => array( __CLASS__, 'voucher_expiry' ), 'permission_callback' => $auth ) );
 		register_rest_route( self::NAMESPACE, '/diag', array( 'methods' => 'GET', 'callback' => array( __CLASS__, 'diag' ), 'permission_callback' => $auth ) );
 	}
 
@@ -493,7 +495,11 @@ final class Spa_Booking_Connector {
 				$info = is_array( $details ) && isset( $details[ $pid ] ) ? $details[ $pid ] : array();
 				$exp  = isset( $info['exp_date'] ) ? ( is_array( $info['exp_date'] ) ? ( $info['exp_date'][ $vid ] ?? reset( $info['exp_date'] ) ) : $info['exp_date'] ) : '';
 				foreach ( array_filter( array_map( 'trim', explode( ',', $codes ) ) ) as $code ) {
-					$state = self::code_state( $code );
+					$code_post = self::code_post( $code );
+					$state     = self::code_state( $code, $code_post ? $code_post->ID : 0 );
+					// 1.7.0: the code's own date first — the one «Buoni PDF»
+					// checks and the one an extension changes — then the order's.
+					$own = $code_post ? (string) get_post_meta( $code_post->ID, self::meta( 'exp_date' ), true ) : '';
 					$out[] = array(
 						'code'            => $code,
 						'order_id'        => $order->get_id(),
@@ -503,7 +509,7 @@ final class Spa_Booking_Connector {
 						'variation_id'    => $vid,
 						'product_name'    => $item->get_name(),
 						'value'           => (float) ( $item->get_meta( self::meta( 'voucher_price' ) ) ?: ( $item->get_total() + $item->get_total_tax() ) / max( 1, $item->get_quantity() ) ),
-						'expires'         => $exp ? substr( (string) $exp, 0, 10 ) : '',
+						'expires'         => '' !== $own ? substr( $own, 0, 10 ) : ( $exp ? substr( (string) $exp, 0, 10 ) : '' ),
 						'buyer_first'     => $order->get_billing_first_name(),
 						'buyer_last'      => $order->get_billing_last_name(),
 						'buyer_email'     => $order->get_billing_email(),
@@ -547,6 +553,42 @@ final class Spa_Booking_Connector {
 		}
 		do_action( 'spa_booking_connector_redeemed', $code, $post->ID, $order_id );
 		return array( 'ok' => true, 'code' => $code, 'used_at' => $now );
+	}
+
+	/**
+	 * A new expiry date for a code (1.7.0), as «Estendi la data di scadenza»
+	 * in «Buoni PDF»: also for an expired code, never for a used one. The
+	 * time of day already stored is kept (end of the day when there is none).
+	 */
+	public static function voucher_expiry( WP_REST_Request $request ) {
+		$code    = trim( (string) $request->get_param( 'code' ) );
+		$expires = trim( (string) $request->get_param( 'expires' ) );
+		$date    = DateTime::createFromFormat( '!Y-m-d', $expires );
+		if ( ! $date || $date->format( 'Y-m-d' ) !== $expires ) {
+			return new WP_Error( 'bad_date', 'Data di scadenza non valida', array( 'status' => 400 ) );
+		}
+		$post = self::code_post( $code );
+		if ( ! $post ) {
+			return new WP_Error( 'not_found', 'Codice voucher non trovato', array( 'status' => 404 ) );
+		}
+		$code  = self::exact_code( $post->ID, $code );
+		$state = self::code_state( $code, $post->ID );
+		if ( $state['used'] ) {
+			return new WP_Error( 'used', 'Il voucher è già stato riscattato', array( 'status' => 409 ) );
+		}
+		$key      = self::meta( 'exp_date' );
+		$previous = (string) get_post_meta( $post->ID, $key, true );
+		$time     = preg_match( '/\d{2}:\d{2}:\d{2}$/', $previous, $m ) ? $m[0] : '23:59:59';
+		update_post_meta( $post->ID, $key, $expires . ' ' . $time );
+		$order_id = (int) get_post_meta( $post->ID, self::meta( 'order_id' ), true );
+		$order    = $order_id ? wc_get_order( $order_id ) : null;
+		if ( $order ) {
+			$by = trim( wp_strip_all_tags( (string) $request->get_param( 'by' ) ) );
+			$order->add_order_note( sprintf( 'Scadenza del voucher %s portata al %s (Spa Booking%s)%s.', $code,
+				$date->format( 'd/m/Y' ), $by ? ', ' . $by : '', $previous ? ', prima ' . mysql2date( 'd/m/Y', $previous ) : '' ) );
+		}
+		do_action( 'spa_booking_connector_voucher_expiry', $code, $post->ID, $expires, $previous );
+		return array( 'ok' => true, 'code' => $code, 'expires' => $expires, 'previous' => $previous ? substr( $previous, 0, 10 ) : '' );
 	}
 
 	/** What «Buoni PDF» stores for one code, to check the fields on this site. */

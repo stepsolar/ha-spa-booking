@@ -64,8 +64,10 @@ def test_sync_pairs_and_redeems_on_arrival(coordinator, shop) -> None:
 
 def test_used_on_site_expired_and_cancelled(coordinator, shop) -> None:
     shop["items"] = [_item(), _item("old-X-1", expires="2026-01-01"), _item("used-X-2", used=True)]
-    assert run(coordinator.async_wp_sync())["added"] == 1  # the expired and the used ones are not imported
-    voucher = next(v for v in coordinator.vouchers if v["source"] == "wordpress")
+    # 3.13.0: an expired one comes in (its date can be moved on); a used one does not.
+    assert run(coordinator.async_wp_sync())["added"] == 2
+    assert any(v["code"] == "OLD-X-1" and v["expires_on"] == "2026-01-01" for v in coordinator.vouchers)
+    voucher = next(v for v in coordinator.vouchers if v["source"] == "wordpress" and v["code"] != "OLD-X-1")
     shop["items"] = [_item(used=True, used_at="2026-11-13 11:00:00")]
     run(coordinator.async_wp_sync())
     assert voucher["status"] == "redeemed" and voucher["wp_redeemed"] and voucher["wp_note"] == "riscattato sul sito"
@@ -132,3 +134,32 @@ def test_gift_card_value(coordinator, shop) -> None:
     run(coordinator.async_update_settings(wp_product_map={"5000:0": {
         "people": 2, "treatment_ids": ["trt_ingresso_90"], "gift_card_mode": "fixed", "gift_card_amount": 30}}))
     assert [p["gift_card_amount"] for p in voucher["people"]] == [30.0, None]
+
+
+def test_extend_on_the_site(coordinator, shop, monkeypatch) -> None:
+    """3.13.0: a new date for a voucher of the site goes to «Buoni PDF» first, expired or not."""
+    from custom_components.spa_booking.exceptions import ValidationError
+
+    shop["items"] = [_item("old-X-1", expires="2026-01-01")]
+    run(coordinator.async_wp_sync())
+    voucher = next(v for v in coordinator.vouchers if v["code"] == "OLD-X-1")
+    sent = []
+
+    async def voucher_expiry(session, base, secret, code, expires, by=""):
+        sent.append((code, expires))
+        shop["items"] = [_item("old-X-1", expires=expires + " 23:59:59")]
+        return {"ok": True, "expires": expires}
+
+    monkeypatch.setattr(wp_shop, "voucher_expiry", voucher_expiry)
+    run(coordinator.async_extend_voucher(voucher["id"], "2027-03-31"))
+    assert sent == [("old-X-1", "2027-03-31")] and voucher["expires_on"] == "2027-03-31"
+    run(coordinator.async_wp_sync())
+    assert voucher["expires_on"] == "2027-03-31"  # the sync keeps it: the site has it too
+
+    async def refused(session, base, secret, code, expires, by=""):
+        raise wp_shop.WpShopError("Aggiorna il plugin «Spa Booking Connector» sul sito (serve la versione 1.7.0)")
+
+    monkeypatch.setattr(wp_shop, "voucher_expiry", refused)
+    with pytest.raises(ValidationError, match="Scadenza non cambiata: Aggiorna il plugin"):
+        run(coordinator.async_extend_voucher(voucher["id"], "2027-06-30"))
+    assert voucher["expires_on"] == "2027-03-31"  # nothing changed here either
