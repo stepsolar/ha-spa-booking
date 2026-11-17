@@ -83,3 +83,59 @@ def test_new_operator_is_asked_after_a_group_edit(coordinator, sent, freeze) -> 
         "client_id": booked[0]["client_id"],
         "operator_id": giulia, "person": 0}]))
     assert _to(sent, giulia, coordinator)
+
+
+def _settle() -> None:
+    """Let the messages of the creation go out before counting the edit's."""
+    import asyncio
+
+    for _ in range(5):
+        run(asyncio.sleep(0))
+
+
+def test_moved_booking_reads_as_a_change(coordinator, sent, freeze) -> None:
+    """3.14.0: the same masseuse on a booking moved to another day reads
+    «APPUNTAMENTO MODIFICATO» with the old time, not a new appointment."""
+    freeze("2026-11-10 08:00")
+    maria, _giulia = _reachable(coordinator)
+    booked = run(coordinator.async_create_bookings([{
+        "treatment_id": MASSAGE,
+        "entries": [{"start": "2026-11-12T10:00:00", "first_name": "Anna", "phone": "333 1234567",
+                     "operator_ids": [maria], "person": 0}]}]))["appointments"]
+    _settle()
+    sent.clear()
+    run(coordinator.async_update_booking_batch(booked[0]["id"], [{
+        "appointment_id": booked[0]["id"], "treatment_id": MASSAGE, "start": "2026-11-14T15:00:00",
+        "client_id": booked[0]["client_id"], "operator_id": maria, "person": 0}]))
+    messages = _to(sent, maria, coordinator)
+    assert len(messages) == 1
+    assert messages[0].startswith("APPUNTAMENTO MODIFICATO")
+    assert "Quando: 14-11-2026 dalle 15:00" in messages[0] and "Prima: 12-11-2026 dalle 10:00" in messages[0]
+    assert "NUOVO APPUNTAMENTO" not in messages[0]
+
+
+def test_moved_single_appointment_and_removed_treatment(coordinator, sent, freeze) -> None:
+    freeze("2026-11-10 08:00")
+    maria, giulia = _reachable(coordinator)
+    booked = run(coordinator.async_create_appointment(
+        treatment_id=MASSAGE, start="2026-11-12T10:00:00+01:00", first_name="Anna",
+        phone="333 1234567", operator_ids=[maria]))
+    _settle()
+    sent.clear()
+    run(coordinator.async_update_appointment(booked["id"], start="2026-11-12T16:00:00+01:00"))
+    messages = _to(sent, maria, coordinator)
+    assert messages and messages[-1].startswith("APPUNTAMENTO MODIFICATO") and "Prima: 12-11-2026 dalle 10:00" in messages[-1]
+
+    # A booking of two massages: one taken out, its masseuse is told it is cancelled.
+    pair = run(coordinator.async_create_bookings([{
+        "treatment_id": MASSAGE,
+        "entries": [{"start": "2026-11-13T10:00:00", "first_name": "Bea", "phone": "333 7654321", "operator_ids": [maria], "person": 0},
+                    {"start": "2026-11-13T10:00:00", "first_name": "Ciro", "phone": "333 7654322", "operator_ids": [giulia], "person": 1}]}]))["appointments"]
+    _settle()
+    sent.clear()
+    keep = next(a for a in pair if a["operator"]["id"] == maria)
+    run(coordinator.async_update_booking_batch(keep["id"], [{
+        "appointment_id": keep["id"], "treatment_id": MASSAGE, "start": "2026-11-13T10:00:00",
+        "client_id": keep["client_id"], "operator_id": maria, "person": 0}]))
+    assert any(m.startswith("Appuntamento annullato") for m in _to(sent, giulia, coordinator))
+    assert not _to(sent, maria, coordinator), "nothing changed for her"

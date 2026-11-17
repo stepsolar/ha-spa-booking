@@ -2511,11 +2511,11 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # the edit, from the confirmation prompt or the appointment popup.
         payload = self.appointment_payload(rebuilt)
         if not preserve_offer:
-            await self._async_notify_reassigned(payload, previous_operator)
+            await self._async_notify_reassigned(payload, previous_operator, self.appointment_payload(appointment))
         return payload
 
     async def _async_notify_reassigned(
-        self, payload: dict[str, Any], previous_operator: str
+        self, payload: dict[str, Any], previous_operator: str, previous: dict[str, Any] | None = None
     ) -> None:
         """Tell the operators when an edit changed who does the treatment (2.8.3).
 
@@ -2523,12 +2523,18 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         booking; the one who had it is told it is no longer hers. Before, a
         change of operator (or of time) rebuilt the offer silently and nobody
         was asked.
+
+        The same masseuse on a moved booking (3.14.0) reads «APPUNTAMENTO
+        MODIFICATO» with the old and the new date and time, not a new one.
         """
         current = (payload.get("operator") or {}).get("id") or ""
+        changed_from = previous if previous and current and current == previous_operator else None
         if payload.get("offer_state") == OFFER_PENDING and current:
-            await self._async_notify_operator(payload, offer=True)
+            await self._async_notify_operator(payload, offer=True, changed_from=changed_from)
         elif current and current != previous_operator:
             await self._async_notify_operator(payload, "Appuntamento assegnato")
+        elif changed_from:
+            await self._async_notify_operator(payload, "Appuntamento modificato", changed_from=changed_from)
         if previous_operator and previous_operator != current:
             record = self._operator(previous_operator)
             if record:
@@ -5309,7 +5315,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 [(str(row.get("treatment_id") or ""), row) for row in rows if isinstance(row, dict)]
             )
             # Appointments whose masseuse must hear about the edit (2.8.3).
-            reassigned: list[tuple[dict[str, Any], str]] = []
+            reassigned: list[tuple[dict[str, Any], str, dict[str, Any] | None]] = []
 
             # Snapshot of the whole data tree, taken before anything is
             # touched, so any failure puts every record back exactly as it was.
@@ -5485,7 +5491,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             appointment["offer_index"] = existing_appt.get("offer_index", 0)
                             appointment["offer_expires_at"] = existing_appt.get("offer_expires_at", "")
                         else:
-                            reassigned.append((appointment, existing_appt.get("operator_id") or ""))
+                            reassigned.append((appointment, existing_appt.get("operator_id") or "", existing_appt))
                         appointment["reminder_sent"] = existing_appt.get("reminder_sent", False)
                         appointment["reminder_sent_at"] = existing_appt.get("reminder_sent_at", "")
                         appointment["confirmation_sent_at"] = existing_appt.get("confirmation_sent_at", "")
@@ -5495,7 +5501,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         kept_ids.add(existing_appt["id"])
                     elif appointment.get("offer_state") == OFFER_PENDING:
                         # A person added to the group: her masseuse is asked.
-                        reassigned.append((appointment, ""))
+                        reassigned.append((appointment, "", None))
 
                     # The partner of the booking stays with every person (2.8.9).
                     appointment["partner_id"] = self._partner_id_of(
@@ -5541,9 +5547,16 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             finally:
                 self._current_user_id = None
 
-        for item, previous in reassigned:
+        for item, previous, before in reassigned:
             if item.get("status") != STATUS_CANCELLED:
-                await self._async_notify_reassigned(self.appointment_payload(item), previous)
+                await self._async_notify_reassigned(
+                    self.appointment_payload(item), previous, self.appointment_payload(before) if before else None)
+        # A treatment taken out of the booking (3.14.0): its masseuse is told.
+        for orig in existing:
+            if orig["id"] not in kept_ids and orig.get("operator_id") and orig.get("status") != STATUS_CANCELLED:
+                await self._async_notify_operator(
+                    {**self.appointment_payload(orig), "status": STATUS_CANCELLED},
+                    "Appuntamento annullato", show_operator=False)
         return {
             "batch_id": batch_id,
             "appointments": [self.appointment_payload(item[0]) for item in prepared],
@@ -10375,12 +10388,25 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return {"sent": len(sent_ids), "failed": failed}
 
     @staticmethod
-    def format_offer(payload: dict[str, Any]) -> str:
+    def _was_line(previous: dict[str, Any], payload: dict[str, Any]) -> str:
+        """«Prima: …» — what a moved appointment was (3.14.0)."""
+        start = previous.get("start_local") or ""
+        end = previous.get("end_local") or ""
+        when = f"{start[8:10]}-{start[5:7]}-{start[0:4]}" if len(start) >= 10 else "?"
+        line = f"Prima: {when} dalle {start[11:16] or '?'} alle {end[11:16] or '?'}"
+        before = (previous.get("treatment") or {}).get("name")
+        if before and before != (payload.get("treatment") or {}).get("name"):
+            line += f" · {before}"
+        return line
+
+    @staticmethod
+    def format_offer(payload: dict[str, Any], changed_from: dict[str, Any] | None = None) -> str:
         """Return the text proposing a turn to a masseuse.
 
         Deliberately carries every detail of the booking but the client's phone
         number, and spells the three accepted answers so a WhatsApp reply does
-        not need buttons to be understood.
+        not need buttons to be understood. ``changed_from`` (3.14.0): her own
+        booking moved — the headline says so and the old time is shown.
         """
         start = payload.get("start_local") or ""
         end = payload.get("end_local") or ""
@@ -10392,13 +10418,16 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             when = f"{when[8:10]}-{when[5:7]}-{when[0:4]}"
         treatment = payload.get("treatment") or {}
         lines = [
-            "NUOVO APPUNTAMENTO - ti propongo questo turno",
+            "APPUNTAMENTO MODIFICATO - confermi il nuovo orario?" if changed_from
+            else "NUOVO APPUNTAMENTO - ti propongo questo turno",
             f"Codice: {payload.get('code', '—')}",
             f"Cliente: {payload['client']['full_name']}",
             f"Trattamento: {treatment.get('name', 'n/d')}"
             f" ({payload.get('duration_min')} min)",
             f"Quando: {when} dalle {start_hm} alle {end_hm}",
         ]
+        if changed_from:
+            lines.append(SpaBookingCoordinator._was_line(changed_from, payload))
         if payload.get("notes"):
             lines.append(f"Note: {payload['notes']}")
         if payload["client"].get("notes"):
@@ -10438,6 +10467,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         title: str = "Appuntamento",
         offer: bool = False,
         show_operator: bool = True,
+        changed_from: dict[str, Any] | None = None,
     ) -> None:
         """Send the assigned operator a notification on every channel she has.
 
@@ -10451,9 +10481,11 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not record or not record.get("notify_on_create"):
             return
 
-        message = self.format_offer(payload) if offer else self.format_appointment(
+        message = self.format_offer(payload, changed_from) if offer else self.format_appointment(
             payload, title, show_operator=show_operator
         )
+        if changed_from and not offer:
+            message += "\n" + self._was_line(changed_from, payload)
         await self._send_to_operator(
             record, message, self.offer_keyboard(payload) if offer else None
         )
