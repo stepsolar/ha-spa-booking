@@ -1,6 +1,6 @@
 <p align="center"><img src="anteprime/logo.png" width="120" alt="Spa Booking"></p>
 
-# Spa Booking 3.13 — la guida completa
+# Spa Booking 3.14 — la guida completa
 
 Questa guida spiega **tutto quello che fa Spa Booking**, scheda per scheda:
 dalla prenotazione al banco al modulo del sito, dai messaggi WhatsApp ai
@@ -269,6 +269,14 @@ anche se la prenotazione è ancora in attesa dell'ospite.
 ---
 
 ## 5. Richieste
+
+**Messaggi alle operatrici quando si modifica** (3.14): se una prenotazione
+cambia giorno, ora o trattamento e l'operatrice resta la stessa, lei riceve
+**APPUNTAMENTO MODIFICATO** con il nuovo orario e la riga *Prima: …* (e
+risponde CONFERMO o NON DISPONIBILE), non più un «nuovo appuntamento». Se
+cambia l'operatrice, la nuova riceve la proposta del turno e la precedente
+«Appuntamento non più assegnato a te»; un trattamento tolto dalla
+prenotazione manda alla sua operatrice «Appuntamento annullato».
 
 Una **richiesta** non occupa ancora l'agenda: si usa quando l'ospite chiede
 ma l'orario va confermato. Arrivano dal [modulo del sito](#13-modulo-del-sito)

@@ -111,6 +111,13 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v3.14.0** — (serve il riavvio di Home Assistant)
+  - **Prenotazione modificata**: se cambiano giorno, ora o trattamento e
+    l'operatrice resta la stessa, lei riceve «APPUNTAMENTO MODIFICATO -
+    confermi il nuovo orario?» con la riga «Prima: …», invece di un
+    «NUOVO APPUNTAMENTO» che sembrava un turno in più.
+  - Un trattamento tolto da una prenotazione avvisa la sua operatrice
+    («Appuntamento annullato»); prima spariva senza messaggio.
 - **v3.13.0** — (serve il riavvio di Home Assistant e il plugin WordPress
   **1.7.0**)
   - **Scadenza dei voucher del sito**: «Scadenza» su un voucher venduto sul
