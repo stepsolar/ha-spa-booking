@@ -139,3 +139,21 @@ def test_moved_single_appointment_and_removed_treatment(coordinator, sent, freez
         "client_id": keep["client_id"], "operator_id": maria, "person": 0}]))
     assert any(m.startswith("Appuntamento annullato") for m in _to(sent, giulia, coordinator))
     assert not _to(sent, maria, coordinator), "nothing changed for her"
+
+
+def test_operator_messages_are_editable(coordinator, sent, freeze) -> None:
+    """3.15.0: the operators' messages come from Notifiche › Operatrici."""
+    freeze("2026-11-10 08:00")
+    maria, _giulia = _reachable(coordinator)
+    coordinator._data["settings"]["op_offer_message"] = "Ciao {operatrice}! {cliente} alle {ora} del {data}\nNote: {note}\nRispondi CONFERMO"
+    run(coordinator.async_create_appointment(
+        treatment_id=MASSAGE, start="2026-11-12T10:00:00+01:00", first_name="Anna",
+        phone="333 1234567", operator_ids=[maria]))
+    _settle()
+    message = _to(sent, maria, coordinator)[0]
+    name = next(o for o in coordinator.operators if o["id"] == maria)["name"]
+    assert message == f"Ciao {name}! Anna alle 10:00 del 12-11-2026\nRispondi CONFERMO", "no notes: that line is dropped"
+    # Empty = the base text, as before.
+    coordinator._data["settings"]["op_offer_message"] = ""
+    payload = coordinator.appointment_payload(coordinator.appointments[-1])
+    assert coordinator.format_operator_message("op_offer_message", payload).startswith("NUOVO APPUNTAMENTO - ti propongo questo turno")

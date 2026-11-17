@@ -1,6 +1,6 @@
 <p align="center"><img src="anteprime/logo.png" width="120" alt="Spa Booking"></p>
 
-# Spa Booking 3.14 — la guida completa
+# Spa Booking 3.15 — la guida completa
 
 Questa guida spiega **tutto quello che fa Spa Booking**, scheda per scheda:
 dalla prenotazione al banco al modulo del sito, dai messaggi WhatsApp ai
@@ -695,8 +695,25 @@ giorni (es. tutto novembre chiuso tranne i sabati).
   conferma, richiesta d'acconto, annullamento, promemoria, recensione. Per
   ognuno: invio automatico e quando, testo con anteprima e segnaposto,
   *Ripristina testo base*, *Prova su WhatsApp*.
-- **Operatori**: tempo per rispondere all'offerta, promemoria, riepilogo
-  personale.
+- **Operatrici** (3.15): i messaggi che ricevono le operatrici, modificabili
+  come quelli degli ospiti (testo, segnaposto, anteprima, *Ripristina testo
+  base*, *Prova su WhatsApp*):
+  - *Turni da confermare*: **Proposta di turno**, **Appuntamento spostato**
+    (con *Prima: …*), **Promemoria di risposta**;
+  - *Avvisi*: **Nuovo appuntamento**, **Appuntamento assegnato**,
+    **Appuntamento modificato**, **Non più assegnato**, **Appuntamento
+    annullato**.
+
+  Segnaposto: `{operatrice}`, `{cliente}`, `{codice}`, `{trattamento}`,
+  `{durata}`, `{data}` (14-11-2026), `{giorno}` (sabato 14 novembre),
+  `{ora}`, `{fine}`, `{note}`, `{note_cliente}`, `{prima}`, `{motivo}`,
+  `{riepilogo}`. Una riga i cui segnaposto restano vuoti (per esempio
+  *Note:* senza note) non viene inviata. Sotto: tempo per rispondere
+  all'offerta e promemoria.
+
+  | | |
+  |---|---|
+  | ![Messaggi alle operatrici](anteprime/121-messaggi-operatrici.png) | ![Sul telefono](anteprime/122-messaggi-operatrici-telefono.png) |
 - **Report**: destinatari del report mensile, invio immediato e anteprima.
 - **Collegamenti**: WhatsApp integrato e bot Telegram.
 

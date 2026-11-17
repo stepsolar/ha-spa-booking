@@ -111,6 +111,12 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v3.15.0** — (serve il riavvio di Home Assistant)
+  - **Notifiche › Operatrici**: l'elenco dei messaggi che ricevono le
+    operatrici — proposta di turno, appuntamento spostato, promemoria di
+    risposta, nuovo, assegnato, modificato, non più assegnato, annullato —
+    ognuno con testo modificabile, segnaposto, anteprima, «Ripristina testo
+    base» e «Prova su WhatsApp». I testi base sono quelli di prima.
 - **v3.14.0** — (serve il riavvio di Home Assistant)
   - **Prenotazione modificata**: se cambiano giorno, ora o trattamento e
     l'operatrice resta la stessa, lei riceve «APPUNTAMENTO MODIFICATO -

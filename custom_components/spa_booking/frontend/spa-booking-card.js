@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "3.14.0";
+const CARD_VERSION = "3.15.0";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -202,6 +202,38 @@ const NOTIFY_MESSAGES = [
       "Invio automatico", "ore dopo il trattamento", changed, rerender),
   },
 ];
+// The messages the operators receive (3.15.0), in Notifiche › Operatrici.
+const OP_CHIPS = [["{operatrice}", "Nome dell'operatrice"], ["{cliente}", "Nome e cognome del cliente"], ["{codice}", "Codice"],
+  ["{trattamento}", "Trattamento"], ["{durata}", "Minuti"], ["{data}", "Giorno 14-11-2026"], ["{giorno}", "Giorno «sabato 14 novembre»"],
+  ["{ora}", "Inizio"], ["{fine}", "Fine"], ["{note}", "Note dell'appuntamento"], ["{note_cliente}", "Note del cliente"]];
+const OPERATOR_MESSAGES = [
+  { id: "op_offer", group: "Turni da confermare", icon: "mdi:hand-heart", title: "Proposta di turno", key: "op_offer_message",
+    when: () => "Nuovo massaggio da accettare", auto: () => true,
+    description: "Il massaggio proposto all'operatrice, che risponde CONFERMO, NON DISPONIBILE o DISPONIBILE DI NUOVO.", chips: OP_CHIPS },
+  { id: "op_change_offer", group: "Turni da confermare", icon: "mdi:calendar-sync", title: "Appuntamento spostato", key: "op_change_offer_message",
+    when: () => "Cambiano giorno, ora o trattamento", auto: () => true,
+    description: "Una sua prenotazione è stata modificata: le si chiede di confermare il nuovo orario.",
+    chips: [...OP_CHIPS, ["{prima}", "Giorno e ora di prima"]] },
+  { id: "op_offer_reminder", group: "Turni da confermare", icon: "mdi:alarm", title: "Promemoria di risposta", key: "op_offer_reminder_message",
+    when: (draft) => `${draft.offer_reminder_hours != null ? draft.offer_reminder_hours : 2} ore prima della scadenza`, auto: (draft) => Number(draft.offer_reminder_hours ?? 2) > 0,
+    description: "Se non ha ancora risposto alla proposta.", chips: [["{riepilogo}", "Cliente, trattamento, giorno e ora"], ...OP_CHIPS] },
+  { id: "op_new", group: "Avvisi", icon: "mdi:calendar-plus", title: "Nuovo appuntamento", key: "op_new_message",
+    when: () => "Assegnato senza conferma", auto: () => true,
+    description: "Quando un massaggio le viene assegnato direttamente, senza chiederle di accettarlo.", chips: OP_CHIPS },
+  { id: "op_assigned", group: "Avvisi", icon: "mdi:account-switch", title: "Appuntamento assegnato", key: "op_assigned_message",
+    when: () => "Passato a lei da un'altra", auto: () => true,
+    description: "Una modifica lo ha spostato su di lei, senza chiederle di accettarlo.", chips: OP_CHIPS },
+  { id: "op_changed", group: "Avvisi", icon: "mdi:pencil-outline", title: "Appuntamento modificato", key: "op_changed_message",
+    when: () => "Modifica già confermata", auto: () => true,
+    description: "Una sua prenotazione è cambiata e non serve che la riconfermi.",
+    chips: [...OP_CHIPS, ["{prima}", "Giorno e ora di prima"]] },
+  { id: "op_unassigned", group: "Avvisi", icon: "mdi:account-remove-outline", title: "Non più assegnato", key: "op_unassigned_message",
+    when: () => "Passato a un'altra", auto: () => true,
+    description: "Il massaggio non è più suo: è stato dato a un'altra operatrice.", chips: OP_CHIPS },
+  { id: "op_cancelled", group: "Avvisi", icon: "mdi:calendar-remove", title: "Appuntamento annullato", key: "op_cancelled_message",
+    when: () => "Annullato o tolto dalla prenotazione", auto: () => true,
+    description: "Il suo massaggio è stato annullato.", chips: [...OP_CHIPS, ["{motivo}", "Motivo (la riga sparisce se vuoto)"]] },
+];
 // Every setting the Notifiche Save bar writes.
 const NOTIFY_SAVE_KEYS = [
   "request_message", "request_propose_message", "request_propose_alt_intro", "request_propose_alt_line",
@@ -210,6 +242,7 @@ const NOTIFY_SAVE_KEYS = [
   "cancel_message",
   "review_request_message", "review_request_auto", "review_request_after_hours",
   "offer_timeout_hours", "offer_reminder_hours",
+  ...OPERATOR_MESSAGES.map((m) => m.key),
   "report_telegram_chats", "report_whatsapp_chat", "report_per_operator", "telegram_config_entry_id",
 ];
 
@@ -17414,7 +17447,8 @@ class SpaBookingCard extends HTMLElement {
         class: `nt-tab${tab === id ? " on" : ""}`, role: "tab", "aria-selected": tab === id ? "true" : "false",
         on: { click: () => { this._notifyTab = id; this._render(); } },
       }, el("ha-icon", { icon }), el("span", {}, label),
-        id === "ospiti" ? el("span", { class: "nt-count" }, String(NOTIFY_MESSAGES.length)) : null))));
+        id === "ospiti" ? el("span", { class: "nt-count" }, String(NOTIFY_MESSAGES.length))
+          : id === "operatrici" ? el("span", { class: "nt-count" }, String(OPERATOR_MESSAGES.length)) : null))));
 
     if (tab === "ospiti") wrap.appendChild(this._notifyGuestMessages(draft));
     if (tab === "operatrici") wrap.appendChild(this._notifyOperators(draft));
@@ -17487,6 +17521,19 @@ class SpaBookingCard extends HTMLElement {
   /** The text of a message with example data, as the guest would read it. */
   _notifySample(message, draft) {
     let text = String(draft[message.key] || "");
+    if (message.id.startsWith("op_")) {
+      // The operators' messages: their sample, and a line whose fields are
+      // all empty is dropped — as Spa Booking does when it sends them.
+      const values = { operatrice: "Laura", cliente: "Mario Rossi", codice: "ABC12", trattamento: "Massaggio Relax 90 min",
+        durata: "90", data: "14-11-2026", giorno: "sabato 14 novembre", ora: "15:00", fine: "16:30", note: "",
+        note_cliente: "Preferisce pressione leggera", prima: "12-11-2026 dalle 10:00 alle 11:30", motivo: "maltempo",
+        riepilogo: "Mario Rossi, Massaggio Relax 90 min, sabato 14 novembre alle 15:00" };
+      return text.split("\n").filter((line) => {
+        const keys = [...line.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).filter((k) => k in values);
+        return !(keys.length && keys.every((k) => !values[k]));
+      }).map((line) => line.replace(/\{(\w+)\}/g, (all, k) => (k in values ? values[k] : all)))
+        .join("\n").replace(/\n{3,}/g, "\n\n").trim();
+    }
     if (message.id === "propose") {
       text = text
         .replace(/\{data_richiesta\}/g, "sabato 14 novembre").replace(/\{data_proposta\}/g, "domenica 15 novembre")
@@ -17614,7 +17661,30 @@ class SpaBookingCard extends HTMLElement {
       value: draft[key] != null ? draft[key] : fallback,
       on: { input: (event) => { draft[key] = event.target.value; changed(); } },
     });
-    return el("div", { class: "nt-panels" },
+    // The messages they receive (3.15.0): list and editor, as for the guests.
+    const current = OPERATOR_MESSAGES.find((m) => m.id === this._notifyOpMsg) || OPERATOR_MESSAGES[0];
+    const grid = el("div", { class: `nt-grid${this._notifyMsgOpen ? " open" : ""}` });
+    const list = el("div", { class: "nt-list" });
+    let group = "";
+    OPERATOR_MESSAGES.forEach((message) => {
+      if (message.group !== group) {
+        group = message.group;
+        list.appendChild(el("div", { class: "nt-step" }, group));
+      }
+      const auto = message.auto(draft);
+      list.appendChild(el("button", {
+        class: `nt-item${message.id === current.id ? " on" : ""}`,
+        on: { click: () => { this._notifyOpMsg = message.id; this._notifyMsgOpen = true; this._render(); } },
+      },
+        el("span", { class: "nt-icon" }, el("ha-icon", { icon: message.icon })),
+        el("span", { class: "nt-item-text" },
+          el("span", { class: "nt-item-name" }, message.title),
+          el("span", { class: "nt-item-when" }, message.when(draft))),
+        el("span", { class: `nt-badge ${auto ? "auto" : "man"}` }, auto ? "Automatico" : "Spento")));
+    });
+    grid.appendChild(list);
+    grid.appendChild(this._notifyEditor(current, draft));
+    return el("div", { class: "stack" }, grid, el("div", { class: "nt-panels" },
       el("div", { class: "cfg-box nt-panel" },
         el("div", { class: "nt-panel-head" },
           el("span", { class: "nt-icon" }, el("ha-icon", { icon: "mdi:hand-heart" })),
@@ -17629,7 +17699,7 @@ class SpaBookingCard extends HTMLElement {
         el("div", { class: "row" },
           el("label", { class: "field" }, el("span", {}, "Tempo per rispondere (ore)"), number("offer_timeout_hours", 24, 1)),
           el("label", { class: "field" }, el("span", {}, "Promemoria prima della scadenza (ore)"), number("offer_reminder_hours", 2, 0))),
-        el("div", { class: "hint" }, "Promemoria 0 = nessun promemoria.")));
+        el("div", { class: "hint" }, "Promemoria 0 = nessun promemoria."))));
   }
 
   _notifyReport(draft) {
