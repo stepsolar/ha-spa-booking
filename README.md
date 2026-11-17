@@ -111,6 +111,14 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v3.15.1** — (serve il riavvio di Home Assistant)
+  - Notifiche › Operatrici: il riquadro «Offerte alle massaggiatrici» non
+    c'è più in fondo; il tempo per rispondere e i passi della proposta sono in
+    «Proposta di turno», le ore del promemoria in «Promemoria di risposta».
+  - Bot Telegram: un rallentamento della rete (fino a 3 tentativi di fila)
+    non segna più il bot come «Non raggiungibile»; lo stato nella card si
+    aggiorna ogni 30 secondi; gli errori dicono cosa fare (altro programma
+    sullo stesso bot, token non valido, troppe richieste).
 - **v3.15.0** — (serve il riavvio di Home Assistant)
   - **Notifiche › Operatrici**: l'elenco dei messaggi che ricevono le
     operatrici — proposta di turno, appuntamento spostato, promemoria di
