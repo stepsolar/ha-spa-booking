@@ -35,6 +35,7 @@ from homeassistant.util import dt as dt_util
 
 from .const import (
     EVENT_ANSWER_REQUEST,
+    OPERATOR_MESSAGE_DEFAULTS,
     KEY_VOUCHERS,
     KEY_PROMO_VOUCHERS,
     KEY_PARTNERS,
@@ -8140,10 +8141,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             record = self._operator(appointment.get("operator_id"))
             if record:
                 await self._async_reply(
-                    record,
-                    "Promemoria: ti resta poco tempo per rispondere a "
-                    f"{self._summary(self.appointment_payload(appointment))}.",
-                )
+                    record, self.format_operator_message("op_offer_reminder_message", self.appointment_payload(appointment)))
 
         return {"expired": len(expired), "reminded": len(reminded)}
 
@@ -10481,14 +10479,65 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not record or not record.get("notify_on_create"):
             return
 
-        message = self.format_offer(payload, changed_from) if offer else self.format_appointment(
-            payload, title, show_operator=show_operator
-        )
-        if changed_from and not offer:
-            message += "\n" + self._was_line(changed_from, payload)
+        if offer:
+            kind = "op_change_offer_message" if changed_from else "op_offer_message"
+        else:
+            kind = {
+                "Nuovo appuntamento": "op_new_message",
+                "Appuntamento assegnato": "op_assigned_message",
+                "Appuntamento modificato": "op_changed_message",
+                "Appuntamento non più assegnato a te": "op_unassigned_message",
+                "Appuntamento annullato": "op_cancelled_message",
+            }.get(title, "")
+        if kind:
+            message = self.format_operator_message(kind, payload, changed_from)
+        else:
+            message = self.format_appointment(payload, title, show_operator=show_operator)
         await self._send_to_operator(
             record, message, self.offer_keyboard(payload) if offer else None
         )
+
+    def format_operator_message(
+        self, kind: str, payload: dict[str, Any], changed_from: dict[str, Any] | None = None
+    ) -> str:
+        """One of the operators' messages, from its text in Notifiche › Operatrici (3.15.0).
+
+        A line whose placeholders all come out empty — no notes, no reason —
+        is left out, so the base texts read like the ones before 3.15.
+        """
+        template = str(self._data[KEY_SETTINGS].get(kind) or "").strip() or OPERATOR_MESSAGE_DEFAULTS[kind]
+        values = self._operator_values(payload, changed_from)
+        lines = []
+        for line in template.split("\n"):
+            keys = re.findall(r"\{(\w+)\}", line)
+            known = [key for key in keys if key in values]
+            if known and all(not values[key] for key in known):
+                continue
+            for key in known:
+                line = line.replace("{" + key + "}", values[key])
+            lines.append(line)
+        return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+
+    def _operator_values(self, payload: dict[str, Any], changed_from: dict[str, Any] | None) -> dict[str, str]:
+        start = payload.get("start_local") or ""
+        end = payload.get("end_local") or ""
+        client = payload.get("client") or {}
+        return {
+            "codice": str(payload.get("code") or "—"),
+            "cliente": str(client.get("full_name") or ""),
+            "trattamento": str((payload.get("treatment") or {}).get("name") or "n/d"),
+            "durata": str(payload.get("duration_min") or ""),
+            "data": f"{start[8:10]}-{start[5:7]}-{start[0:4]}" if len(start) >= 10 else "?",
+            "giorno": self.format_day(start) if start else "",
+            "ora": start[11:16] if len(start) >= 16 else "?",
+            "fine": end[11:16] if len(end) >= 16 else "?",
+            "operatrice": str((payload.get("operator") or {}).get("name") or ""),
+            "note": str(payload.get("notes") or ""),
+            "note_cliente": str(client.get("notes") or ""),
+            "prima": self._was_line(changed_from, payload).removeprefix("Prima: ") if changed_from else "",
+            "motivo": str(payload.get("cancel_reason") or ""),
+            "riepilogo": self._summary(payload),
+        }
 
     async def _async_reply(self, record: dict[str, Any], text: str) -> None:
         """Send a short answer back to an operator, without the notify service."""

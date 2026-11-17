@@ -509,6 +509,48 @@ DEFAULT_SUMMARY_MESSAGE: Final = "\n".join(
 #: The 2.3.5 text, without the discount line: upgraded to the one above.
 PREVIOUS_SUMMARY_MESSAGE: Final = DEFAULT_SUMMARY_MESSAGE.replace("{sconto}\n", "")
 
+#: The messages to the operators (3.15.0), editable in Notifiche › Operatrici.
+#: A line whose placeholders all come out empty (no notes, say) is dropped.
+_OP_BODY: Final = [
+    "Codice: {codice}",
+    "Cliente: {cliente}",
+    "Trattamento: {trattamento} ({durata} min)",
+]
+OPERATOR_MESSAGE_DEFAULTS: Final = {
+    "op_offer_message": "\n".join([
+        "NUOVO APPUNTAMENTO - ti propongo questo turno", *_OP_BODY,
+        "Quando: {data} dalle {ora} alle {fine}",
+        "Note: {note}", "Note cliente: {note_cliente}", "",
+        "Rispondi con uno di questi:", "CONFERMO", "NON DISPONIBILE", "DISPONIBILE DI NUOVO",
+    ]),
+    "op_change_offer_message": "\n".join([
+        "APPUNTAMENTO MODIFICATO - confermi il nuovo orario?", *_OP_BODY,
+        "Quando: {data} dalle {ora} alle {fine}", "Prima: {prima}",
+        "Note: {note}", "Note cliente: {note_cliente}", "",
+        "Rispondi con uno di questi:", "CONFERMO", "NON DISPONIBILE", "DISPONIBILE DI NUOVO",
+    ]),
+    "op_new_message": "\n".join([
+        "Nuovo appuntamento", *_OP_BODY, "Quando: {giorno} dalle {ora} alle {fine}",
+        "Note cliente: {note_cliente}", "Note: {note}",
+    ]),
+    "op_assigned_message": "\n".join([
+        "Appuntamento assegnato", *_OP_BODY, "Quando: {giorno} dalle {ora} alle {fine}",
+        "Note cliente: {note_cliente}", "Note: {note}",
+    ]),
+    "op_changed_message": "\n".join([
+        "Appuntamento modificato", *_OP_BODY, "Quando: {giorno} dalle {ora} alle {fine}", "Prima: {prima}",
+        "Note cliente: {note_cliente}", "Note: {note}",
+    ]),
+    "op_unassigned_message": "\n".join([
+        "Appuntamento non più assegnato a te", *_OP_BODY, "Quando: {giorno} dalle {ora} alle {fine}",
+    ]),
+    "op_cancelled_message": "\n".join([
+        "Appuntamento annullato", *_OP_BODY, "Quando: {giorno} dalle {ora} alle {fine}",
+        "Motivo annullamento: {motivo}",
+    ]),
+    "op_offer_reminder_message": "Promemoria: ti resta poco tempo per rispondere a {riepilogo}.",
+}
+
 #: The message to the guest when a booking is cancelled (2.8.7), sent only if
 #: the reception says yes in the popup.
 DEFAULT_CANCEL_MESSAGE: Final = "\n".join(

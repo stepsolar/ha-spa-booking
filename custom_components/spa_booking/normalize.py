@@ -38,6 +38,7 @@ from .const import (
     VOUCHER_ACTIVE,
     VOUCHER_REDEEMED,
     APPEARANCE_MODES,
+    OPERATOR_MESSAGE_DEFAULTS,
     SUBMENU_STYLES,
     SUBMENU_TABS,
     CARD_JS_VERSION,
@@ -953,6 +954,8 @@ def _norm_settings(raw: dict[str, Any]) -> dict[str, Any]:
             DEFAULT_SUMMARY_MESSAGE, PREVIOUS_SUMMARY_MESSAGE),
         # The cancellation message to the guest (2.8.7).
         "cancel_message": str(raw.get("cancel_message") or "").strip() or DEFAULT_CANCEL_MESSAGE,
+        # The operators' messages (3.15.0): empty = the built-in text.
+        **{key: str(raw.get(key) or "").strip() or default for key, default in OPERATOR_MESSAGE_DEFAULTS.items()},
         "summary_test_phone": str(raw.get("summary_test_phone") or "").strip(),
         # The message a guest receives when the desk takes her appointment
         # request: it says the request was received and is waiting for the

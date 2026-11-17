@@ -24,6 +24,7 @@ from homeassistant.helpers import config_validation as cv
 
 from .const import (
     APPEARANCE_MODES,
+    OPERATOR_MESSAGE_DEFAULTS,
     CLOSURE_SCOPES,
     SUBMENU_STYLES,
     SUBMENU_TABS,
@@ -903,6 +904,7 @@ UPDATE_SETTINGS_SCHEMA = vol.Schema(
         vol.Optional("tab_cols"): vol.Any(dict, None),
         vol.Optional("review_request_message"): vol.Any(cv.string, None),
         vol.Optional("cancel_message"): vol.Any(cv.string, None),
+        **{vol.Optional(key): vol.Any(cv.string, None) for key in OPERATOR_MESSAGE_DEFAULTS},
         vol.Optional("review_request_test_phone"): vol.Any(cv.string, None),
         # Appointment reminder: the text, automatic or not, and how many hours
         # before (2.3.7: the card always sent them, the schema refused them).
