@@ -985,6 +985,7 @@ UPDATE_SETTINGS_SCHEMA = vol.Schema(
         # VAT (2.5.1).
         vol.Optional("vat_default"): vol.Any(vol.Coerce(float), None),
         vol.Optional("wp_enabled"): vol.Any(cv.boolean, None),
+        vol.Optional("wp_gift_cards"): vol.Any(cv.boolean, None),
         vol.Optional("gdrive_enabled"): vol.Any(cv.boolean, None),
         vol.Optional("gdrive_time"): vol.Any(cv.string, None),
         vol.Optional("wp_url"): vol.Any(cv.string, None),

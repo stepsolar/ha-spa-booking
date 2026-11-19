@@ -262,6 +262,13 @@ def _norm_voucher(raw: Any) -> dict[str, Any]:
         "wp_note": str(raw.get("wp_note") or ""),
         # What the package also includes that has no record here (2.7.1).
         "package_note": str(raw.get("package_note") or "").strip(),
+        # A Spa Booking gift card spent on the shop (3.18.0): the order, when,
+        # the discount it gave and the credit it had (given back if the order
+        # is cancelled).
+        "shop_order_id": str(raw.get("shop_order_id") or ""),
+        "shop_used_at": str(raw.get("shop_used_at") or ""),
+        "shop_amount": _norm_price_opt(raw.get("shop_amount")),
+        "shop_credit": _norm_price_opt(raw.get("shop_credit")),
     }
 
 
@@ -1107,6 +1114,10 @@ def _norm_settings(raw: dict[str, Any]) -> dict[str, Any]:
         ][:20],
         # The WordPress shop (2.7.0): address, shared key, products and pairing.
         "wp_enabled": bool(raw.get("wp_enabled", False)),
+        # 3.18.0: the gift cards sold here can be spent on the shop, once.
+        "wp_gift_cards": raw.get("wp_gift_cards") is not False,
+        "wp_gift_result": str(raw.get("wp_gift_result") or ""),
+        "wp_gift_error": str(raw.get("wp_gift_error") or ""),
         "wp_url": str(raw.get("wp_url") or "").strip().rstrip("/"),
         "wp_secret": str(raw.get("wp_secret") or "").strip(),
         "wp_products": [

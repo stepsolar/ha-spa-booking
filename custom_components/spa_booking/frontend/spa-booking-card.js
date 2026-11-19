@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "3.17.2";
+const CARD_VERSION = "3.18.0";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -10904,6 +10904,9 @@ class SpaBookingCard extends HTMLElement {
       el("div", { class: "ticket-top" },
         el("span", { class: "ticket-code" }, voucher.code),
         voucher.source === "wordpress" ? el("span", { class: "pill info", title: voucher.wp_order_id ? `Ordine #${voucher.wp_order_id} sul sito` : "" }, el("ha-icon", { icon: "mdi:storefront-outline" }), "Sito") : null,
+        // 3.18.0: a gift card the shop accepts (or spent there).
+        voucher.shop_order_id ? el("span", { class: "pill info", title: `Usata sullo shop · ordine #${voucher.shop_order_id}` }, el("ha-icon", { icon: "mdi:cart-check" }), "Usata sullo shop")
+          : this._giftOnShop(voucher) ? el("span", { class: "pill ok", title: "Il codice si può usare una volta come sconto sullo shop online" }, el("ha-icon", { icon: "mdi:cart-outline" }), "Anche sullo shop") : null,
         el("span", { class: `pill ${badge[0]}` }, badge[1])),
       el("div", { class: "ticket-who" },
         el("strong", {}, voucher.recipient_name || voucher.buyer_name || "—"),
@@ -10924,6 +10927,10 @@ class SpaBookingCard extends HTMLElement {
           ? el("span", { class: voucher.wp_redeemed ? "" : "warn" }, el("ha-icon", { icon: voucher.wp_redeemed ? "mdi:check-decagram" : "mdi:sync-alert" }),
             voucher.wp_redeemed ? "Riscattato anche sul sito" : (voucher.wp_redeem_error ? "Da segnare sul sito" : "Sul sito: all'arrivo del cliente"))
           : null,
+        voucher.shop_order_id
+          ? el("span", {}, el("ha-icon", { icon: "mdi:cart-check" }),
+            `Shop: ordine #${voucher.shop_order_id}${voucher.shop_amount != null ? ` · sconto ${euro(voucher.shop_amount)}` : ""}`)
+          : (!voucher.source && voucher.wp_note ? el("span", {}, el("ha-icon", { icon: "mdi:information-outline" }), voucher.wp_note) : null),
         voucher.created_at
           ? el("span", {}, el("ha-icon", { icon: "mdi:clock-outline" }), this._dateIt(String(voucher.created_at).slice(0, 10)))
           : null));
@@ -18331,12 +18338,22 @@ class SpaBookingCard extends HTMLElement {
     return wrap;
   }
 
+  /** A gift card the shop takes as a coupon (3.18.0), as the server picks them. */
+  _giftOnShop(voucher) {
+    const settings = (this._data && this._data.settings) || {};
+    if (!settings.wp_enabled || settings.wp_gift_cards === false) return false;
+    if (voucher.source || voucher.status !== "active" || voucher.expired || voucher.shop_order_id) return false;
+    if ((voucher.people || []).some((p) => (p.treatment_ids || []).length) && !voucher.treatments_redeemed) return false;
+    return Number(voucher.credit_left || 0) > 0;
+  }
+
   _renderShop() {
     const settings = (this._data && this._data.settings) || {};
     const isAdmin = this._userLevel() === "admin";
     if (!this._shopDraft) {
       this._shopDraft = {
         wp_enabled: settings.wp_enabled === true,
+        wp_gift_cards: settings.wp_gift_cards !== false,
         wp_url: settings.wp_url || "",
         wp_product_map: JSON.parse(JSON.stringify(settings.wp_product_map || {})),
       };
@@ -18419,7 +18436,16 @@ class SpaBookingCard extends HTMLElement {
         el("span", {}, settings.wp_last_error
           ? `Ultimo controllo non riuscito: ${settings.wp_last_error}`
           : last ? `Ultimo controllo ${last.toLocaleString("it-IT", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}: ${settings.wp_last_result || ""}`
-            : "Non ancora collegato."))));
+            : "Non ancora collegato.")),
+      // 3.18.0: the gift cards sold here, spendable on the shop once.
+      el("label", { class: "pg-switch-row lp-switch" },
+        el("input", { type: "checkbox", checked: draft.wp_gift_cards !== false, on: { change: (event) => { draft.wp_gift_cards = event.target.checked; changed(); } } }),
+        el("span", {}, el("b", {}, "Gift card utilizzabili sullo shop"),
+          el("span", { class: "dim small" }, "Le gift card vendute in Spa Booking diventano un codice sconto sullo shop, valido per un solo acquisto: il credito che l'ordine non usa non resta. Usata sullo shop, qui risulta riscattata; se l'ordine viene annullato il credito torna. Serve il plugin 1.8.0."))),
+      settings.wp_enabled && draft.wp_gift_cards !== false && (settings.wp_gift_result || settings.wp_gift_error)
+        ? el("div", { class: `pg-sum${settings.wp_gift_error ? " warn" : ""}` },
+          el("ha-icon", { icon: settings.wp_gift_error ? "mdi:alert-outline" : "mdi:wallet-giftcard" }),
+          el("span", {}, settings.wp_gift_error ? `Gift card non pubblicate: ${settings.wp_gift_error}` : settings.wp_gift_result)) : null));
 
     // 2. Products → treatments.
     const products = settings.wp_products || [];
@@ -18584,7 +18610,7 @@ class SpaBookingCard extends HTMLElement {
       el("div", { class: "dim small" }, "I voucher del sito sono nella scheda Voucher con l'etichetta «Sito». Quando il cliente arriva (Entrata), il voucher risulta riscattato anche su WordPress.")));
     wrap.appendChild(this._pageSaveBar("shop", async () => {
       try {
-        await this._call("update_settings", { wp_enabled: draft.wp_enabled, wp_url: draft.wp_url, wp_product_map: draft.wp_product_map });
+        await this._call("update_settings", { wp_enabled: draft.wp_enabled, wp_gift_cards: draft.wp_gift_cards !== false, wp_url: draft.wp_url, wp_product_map: draft.wp_product_map });
         this._shopDraft = null;
         this._message = { kind: "ok", text: "Shop online salvato." };
         this._render();
@@ -24349,8 +24375,8 @@ class SpaBookingCard extends HTMLElement {
       .lp-bar { display: block; height: 8px; border-radius: 4px; background: var(--sb-line); overflow: hidden; flex: 1; min-width: 60px; }
       .lp-box .lp-bar { flex: none; }
       .lp-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
-      .lp-switch { display: flex !important; flex-direction: row !important; align-items: flex-start; gap: 10px; cursor: pointer; }
-      .lp-switch > span { display: flex; flex-direction: column; gap: 2px; }
+      .lp-switch { display: flex !important; flex-direction: row !important; flex-wrap: nowrap !important; align-items: flex-start; gap: 10px; cursor: pointer; }
+      .lp-switch > span { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
       .lp-switch input { margin-top: 3px; }
       .lp-bar i { display: block; height: 100%; border-radius: 4px; background: linear-gradient(90deg, #f5b301, #e08a00); }
       .lp-log { display: flex; flex-direction: column; gap: 2px; border-top: 1px solid var(--sb-line); padding-top: 6px; }

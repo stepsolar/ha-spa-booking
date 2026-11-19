@@ -1,6 +1,6 @@
 <p align="center"><img src="anteprime/logo.png" width="120" alt="Spa Booking"></p>
 
-# Spa Booking 3.17 — la guida completa
+# Spa Booking 3.18 — la guida completa
 
 Questa guida spiega **tutto quello che fa Spa Booking**, scheda per scheda:
 dalla prenotazione al banco al modulo del sito, dai messaggi WhatsApp ai
@@ -935,6 +935,28 @@ prenotazioni, modulo del sito e promo.
 | | |
 |---|---|
 | ![Shop online](anteprime/59-shop-online.png) | ![Voucher dal sito](anteprime/60-voucher-sito.png) |
+
+**Gift card di Spa Booking sullo shop** (3.18, plugin 1.8.0): con *Gift card
+utilizzabili sullo shop* attivo (Shop online › Il collegamento), ogni gift
+card venduta in Spa Booking diventa sullo shop un **codice sconto con lo
+stesso codice** (es. VCH-4FQ8TD), del valore del credito rimasto e con la
+stessa scadenza. L'ospite lo scrive nel carrello e il valore viene scalato dal
+totale.
+
+- Vale per **un solo acquisto**: il credito che l'ordine non usa non resta.
+- Vanno sullo shop solo le gift card con solo credito (non i voucher con
+  trattamenti ancora da fare), attive e non scadute.
+- Usata in un ordine pagato, qui risulta **riscattata** con *Usata sullo
+  shop* e il numero dell'ordine; se l'ordine viene annullato o rimborsato il
+  credito torna e il codice vale di nuovo.
+- Usata in spa, scaduta o eliminata, sparisce dallo shop da sola. Nell'elenco
+  dei voucher, *Anche sullo shop* indica quelle utilizzabili sul sito.
+- Un coupon dello shop con lo stesso codice creato a mano non viene mai
+  toccato (l'esito lo segnala).
+
+| | |
+|---|---|
+| ![Gift card sullo shop](anteprime/133-gift-card-shop.png) | ![Voucher](anteprime/134-gift-card-voucher.png) |
 
 **Categorie e scheda del prodotto** (3.6): accanto a ogni prodotto ci sono
 le sue categorie del sito, e i bottoni sopra la lista la filtrano per
