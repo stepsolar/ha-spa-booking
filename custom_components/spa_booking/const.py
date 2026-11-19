@@ -506,6 +506,25 @@ DEFAULT_SUMMARY_MESSAGE: Final = "\n".join(
     ]
 )
 
+#: The message to the guest after a booking was changed (3.16.0): what it is
+#: now, confirmed. Same placeholders as the confirmation.
+DEFAULT_CHANGE_MESSAGE: Final = "\n".join(
+    [
+        "Gentile {nome}, la Sua prenotazione è stata modificata ed è confermata ✅",
+        "",
+        "{hotel}",
+        "🗓️ {data}",
+        "{appuntamenti}",
+        "",
+        "Codice: {codice}",
+        "{sconto}",
+        "💶 Totale {totale} · Versato {versato} · Da saldare {residuo}",
+        "",
+        "Per altre modifiche o domande ci risponda pure a questo messaggio.",
+        "A presto! 🧖‍♀️",
+    ]
+)
+
 #: The 2.3.5 text, without the discount line: upgraded to the one above.
 PREVIOUS_SUMMARY_MESSAGE: Final = DEFAULT_SUMMARY_MESSAGE.replace("{sconto}\n", "")
 

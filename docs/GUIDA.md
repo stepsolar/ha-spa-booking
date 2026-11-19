@@ -1,6 +1,6 @@
 <p align="center"><img src="anteprime/logo.png" width="120" alt="Spa Booking"></p>
 
-# Spa Booking 3.15 — la guida completa
+# Spa Booking 3.16 — la guida completa
 
 Questa guida spiega **tutto quello che fa Spa Booking**, scheda per scheda:
 dalla prenotazione al banco al modulo del sito, dai messaggi WhatsApp ai
@@ -696,7 +696,8 @@ giorni (es. tutto novembre chiuso tranne i sabati).
 ### Notifiche
 
 - **Messaggi agli ospiti**: ricezione richiesta, proposta di un'altra data,
-  conferma, richiesta d'acconto, annullamento, promemoria, recensione. Per
+  conferma, **modifica della prenotazione** (3.16), richiesta d'acconto,
+  annullamento, promemoria, recensione. Per
   ognuno: invio automatico e quando, testo con anteprima e segnaposto,
   *Ripristina testo base*, *Prova su WhatsApp*.
 - **Operatrici** (3.15): i messaggi che ricevono le operatrici, modificabili
@@ -719,7 +720,25 @@ giorni (es. tutto novembre chiuso tranne i sabati).
   | | |
   |---|---|
   | ![Messaggi alle operatrici](anteprime/121-messaggi-operatrici.png) | ![Sul telefono](anteprime/122-messaggi-operatrici-telefono.png) |
-- **Report**: destinatari del report mensile, invio immediato e anteprima.
+- **Report**: destinatari del report mensile, invio immediato e anteprima;
+  **Pochi ingressi alla SPA** (3.16): se in un giorno entrano meno persone
+  del minimo (es. meno di 3), il numero di ore scelto prima del primo arrivo
+  (24 = il giorno prima) la reception riceve un WhatsApp sui numeri
+  «WhatsApp avvisi dal sito» e una notifica in Home Assistant, con l'elenco
+  delle prenotazioni, per spostarle per tempo. Si sceglie cosa conta come
+  ingresso (di base le categorie chiamate Spa o Ingresso) e si vedono i
+  prossimi giorni.
+
+  ![Pochi ingressi alla SPA](anteprime/124-pochi-ingressi.png)
+
+**Prenotazione modificata** (3.16): dopo **Salva** di una prenotazione
+spostata (giorno, ora o trattamento) la card chiede *Avvisare l'ospite della
+modifica?*: l'ospite riceve «la Sua prenotazione è stata modificata ed è
+confermata» con la prenotazione com'è adesso, non una nuova conferma. Anche
+il pulsante dell'appuntamento diventa *Invia modifica* finché l'ospite non è
+stato avvisato. Cambiare solo note o pagamenti non conta come modifica.
+
+![Avvisare l'ospite della modifica](anteprime/123-modifica-ospite.png)
 - **Collegamenti**: WhatsApp integrato e bot Telegram.
 
 ![Notifiche](anteprime/v3/v3-17-notifiche.png)

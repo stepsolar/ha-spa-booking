@@ -904,6 +904,11 @@ UPDATE_SETTINGS_SCHEMA = vol.Schema(
         vol.Optional("tab_cols"): vol.Any(dict, None),
         vol.Optional("review_request_message"): vol.Any(cv.string, None),
         vol.Optional("cancel_message"): vol.Any(cv.string, None),
+        vol.Optional("change_message"): vol.Any(cv.string, None),
+        vol.Optional("low_spa_alert"): vol.Any(cv.boolean, None),
+        vol.Optional("low_spa_min"): vol.Any(vol.All(vol.Coerce(int), vol.Range(min=1, max=100)), None),
+        vol.Optional("low_spa_hours"): vol.Any(vol.All(vol.Coerce(int), vol.Range(min=1, max=168)), None),
+        vol.Optional("low_spa_category_ids"): vol.Any(vol.All(cv.ensure_list, [cv.string]), None),
         **{vol.Optional(key): vol.Any(cv.string, None) for key in OPERATOR_MESSAGE_DEFAULTS},
         vol.Optional("review_request_test_phone"): vol.Any(cv.string, None),
         # Appointment reminder: the text, automatic or not, and how many hours
@@ -1431,6 +1436,9 @@ SEND_GUEST_SUMMARY_SCHEMA = vol.Schema(
         # 3.0.1: only the appointments named, not the rest of the party
         # (a partial confirmation tells the guest only what was confirmed).
         vol.Optional("only", default=False): cv.boolean,
+        # 3.16.0: "change" = «prenotazione modificata», "confirm" = the
+        # confirmation; empty = the change when the booking was moved.
+        vol.Optional("kind", default=""): vol.In(["", "change", "confirm"]),
     },
     extra=vol.PREVENT_EXTRA,
 )
@@ -2113,6 +2121,7 @@ async def _async_send_guest_summary(call: ServiceCall) -> ServiceResponse:
         call.data.get(ATTR_APPOINTMENT_ID),
         call.data.get(ATTR_APPOINTMENT_IDS),
         only=bool(call.data.get("only")),
+        kind=str(call.data.get("kind") or ""),
     )
 
 

@@ -78,6 +78,7 @@ from .const import (
     DEFAULT_SUMMARY_MESSAGE,
     PREVIOUS_SUMMARY_MESSAGE,
     DEFAULT_CANCEL_MESSAGE,
+    DEFAULT_CHANGE_MESSAGE,
     DEFAULT_APPOINTMENT_REMINDER_MESSAGE,
     DEFAULT_APPOINTMENT_REMINDER_AUTO,
     DEFAULT_APPOINTMENT_REMINDER_HOURS,
@@ -954,6 +955,17 @@ def _norm_settings(raw: dict[str, Any]) -> dict[str, Any]:
             DEFAULT_SUMMARY_MESSAGE, PREVIOUS_SUMMARY_MESSAGE),
         # The cancellation message to the guest (2.8.7).
         "cancel_message": str(raw.get("cancel_message") or "").strip() or DEFAULT_CANCEL_MESSAGE,
+        "change_message": str(raw.get("change_message") or "").strip() or DEFAULT_CHANGE_MESSAGE,
+        # «Pochi ingressi» (3.16.0): the desk is told, the hours before the
+        # first arrival of a day, when fewer than ``low_spa_min`` people come
+        # to the categories chosen (none = the ones named Spa / Ingresso).
+        "low_spa_alert": raw.get("low_spa_alert") is not False,
+        "low_spa_min": _norm_count(raw.get("low_spa_min"), 1, 100, 3),
+        "low_spa_hours": _norm_count(raw.get("low_spa_hours"), 1, 168, 24),
+        "low_spa_category_ids": [str(item) for item in (raw.get("low_spa_category_ids") or []) if str(item).strip()][:50],
+        "low_spa_alerted": {
+            str(day): str(at) for day, at in (raw.get("low_spa_alerted") if isinstance(raw.get("low_spa_alerted"), dict) else {}).items()
+        },
         # The operators' messages (3.15.0): empty = the built-in text.
         **{key: str(raw.get(key) or "").strip() or default for key, default in OPERATOR_MESSAGE_DEFAULTS.items()},
         "summary_test_phone": str(raw.get("summary_test_phone") or "").strip(),
@@ -1870,6 +1882,9 @@ def _norm_appointment(raw: dict[str, Any]) -> dict[str, Any]:
         "reminder_sent_at": str(raw.get("reminder_sent_at") or ""),
         # When the booking confirmation (the summary) last went out on WhatsApp.
         "confirmation_sent_at": str(raw.get("confirmation_sent_at") or ""),
+        # When day, time or treatment last changed after it was booked (3.16.0):
+        # the guest is then owed «prenotazione modificata», not a confirmation.
+        "changed_at": str(raw.get("changed_at") or ""),
         "deposit_request_sent_at": str(raw.get("deposit_request_sent_at") or ""),
         # The review request is sent once, a few hours after the appointment is
         # over. One flag per appointment: a guest with two treatments the same

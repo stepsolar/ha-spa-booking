@@ -116,6 +116,8 @@ class SpaBookingScheduler:
 
         # Offers to the operators: always, they are part of running the day.
         await self._job(results, "offers", coordinator.async_expire_offers)
+        # «Pochi ingressi» (3.16.0): told to the desk, so before the quiet hours.
+        await self._job(results, "low_spa", coordinator.async_low_spa_tick)
         await self._job(results, "monthly_report", coordinator.async_monthly_report_tick)
         # The WordPress shop's vouchers (2.7.0), every 15 minutes.
         await self._job(results, "wp_shop", coordinator.async_wp_tick)
