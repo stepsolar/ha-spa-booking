@@ -1,6 +1,6 @@
 <p align="center"><img src="anteprime/logo.png" width="120" alt="Spa Booking"></p>
 
-# Spa Booking 3.18 — la guida completa
+# Spa Booking 3.19 — la guida completa
 
 Questa guida spiega **tutto quello che fa Spa Booking**, scheda per scheda:
 dalla prenotazione al banco al modulo del sito, dai messaggi WhatsApp ai
@@ -834,6 +834,28 @@ con password (Gmail con password per le app, Outlook / Microsoft 365, Aruba,
 Libero, altro). Mittente, indirizzo per le risposte, *Invia email di prova*.
 
 ![Email con Google](anteprime/48-email-google.png)
+
+### Contabilità › Incassi
+
+(3.19) Tutti gli incassi registrati nelle prenotazioni, in un solo elenco.
+
+- **Periodo**: *Giorno*, *Mese*, *Anno* o *Periodo* (dal… al…), con le frecce
+  per passare al precedente o al successivo.
+- **Tipo di incasso**: Carta, Contante, Bonifico, Gift card, Voucher (anche
+  più di uno); toccando un riquadro del riepilogo si vede solo quel tipo. La
+  ricerca trova cliente, codice o trattamento.
+- In alto il totale del periodo, quanti incassi e il totale di ogni tipo;
+  sotto l'elenco giorno per giorno (mese per mese con *Anno*), con cliente,
+  trattamento, data della visita e codice. Un incasso diviso su un gruppo è
+  una riga sola.
+- **Scarica PDF** e **Scarica Excel** scaricano quello che si vede, con gli
+  stessi filtri: il PDF con riepilogo e tabella, l'Excel (.xlsx) con il foglio
+  *Incassi* e il foglio *Riepilogo* per tipo.
+
+La data è quella dell'incasso, non della visita: un acconto preso oggi per
+una visita del mese prossimo è negli incassi di oggi.
+
+![Contabilità › Incassi](anteprime/136-contabilita-incassi.png)
 
 ### Shop online
 

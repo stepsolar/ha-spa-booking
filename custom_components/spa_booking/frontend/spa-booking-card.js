@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "3.18.1";
+const CARD_VERSION = "3.19.0";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -484,6 +484,7 @@ const CFG_TABS = [
   { id: "pacchetti", label: "Pacchetti", icon: "mdi:package-variant-closed" },
   { id: "accessori", label: "Accessori", icon: "mdi:gift-outline" },
   { id: "shop", label: "Shop online", icon: "mdi:storefront-outline" },
+  { id: "contabilita", label: "Contabilità", icon: "mdi:calculator-variant-outline" },
   { id: "operatori", label: "Operatori", icon: "mdi:account-group-outline" },
   { id: "blocchi", label: "Fasce bloccate", icon: "mdi:lock-outline" },
   { id: "notifiche", label: "Notifiche", icon: "mdi:bell-outline" },
@@ -1153,6 +1154,255 @@ const promoFromTheme = (theme, hotel, today = new Date()) => {
   return { theme: theme.id, name: `${theme.name} ${start.getFullYear()}`, message: text, mode: "giorno",
     date: ymd(start), time: theme.time || "10:00",
     code: `${theme.code}${String(start.getFullYear()).slice(2)}`, expiry: ymd(end) };
+};
+
+// ------------------------------------------------- report files (3.19.0)
+// The accounting reports are downloaded as a real .xlsx and a real .pdf,
+// built here with no library (the card works offline).
+
+const CRC_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let n = 0; n < 256; n += 1) {
+    let c = n;
+    for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1;
+    table[n] = c >>> 0;
+  }
+  return table;
+})();
+const crc32 = (bytes) => {
+  let c = 0xFFFFFFFF;
+  for (let i = 0; i < bytes.length; i += 1) c = CRC_TABLE[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+};
+
+/** A zip whose files are stored as they are: all an .xlsx needs. */
+const zipStore = (files) => {
+  const enc = new TextEncoder();
+  const parts = [];
+  const central = [];
+  let offset = 0;
+  files.forEach(([name, text]) => {
+    const data = enc.encode(text);
+    const nameBytes = enc.encode(name);
+    const crc = crc32(data);
+    const local = new DataView(new ArrayBuffer(30));
+    local.setUint32(0, 0x04034b50, true);
+    local.setUint16(4, 20, true);
+    local.setUint16(6, 0x0800, true);
+    local.setUint16(12, 0x21, true);
+    local.setUint32(14, crc, true);
+    local.setUint32(18, data.length, true);
+    local.setUint32(22, data.length, true);
+    local.setUint16(26, nameBytes.length, true);
+    parts.push(new Uint8Array(local.buffer), nameBytes, data);
+    const entry = new DataView(new ArrayBuffer(46));
+    entry.setUint32(0, 0x02014b50, true);
+    entry.setUint16(4, 20, true);
+    entry.setUint16(6, 20, true);
+    entry.setUint16(8, 0x0800, true);
+    entry.setUint16(14, 0x21, true);
+    entry.setUint32(16, crc, true);
+    entry.setUint32(20, data.length, true);
+    entry.setUint32(24, data.length, true);
+    entry.setUint16(28, nameBytes.length, true);
+    entry.setUint32(42, offset, true);
+    central.push(new Uint8Array(entry.buffer), nameBytes);
+    offset += 30 + nameBytes.length + data.length;
+  });
+  const size = central.reduce((total, bytes) => total + bytes.length, 0);
+  const end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true);
+  end.setUint16(8, files.length, true);
+  end.setUint16(10, files.length, true);
+  end.setUint32(12, size, true);
+  end.setUint32(16, offset, true);
+  return new Blob([...parts, ...central, new Uint8Array(end.buffer)],
+    { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+};
+
+const xmlText = (value) => String(value)
+  .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "")
+  .replace(/[<>&"]/g, (ch) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", "\"": "&quot;" }[ch]));
+const xlsxColumn = (index) => {
+  let name = "";
+  let n = index + 1;
+  while (n) { const m = (n - 1) % 26; name = String.fromCharCode(65 + m) + name; n = Math.floor((n - 1) / 26); }
+  return name;
+};
+
+/**
+ * An .xlsx with one or more sheets. A cell is a string, a number or
+ * {v, s}: s 1 = bold, 2 = euro, 3 = bold euro.
+ */
+const buildXlsx = (sheets) => {
+  const sheetXml = ({ rows, widths }) => {
+    const cols = widths ? `<cols>${widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join("")}</cols>` : "";
+    const body = rows.map((row, r) => `<row r="${r + 1}">${row.map((cell, c) => {
+      const value = cell && typeof cell === "object" ? cell.v : cell;
+      if (value === null || value === undefined || value === "") return "";
+      const style = cell && typeof cell === "object" ? cell.s || 0 : 0;
+      const ref = `${xlsxColumn(c)}${r + 1}`;
+      return typeof value === "number"
+        ? `<c r="${ref}" s="${style}"><v>${Math.round(value * 100) / 100}</v></c>`
+        : `<c r="${ref}" s="${style}" t="inlineStr"><is><t xml:space="preserve">${xmlText(value)}</t></is></c>`;
+    }).join("")}</row>`).join("");
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${cols}<sheetData>${body}</sheetData></worksheet>`;
+  };
+  const names = sheets.map((sheet, i) => (String(sheet.name || `Foglio ${i + 1}`).replace(/[[\]:*?/\\]/g, " ").slice(0, 31)));
+  const styles = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><styleSheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">"
+    + "<numFmts count=\"1\"><numFmt numFmtId=\"164\" formatCode=\"#,##0.00\\ &quot;€&quot;\"/></numFmts>"
+    + "<fonts count=\"2\"><font><sz val=\"11\"/><name val=\"Calibri\"/></font><font><b/><sz val=\"11\"/><name val=\"Calibri\"/></font></fonts>"
+    + "<fills count=\"2\"><fill><patternFill patternType=\"none\"/></fill><fill><patternFill patternType=\"gray125\"/></fill></fills>"
+    + "<borders count=\"1\"><border><left/><right/><top/><bottom/><diagonal/></border></borders>"
+    + "<cellStyleXfs count=\"1\"><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\"/></cellStyleXfs>"
+    + "<cellXfs count=\"4\"><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\" xfId=\"0\"/>"
+    + "<xf numFmtId=\"0\" fontId=\"1\" fillId=\"0\" borderId=\"0\" xfId=\"0\" applyFont=\"1\"/>"
+    + "<xf numFmtId=\"164\" fontId=\"0\" fillId=\"0\" borderId=\"0\" xfId=\"0\" applyNumberFormat=\"1\"/>"
+    + "<xf numFmtId=\"164\" fontId=\"1\" fillId=\"0\" borderId=\"0\" xfId=\"0\" applyNumberFormat=\"1\" applyFont=\"1\"/></cellXfs>"
+    + "<cellStyles count=\"1\"><cellStyle name=\"Normal\" xfId=\"0\" builtinId=\"0\"/></cellStyles></styleSheet>";
+  const files = [
+    ["[Content_Types].xml", "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">"
+      + "<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/><Default Extension=\"xml\" ContentType=\"application/xml\"/>"
+      + "<Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/>"
+      + "<Override PartName=\"/xl/styles.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml\"/>"
+      + sheets.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join("")
+      + "</Types>"],
+    ["_rels/.rels", "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
+      + "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"xl/workbook.xml\"/></Relationships>"],
+    ["xl/workbook.xml", "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><sheets>"
+      + names.map((name, i) => `<sheet name="${xmlText(name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join("") + "</sheets></workbook>"],
+    ["xl/_rels/workbook.xml.rels", "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
+      + sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join("")
+      + `<Relationship Id="rId${sheets.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`],
+    ["xl/styles.xml", styles],
+    ...sheets.map((sheet, i) => [`xl/worksheets/sheet${i + 1}.xml`, sheetXml(sheet)]),
+  ];
+  return zipStore(files);
+};
+
+// The PDF uses the standard Helvetica with WinAnsi: Latin letters, accents
+// and the euro sign; anything else becomes «?».
+const PDF_SPECIAL = { "€": 0x80, "‚": 0x82, "„": 0x84, "…": 0x85, "‘": 0x91, "’": 0x92, "“": 0x93, "”": 0x94, "•": 0x95, "–": 0x96, "—": 0x97 };
+const pdfChars = (text) => Array.from(String(text)).map((ch) => {
+  if (PDF_SPECIAL[ch]) return String.fromCharCode(PDF_SPECIAL[ch]);
+  const code = ch.charCodeAt(0);
+  return code < 256 && code !== 0x80 ? ch : "?";
+}).join("");
+// Escaped only: the page's text is turned to WinAnsi once, as a whole.
+const pdfString = (text) => `(${String(text).replace(/[\\()]/g, (ch) => `\\${ch}`)})`;
+/** About how wide a text is in Helvetica, in points. */
+const pdfWidth = (text, size, bold = false) => Array.from(String(text)).reduce((total, ch) => {
+  let w = 0.556;
+  if (" .,:;'|!il".includes(ch)) w = 0.278;
+  else if ("fjrtI()[]-".includes(ch)) w = 0.333;
+  else if ("mwMW".includes(ch)) w = 0.833;
+  else if (/[A-Z]/.test(ch)) w = 0.667;
+  return total + w;
+}, 0) * size * (bold ? 1.06 : 1);
+const pdfFit = (text, width, size, bold) => {
+  let value = String(text || "");
+  if (pdfWidth(value, size, bold) <= width) return value;
+  while (value.length > 1 && pdfWidth(`${value}…`, size, bold) > width) value = value.slice(0, -1);
+  return `${value}…`;
+};
+
+/**
+ * A landscape A4 PDF: a title, a few summary lines, then a table that runs
+ * over as many pages as it needs, its header repeated on each.
+ * columns: [{label, width, align}], rows: [[cells]], bold rows: {bold: true, cells}.
+ */
+const buildPdf = ({ title, subtitle, summary = [], columns, rows, footer = "" }) => {
+  const W = 842;
+  const H = 595;
+  const M = 36;
+  const pages = [];
+  let ops = [];
+  let y = 0;
+  const text = (x, yy, value, size, bold = false, color = "0 0 0") => {
+    ops.push(`BT ${color} rg /${bold ? "F2" : "F1"} ${size} Tf ${x.toFixed(1)} ${yy.toFixed(1)} Td ${pdfString(value)} Tj ET`);
+  };
+  const rect = (x, yy, w, h, gray) => ops.push(`${gray} g ${x.toFixed(1)} ${yy.toFixed(1)} ${w.toFixed(1)} ${h.toFixed(1)} re f`);
+  const header = () => {
+    let x = M;
+    rect(M, y - 4, W - 2 * M, 16, "0.92");
+    columns.forEach((col) => {
+      const label = pdfFit(col.label, col.width - 6, 8.5, true);
+      const lx = col.align === "right" ? x + col.width - 3 - pdfWidth(label, 8.5, true) : x + 3;
+      text(lx, y, label, 8.5, true);
+      x += col.width;
+    });
+    y -= 17;
+  };
+  const newPage = (first) => {
+    if (ops.length) pages.push(ops);
+    ops = [];
+    y = H - M - 8;
+    if (first) {
+      text(M, y, title, 16, true);
+      y -= 18;
+      if (subtitle) { text(M, y, subtitle, 10, false, "0.35 0.35 0.35"); y -= 18; }
+      summary.forEach((line) => { text(M, y, line.text, 10, !!line.bold); y -= 14; });
+      y -= 8;
+    } else {
+      text(M, y, title, 10, true, "0.35 0.35 0.35");
+      y -= 20;
+    }
+    header();
+  };
+  newPage(true);
+  rows.forEach((row, index) => {
+    const cells = Array.isArray(row) ? row : row.cells;
+    const bold = !Array.isArray(row) && row.bold;
+    if (y < M + 20) newPage(false);
+    if (!bold && index % 2 === 1) rect(M, y - 4, W - 2 * M, 14, "0.97");
+    if (bold) rect(M, y - 4, W - 2 * M, 14, "0.9");
+    let x = M;
+    columns.forEach((col, c) => {
+      const value = pdfFit(cells[c] == null ? "" : cells[c], col.width - 6, 8.5, bold);
+      const lx = col.align === "right" ? x + col.width - 3 - pdfWidth(value, 8.5, bold) : x + 3;
+      text(lx, y, value, 8.5, bold);
+      x += col.width;
+    });
+    y -= 14;
+  });
+  pages.push(ops);
+  const objects = [];
+  const add = (body) => { objects.push(body); return objects.length; };
+  const catalog = add("");
+  const pagesId = add("");
+  const f1 = add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>");
+  const f2 = add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>");
+  const kids = [];
+  pages.forEach((pageOps, i) => {
+    const foot = [`BT 0.45 0.45 0.45 rg /F1 8 Tf ${M} 20 Td ${pdfString(footer)} Tj ET`,
+      `BT 0.45 0.45 0.45 rg /F1 8 Tf ${W - M - 60} 20 Td ${pdfString(`Pagina ${i + 1} di ${pages.length}`)} Tj ET`];
+    const stream = pdfChars([...pageOps, ...foot].join("\n"));
+    const content = add(`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`);
+    kids.push(add(`<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${W} ${H}] /Resources << /Font << /F1 ${f1} 0 R /F2 ${f2} 0 R >> >> /Contents ${content} 0 R >>`));
+  });
+  objects[catalog - 1] = `<< /Type /Catalog /Pages ${pagesId} 0 R >>`;
+  objects[pagesId - 1] = `<< /Type /Pages /Kids [${kids.map((k) => `${k} 0 R`).join(" ")}] /Count ${kids.length} >>`;
+  let out = "%PDF-1.4\n%âãÏÓ\n";
+  const offsets = [];
+  objects.forEach((body, i) => { offsets.push(out.length); out += `${i + 1} 0 obj\n${body}\nendobj\n`; });
+  const xref = out.length;
+  out += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.map((o) => `${String(o).padStart(10, "0")} 00000 n \n`).join("")}`;
+  out += `trailer\n<< /Size ${objects.length + 1} /Root ${catalog} 0 R >>\nstartxref\n${xref}\n%%EOF`;
+  const bytes = new Uint8Array(out.length);
+  for (let i = 0; i < out.length; i += 1) bytes[i] = out.charCodeAt(i) & 0xFF;
+  return new Blob([bytes], { type: "application/pdf" });
+};
+
+/** Hand a file to the browser. */
+const saveBlob = (blob, name) => {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
 };
 
 class SpaBookingCard extends HTMLElement {
@@ -17257,11 +17507,251 @@ class SpaBookingCard extends HTMLElement {
     if (this._cfgTab === "promo") add(page, this._renderPromo());
     if (this._cfgTab === "email") add(page, this._renderEmail());
     if (this._cfgTab === "shop") add(page, this._renderShop());
+    if (this._cfgTab === "contabilita") add(page, this._renderAccounting());
     if (this._cfgTab === "accessi") add(page, this._renderAccessi());
     if (this._cfgTab === "impostazioni") add(page, this._renderSettings());
     wrap.appendChild(page);
 
     return wrap;
+  }
+
+  // -------------------------------------------------------- CONTABILITÀ (3.19.0)
+
+  _renderAccounting() {
+    const wrap = el("div", { class: "stack nt acc" });
+    wrap.appendChild(this._sectionHead("mdi:calculator-variant-outline", "Contabilità",
+      "Gli incassi registrati nelle prenotazioni, da filtrare e scaricare in PDF o Excel."));
+    const tab = this._accTab || "incassi";
+    wrap.appendChild(el("div", { class: "nt-tabs", role: "tablist" },
+      [["incassi", "mdi:cash-register", "Incassi"]].map(([id, icon, label]) => el("button", {
+        class: `nt-tab${tab === id ? " on" : ""}`, role: "tab", "aria-selected": tab === id ? "true" : "false",
+        on: { click: () => { this._accTab = id; this._render(); } },
+      }, el("ha-icon", { icon }), el("span", {}, label)))));
+    if (tab === "incassi") wrap.appendChild(this._accIncassi());
+    return wrap;
+  }
+
+  /** The period chosen, as [from, to] (both included, YYYY-MM-DD) and a label. */
+  _accPeriod() {
+    const f = this._accFilter;
+    const months = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"];
+    if (f.mode === "giorno") return { from: f.day, to: f.day, label: this._dateIt(f.day) };
+    if (f.mode === "anno") return { from: `${f.year}-01-01`, to: `${f.year}-12-31`, label: `Anno ${f.year}` };
+    if (f.mode === "periodo") {
+      const from = f.from <= f.to ? f.from : f.to;
+      const to = f.from <= f.to ? f.to : f.from;
+      return { from, to, label: `Dal ${this._dateIt(from)} al ${this._dateIt(to)}` };
+    }
+    const [y, m] = f.month.split("-").map(Number);
+    const last = new Date(y, m, 0).getDate();
+    return { from: `${f.month}-01`, to: `${f.month}-${pad(last)}`, label: `${months[m - 1].replace(/^./, (c) => c.toUpperCase())} ${y}` };
+  }
+
+  /**
+   * Every taking in the period, newest first. A taking split over a group is
+   * one row (3.18.1); the people it covers are counted.
+   */
+  _accRows() {
+    const { from, to } = this._accPeriod();
+    const f = this._accFilter;
+    const query = String(f.q || "").trim().toLowerCase();
+    const rows = [];
+    const bySplit = new Map();
+    (this._data.appointments || []).forEach((appointment) => {
+      (appointment.payments || []).forEach((payment) => {
+        const day = String(payment.date || "").slice(0, 10);
+        if (!day || day < from || day > to) return;
+        if (payment.split_id && bySplit.has(payment.split_id)) {
+          const row = bySplit.get(payment.split_id);
+          row.amount = Math.round((row.amount + Number(payment.amount || 0)) * 100) / 100;
+          row.people += 1;
+          if (!row.treatments.includes(this._treatmentName(appointment))) row.treatments.push(this._treatmentName(appointment));
+          return;
+        }
+        const start = parseDate(appointment.start);
+        const row = {
+          key: payment.split_id || payment.id,
+          date: day,
+          method: payment.method,
+          amount: Math.round(Number(payment.amount || 0) * 100) / 100,
+          client: this._clientName(appointment),
+          treatments: [this._treatmentName(appointment)],
+          visit: start ? ymd(start) : "",
+          code: appointment.code || "",
+          voucher: payment.voucher_code || "",
+          cancelled: appointment.status === "cancelled",
+          people: 1,
+        };
+        if (payment.split_id) bySplit.set(payment.split_id, row);
+        rows.push(row);
+      });
+    });
+    return rows
+      .filter((row) => !query || [row.client, row.code, row.voucher, ...row.treatments].join(" ").toLowerCase().includes(query))
+      .sort((a, b) => (b.date + b.key).localeCompare(a.date + a.key));
+  }
+
+  _accIncassi() {
+    const today = todayStr();
+    if (!this._accFilter) {
+      this._accFilter = { mode: "mese", day: today, month: today.slice(0, 7), year: today.slice(0, 4),
+        from: `${today.slice(0, 7)}-01`, to: today, methods: [], q: "" };
+    }
+    const f = this._accFilter;
+    const set = (changes) => { Object.assign(f, changes); this._render(); };
+    const shift = (step) => {
+      if (f.mode === "giorno") {
+        const d = new Date(`${f.day}T12:00:00`); d.setDate(d.getDate() + step); set({ day: ymd(d) });
+      } else if (f.mode === "mese") {
+        const [y, m] = f.month.split("-").map(Number); const d = new Date(y, m - 1 + step, 1);
+        set({ month: `${d.getFullYear()}-${pad(d.getMonth() + 1)}` });
+      } else if (f.mode === "anno") set({ year: String(Number(f.year) + step) });
+    };
+    const box = el("div", { class: "stack" });
+
+    // Period: day, month, year or from–to.
+    const modes = [["giorno", "Giorno"], ["mese", "Mese"], ["anno", "Anno"], ["periodo", "Periodo"]];
+    const years = new Set([today.slice(0, 4)]);
+    (this._data.appointments || []).forEach((a) => (a.payments || []).forEach((p) => p.date && years.add(String(p.date).slice(0, 4))));
+    const picker = f.mode === "giorno"
+      ? el("input", { class: "input", type: "date", value: f.day, on: { change: (e) => e.target.value && set({ day: e.target.value }) } })
+      : f.mode === "mese"
+        ? el("input", { class: "input", type: "month", value: f.month, on: { change: (e) => e.target.value && set({ month: e.target.value }) } })
+        : f.mode === "anno"
+          ? el("select", { class: "input", on: { change: (e) => set({ year: e.target.value }) } },
+            [...years].sort().reverse().map((y) => el("option", { value: y, selected: y === f.year }, y)))
+          : el("span", { class: "acc-range" },
+            el("input", { class: "input", type: "date", value: f.from, on: { change: (e) => e.target.value && set({ from: e.target.value }) } }),
+            el("span", { class: "dim" }, "→"),
+            el("input", { class: "input", type: "date", value: f.to, on: { change: (e) => e.target.value && set({ to: e.target.value }) } }));
+    box.appendChild(el("div", { class: "cfg-box acc-filters" },
+      el("div", { class: "acc-row" },
+        el("div", { class: "nt-tabs acc-modes" }, modes.map(([id, label]) => el("button", {
+          class: `nt-tab${f.mode === id ? " on" : ""}`, on: { click: () => set({ mode: id }) } }, label))),
+        el("div", { class: "acc-when" },
+          f.mode !== "periodo" ? el("button", { class: "icon-btn", title: "Precedente", on: { click: () => shift(-1) } }, el("ha-icon", { icon: "mdi:chevron-left" })) : null,
+          picker,
+          f.mode !== "periodo" ? el("button", { class: "icon-btn", title: "Successivo", on: { click: () => shift(1) } }, el("ha-icon", { icon: "mdi:chevron-right" })) : null)),
+      el("div", { class: "acc-row" },
+        el("div", { class: "acc-methods" },
+          el("button", { class: `chip${!f.methods.length ? " on" : ""}`, on: { click: () => set({ methods: [] }) } }, "Tutti i tipi"),
+          PAYMENT_METHODS.map(({ id, label, icon }) => el("button", {
+            class: `chip${f.methods.includes(id) ? " on" : ""}`,
+            on: { click: () => set({ methods: f.methods.includes(id) ? f.methods.filter((m) => m !== id) : [...f.methods, id] }) },
+          }, el("ha-icon", { icon }), label))),
+        el("input", { class: "input acc-search", type: "search", placeholder: "Cerca cliente, codice, trattamento", value: f.q || "",
+          on: { input: (e) => { f.q = e.target.value; clearTimeout(this._accSearchT); this._accSearchT = setTimeout(() => this._render(), 250); } } }))));
+
+    const all = this._accRows();
+    const rows = f.methods.length ? all.filter((r) => f.methods.includes(r.method)) : all;
+    const total = Math.round(rows.reduce((t, r) => t + r.amount, 0) * 100) / 100;
+    const byMethod = PAYMENT_METHODS.map((m) => {
+      const list = all.filter((r) => r.method === m.id);
+      return { ...m, count: list.length, total: Math.round(list.reduce((t, r) => t + r.amount, 0) * 100) / 100 };
+    }).filter((m) => m.count);
+    const period = this._accPeriod();
+
+    box.appendChild(el("div", { class: "stats acc-stats" },
+      el("div", { class: "stat" }, el("span", { class: "stat-label" }, period.label), el("span", { class: "stat-value" }, euro(total))),
+      el("div", { class: "stat" }, el("span", { class: "stat-label" }, "Incassi"), el("span", { class: "stat-value" }, String(rows.length))),
+      ...byMethod.map((m) => el("button", {
+        class: `stat${f.methods.length === 1 && f.methods[0] === m.id ? " on" : ""}`,
+        title: `Solo ${m.label}`,
+        on: { click: () => set({ methods: f.methods.length === 1 && f.methods[0] === m.id ? [] : [m.id] }) },
+      }, el("span", { class: "stat-label" }, el("ha-icon", { icon: m.icon }), ` ${m.label} · ${m.count}`), el("span", { class: "stat-value" }, euro(m.total))))));
+
+    box.appendChild(el("div", { class: "row acc-actions" },
+      el("span", { class: "dim small" }, rows.length ? `${rows.length} incassi · ${euro(total)}` : ""),
+      el("span", { class: "spacer" }),
+      el("button", { class: "btn", disabled: !rows.length, on: { click: () => this._accExport("pdf", rows, byMethod) } },
+        el("ha-icon", { icon: "mdi:file-pdf-box" }), "Scarica PDF"),
+      el("button", { class: "btn", disabled: !rows.length, on: { click: () => this._accExport("xlsx", rows, byMethod) } },
+        el("ha-icon", { icon: "mdi:microsoft-excel" }), "Scarica Excel")));
+
+    if (!rows.length) {
+      box.appendChild(el("div", { class: "empty" }, "Nessun incasso in questo periodo."));
+      return box;
+    }
+    const methodOf = (id) => PAYMENT_METHODS.find((m) => m.id === id) || { label: id, icon: "mdi:cash" };
+    // Day by day (a month or a period), month by month (a year).
+    const groupKey = f.mode === "anno" ? (r) => r.date.slice(0, 7) : (r) => r.date;
+    const groups = new Map();
+    rows.forEach((r) => { const k = groupKey(r); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(r); });
+    const months = ["Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno", "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre"];
+    const table = el("div", { class: "cfg-box acc-table" });
+    groups.forEach((list, key) => {
+      const sum = Math.round(list.reduce((t, r) => t + r.amount, 0) * 100) / 100;
+      table.appendChild(el("div", { class: "acc-day" },
+        el("b", {}, f.mode === "anno" ? `${months[Number(key.slice(5, 7)) - 1]} ${key.slice(0, 4)}` : this._dateIt(key)),
+        el("span", { class: "dim small" }, `${list.length} ${list.length === 1 ? "incasso" : "incassi"}`),
+        el("span", { class: "spacer" }), el("b", {}, euro(sum))));
+      list.forEach((r) => {
+        const m = methodOf(r.method);
+        table.appendChild(el("div", { class: `acc-line m-${r.method}` },
+          el("span", { class: "conto-ico" }, el("ha-icon", { icon: m.icon })),
+          el("span", { class: "grow" },
+            el("b", {}, r.client, r.cancelled ? el("span", { class: "pill warn" }, "annullato") : null),
+            el("span", { class: "dim small" }, [
+              r.treatments.join(", "),
+              r.people > 1 ? `${r.people} persone` : "",
+              r.visit ? `visita ${this._dateIt(r.visit)}` : "",
+              r.code ? `cod. ${r.code}` : "",
+              r.voucher ? `voucher ${r.voucher}` : "",
+              f.mode === "anno" ? `incassato ${this._dateIt(r.date)}` : "",
+            ].filter(Boolean).join(" · "))),
+          el("span", { class: "acc-method dim small" }, m.label),
+          el("b", { class: "acc-amount" }, euro(r.amount))));
+      });
+    });
+    box.appendChild(table);
+    return box;
+  }
+
+  /** The report as a PDF or an Excel file: what is on screen. */
+  _accExport(kind, rows, byMethod) {
+    const period = this._accPeriod();
+    const f = this._accFilter;
+    const methodLabel = (id) => (PAYMENT_METHODS.find((m) => m.id === id) || {}).label || id;
+    const total = Math.round(rows.reduce((t, r) => t + r.amount, 0) * 100) / 100;
+    const hotel = (this._data.settings && (this._data.settings.guest_header || this._data.settings.brand_name)) || "Spa Booking";
+    const filters = [f.methods.length ? `Tipi: ${f.methods.map(methodLabel).join(", ")}` : "Tutti i tipi", f.q ? `Ricerca: «${f.q}»` : ""].filter(Boolean).join(" · ");
+    const stamp = new Date().toLocaleString("it-IT", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+    const slug = `${period.from}${period.to !== period.from ? `_${period.to}` : ""}`;
+    const sorted = [...rows].sort((a, b) => (a.date + a.key).localeCompare(b.date + b.key));
+    const detail = (r) => [
+      this._dateIt(r.date), r.client + (r.cancelled ? " (annullato)" : ""), r.treatments.join(", ") + (r.people > 1 ? ` (${r.people} persone)` : ""),
+      r.visit ? this._dateIt(r.visit) : "", r.code, methodLabel(r.method) + (r.voucher ? ` ${r.voucher}` : ""),
+    ];
+    if (kind === "xlsx") {
+      const head = ["Data incasso", "Cliente", "Trattamento", "Data visita", "Codice", "Tipo", "Importo"].map((v) => ({ v, s: 1 }));
+      const sheetRows = [[{ v: `Incassi · ${period.label}`, s: 1 }], [filters], [], head,
+        ...sorted.map((r) => [...detail(r), { v: r.amount, s: 2 }]),
+        [], ["", "", "", "", "", { v: "Totale", s: 1 }, { v: total, s: 3 }]];
+      const summary = [[{ v: `Riepilogo · ${period.label}`, s: 1 }], [], [{ v: "Tipo", s: 1 }, { v: "Incassi", s: 1 }, { v: "Importo", s: 1 }],
+        ...byMethod.filter((m) => !f.methods.length || f.methods.includes(m.id)).map((m) => [m.label, m.count, { v: m.total, s: 2 }]),
+        [{ v: "Totale", s: 1 }, { v: rows.length, s: 1 }, { v: total, s: 3 }]];
+      saveBlob(buildXlsx([
+        { name: "Incassi", rows: sheetRows, widths: [13, 26, 34, 12, 14, 18, 13] },
+        { name: "Riepilogo", rows: summary, widths: [22, 10, 14] },
+      ]), `incassi_${slug}.xlsx`);
+      return;
+    }
+    const shown = byMethod.filter((m) => !f.methods.length || f.methods.includes(m.id));
+    saveBlob(buildPdf({
+      title: `Incassi · ${period.label}`,
+      subtitle: `${hotel} · ${filters}`,
+      summary: [
+        { text: `Totale: ${euro(total)} · ${rows.length} incassi`, bold: true },
+        { text: shown.map((m) => `${m.label}: ${euro(m.total)} (${m.count})`).join("   ") },
+      ],
+      columns: [
+        { label: "Data", width: 62 }, { label: "Cliente", width: 150 }, { label: "Trattamento", width: 210 },
+        { label: "Visita", width: 62 }, { label: "Codice", width: 80 }, { label: "Tipo", width: 116 },
+        { label: "Importo", width: 90, align: "right" },
+      ],
+      rows: [...sorted.map((r) => [...detail(r), euro(r.amount)]), { bold: true, cells: ["", "", "", "", "", "Totale", euro(total)] }],
+      footer: `Spa Booking · creato il ${stamp}`,
+    }), `incassi_${slug}.pdf`);
   }
 
   // ----------------------------------------------------------- notifications
@@ -24013,6 +24503,29 @@ class SpaBookingCard extends HTMLElement {
       .pay-people { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; padding: 10px 12px; border: 1px solid var(--divider-color, #e0e0e0); border-radius: 12px; }
       .pay-people .check { display: flex; align-items: center; gap: 8px; }
       .pay-people .grow { flex: 1; min-width: 0; }
+      .acc-filters { display: flex; flex-direction: column; gap: 12px; }
+      .acc-row { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; justify-content: space-between; }
+      .acc-when { display: flex; align-items: center; gap: 6px; }
+      .acc-when .input { width: auto; min-width: 150px; }
+      .acc-range { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+      .acc-methods { display: flex; flex-wrap: wrap; gap: 6px; }
+      .acc-methods .chip { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--divider-color, #e0e0e0); background: var(--card-background-color, #fff); color: var(--primary-text-color); border-radius: 999px; padding: 6px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+      .acc-methods .chip.on { background: var(--sb-accent-soft, #e3f2f7); border-color: var(--sb-accent, #0b84a5); color: var(--sb-accent, #0b84a5); font-weight: 600; }
+      .acc-methods .chip ha-icon { --mdc-icon-size: 16px; }
+      .acc-search { max-width: 280px; }
+      .acc-stats .stat-label ha-icon { --mdc-icon-size: 15px; vertical-align: -2px; }
+      .acc-actions { align-items: center; }
+      .acc-table { padding: 0; overflow: hidden; }
+      .acc-day { display: flex; align-items: center; gap: 10px; padding: 10px 16px; background: var(--secondary-background-color, #f4f6f8); border-top: 1px solid var(--divider-color, #e0e0e0); }
+      .acc-day:first-child { border-top: 0; }
+      .acc-line { display: flex; align-items: center; gap: 12px; padding: 7px 16px; border-top: 1px solid var(--divider-color, #eceff1); }
+      .acc-line .conto-ico { width: 30px; height: 30px; flex: none; }
+      .acc-line .grow > * { line-height: 1.3; }
+      .acc-line .grow { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+      .acc-line .grow b { display: flex; gap: 8px; align-items: center; }
+      .acc-method { width: 120px; text-align: right; }
+      .acc-amount { width: 90px; text-align: right; }
+      @media (max-width: 700px) { .acc-method { display: none; } .acc-search { max-width: none; width: 100%; } }
       .low-spa-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
       .low-spa-wait { color: var(--sb-warn-fg, #9a6700); font-weight: 600; }
       .notice-sheet { width: min(440px, calc(100vw - 24px)); max-height: calc(100vh - 90px); margin: 64px 12px 12px auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
