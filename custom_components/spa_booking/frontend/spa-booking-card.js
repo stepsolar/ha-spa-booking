@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "3.18.0";
+const CARD_VERSION = "3.18.1";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -2343,7 +2343,21 @@ class SpaBookingCard extends HTMLElement {
    * takings ({method, date, amount, voucher_code, remove}); ``voucher`` is
    * what a voucher will pay when the booking is saved (new bookings only).
    */
-  _contoView({ total, rows, onPay, onOther, voucher = null, title = "Conto" }) {
+  _contoView({ total, rows: rawRows, onPay, onOther, voucher = null, title = "Conto" }) {
+    // 3.18.1: the parts of one taking split over a group are one row.
+    const rows = [];
+    const bySplit = new Map();
+    (rawRows || []).forEach((row) => {
+      if (row.split_id && bySplit.has(row.split_id)) {
+        const first = bySplit.get(row.split_id);
+        first.amount = Math.round((Number(first.amount) + Number(row.amount)) * 100) / 100;
+        first.parts += 1;
+        return;
+      }
+      const copy = { ...row, parts: 1 };
+      if (row.split_id) bySplit.set(row.split_id, copy);
+      rows.push(copy);
+    });
     const paid = Math.round(rows.reduce((sum, row) => sum + (Number(row.amount) || 0), 0) * 100) / 100;
     const fromVoucher = voucher ? voucher.amount : 0;
     const due = Math.max(0, Math.round((total - paid - fromVoucher) * 100) / 100);
@@ -2372,7 +2386,8 @@ class SpaBookingCard extends HTMLElement {
       list.appendChild(el("div", { class: `conto-row m-${row.method}` },
         el("span", { class: "conto-ico" }, el("ha-icon", { icon: method.icon || "mdi:cash" })),
         el("span", { class: "grow" }, el("b", {}, method.label || row.method),
-          el("span", { class: "dim small" }, [row.date ? this._dateIt(row.date) : "", row.voucher_code ? `codice ${row.voucher_code}` : ""].filter(Boolean).join(" · "))),
+          el("span", { class: "dim small" }, [row.date ? this._dateIt(row.date) : "", row.voucher_code ? `codice ${row.voucher_code}` : "",
+            row.parts > 1 ? `diviso su ${row.parts} persone` : ""].filter(Boolean).join(" · "))),
         el("b", {}, euro(row.amount)),
         row.remove ? el("button", { class: "icon-btn danger", title: "Togli questo incasso", disabled: this._busy, on: { click: row.remove } },
           el("ha-icon", { icon: "mdi:close" })) : null));
@@ -2430,10 +2445,13 @@ class SpaBookingCard extends HTMLElement {
   }
 
   /** One tap: the balance in this method, on an existing appointment. */
-  async _payNow(appointmentId, method, amount) {
+  async _payNow(appointmentId, method, amount, groupIds = null) {
     if (!this._can("payments") || !(amount > 0)) return;
     try {
-      await this._call("add_payment", { appointment_id: appointmentId, method, date: todayStr(), amount: Math.round(amount * 100) / 100 });
+      // 3.18.1: a group's balance is split over its people, by what each owes.
+      const ids = (groupIds || []).filter(Boolean);
+      await this._call("add_payment", { appointment_id: appointmentId, method, date: todayStr(), amount: Math.round(amount * 100) / 100,
+        ...(ids.length > 1 ? { appointment_ids: ids } : {}) });
       const label = (PAYMENT_METHODS.find(({ id }) => id === method) || {}).label || method;
       this._message = { kind: "ok", text: `Incassati ${euro(amount)} (${label}).` };
       this._render();
@@ -2537,9 +2555,11 @@ class SpaBookingCard extends HTMLElement {
     const rows = live.flatMap((member) => (member.payments || []).map((item) => ({ ...item, remove: async () => {
       try { await this._call("delete_payment", { appointment_id: member.id, payment_id: item.id }); } catch (error) { /* shown */ }
     } })));
+    const ids = live.map((member) => member.id);
     return this._contoView({ total, rows, title: "Incassi",
-      onPay: (method, amount) => this._payNow(appointment.id, method, amount),
-      onOther: (amount) => this._openPayPopupFor(appointment.id, amount) });
+      // 3.18.1: a group asks first whom the taking is for.
+      onPay: (method, amount) => (ids.length > 1 ? this._openPayPopupFor(appointment.id, amount, live, method) : this._payNow(appointment.id, method, amount)),
+      onOther: (amount) => this._openPayPopupFor(appointment.id, amount, live) });
   }
 
   /** Open the taking popup with today and the first method preselected. */
@@ -2556,11 +2576,17 @@ class SpaBookingCard extends HTMLElement {
   }
 
   /** Open the taking popup writing straight onto an existing appointment. */
-  _openPayPopupFor(appointmentId, due = 0) {
+  _openPayPopupFor(appointmentId, due = 0, members = null, method = "cash") {
     if (!this._can("payments")) return;
+    // 3.18.1: a group: whom the taking is for (everybody, at first).
+    const people = (members || []).filter((m) => m && m.status !== "cancelled")
+      .map((m) => (this._data.appointments || []).find((a) => a.id === m.id) || m);
     this._payPopup = {
       target: { kind: "appointment", id: appointmentId },
-      method: "cash",
+      members: people.length > 1 ? people.map((m, i) => ({ id: m.id, due: this._singleTotals(m).due,
+        label: `Persona ${i + 1} · ${this._clientName(m)} · ${this._treatmentName(m)}` })) : null,
+      chosen: people.length > 1 ? people.map((m) => m.id) : null,
+      method: method || "cash",
       date: todayStr(),
       amount: due > 0 ? String(due).replace(".", ",") : "",
       due,
@@ -2585,13 +2611,20 @@ class SpaBookingCard extends HTMLElement {
     const target = draft.target || { kind: "form" };
     if (target.kind === "appointment" && target.id) {
       // Existing appointment: written at once, the reload brings fresh data.
+      const chosen = draft.chosen || [];
+      if (draft.members && !chosen.length) {
+        this._message = { kind: "error", text: "Scegli per chi è l'incasso." };
+        this._render();
+        return;
+      }
       this._payPopup = null;
       try {
         await this._call("add_payment", {
-          appointment_id: target.id,
+          appointment_id: chosen.length ? chosen[0] : target.id,
           method: draft.method,
           date: String(draft.date || todayStr()),
           amount,
+          ...(chosen.length > 1 ? { appointment_ids: chosen } : {}),
         });
       } catch (error) {
         /* message already shown */
@@ -2619,6 +2652,32 @@ class SpaBookingCard extends HTMLElement {
         type: "button", class: `pay-m${draft.method === id ? " on" : ""}`,
         on: { click: () => { draft.method = id; this._render(); } },
       }, el("ha-icon", { icon }), el("span", {}, label))))));
+    if (draft.members) {
+      // 3.18.1: a group: for everybody (split by what each owes) or for some.
+      const chosen = new Set(draft.chosen || []);
+      const sumDue = () => Math.round(draft.members.filter((m) => chosen.has(m.id)).reduce((t, m) => t + m.due, 0) * 100) / 100;
+      const apply = () => {
+        draft.chosen = draft.members.filter((m) => chosen.has(m.id)).map((m) => m.id);
+        draft.due = sumDue();
+        draft.amount = draft.due > 0 ? String(draft.due).replace(".", ",") : "";
+        this._render();
+      };
+      const all = chosen.size === draft.members.length;
+      sheet.appendChild(el("div", { class: "field" }, el("span", {}, "Per chi"),
+        el("div", { class: "pay-who" },
+          el("button", { type: "button", class: `pay-m${all ? " on" : ""}`, on: { click: () => { draft.members.forEach((m) => chosen.add(m.id)); apply(); } } },
+            el("ha-icon", { icon: "mdi:account-group-outline" }), el("span", {}, `Tutto il gruppo (${draft.members.length})`)),
+          el("button", { type: "button", class: `pay-m${!all ? " on" : ""}`, on: { click: () => { if (all) { chosen.clear(); apply(); } } } },
+            el("ha-icon", { icon: "mdi:account-check-outline" }), el("span", {}, "Scegli le persone"))),
+        !all ? el("div", { class: "pay-people" }, draft.members.map((m) => el("label", { class: "check" },
+          el("input", { type: "checkbox", checked: chosen.has(m.id),
+            on: { change: (event) => { if (event.target.checked) chosen.add(m.id); else chosen.delete(m.id); apply(); } } }),
+          el("span", { class: "grow" }, m.label),
+          el("b", { class: m.due > 0 ? "" : "dim" }, m.due > 0 ? euro(m.due) : "saldato")))) : null,
+        el("span", { class: "dim small" }, all
+          ? "L'importo si divide tra le persone in base a quanto deve ciascuna."
+          : "L'importo si divide tra le persone scelte, in base a quanto deve ciascuna.")));
+    }
     sheet.appendChild(el("label", { class: "field" },
       el("span", {}, "Data di pagamento"),
       el("input", {
@@ -5523,8 +5582,10 @@ class SpaBookingCard extends HTMLElement {
         (related.length > 1 || persons > 1) ? el("div", { class: "dim small" },
           [related.length > 1 ? `${related.length} appuntamenti` : "", persons > 1 ? `${persons} persone` : ""].filter(Boolean).join(" · ")) : null,
         this._contoView({ total, rows: billRows, title: grouped ? "Conto del gruppo" : "Conto",
-          onPay: canPay ? (method, amount) => this._payNow(appointment.id, method, amount) : null,
-          onOther: canPay ? (amount) => this._openPayPopupFor(appointment.id, amount) : null })));
+          onPay: canPay ? (method, amount) => (holders.length > 1
+            ? this._openPayPopupFor(appointment.id, amount, holders, method)
+            : this._payNow(appointment.id, method, amount)) : null,
+          onOther: canPay ? (amount) => this._openPayPopupFor(appointment.id, amount, holders) : null })));
     }
     void collected; void due;
 
@@ -9376,6 +9437,9 @@ class SpaBookingCard extends HTMLElement {
       // its first appointment, where the Incassi box of Fase 3 reads them.
       const staged = this._form.stagedPayments || [];
       if (first && staged.length) {
+        // 3.18.1: split over everybody booked, by what each owes (before,
+        // all on the first person: the second still read «da saldare»).
+        const ids = appointments.map((item) => item.id);
         for (const item of staged) {
           try {
             await this._call("add_payment", {
@@ -9383,6 +9447,7 @@ class SpaBookingCard extends HTMLElement {
               method: item.method,
               date: item.date,
               amount: item.amount,
+              ...(ids.length > 1 ? { appointment_ids: ids } : {}),
             });
           } catch (error) {
             /* message already shown */
@@ -23944,6 +24009,10 @@ class SpaBookingCard extends HTMLElement {
       button.pm-chip { border: 0; cursor: pointer; font: inherit; font-size: 11px; font-weight: 600; }
       .acc2-noweb { display: inline-flex; align-items: center; gap: 3px; }
       .acc2-noweb ha-icon { --mdc-icon-size: 13px; }
+      .pay-who { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+      .pay-people { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; padding: 10px 12px; border: 1px solid var(--divider-color, #e0e0e0); border-radius: 12px; }
+      .pay-people .check { display: flex; align-items: center; gap: 8px; }
+      .pay-people .grow { flex: 1; min-width: 0; }
       .low-spa-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
       .low-spa-wait { color: var(--sb-warn-fg, #9a6700); font-weight: 600; }
       .notice-sheet { width: min(440px, calc(100vw - 24px)); max-height: calc(100vh - 90px); margin: 64px 12px 12px auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }

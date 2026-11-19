@@ -111,6 +111,17 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v3.18.1** — (serve il riavvio di Home Assistant)
+  - **Incassi delle prenotazioni di gruppo**: corretto il messaggio
+    all'ospite che, con l'incasso registrato su una sola persona, mostrava un
+    «da saldare» sbagliato (80 € versati su due persone da 40 € → «da saldare
+    40 €»): ora il residuo è calcolato sul gruppo intero.
+  - Un incasso su un gruppo si divide tra le persone in base a quanto deve
+    ciascuna (servizio `add_payment` con `appointment_ids`), anche quello
+    inserito alla creazione della prenotazione. Nel conto è una sola riga;
+    togliendola sparisce da tutti.
+  - Toccando il metodo di pagamento di un gruppo si apre la finestra con
+    **Per chi**: *Tutto il gruppo* oppure *Scegli le persone*.
 - **v3.18.0** — (serve il riavvio di Home Assistant; plugin WordPress 1.8.0)
   - **Gift card di Spa Booking sullo shop**: ogni gift card venduta in Spa
     Booking (solo credito, attiva, non scaduta) diventa un codice sconto

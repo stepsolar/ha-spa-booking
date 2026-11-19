@@ -1697,6 +1697,10 @@ def _norm_payment_list(raw: Any) -> list[dict[str, Any]]:
             "date": _norm_date(item.get("date")),
             "amount": amount,
         }
+        # One taking split over the people of a group (3.18.1): the same id
+        # on each part, shown and removed as one.
+        if item.get("split_id"):
+            entry["split_id"] = str(item.get("split_id"))
         # A taking that is a voucher or gift card used at booking (2.8.1).
         if item.get("voucher_id"):
             entry["voucher_id"] = str(item.get("voucher_id"))

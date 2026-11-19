@@ -1203,6 +1203,13 @@ add_payment:
       description: Formato AAAA-MM-GG; vuota per oggi.
       selector:
         date:
+    appointment_ids:
+      name: Persone del gruppo
+      description: >-
+        Facoltativo: gli appuntamenti del gruppo per cui è l'incasso; l'importo
+        si divide in base a quanto deve ciascuno.
+      selector:
+        object:
 
 delete_payment:
   name: Elimina un incasso
