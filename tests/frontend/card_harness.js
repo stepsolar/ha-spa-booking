@@ -36,7 +36,13 @@ const sandbox = {
   customElements: { get: () => undefined, define: (name, cls) => { Card = cls; } },
   window: {},
   setTimeout, clearTimeout,
+  // The report files (3.19.0): the last one «downloaded» is kept here.
+  Blob, TextEncoder,
+  URL: { createObjectURL: (blob) => { sandbox.lastBlob = blob; return "blob:test"; }, revokeObjectURL() {} },
 };
+Node.prototype.click = function click() { sandbox.lastDownload = this.download; };
+Node.prototype.remove = function remove() {};
+sandbox.document.body = new Node("body");
 sandbox.window = sandbox;
 vm.createContext(sandbox);
 

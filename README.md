@@ -111,6 +111,14 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v3.19.0** — (serve il riavvio di Home Assistant)
+  - Nuova scheda **Configurazione › Contabilità**, con la sottoscheda
+    **Incassi**: tutti gli incassi delle prenotazioni filtrabili per giorno,
+    mese, anno o periodo e per tipo (carta, contante, bonifico, gift card,
+    voucher), con ricerca, totale e totale per tipo, elenco giorno per giorno.
+  - **Scarica PDF** (A4 orizzontale, riepilogo e tabella su più pagine) e
+    **Scarica Excel** (.xlsx con i fogli *Incassi* e *Riepilogo*), creati
+    dalla card senza librerie esterne.
 - **v3.18.1** — (serve il riavvio di Home Assistant)
   - **Incassi delle prenotazioni di gruppo**: corretto il messaggio
     all'ospite che, con l'incasso registrato su una sola persona, mostrava un
