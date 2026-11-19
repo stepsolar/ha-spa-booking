@@ -1265,6 +1265,12 @@ send_guest_summary:
       description: Non aggiunge le altre persone della prenotazione (conferma parziale).
       selector:
         boolean:
+    kind:
+      name: Tipo di messaggio
+      description: change = prenotazione modificata, confirm = conferma; vuoto = sceglie da sé.
+      selector:
+        select:
+          options: ["", "change", "confirm"]
 
 send_deposit_request:
   name: Richiedi acconto all'ospite

@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "3.15.1";
+const CARD_VERSION = "3.16.0";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -173,6 +173,15 @@ const NOTIFY_MESSAGES = [
     ],
   },
   {
+    id: "change", group: "Prima della visita", icon: "mdi:calendar-edit",
+    title: "Modifica della prenotazione", key: "change_message",
+    when: () => "Dopo una modifica, se scegli «Invia»", auto: () => false,
+    description: "Al posto della conferma, quando la prenotazione è stata spostata o ha cambiato trattamento: dice all'ospite che è stata modificata ed è confermata così. Per più persone parte un solo messaggio.",
+    chips: [["{nome}", "Nome"], ["{cognome}", "Cognome"], ["{data}", "Giorno"], ["{appuntamenti}", "Un appuntamento per riga"],
+      ["{codice}", "Codice prenotazione"], ["{hotel}", "Intestazione"], ["{ora}", "Primo inizio"], ["{fine}", "Ultima fine"],
+      ["{totale}", "Prezzo"], ["{sconto}", "Sconto (la riga sparisce se non c'è)"], ["{acconto}", "Acconto"], ["{versato}", "Incassato"], ["{residuo}", "Da saldare"], ["{pagamenti}", "Versamenti"]],
+  },
+  {
     id: "cancel", group: "Prima della visita", icon: "mdi:calendar-remove",
     title: "Annullamento", key: "cancel_message",
     when: () => "Quando si annulla, se scegli «Sì»", auto: () => false,
@@ -256,7 +265,8 @@ const NOTIFY_SAVE_KEYS = [
   "request_message", "request_propose_message", "request_propose_alt_intro", "request_propose_alt_line",
   "deposit_message", "deposit_intestatario", "deposit_iban", "summary_message", "guest_header",
   "appointment_reminder_message", "appointment_reminder_auto", "appointment_reminder_hours",
-  "cancel_message",
+  "cancel_message", "change_message",
+  "low_spa_alert", "low_spa_min", "low_spa_hours", "low_spa_category_ids",
   "review_request_message", "review_request_auto", "review_request_after_hours",
   "offer_timeout_hours", "offer_reminder_hours",
   ...OPERATOR_MESSAGES.map((m) => m.key),
@@ -1375,6 +1385,7 @@ class SpaBookingCard extends HTMLElement {
         else if (this._confirmPopup) { this._confirmPopup = null; this._render(); }
         else if (this._mediaView) { this._mediaView = null; this._render(); }
         else if (this._noticePanel) { this._noticePanel = false; this._render(); }
+        else if (this._changePopup) { this._changePopup = null; this._render(); }
         else if (this._wpProduct) { this._wpProduct = null; this._render(); }
         else if (this._wpOrder) { this._wpOrder = null; this._render(); }
         else if (this._partnerSend) { this._partnerSend = null; this._render(); }
@@ -2948,7 +2959,7 @@ class SpaBookingCard extends HTMLElement {
       clear_slot_block: "Fascia riaperta.",
       set_offer_state: "Stato conferma aggiornato.",
       send_operator_message: "Messaggio inviato all'operatrice.",
-      send_guest_summary: "Conferma inviata all'ospite.",
+      send_guest_summary: "Messaggio inviato all'ospite.",
       send_deposit_request: "Richiesta acconto inviata all'ospite.",
       cancel_appointment: "Appuntamento annullato.",
       delete_appointment: "Appuntamento eliminato.",
@@ -3776,6 +3787,7 @@ class SpaBookingCard extends HTMLElement {
     if (this._confirmPopup) add(root, this._renderConfirmPopup());
     if (this._mediaView) add(root, this._renderMediaView());
     if (this._noticePanel) add(root, this._renderNoticePanel());
+    if (this._changePopup) add(root, this._renderChangePopup());
     if (this._wpProduct) add(root, this._renderWpProduct());
     if (this._wpOrder) add(root, this._renderWpOrder());
     if (this._partnerMenu) add(root, this._renderPartnerMenu());
@@ -6682,7 +6694,7 @@ class SpaBookingCard extends HTMLElement {
           });
         });
       });
-      await this._call("update_booking_batch", {
+      const result = await this._call("update_booking_batch", {
         appointment_id: this._batchAnchorId,
         rows: flattened,
         ...(forceRules ? { force_rules: true } : {}),
@@ -6692,7 +6704,13 @@ class SpaBookingCard extends HTMLElement {
       this._batchAnchorBatchId = null;
       this._batchRows = [];
       this._tab = "agenda";
-      this._message = { kind: "ok", text: "Gruppo aggiornato." };
+      this._message = { kind: "ok", text: "Prenotazione aggiornata." };
+      // A booking moved or with another treatment (3.16.0): the guest is
+      // offered «prenotazione modificata e confermata», never a new
+      // confirmation. Nothing goes out on its own.
+      const saved = ((result && result.appointments) || []).filter((a) => a && a.id && a.status !== "cancelled");
+      const changed = saved.filter((a) => this._changedSinceSent(a));
+      if (changed.length && ((saved[0].client || {}).phone)) this._changePopup = { ids: saved.map((a) => a.id), appointments: saved };
     } catch (error) {
       const text = String((error && error.message) || "");
       if (this._isExclusionRule(text)) {
@@ -9665,8 +9683,9 @@ class SpaBookingCard extends HTMLElement {
     const at = confirmation ? appointment.confirmation_sent_at : appointment.reminder_sent_at;
     const sent = Boolean(at) || (!confirmation && appointment.reminder_sent);
     const when = at ? `${shortDate(at)} ${timeOf(parseDate(at))}` : "";
+    const changed = confirmation && this._changedSinceSent(appointment);
     const label = confirmation
-      ? (sent ? "Reinvia conferma" : "Invia conferma")
+      ? (changed ? "Invia modifica" : sent ? "Reinvia conferma" : "Invia conferma")
       : (sent ? "Reinvia promemoria" : "Invia promemoria");
     return el("span", { class: "wa-send-cell" },
       el("span", { class: sent ? "detail-value ok" : "dim" },
@@ -9682,7 +9701,7 @@ class SpaBookingCard extends HTMLElement {
               : await this._call("send_reminders", { appointment_id: appointment.id });
             const ok = confirmation ? response && response.sent : response && response.sent > 0;
             this._message = ok
-              ? { kind: "ok", text: confirmation ? "Conferma inviata all'ospite su WhatsApp." : "Promemoria inviato all'ospite su WhatsApp." }
+              ? { kind: "ok", text: confirmation ? (changed ? "Modifica inviata all'ospite su WhatsApp." : "Conferma inviata all'ospite su WhatsApp.") : "Promemoria inviato all'ospite su WhatsApp." }
               : { kind: "error", text: "WhatsApp non ha inviato il messaggio: controlla il collegamento." };
             this._render();
           } catch (error) { /* shown */ }
@@ -11979,6 +11998,35 @@ class SpaBookingCard extends HTMLElement {
           n.count > 1 ? el("span", { class: "notice-n" }, String(n.count)) : null)))
         : el("div", { class: "empty" }, filter === "tutti" ? "Nessun nuovo avviso." : "Niente di nuovo qui."));
     return el("div", { class: "detail-backdrop notice-backdrop", on: { click: (event) => { if (event.target === event.currentTarget) close(); } } }, sheet);
+  }
+
+  /** Moved or another treatment after the guest's last message (3.16.0). */
+  _changedSinceSent(appointment) {
+    const changed = appointment && appointment.changed_at ? parseDate(appointment.changed_at) : null;
+    if (!changed || Number.isNaN(changed.getTime())) return false;
+    const sent = appointment.confirmation_sent_at ? parseDate(appointment.confirmation_sent_at) : null;
+    return !sent || Number.isNaN(sent.getTime()) || changed > sent;
+  }
+
+  /** After a booking was changed (3.16.0): send the guest «prenotazione modificata»? */
+  _renderChangePopup() {
+    const popup = this._changePopup;
+    const close = () => { this._changePopup = null; this._render(); };
+    const rows = [...popup.appointments].sort((a, b) => String(a.start).localeCompare(String(b.start)));
+    const sheet = el("div", { class: "detail-sheet cx-sheet" },
+      el("h3", {}, el("ha-icon", { icon: "mdi:whatsapp" }), " Avvisare l'ospite della modifica?"),
+      el("p", { class: "dim" }, "Riceve «la Sua prenotazione è stata modificata ed è confermata» con la prenotazione com'è adesso (Notifiche › Messaggi agli ospiti › Modifica della prenotazione):"),
+      el("div", { class: "cx-choice" }, rows.map((a) => el("div", { class: "cx-opt on gate-row" },
+        el("ha-icon", { icon: "mdi:calendar-edit", class: "cf-ok" }),
+        el("span", { class: "cx-text" }, el("b", {}, (a.treatment || {}).name || "Trattamento"),
+          el("span", { class: "dim small" }, `${this._dateIt(String(a.start_local || a.start).slice(0, 10))} · ${String(a.start_local || "").slice(11, 16)}${a.client ? ` · ${a.client.full_name || ""}` : ""}`))))),
+      el("div", { class: "row" }, el("span", { class: "spacer" }),
+        el("button", { class: "btn", on: { click: close } }, "Non inviare"),
+        el("button", { class: "btn primary", disabled: this._busy, on: { click: async () => {
+          this._changePopup = null;
+          try { await this._call("send_guest_summary", { appointment_ids: popup.ids, kind: "change" }); } catch (error) { /* shown */ }
+        } } }, el("ha-icon", { icon: "mdi:send" }), "Invia su WhatsApp")));
+    return el("div", { class: "detail-backdrop", on: { click: (event) => { if (event.target === event.currentTarget) close(); } } }, sheet);
   }
 
   /** How many requests arrived from the website and nobody has opened yet. */
@@ -17741,7 +17789,67 @@ class SpaBookingCard extends HTMLElement {
           el("div", {},
             el("div", { class: "nt-ed-title" }, "Anteprima report"),
             el("div", { class: "dim small" }, "Da stampare o salvare in PDF."))),
-        this._reportControls()));
+        this._reportControls()),
+      this._lowSpaPanel(draft, changed));
+  }
+
+  /** The categories counted as spa entries: chosen, or those named Spa / Ingresso. */
+  _lowSpaCategories(draft) {
+    const chosen = (draft.low_spa_category_ids || []).map(String);
+    if (chosen.length) return new Set(chosen);
+    return new Set((this._data.categories || []).filter((c) => /\bspa\b|ingress/i.test(c.name || "")).map((c) => c.id));
+  }
+
+  /** «Pochi ingressi alla SPA» (3.16.0): the desk is told the day before. */
+  _lowSpaPanel(draft, changed) {
+    const on = draft.low_spa_alert !== false;
+    const minimum = Number(draft.low_spa_min || 3);
+    const cats = this._lowSpaCategories(draft);
+    const chosen = new Set((draft.low_spa_category_ids || []).map(String));
+    const numbers = String((this._data.settings || {}).web_notify_whatsapp || "").split(/[\n,;]+/).map((x) => x.trim()).filter(Boolean);
+    const treatments = new Set((this._data.treatments || []).filter((t) => cats.has(t.category_id)).map((t) => t.id));
+    const days = [0, 1, 2, 3].map((offset) => {
+      const day = new Date(); day.setDate(day.getDate() + offset);
+      const key = ymd(day);
+      const people = (this._data.appointments || []).filter((a) => (a.status === "confirmed" || a.status === "pending")
+        && treatments.has(a.treatment_id) && ymd(parseDate(a.start)) === key).length;
+      return { key, people, label: offset === 0 ? "Oggi" : offset === 1 ? "Domani" : this._dateIt(key) };
+    });
+    const hours = el("input", { class: "input", type: "number", min: "1", max: "168", value: draft.low_spa_hours || 24,
+      on: { input: (event) => { draft.low_spa_hours = event.target.value; changed(); } } });
+    const min = el("input", { class: "input", type: "number", min: "1", max: "100", value: minimum,
+      on: { input: (event) => { draft.low_spa_min = event.target.value; changed(); } } });
+    return el("div", { class: "cfg-box nt-panel" },
+      el("div", { class: "nt-panel-head" },
+        el("span", { class: "nt-icon" }, el("ha-icon", { icon: "mdi:account-group-outline" })),
+        el("div", {},
+          el("div", { class: "nt-ed-title" }, "Pochi ingressi alla SPA"),
+          el("div", { class: "dim small" }, "Un avviso alla reception quando in un giorno entrano troppo poche persone, per spostarle per tempo."))),
+      el("label", { class: "nt-auto" },
+        el("input", { type: "checkbox", checked: on, on: { change: (event) => { draft.low_spa_alert = event.target.checked; changed(); this._render(); } } }),
+        el("span", {}, "Avvisa la reception")),
+      on ? el("div", { class: "grid-2" },
+        NOTIFY_FIELD("Avvisa se le persone sono meno di", min, `Con ${minimum} o più persone nessun avviso.`),
+        NOTIFY_FIELD("Ore prima del primo arrivo del giorno", hours, "24 = il giorno prima, alla stessa ora.")) : null,
+      on ? el("div", { class: "field" }, el("span", {}, "Cosa conta come ingresso"),
+        el("div", { class: "nt-tabs", style: "flex-wrap:wrap" }, (this._data.categories || []).map((c) => el("button", {
+          type: "button", class: `nt-tab${cats.has(c.id) ? " on" : ""}`,
+          on: { click: () => {
+            const next = new Set(chosen.size ? chosen : cats);
+            if (next.has(c.id)) next.delete(c.id); else next.add(c.id);
+            draft.low_spa_category_ids = [...next];
+            changed(); this._render();
+          } },
+        }, c.name))),
+        el("span", { class: "dim small" }, chosen.size ? "Una persona per ogni appuntamento di queste categorie." : "Scelte da sole: le categorie che si chiamano Spa o Ingresso.")) : null,
+      on ? el("div", { class: "field" }, el("span", {}, "I prossimi giorni"),
+        el("div", { class: "low-spa-days" }, days.map((d) => el("span", {
+          class: `pm-chip ${d.people && d.people < minimum ? "bad" : d.people ? "ok" : ""}`,
+          title: d.people && d.people < minimum ? "Qui partirebbe l'avviso" : "",
+        }, `${d.label}: ${d.people} ${d.people === 1 ? "persona" : "persone"}${d.people && d.people < minimum ? " ⚠️" : ""}`)))) : null,
+      on ? el("div", { class: "dim small" }, numbers.length
+        ? `L'avviso arriva su WhatsApp a ${numbers.join(", ")} («WhatsApp avvisi dal sito» in Impostazioni) e come notifica in Home Assistant.`
+        : "Nessun numero in «WhatsApp avvisi dal sito» (Impostazioni): arriva solo la notifica in Home Assistant.") : null);
   }
 
   _notifyConnections(draft, settings) {
@@ -23619,6 +23727,7 @@ class SpaBookingCard extends HTMLElement {
       /* Bell and notices (3.10.0). */
       .notify-btn.has ha-icon { color: var(--primary-color); }
       .notice-backdrop { align-items: flex-start; justify-content: flex-end; }
+      .low-spa-days { display: flex; gap: 6px; flex-wrap: wrap; }
       .notice-sheet { width: min(440px, calc(100vw - 24px)); max-height: calc(100vh - 90px); margin: 64px 12px 12px auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
       .notice-head { display: flex; align-items: center; gap: 8px; }
       .notice-head b { font-size: 16px; }

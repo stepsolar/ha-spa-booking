@@ -111,6 +111,17 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v3.16.0** — (serve il riavvio di Home Assistant)
+  - **Prenotazione modificata**: dopo aver salvato una prenotazione spostata
+    (giorno, ora o trattamento) la card propone di inviare all'ospite «la Sua
+    prenotazione è stata modificata ed è confermata», non la conferma
+    normale; nuovo testo modificabile in Notifiche › Messaggi agli ospiti ›
+    *Modifica della prenotazione*. Il pulsante dell'appuntamento diventa
+    «Invia modifica» finché l'ospite non è avvisato.
+  - **Pochi ingressi alla SPA** (Notifiche › Report): se in un giorno entrano
+    meno persone del minimo (di base meno di 3), 24 ore prima del primo arrivo
+    la reception riceve un WhatsApp (numeri «avvisi dal sito») e una notifica
+    in Home Assistant con l'elenco delle prenotazioni.
 - **v3.15.1** — (serve il riavvio di Home Assistant)
   - Notifiche › Operatrici: il riquadro «Offerte alle massaggiatrici» non
     c'è più in fondo; il tempo per rispondere e i passi della proposta sono in
