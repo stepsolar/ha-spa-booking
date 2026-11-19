@@ -39,7 +39,7 @@ def test_proposal_then_yes_moves(coordinator, sent, freeze) -> None:
     result = run(coordinator.async_low_spa_propose("2026-11-12", "2026-11-13"))
     assert len(result["sent"]) == 1
     proposal = sent[-1]
-    assert "venerdì 13 novembre alle 15:00" in proposal["message"] and "SÌ" in proposal["message"]
+    assert "venerdì 13 novembre alla stessa ora" in proposal["message"] and "SÌ" in proposal["message"]
     assert coordinator.low_spa_info("2026-11-12")["bookings"][0]["proposal"]["to"] == "2026-11-13"
     # Not an answer: an ordinary message.
     assert not run(coordinator.async_low_spa_reply(proposal["chat_id"], "A che ora apre la piscina?"))
@@ -51,14 +51,26 @@ def test_proposal_then_yes_moves(coordinator, sent, freeze) -> None:
     assert not coordinator._data["settings"]["low_spa_proposals"]
 
 
-def test_proposal_no_keeps_the_day(coordinator, sent, freeze) -> None:
+def test_proposal_no_cancels(coordinator, sent, freeze) -> None:
     _setup(coordinator, freeze)
     run(coordinator.async_low_spa_propose("2026-11-12", "2026-11-13"))
-    chat = sent[-1]["chat_id"]
-    assert run(coordinator.async_low_spa_reply(chat, "No"))
-    assert _days(coordinator, "Anna") == ["2026-11-12"]
+    proposal = sent[-1]
+    # The guest is not told why (3.17.2), and knows NO cancels.
+    assert "presenze" not in proposal["message"] and "NO per annullare" in proposal["message"]
+    sent.clear()
+    assert run(coordinator.async_low_spa_reply(proposal["chat_id"], "No"))
+    assert _days(coordinator, "Anna") == []
     assert not coordinator._data["settings"]["low_spa_proposals"]
-    assert any("preferisce mantenere" in m["message"] for m in sent)
+    assert any(m["chat_id"] == proposal["chat_id"] for m in sent)  # the cancellation
+    assert any("ha risposto NO" in m["message"] and "annullata" in m["message"] for m in sent)
+
+
+def test_old_default_text_is_replaced() -> None:
+    from custom_components.spa_booking.const import DEFAULT_MOVE_PROPOSAL_MESSAGE, MOVE_PROPOSAL_MESSAGE_3_17_0
+    from custom_components.spa_booking.normalize import _norm_settings
+
+    assert _norm_settings({"move_proposal_message": MOVE_PROPOSAL_MESSAGE_3_17_0})["move_proposal_message"] == DEFAULT_MOVE_PROPOSAL_MESSAGE
+    assert _norm_settings({"move_proposal_message": "Mio testo"})["move_proposal_message"] == "Mio testo"
 
 
 def test_auto_moves_and_tells(coordinator, sent, freeze) -> None:

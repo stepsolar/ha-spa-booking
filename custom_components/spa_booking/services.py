@@ -811,6 +811,7 @@ ACCESSORY_SCHEMA = vol.Schema(
         vol.Optional("price"): vol.Any(None, vol.Coerce(float), cv.string),
         vol.Optional("description"): vol.Any(cv.string, None),
         vol.Optional("vat_rate"): vol.Any(None, vol.Coerce(float), cv.string),
+        vol.Optional("web_visible"): vol.Any(cv.boolean, None),
     },
     extra=vol.PREVENT_EXTRA,
 )
@@ -1438,7 +1439,7 @@ SEND_OPERATOR_MESSAGE_SCHEMA = vol.Schema(
 #: «Pochi ingressi» (3.17.0): what the desk does with a day with few people.
 LOW_SPA_SCHEMA = vol.Schema(
     {
-        vol.Required("action"): vol.In(["info", "propose", "move", "cancel"]),
+        vol.Required("action"): vol.In(["info", "propose", "move", "cancel", "decline"]),
         vol.Optional("day", default=""): cv.string,
         vol.Optional("to_day", default=""): cv.string,
         vol.Optional("booking_keys"): vol.All(cv.ensure_list, [cv.string]),
@@ -2141,6 +2142,8 @@ async def _async_low_spa(call: ServiceCall) -> ServiceResponse:
     keys = call.data.get("booking_keys") or None
     if action == "cancel":
         return await coordinator.async_low_spa_cancel(list(call.data.get(ATTR_APPOINTMENT_IDS) or []))
+    if action == "decline":
+        return await coordinator.async_low_spa_decline(list(call.data.get(ATTR_APPOINTMENT_IDS) or []))
     if not day:
         raise ValidationError("Indica il giorno")
     if action == "propose":

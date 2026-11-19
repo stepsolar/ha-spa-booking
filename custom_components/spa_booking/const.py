@@ -531,8 +531,22 @@ DEFAULT_CHANGE_MESSAGE: Final = "\n".join(
 #: with the best day; "auto" = the bookings are moved and the guests told.
 LOW_SPA_MOVE_MODES: Final = ("off", "propose", "propose_auto", "auto")
 
-#: The proposal of another day to the guest (3.17.0).
+#: The proposal of another day to the guest. 3.17.2: a generic reason (the
+#: guest is not told the spa would be nearly empty) and NO cancels.
 DEFAULT_MOVE_PROPOSAL_MESSAGE: Final = "\n".join(
+    [
+        "Gentile {nome}, per motivi organizzativi non ci è possibile mantenere la Sua prenotazione di {data} alle {ora}.",
+        "",
+        "Le proponiamo di spostarla a {nuova_data} alla stessa ora e alle stesse condizioni:",
+        "{appuntamenti}",
+        "",
+        "Ci risponda SÌ per confermare il cambio, oppure NO per annullare l'appuntamento.",
+        "Ci scusiamo per il disagio.",
+    ]
+)
+
+#: The 3.17.0 text: a stored copy of it becomes the new one.
+MOVE_PROPOSAL_MESSAGE_3_17_0: Final = "\n".join(
     [
         "Gentile {nome}, per {data} alla SPA sono previste pochissime presenze.",
         "",

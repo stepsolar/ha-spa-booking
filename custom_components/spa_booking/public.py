@@ -252,7 +252,9 @@ class SpaBookingPublicTreatmentsView(_PublicView):
             # The shop packages for two or more people (2.8.9) whose
             # treatments are all on the site: the guest picks one per couple.
             visible = {item["id"] for item in items}
-            accessories = {a.get("id"): a for a in coordinator.accessories if isinstance(a, dict)}
+            # An accessory hidden from the website (3.17.2) is not named there.
+            accessories = {a.get("id"): a for a in coordinator.accessories
+                           if isinstance(a, dict) and a.get("web_visible") is not False}
             packages = []
             # The whole section can be switched off (3.2.1).
             for package in (coordinator.shop_packages(min_people=2) if settings.get("web_show_packages", True) else []):

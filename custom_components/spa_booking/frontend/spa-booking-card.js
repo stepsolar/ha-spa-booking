@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "3.17.1";
+const CARD_VERSION = "3.17.2";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -185,7 +185,7 @@ const NOTIFY_MESSAGES = [
     id: "move", group: "Prima della visita", icon: "mdi:calendar-arrow-right",
     title: "Proposta di un altro giorno", key: "move_proposal_message",
     when: () => "Pochi ingressi alla SPA", auto: () => false,
-    description: "Quando in un giorno entrano troppo poche persone alla SPA (Notifiche › Ingressi SPA): propone all'ospite un altro giorno. Se risponde SÌ la prenotazione si sposta e riceve «prenotazione modificata», con NO resta com'è.",
+    description: "Quando in un giorno entrano troppo poche persone alla SPA (Notifiche › Ingressi SPA): propone all'ospite un altro giorno. Il motivo non viene detto. Se risponde SÌ la prenotazione si sposta e riceve «prenotazione modificata»; con NO l'appuntamento viene annullato e riceve il messaggio di annullamento.",
     chips: [["{nome}", "Nome"], ["{cognome}", "Cognome"], ["{data}", "Giorno attuale"], ["{nuova_data}", "Giorno proposto"],
       ["{ora}", "Ora"], ["{appuntamenti}", "Un appuntamento per riga"], ["{codice}", "Codice prenotazione"], ["{hotel}", "Intestazione"]],
   },
@@ -297,6 +297,8 @@ const ACC_ICON_PRESETS = [
   ["mdi:fruit-cherries", "Frutta"],
   ["mdi:hair-dryer-outline", "Phon"],
   ["mdi:lock-outline", "Armadietto"],
+  ["mdi:bed-king-outline", "Camera"],
+  ["mdi:bed-single-outline", "Lettino"],
   ["mdi:water-outline", "Acqua"],
   ["mdi:gift-outline", "Regalo"],
 ];
@@ -5088,6 +5090,9 @@ class SpaBookingCard extends HTMLElement {
         icon: String(entry.icon || ACC_DEFAULT_ICON).trim() || ACC_DEFAULT_ICON,
         price: this._accPrice(entry.price),
         description: String(entry.description || "").trim(),
+        // Kept (3.17.2): before, a reorder or another save dropped them.
+        vat_rate: entry.vat_rate != null && Number(entry.vat_rate) >= 0 ? Number(entry.vat_rate) : null,
+        web_visible: entry.web_visible !== false,
       });
     });
     return out;
@@ -17932,7 +17937,7 @@ class SpaBookingCard extends HTMLElement {
       mode === "propose" || mode === "propose_auto" ? el("label", { class: "check" },
         el("input", { type: "checkbox", checked: draft.low_spa_move_reply !== false,
           on: { change: (event) => { draft.low_spa_move_reply = event.target.checked; changed(); } } }),
-        el("span", {}, "Se l'ospite risponde SÌ la prenotazione si sposta da sola (con NO resta): la reception riceve l'esito")) : null,
+        el("span", {}, "Se l'ospite risponde SÌ la prenotazione si sposta da sola, con NO viene annullata: la reception riceve l'esito")) : null,
       mode !== "off" ? el("div", { class: "dim small" }, "Il testo della proposta: ",
         el("a", { href: "#", on: { click: (event) => {
           event.preventDefault();
@@ -17965,7 +17970,7 @@ class SpaBookingCard extends HTMLElement {
       const failed = (result.failed || []).map((f) => `${f.client}: ${f.error}`);
       const what = action === "propose" ? "Proposta inviata" : action === "move" ? "Spostate" : "Fatto";
       this._message = { kind: failed.length ? "error" : "ok",
-        text: action === "cancel" ? "Proposta annullata." : `${what}: ${done} ${done === 1 ? "prenotazione" : "prenotazioni"}.${failed.length ? ` Non riuscito: ${failed.join("; ")}` : ""}` };
+        text: action === "cancel" ? "Proposta ritirata." : action === "decline" ? "Appuntamento annullato." : `${what}: ${done} ${done === 1 ? "prenotazione" : "prenotazioni"}.${failed.length ? ` Non riuscito: ${failed.join("; ")}` : ""}` };
       if (this._lowSpa) await this._openLowSpa(popup.day);
     } catch (error) { /* shown */ }
   }
@@ -17982,12 +17987,16 @@ class SpaBookingCard extends HTMLElement {
         el("span", { class: "cx-text" },
           el("b", {}, `${b.time} · ${b.client}`),
           el("span", { class: "dim small" }, b.treatments.join(", ")),
-          b.proposal ? el("span", { class: "small low-spa-wait" }, `Proposto ${this._dateIt(b.proposal.to)}: in attesa di risposta`) : null),
-        b.proposal ? el("span", { class: "row tight" },
+          b.proposal ? el("span", { class: "small low-spa-wait" }, `Proposto ${this._dateIt(b.proposal.to)}: in attesa di risposta`) : null,
+        b.proposal ? el("span", { class: "low-spa-acts" },
           el("button", { class: "btn small", disabled: this._busy, title: "L'ospite ha accettato: sposta e invia «prenotazione modificata»",
             on: { click: () => this._lowSpaAction("move", { to_day: b.proposal.to, booking_keys: [b.key] }) } }, "Ha accettato"),
-          el("button", { class: "btn small ghost", disabled: this._busy,
-            on: { click: () => this._lowSpaAction("cancel", { appointment_ids: b.ids }) } }, "Annulla")) : null))),
+          el("button", { class: "btn small", disabled: this._busy, title: "L'ospite ha detto NO: annulla l'appuntamento e invia il messaggio di annullamento",
+            on: { click: () => {
+              if (window.confirm(`${b.client} ha rifiutato: annullare l'appuntamento e avvisarla?`)) this._lowSpaAction("decline", { appointment_ids: b.ids });
+            } } }, "Ha rifiutato"),
+          el("button", { class: "btn small ghost", disabled: this._busy, title: "Ritira la proposta: la prenotazione resta com'è",
+            on: { click: () => this._lowSpaAction("cancel", { appointment_ids: b.ids }) } }, "Ritira")) : null)))),
       el("div", { class: "field" }, el("span", {}, "Un altro giorno"),
         (info.suggestions || []).length ? el("div", { class: "nt-tabs low-spa-days" }, info.suggestions.map((sg) => el("button", {
           type: "button", class: `nt-tab${popup.pick === sg.day ? " on" : ""}`,
@@ -20267,7 +20276,9 @@ class SpaBookingCard extends HTMLElement {
       el("span", { class: `acc2-price${item.price === null || item.price === undefined ? " none" : ""}` },
         item.price === null || item.price === undefined ? "senza prezzo" : euro(item.price)),
       el("span", { class: "acc2-used" }, `IVA ${vatLabel(item.vat_rate != null ? item.vat_rate : ((this._data.settings || {}).vat_default ?? 22))}`),
-      used ? el("span", { class: "acc2-used" }, `${used} prenotat${used === 1 ? "o" : "i"}`) : null));
+      used ? el("span", { class: "acc2-used" }, `${used} prenotat${used === 1 ? "o" : "i"}`) : null,
+      item.web_visible === false ? el("span", { class: "acc2-used acc2-noweb", title: "Non compare sul modulo web" },
+        el("ha-icon", { icon: "mdi:web-off" }), "non sul sito") : null));
     return row;
   }
 
@@ -20385,6 +20396,16 @@ class SpaBookingCard extends HTMLElement {
       el("div", { class: "hint" },
         "Solo informativo: non entra nei totali né nella caparra. Lascia vuoto se non ha un prezzo.")));
 
+    // 3.17.2: shown or not on the website form; always here in the card.
+    sheet.appendChild(el("div", { class: "detail-section" },
+      el("h4", {}, "Modulo web"),
+      el("label", { class: "check" },
+        el("input", { type: "checkbox", checked: draft.web_visible !== false,
+          on: { change: (event) => { draft.web_visible = event.target.checked; } } }),
+        el("span", {}, "Visibile sul modulo web")),
+      el("div", { class: "hint" },
+        "Spento: non compare sul sito (es. tra i contenuti dei pacchetti), ma resta in Nuovo appuntamento e nelle prenotazioni.")));
+
     const descInput = el("textarea", { class: "input", rows: "2", placeholder: "Facoltativa" });
     descInput.value = draft.description || "";
     descInput.addEventListener("input", () => { draft.description = descInput.value; });
@@ -20426,6 +20447,7 @@ class SpaBookingCard extends HTMLElement {
       price: this._accPrice(draft.price),
       description: String(draft.description || "").trim(),
       vat_rate: draft.vat_rate != null && Number(draft.vat_rate) >= 0 ? Number(draft.vat_rate) : null,
+      web_visible: draft.web_visible !== false,
     };
     const index = items.findIndex((item) => item.id === id);
     if (index < 0) items.push(entry);
@@ -20473,6 +20495,8 @@ class SpaBookingCard extends HTMLElement {
           icon: item.icon || ACC_DEFAULT_ICON,
           price: this._accPrice(item.price),
           description: item.description || "",
+          vat_rate: item.vat_rate != null && Number(item.vat_rate) >= 0 ? Number(item.vat_rate) : null,
+          web_visible: item.web_visible !== false,
         })),
       });
       await this._loadData();
@@ -23892,6 +23916,9 @@ class SpaBookingCard extends HTMLElement {
       .notice-backdrop { align-items: flex-start; justify-content: flex-end; }
       .low-spa-days { display: flex; gap: 6px; flex-wrap: wrap; }
       button.pm-chip { border: 0; cursor: pointer; font: inherit; font-size: 11px; font-weight: 600; }
+      .acc2-noweb { display: inline-flex; align-items: center; gap: 3px; }
+      .acc2-noweb ha-icon { --mdc-icon-size: 13px; }
+      .low-spa-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
       .low-spa-wait { color: var(--sb-warn-fg, #9a6700); font-weight: 600; }
       .notice-sheet { width: min(440px, calc(100vw - 24px)); max-height: calc(100vh - 90px); margin: 64px 12px 12px auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
       .notice-head { display: flex; align-items: center; gap: 8px; }

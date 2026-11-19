@@ -7395,6 +7395,27 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             sent.append({"client": name, "ids": item["ids"]})
         return {"sent": sent, "failed": failed, "to_day": to_day}
 
+    async def async_low_spa_decline(self, ids: list[str]) -> dict[str, Any]:
+        """The guest said NO to another day: her booking is cancelled (3.17.2).
+
+        She gets the cancellation message, as from the card.
+        """
+        await self._async_clear_proposals(ids)
+        cancelled: list[str] = []
+        for aid in ids:
+            appointment = next((a for a in self.appointments if a["id"] == aid), None)
+            if appointment is None or appointment.get("status") == STATUS_CANCELLED:
+                continue
+            await self.async_cancel_appointment(aid, reason="Ha rifiutato la proposta di un altro giorno")
+            cancelled.append(aid)
+        notified = False
+        if cancelled:
+            try:
+                notified = bool((await self.async_send_cancel_message(cancelled)).get("sent"))
+            except SpaBookingError as err:
+                _LOGGER.warning("Messaggio di annullamento non inviato: %s", err)
+        return {"cancelled": cancelled, "notified": notified}
+
     async def async_low_spa_cancel(self, ids: list[str]) -> dict[str, Any]:
         await self._async_clear_proposals(ids)
         return {"cancelled": len(ids)}
@@ -7429,9 +7450,12 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             name = (self.appointment_payload(appointment).get("client") or {}).get("full_name") or name
         ids = [aid for aid in mine if any(a["id"] == aid for a in self.appointments)]
         if no:
-            await self._async_clear_proposals(list(mine))
+            result = await self.async_low_spa_decline(ids or list(mine))
+            when = _day_words(next(iter(mine.values()))["from"])
             await self._async_desk_alert(
-                "proposta rifiutata", f"🗓️ {name} preferisce mantenere la data ({_day_words(next(iter(mine.values()))['from'])}).",
+                "proposta rifiutata",
+                f"❌ {name} ha risposto NO: prenotazione di {when} annullata"
+                + ("" if result["notified"] else " (messaggio di annullamento non inviato)") + ".",
                 f"low_spa_reply_{first_id}")
             return True
         by_day: dict[str, list[str]] = {}
