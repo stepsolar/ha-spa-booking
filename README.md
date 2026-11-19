@@ -111,10 +111,14 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v3.17.1** — (serve il riavvio di Home Assistant)
+  - Le impostazioni dei pochi ingressi passano da Impostazioni › *Pochi
+    ingressi* a una sottoscheda di Notifiche, **Ingressi SPA** (riquadro
+    *Minimo ingressi alla SPA*); si salvano con la barra di Notifiche.
 - **v3.17.0** — (serve il riavvio di Home Assistant)
   - **Pochi ingressi: un altro giorno all'ospite**. Le impostazioni sono in
-    una scheda nuova, Impostazioni › *Pochi ingressi* (prima in Notifiche ›
-    Report). Si sceglie cosa fare: solo l'avviso, *proposta all'ospite* (la
+    una scheda nuova, Impostazioni › *Pochi ingressi* (dalla 3.17.1 in
+    Notifiche › *Ingressi SPA*). Si sceglie cosa fare: solo l'avviso, *proposta all'ospite* (la
     invia la reception dalla campanella, di base), proposta che parte da sola
     o *spostamento automatico* (attivabile, spento di base).
   - L'avviso indica il giorno consigliato: entro N giorni prima/dopo quello
