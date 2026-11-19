@@ -721,8 +721,8 @@ giorni (es. tutto novembre chiuso tranne i sabati).
   |---|---|
   | ![Messaggi alle operatrici](anteprime/121-messaggi-operatrici.png) | ![Sul telefono](anteprime/122-messaggi-operatrici-telefono.png) |
 - **Report**: destinatari del report mensile, invio immediato e anteprima.
-  L'avviso *Pochi ingressi alla SPA* dalla 3.17 sta in **Impostazioni ›
-  Pochi ingressi** (sotto).
+- **Ingressi SPA**: il minimo di persone alla SPA, l'avviso alla reception e
+  la proposta di un altro giorno agli ospiti (sotto).
 - **Collegamenti**: WhatsApp integrato e bot Telegram.
 
 ![Notifiche](anteprime/v3/v3-17-notifiche.png)
@@ -736,7 +736,7 @@ stato avvisato. Cambiare solo note o pagamenti non conta come modifica.
 
 ![Avvisare l'ospite della modifica](anteprime/123-modifica-ospite.png)
 
-### Pochi ingressi alla SPA (Impostazioni › Pochi ingressi)
+### Minimo ingressi alla SPA (Notifiche › Ingressi SPA)
 
 Se in un giorno entrano meno persone del minimo (es. meno di 3), il numero di
 ore scelto prima del primo arrivo (24 = il giorno prima) la reception riceve
@@ -775,7 +775,7 @@ voce) e **Annulla**.
 
 | | |
 |---|---|
-| ![Impostazioni › Pochi ingressi](anteprime/125-pochi-ingressi-impostazioni.png) | ![Il giorno con pochi ingressi](anteprime/126-pochi-ingressi-proposta.png) |
+| ![Notifiche › Ingressi SPA](anteprime/128-ingressi-spa.png) | ![Il giorno con pochi ingressi](anteprime/126-pochi-ingressi-proposta.png) |
 
 Il testo della proposta si cambia in Notifiche › Messaggi agli ospiti ›
 *Proposta di un altro giorno* (`{data}` il giorno attuale, `{nuova_data}`

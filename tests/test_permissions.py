@@ -136,5 +136,6 @@ def test_every_notification_setting_the_card_saves_is_accepted() -> None:
         "appointment_reminder_auto": True, "appointment_reminder_hours": 12, "review_request_auto": True,
         "review_request_after_hours": 6, "offer_timeout_hours": 24, "offer_reminder_hours": 2, "report_per_operator": True,
         "low_spa_alert": True, "low_spa_min": 3, "low_spa_hours": 24, "low_spa_category_ids": ["spa"],
+        "low_spa_move": "propose", "low_spa_move_days": 3, "low_spa_move_reply": True,
     })
     services.UPDATE_SETTINGS_SCHEMA(payload)

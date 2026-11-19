@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "3.17.0";
+const CARD_VERSION = "3.17.1";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -185,7 +185,7 @@ const NOTIFY_MESSAGES = [
     id: "move", group: "Prima della visita", icon: "mdi:calendar-arrow-right",
     title: "Proposta di un altro giorno", key: "move_proposal_message",
     when: () => "Pochi ingressi alla SPA", auto: () => false,
-    description: "Quando in un giorno entrano troppo poche persone alla SPA (Impostazioni › Pochi ingressi): propone all'ospite un altro giorno. Se risponde SÌ la prenotazione si sposta e riceve «prenotazione modificata», con NO resta com'è.",
+    description: "Quando in un giorno entrano troppo poche persone alla SPA (Notifiche › Ingressi SPA): propone all'ospite un altro giorno. Se risponde SÌ la prenotazione si sposta e riceve «prenotazione modificata», con NO resta com'è.",
     chips: [["{nome}", "Nome"], ["{cognome}", "Cognome"], ["{data}", "Giorno attuale"], ["{nuova_data}", "Giorno proposto"],
       ["{ora}", "Ora"], ["{appuntamenti}", "Un appuntamento per riga"], ["{codice}", "Codice prenotazione"], ["{hotel}", "Intestazione"]],
   },
@@ -275,6 +275,8 @@ const NOTIFY_SAVE_KEYS = [
   "appointment_reminder_message", "appointment_reminder_auto", "appointment_reminder_hours",
   "cancel_message", "change_message",
   "move_proposal_message",
+  "low_spa_alert", "low_spa_min", "low_spa_hours", "low_spa_category_ids",
+  "low_spa_move", "low_spa_move_days", "low_spa_move_reply",
   "review_request_message", "review_request_auto", "review_request_after_hours",
   "offer_timeout_hours", "offer_reminder_hours",
   ...OPERATOR_MESSAGES.map((m) => m.key),
@@ -14311,14 +14313,6 @@ class SpaBookingCard extends HTMLElement {
         chat_in_cards: settings.chat_in_cards !== false,
         web_accent: settings.web_accent || "#0a84a8",
         submenu_styles: { nuovo: "vertical", spa: "vertical", config: "vertical", ...(settings.submenu_styles || {}) },
-        // Impostazioni › Pochi ingressi (3.17.0).
-        low_spa_alert: settings.low_spa_alert !== false,
-        low_spa_min: settings.low_spa_min || 3,
-        low_spa_hours: settings.low_spa_hours || 24,
-        low_spa_category_ids: [...(settings.low_spa_category_ids || [])],
-        low_spa_move: settings.low_spa_move || "propose",
-        low_spa_move_days: settings.low_spa_move_days || 3,
-        low_spa_move_reply: settings.low_spa_move_reply !== false,
       };
       this._setBase = JSON.stringify(this._setDraft);
       this._setNumbers = null;
@@ -14329,7 +14323,7 @@ class SpaBookingCard extends HTMLElement {
     const wrap = el("div", { class: "stack nt" });
     wrap.appendChild(this._sectionHead("mdi:cog-outline", "Impostazioni", "Aspetto della card, dati di fatturazione, sito web, dati e backup."));
     wrap.appendChild(el("div", { class: "nt-tabs", role: "tablist" },
-      [["generale", "mdi:palette-outline", "Generale"], ["fatturazione", "mdi:receipt-text-outline", "Dati fatturazione"], ["sito", "mdi:web", "Sito web"], ["pochi", "mdi:account-group-outline", "Pochi ingressi"], ["dati", "mdi:database-outline", "Dati e backup"]]
+      [["generale", "mdi:palette-outline", "Generale"], ["fatturazione", "mdi:receipt-text-outline", "Dati fatturazione"], ["sito", "mdi:web", "Sito web"], ["dati", "mdi:database-outline", "Dati e backup"]]
         .map(([id, icon, label]) => el("button", {
           class: `nt-tab${tab === id ? " on" : ""}`, role: "tab", "aria-selected": tab === id ? "true" : "false",
           on: { click: () => { this._setTab = id; this._render(); } },
@@ -14337,7 +14331,6 @@ class SpaBookingCard extends HTMLElement {
     if (tab === "generale") wrap.appendChild(this._settingsGeneral(draft, changed));
     if (tab === "fatturazione") wrap.appendChild(this._settingsBilling(draft, changed));
     if (tab === "sito") wrap.appendChild(this._settingsWeb(draft, changed));
-    if (tab === "pochi") wrap.appendChild(this._lowSpaPanel(draft, changed));
     if (tab === "dati") wrap.appendChild(this._settingsData());
     wrap.appendChild(this._pageSaveBar("set", () => this._saveSettingsPage(), () => { this._setDraft = null; this._render(); }));
     return wrap;
@@ -14353,9 +14346,6 @@ class SpaBookingCard extends HTMLElement {
         web_notify_whatsapp: String(draft.web_notify_whatsapp || "").split(/[\n,;]+/).map((x) => x.trim()).filter(Boolean).join("\n"),
         web_step_min: Number(draft.web_step_min) || 30,
         web_max_days_ahead: Number(draft.web_max_days_ahead) || 60,
-        low_spa_min: Number(draft.low_spa_min) || 3,
-        low_spa_hours: Number(draft.low_spa_hours) || 24,
-        low_spa_move_days: Number(draft.low_spa_move_days) || 3,
       });
       this._setDraft = null;
       this._message = { kind: "ok", text: "Impostazioni salvate." };
@@ -17563,6 +17553,7 @@ class SpaBookingCard extends HTMLElement {
       ["ospiti", "mdi:message-text-outline", "Messaggi agli ospiti"],
       ["operatrici", "mdi:hand-heart", "Operatrici"],
       ["report", "mdi:chart-box-outline", "Report"],
+      ["ingressi", "mdi:account-group-outline", "Ingressi SPA"],
       ["collegamenti", "mdi:connection", "Collegamenti"],
     ];
     wrap.appendChild(el("div", { class: "nt-tabs", role: "tablist" },
@@ -17576,6 +17567,7 @@ class SpaBookingCard extends HTMLElement {
     if (tab === "ospiti") wrap.appendChild(this._notifyGuestMessages(draft));
     if (tab === "operatrici") wrap.appendChild(this._notifyOperators(draft));
     if (tab === "report") wrap.appendChild(this._notifyReport(draft));
+    if (tab === "ingressi") wrap.appendChild(this._lowSpaPanel(draft, () => this._notifySyncSave()));
     if (tab === "collegamenti") wrap.appendChild(this._notifyConnections(draft, settings));
 
     const bar = el("div", { class: "nt-save" },
@@ -17621,6 +17613,9 @@ class SpaBookingCard extends HTMLElement {
     payload.offer_reminder_hours = Number(payload.offer_reminder_hours) || 0;
     payload.appointment_reminder_hours = Number(payload.appointment_reminder_hours) || 24;
     payload.review_request_after_hours = Number(payload.review_request_after_hours) || 6;
+    payload.low_spa_min = Number(payload.low_spa_min) || 3;
+    payload.low_spa_hours = Number(payload.low_spa_hours) || 24;
+    payload.low_spa_move_days = Number(payload.low_spa_move_days) || 3;
     try {
       await this._call("update_settings", payload);
       this._notifyDraft = null;
@@ -17881,7 +17876,7 @@ class SpaBookingCard extends HTMLElement {
       el("div", { class: "nt-panel-head" },
         el("span", { class: "nt-icon" }, el("ha-icon", { icon: "mdi:account-group-outline" })),
         el("div", {},
-          el("div", { class: "nt-ed-title" }, "Pochi ingressi alla SPA"),
+          el("div", { class: "nt-ed-title" }, "Minimo ingressi alla SPA"),
           el("div", { class: "dim small" }, "Un avviso alla reception quando in un giorno entrano troppo poche persone, per spostarle per tempo."))),
       el("label", { class: "nt-auto" },
         el("input", { type: "checkbox", checked: on, on: { change: (event) => { draft.low_spa_alert = event.target.checked; changed(); this._render(); } } }),
@@ -17999,11 +17994,11 @@ class SpaBookingCard extends HTMLElement {
           title: sg.enough ? "Con loro si arriva al minimo" : "",
           on: { click: () => { popup.pick = sg.day; this._render(); } },
         }, `${label(sg.day)} · ${sg.people} → ${sg.after}${sg.enough ? " ✓" : ""}`)))
-          : el("span", { class: "dim small" }, "Nessun giorno vicino (Impostazioni › Pochi ingressi).")),
+          : el("span", { class: "dim small" }, "Nessun giorno vicino (Notifiche › Ingressi SPA).")),
       el("span", { class: "dim small" }, "Il numero è chi c'è già → con loro. ✓ = arriva al minimo."));
     const pick = popup.pick;
     const sheet = el("div", { class: "detail-sheet cx-sheet" },
-      el("h3", {}, el("ha-icon", { icon: "mdi:account-group-outline" }), ` Pochi ingressi · ${label(popup.day)}`),
+      el("h3", {}, el("ha-icon", { icon: "mdi:account-group-outline" }), ` Ingressi SPA · ${label(popup.day)}`),
       body,
       el("div", { class: "row" }, el("span", { class: "spacer" }),
         el("button", { class: "btn", on: { click: close } }, "Chiudi"),
