@@ -166,6 +166,7 @@ SERVICE_WP_REDEEM = "wp_redeem"
 SERVICE_PROMO_VOUCHER_TICK = "promo_voucher_tick"
 SERVICE_SEND_OPERATOR_MESSAGE = "send_operator_message"
 SERVICE_SEND_GUEST_SUMMARY = "send_guest_summary"
+SERVICE_LOW_SPA = "low_spa"
 SERVICE_SEND_DEPOSIT_REQUEST = "send_deposit_request"
 SERVICE_SEND_PROMO = "send_promo"
 SERVICE_PROMO_AUTOMATIC = "promo_automatico"
@@ -299,6 +300,7 @@ ALL_SERVICES = (
     SERVICE_PROMO_VOUCHER_TICK,
     SERVICE_SEND_OPERATOR_MESSAGE,
     SERVICE_SEND_GUEST_SUMMARY,
+    SERVICE_LOW_SPA,
     SERVICE_SEND_DEPOSIT_REQUEST,
     SERVICE_SEND_REMINDERS,
     SERVICE_SEND_REVIEW_REQUESTS,
@@ -909,6 +911,10 @@ UPDATE_SETTINGS_SCHEMA = vol.Schema(
         vol.Optional("low_spa_min"): vol.Any(vol.All(vol.Coerce(int), vol.Range(min=1, max=100)), None),
         vol.Optional("low_spa_hours"): vol.Any(vol.All(vol.Coerce(int), vol.Range(min=1, max=168)), None),
         vol.Optional("low_spa_category_ids"): vol.Any(vol.All(cv.ensure_list, [cv.string]), None),
+        vol.Optional("low_spa_move"): vol.Any(vol.In(["off", "propose", "propose_auto", "auto"]), None),
+        vol.Optional("low_spa_move_days"): vol.Any(vol.All(vol.Coerce(int), vol.Range(min=1, max=14)), None),
+        vol.Optional("low_spa_move_reply"): vol.Any(cv.boolean, None),
+        vol.Optional("move_proposal_message"): vol.Any(cv.string, None),
         **{vol.Optional(key): vol.Any(cv.string, None) for key in OPERATOR_MESSAGE_DEFAULTS},
         vol.Optional("review_request_test_phone"): vol.Any(cv.string, None),
         # Appointment reminder: the text, automatic or not, and how many hours
@@ -1425,6 +1431,18 @@ SEND_OPERATOR_MESSAGE_SCHEMA = vol.Schema(
     {
         vol.Required(ATTR_OPERATOR_ID): cv.string,
         vol.Required(ATTR_KIND): cv.string,
+    },
+    extra=vol.PREVENT_EXTRA,
+)
+
+#: «Pochi ingressi» (3.17.0): what the desk does with a day with few people.
+LOW_SPA_SCHEMA = vol.Schema(
+    {
+        vol.Required("action"): vol.In(["info", "propose", "move", "cancel"]),
+        vol.Optional("day", default=""): cv.string,
+        vol.Optional("to_day", default=""): cv.string,
+        vol.Optional("booking_keys"): vol.All(cv.ensure_list, [cv.string]),
+        vol.Optional(ATTR_APPOINTMENT_IDS): vol.All(cv.ensure_list, [cv.string]),
     },
     extra=vol.PREVENT_EXTRA,
 )
@@ -2113,6 +2131,23 @@ async def _async_send_operator_message(call: ServiceCall) -> ServiceResponse:
     return await _coordinator(call).async_send_operator_message(
         data[ATTR_OPERATOR_ID], data[ATTR_KIND]
     )
+
+
+async def _async_low_spa(call: ServiceCall) -> ServiceResponse:
+    """Few people at the spa on a day: look, propose another day, move (3.17.0)."""
+    coordinator = _coordinator(call)
+    action = call.data["action"]
+    day = str(call.data.get("day") or "")[:10]
+    keys = call.data.get("booking_keys") or None
+    if action == "cancel":
+        return await coordinator.async_low_spa_cancel(list(call.data.get(ATTR_APPOINTMENT_IDS) or []))
+    if not day:
+        raise ValidationError("Indica il giorno")
+    if action == "propose":
+        return await coordinator.async_low_spa_propose(day, str(call.data.get("to_day") or ""), keys)
+    if action == "move":
+        return await coordinator.async_low_spa_move(day, str(call.data.get("to_day") or ""), keys)
+    return coordinator.low_spa_info(day)
 
 
 async def _async_send_guest_summary(call: ServiceCall) -> ServiceResponse:
@@ -3384,6 +3419,11 @@ _HANDLERS: dict[str, tuple[Any, Any, SupportsResponse]] = {
         SEND_OPERATOR_MESSAGE_SCHEMA,
         SupportsResponse.ONLY,
     ),
+    SERVICE_LOW_SPA: (
+        _async_low_spa,
+        LOW_SPA_SCHEMA,
+        SupportsResponse.ONLY,
+    ),
     SERVICE_SEND_GUEST_SUMMARY: (
         _async_send_guest_summary,
         SEND_GUEST_SUMMARY_SCHEMA,
@@ -3634,6 +3674,7 @@ SERVICE_LEVELS: dict[str, str] = {
     SERVICE_DELETE_WHATSAPP_CHATS: "manager",
     SERVICE_MARK_REQUESTS_SEEN: "operator",
     SERVICE_SEND_GUEST_SUMMARY: "operator",
+    SERVICE_LOW_SPA: "operator",
     SERVICE_SEND_DEPOSIT_REQUEST: "operator",
     SERVICE_SEND_REVIEW_REQUESTS: "operator",
     SERVICE_SEND_REMINDERS: "operator",

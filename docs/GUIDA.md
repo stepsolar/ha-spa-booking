@@ -1,6 +1,6 @@
 <p align="center"><img src="anteprime/logo.png" width="120" alt="Spa Booking"></p>
 
-# Spa Booking 3.16 — la guida completa
+# Spa Booking 3.17 — la guida completa
 
 Questa guida spiega **tutto quello che fa Spa Booking**, scheda per scheda:
 dalla prenotazione al banco al modulo del sito, dai messaggi WhatsApp ai
@@ -720,16 +720,12 @@ giorni (es. tutto novembre chiuso tranne i sabati).
   | | |
   |---|---|
   | ![Messaggi alle operatrici](anteprime/121-messaggi-operatrici.png) | ![Sul telefono](anteprime/122-messaggi-operatrici-telefono.png) |
-- **Report**: destinatari del report mensile, invio immediato e anteprima;
-  **Pochi ingressi alla SPA** (3.16): se in un giorno entrano meno persone
-  del minimo (es. meno di 3), il numero di ore scelto prima del primo arrivo
-  (24 = il giorno prima) la reception riceve un WhatsApp sui numeri
-  «WhatsApp avvisi dal sito» e una notifica in Home Assistant, con l'elenco
-  delle prenotazioni, per spostarle per tempo. Si sceglie cosa conta come
-  ingresso (di base le categorie chiamate Spa o Ingresso) e si vedono i
-  prossimi giorni.
+- **Report**: destinatari del report mensile, invio immediato e anteprima.
+  L'avviso *Pochi ingressi alla SPA* dalla 3.17 sta in **Impostazioni ›
+  Pochi ingressi** (sotto).
+- **Collegamenti**: WhatsApp integrato e bot Telegram.
 
-  ![Pochi ingressi alla SPA](anteprime/124-pochi-ingressi.png)
+![Notifiche](anteprime/v3/v3-17-notifiche.png)
 
 **Prenotazione modificata** (3.16): dopo **Salva** di una prenotazione
 spostata (giorno, ora o trattamento) la card chiede *Avvisare l'ospite della
@@ -739,9 +735,54 @@ il pulsante dell'appuntamento diventa *Invia modifica* finché l'ospite non è
 stato avvisato. Cambiare solo note o pagamenti non conta come modifica.
 
 ![Avvisare l'ospite della modifica](anteprime/123-modifica-ospite.png)
-- **Collegamenti**: WhatsApp integrato e bot Telegram.
 
-![Notifiche](anteprime/v3/v3-17-notifiche.png)
+### Pochi ingressi alla SPA (Impostazioni › Pochi ingressi)
+
+Se in un giorno entrano meno persone del minimo (es. meno di 3), il numero di
+ore scelto prima del primo arrivo (24 = il giorno prima) la reception riceve
+un WhatsApp sui numeri «WhatsApp avvisi dal sito» e una notifica in Home
+Assistant, con l'elenco delle prenotazioni (3.16). Si sceglie cosa conta come
+ingresso (di base le categorie chiamate Spa o Ingresso) e si vedono i
+prossimi giorni: un giorno in rosso si apre con un tocco.
+
+Dalla 3.17 si decide anche **cosa fare con quelle persone**:
+
+- **Solo l'avviso**: la reception decide e sposta a mano.
+- **Proposta all'ospite, la invii tu** (di base): l'avviso dice il *giorno
+  consigliato*; nella campanella compare *Pochi ingressi alla SPA*, che apre
+  il giorno con le prenotazioni e i giorni vicini (chi c'è già → con loro, ✓
+  = si arriva al minimo). **Proponi agli ospiti** manda su WhatsApp il
+  messaggio *Proposta di un altro giorno*; **Sposta subito** sposta tutti alla
+  stessa ora e invia «prenotazione modificata».
+- **Proposta all'ospite, parte da sola**: con l'avviso parte anche la
+  proposta del giorno consigliato.
+- **Spostamento automatico**: le prenotazioni vengono spostate al giorno
+  consigliato e gli ospiti ricevono «prenotazione modificata», senza
+  chiedere. Va usato con attenzione.
+
+Il giorno consigliato è, entro i giorni scelti prima e dopo (di base 3), quello
+che con loro arriva al minimo, poi quello dove c'è già qualcuno, poi il più
+vicino; mai oggi. Una prenotazione si sposta intera (anche il massaggio
+prenotato con l'ingresso) e con gli stessi controlli di una modifica: se il
+nuovo giorno non ha posto resta dov'è e lo si legge nell'esito.
+
+**La risposta dell'ospite**: con *Se l'ospite risponde SÌ…* attivo, un «Sì» (o
+«ok», «va bene», «confermo») sposta la prenotazione e le invia «prenotazione
+modificata»; un «No» la lascia com'è. In entrambi i casi la reception riceve
+l'esito su WhatsApp. Qualunque altro messaggio resta una normale chat. Nel
+popup una proposta in attesa ha anche **Ha accettato** (per chi risponde a
+voce) e **Annulla**.
+
+| | |
+|---|---|
+| ![Impostazioni › Pochi ingressi](anteprime/125-pochi-ingressi-impostazioni.png) | ![Il giorno con pochi ingressi](anteprime/126-pochi-ingressi-proposta.png) |
+
+Il testo della proposta si cambia in Notifiche › Messaggi agli ospiti ›
+*Proposta di un altro giorno* (`{data}` il giorno attuale, `{nuova_data}`
+quello proposto).
+
+![Proposta di un altro giorno](anteprime/127-proposta-altro-giorno.png)
+
 
 ### Promo
 

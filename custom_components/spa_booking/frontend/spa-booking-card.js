@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "3.16.0";
+const CARD_VERSION = "3.17.0";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -182,6 +182,14 @@ const NOTIFY_MESSAGES = [
       ["{totale}", "Prezzo"], ["{sconto}", "Sconto (la riga sparisce se non c'è)"], ["{acconto}", "Acconto"], ["{versato}", "Incassato"], ["{residuo}", "Da saldare"], ["{pagamenti}", "Versamenti"]],
   },
   {
+    id: "move", group: "Prima della visita", icon: "mdi:calendar-arrow-right",
+    title: "Proposta di un altro giorno", key: "move_proposal_message",
+    when: () => "Pochi ingressi alla SPA", auto: () => false,
+    description: "Quando in un giorno entrano troppo poche persone alla SPA (Impostazioni › Pochi ingressi): propone all'ospite un altro giorno. Se risponde SÌ la prenotazione si sposta e riceve «prenotazione modificata», con NO resta com'è.",
+    chips: [["{nome}", "Nome"], ["{cognome}", "Cognome"], ["{data}", "Giorno attuale"], ["{nuova_data}", "Giorno proposto"],
+      ["{ora}", "Ora"], ["{appuntamenti}", "Un appuntamento per riga"], ["{codice}", "Codice prenotazione"], ["{hotel}", "Intestazione"]],
+  },
+  {
     id: "cancel", group: "Prima della visita", icon: "mdi:calendar-remove",
     title: "Annullamento", key: "cancel_message",
     when: () => "Quando si annulla, se scegli «Sì»", auto: () => false,
@@ -266,7 +274,7 @@ const NOTIFY_SAVE_KEYS = [
   "deposit_message", "deposit_intestatario", "deposit_iban", "summary_message", "guest_header",
   "appointment_reminder_message", "appointment_reminder_auto", "appointment_reminder_hours",
   "cancel_message", "change_message",
-  "low_spa_alert", "low_spa_min", "low_spa_hours", "low_spa_category_ids",
+  "move_proposal_message",
   "review_request_message", "review_request_auto", "review_request_after_hours",
   "offer_timeout_hours", "offer_reminder_hours",
   ...OPERATOR_MESSAGES.map((m) => m.key),
@@ -1386,6 +1394,7 @@ class SpaBookingCard extends HTMLElement {
         else if (this._mediaView) { this._mediaView = null; this._render(); }
         else if (this._noticePanel) { this._noticePanel = false; this._render(); }
         else if (this._changePopup) { this._changePopup = null; this._render(); }
+        else if (this._lowSpa) { this._lowSpa = null; this._render(); }
         else if (this._wpProduct) { this._wpProduct = null; this._render(); }
         else if (this._wpOrder) { this._wpOrder = null; this._render(); }
         else if (this._partnerSend) { this._partnerSend = null; this._render(); }
@@ -3788,6 +3797,7 @@ class SpaBookingCard extends HTMLElement {
     if (this._mediaView) add(root, this._renderMediaView());
     if (this._noticePanel) add(root, this._renderNoticePanel());
     if (this._changePopup) add(root, this._renderChangePopup());
+    if (this._lowSpa) add(root, this._renderLowSpaPopup());
     if (this._wpProduct) add(root, this._renderWpProduct());
     if (this._wpOrder) add(root, this._renderWpOrder());
     if (this._partnerMenu) add(root, this._renderPartnerMenu());
@@ -11946,7 +11956,37 @@ class SpaBookingCard extends HTMLElement {
         });
       });
     }
+    // «Pochi ingressi» (3.17.0): a day the alert went out for, still low.
+    const settings = this._data.settings || {};
+    if (settings.low_spa_alert !== false && this._can("offers")) {
+      const seen = this._lowSpaSeen();
+      Object.entries(settings.low_spa_alerted || {}).forEach(([day, at]) => {
+        if (day < todayStr() || seen.includes(day)) return;
+        const people = this._lowSpaPeople(day);
+        if (!people || people >= Number(settings.low_spa_min || 3)) return;
+        const waiting = Object.values(settings.low_spa_proposals || {}).filter((p) => p.from === day).length;
+        out.push({
+          key: `spa:${day}`, kind: "spa", icon: "mdi:account-group-outline", at,
+          title: `Pochi ingressi alla SPA · ${day === ymd(new Date(Date.now() + 86400000)) ? "domani" : this._dateIt(day)}`,
+          text: `${people} ${people === 1 ? "persona" : "persone"} (minimo ${settings.low_spa_min || 3})${waiting ? " · proposta in attesa" : " · proponi un altro giorno"}`,
+          day, open: () => this._openLowSpa(day),
+        });
+      });
+    }
     return out.sort((a, b) => String(b.at).localeCompare(String(a.at)));
+  }
+
+  /** People at the spa on a day, as the server counts them (3.17.0). */
+  _lowSpaPeople(day) {
+    const settings = this._data.settings || {};
+    const cats = this._lowSpaCategories(settings);
+    const treatments = new Set((this._data.treatments || []).filter((t) => cats.has(t.category_id)).map((t) => t.id));
+    return (this._data.appointments || []).filter((a) => (a.status === "confirmed" || a.status === "pending")
+      && treatments.has(a.treatment_id) && ymd(parseDate(a.start)) === day).length;
+  }
+
+  _lowSpaSeen() {
+    try { return JSON.parse(window.localStorage.getItem("spa-booking-low-spa-seen") || "[]"); } catch (error) { return []; }
   }
 
   _noticeAgo(value) {
@@ -11961,6 +12001,10 @@ class SpaBookingCard extends HTMLElement {
 
   async _noticesAllRead(notices) {
     notices.filter((n) => n.kind === "whatsapp").forEach((n) => this._markChatRead(n.chatId));
+    const days = notices.filter((n) => n.kind === "spa").map((n) => n.day);
+    if (days.length) {
+      try { window.localStorage.setItem("spa-booking-low-spa-seen", JSON.stringify([...this._lowSpaSeen(), ...days].slice(-30))); } catch (error) { /* per browser only */ }
+    }
     if (notices.some((n) => n.kind === "request")) {
       try { await this._service("mark_requests_seen", {}); await this._loadData(); } catch (error) { /* retried next time */ }
     }
@@ -11972,7 +12016,8 @@ class SpaBookingCard extends HTMLElement {
     const notices = this._notices();
     const filter = this._noticeFilter || "tutti";
     const shown = notices.filter((n) => filter === "tutti" || n.kind === filter);
-    const counts = { tutti: notices.length, request: notices.filter((n) => n.kind === "request").length, whatsapp: notices.filter((n) => n.kind === "whatsapp").length };
+    const counts = { tutti: notices.length, request: notices.filter((n) => n.kind === "request").length, whatsapp: notices.filter((n) => n.kind === "whatsapp").length,
+      spa: notices.filter((n) => n.kind === "spa").length };
     const chip = (id, label) => el("button", { class: `nt-tab${filter === id ? " on" : ""}`, on: { click: () => { this._noticeFilter = id; this._render(); } } },
       el("span", {}, label), counts[id] ? el("span", { class: "notice-n" }, String(counts[id])) : null);
     const sheet = el("div", { class: "detail-sheet notice-sheet", role: "dialog", "aria-label": "Avvisi" },
@@ -11985,7 +12030,8 @@ class SpaBookingCard extends HTMLElement {
       el("div", { class: "nt-tabs notice-tabs" },
         chip("tutti", "Tutti"),
         this._visibleNuovoTabs().some((tab) => tab.id === "lista") ? chip("request", "Richieste dal sito") : null,
-        this._chatAllowed() ? chip("whatsapp", "WhatsApp") : null),
+        this._chatAllowed() ? chip("whatsapp", "WhatsApp") : null,
+        counts.spa ? chip("spa", "SPA") : null),
       shown.length
         ? el("div", { class: "notice-list" }, shown.map((n) => el("button", {
           class: `notice-row ${n.kind}`,
@@ -14265,6 +14311,14 @@ class SpaBookingCard extends HTMLElement {
         chat_in_cards: settings.chat_in_cards !== false,
         web_accent: settings.web_accent || "#0a84a8",
         submenu_styles: { nuovo: "vertical", spa: "vertical", config: "vertical", ...(settings.submenu_styles || {}) },
+        // Impostazioni › Pochi ingressi (3.17.0).
+        low_spa_alert: settings.low_spa_alert !== false,
+        low_spa_min: settings.low_spa_min || 3,
+        low_spa_hours: settings.low_spa_hours || 24,
+        low_spa_category_ids: [...(settings.low_spa_category_ids || [])],
+        low_spa_move: settings.low_spa_move || "propose",
+        low_spa_move_days: settings.low_spa_move_days || 3,
+        low_spa_move_reply: settings.low_spa_move_reply !== false,
       };
       this._setBase = JSON.stringify(this._setDraft);
       this._setNumbers = null;
@@ -14275,7 +14329,7 @@ class SpaBookingCard extends HTMLElement {
     const wrap = el("div", { class: "stack nt" });
     wrap.appendChild(this._sectionHead("mdi:cog-outline", "Impostazioni", "Aspetto della card, dati di fatturazione, sito web, dati e backup."));
     wrap.appendChild(el("div", { class: "nt-tabs", role: "tablist" },
-      [["generale", "mdi:palette-outline", "Generale"], ["fatturazione", "mdi:receipt-text-outline", "Dati fatturazione"], ["sito", "mdi:web", "Sito web"], ["dati", "mdi:database-outline", "Dati e backup"]]
+      [["generale", "mdi:palette-outline", "Generale"], ["fatturazione", "mdi:receipt-text-outline", "Dati fatturazione"], ["sito", "mdi:web", "Sito web"], ["pochi", "mdi:account-group-outline", "Pochi ingressi"], ["dati", "mdi:database-outline", "Dati e backup"]]
         .map(([id, icon, label]) => el("button", {
           class: `nt-tab${tab === id ? " on" : ""}`, role: "tab", "aria-selected": tab === id ? "true" : "false",
           on: { click: () => { this._setTab = id; this._render(); } },
@@ -14283,6 +14337,7 @@ class SpaBookingCard extends HTMLElement {
     if (tab === "generale") wrap.appendChild(this._settingsGeneral(draft, changed));
     if (tab === "fatturazione") wrap.appendChild(this._settingsBilling(draft, changed));
     if (tab === "sito") wrap.appendChild(this._settingsWeb(draft, changed));
+    if (tab === "pochi") wrap.appendChild(this._lowSpaPanel(draft, changed));
     if (tab === "dati") wrap.appendChild(this._settingsData());
     wrap.appendChild(this._pageSaveBar("set", () => this._saveSettingsPage(), () => { this._setDraft = null; this._render(); }));
     return wrap;
@@ -14298,6 +14353,9 @@ class SpaBookingCard extends HTMLElement {
         web_notify_whatsapp: String(draft.web_notify_whatsapp || "").split(/[\n,;]+/).map((x) => x.trim()).filter(Boolean).join("\n"),
         web_step_min: Number(draft.web_step_min) || 30,
         web_max_days_ahead: Number(draft.web_max_days_ahead) || 60,
+        low_spa_min: Number(draft.low_spa_min) || 3,
+        low_spa_hours: Number(draft.low_spa_hours) || 24,
+        low_spa_move_days: Number(draft.low_spa_move_days) || 3,
       });
       this._setDraft = null;
       this._message = { kind: "ok", text: "Impostazioni salvate." };
@@ -17599,6 +17657,7 @@ class SpaBookingCard extends HTMLElement {
       }).map((line) => line.replace(/\{(\w+)\}/g, (all, k) => (k in values ? values[k] : all)))
         .join("\n").replace(/\n{3,}/g, "\n\n").trim();
     }
+    if (message.id === "move") text = text.replace(/\{nuova_data\}/g, "domenica 15 novembre");
     if (message.id === "propose") {
       text = text
         .replace(/\{data_richiesta\}/g, "sabato 14 novembre").replace(/\{data_proposta\}/g, "domenica 15 novembre")
@@ -17789,8 +17848,7 @@ class SpaBookingCard extends HTMLElement {
           el("div", {},
             el("div", { class: "nt-ed-title" }, "Anteprima report"),
             el("div", { class: "dim small" }, "Da stampare o salvare in PDF."))),
-        this._reportControls()),
-      this._lowSpaPanel(draft, changed));
+        this._reportControls()));
   }
 
   /** The categories counted as spa entries: chosen, or those named Spa / Ingresso. */
@@ -17842,14 +17900,124 @@ class SpaBookingCard extends HTMLElement {
           } },
         }, c.name))),
         el("span", { class: "dim small" }, chosen.size ? "Una persona per ogni appuntamento di queste categorie." : "Scelte da sole: le categorie che si chiamano Spa o Ingresso.")) : null,
+      on ? this._lowSpaMoveFields(draft, changed) : null,
       on ? el("div", { class: "field" }, el("span", {}, "I prossimi giorni"),
-        el("div", { class: "low-spa-days" }, days.map((d) => el("span", {
-          class: `pm-chip ${d.people && d.people < minimum ? "bad" : d.people ? "ok" : ""}`,
-          title: d.people && d.people < minimum ? "Qui partirebbe l'avviso" : "",
-        }, `${d.label}: ${d.people} ${d.people === 1 ? "persona" : "persone"}${d.people && d.people < minimum ? " ⚠️" : ""}`)))) : null,
+        el("div", { class: "low-spa-days" }, days.map((d) => {
+          const low = d.people && d.people < minimum;
+          return el(low ? "button" : "span", {
+            class: `pm-chip ${low ? "bad" : d.people ? "ok" : ""}`,
+            title: low ? "Apri: proponi o sposta a un altro giorno" : "",
+            ...(low ? { type: "button", on: { click: () => this._openLowSpa(d.key) } } : {}),
+          }, `${d.label}: ${d.people} ${d.people === 1 ? "persona" : "persone"}${low ? " ⚠️" : ""}`);
+        }))) : null,
       on ? el("div", { class: "dim small" }, numbers.length
         ? `L'avviso arriva su WhatsApp a ${numbers.join(", ")} («WhatsApp avvisi dal sito» in Impostazioni) e come notifica in Home Assistant.`
         : "Nessun numero in «WhatsApp avvisi dal sito» (Impostazioni): arriva solo la notifica in Home Assistant.") : null);
+  }
+
+  /** What is done with the people of a low day (3.17.0). */
+  _lowSpaMoveFields(draft, changed) {
+    const mode = draft.low_spa_move || "propose";
+    const modes = [
+      ["off", "Solo l'avviso", "La reception decide e sposta a mano."],
+      ["propose", "Proposta all'ospite, la invii tu", "Nell'avviso c'è il giorno consigliato: dalla campanella scegli il giorno e invii la proposta."],
+      ["propose_auto", "Proposta all'ospite, parte da sola", "Con l'avviso parte anche la proposta del giorno consigliato agli ospiti."],
+      ["auto", "Spostamento automatico", "La prenotazione viene spostata al giorno consigliato e all'ospite arriva «prenotazione modificata». Senza chiedere: usalo con attenzione."],
+    ];
+    const daysInput = el("input", { class: "input", type: "number", min: "1", max: "14", value: draft.low_spa_move_days || 3,
+      on: { input: (event) => { draft.low_spa_move_days = event.target.value; changed(); } } });
+    return el("div", { class: "stack tight" },
+      el("div", { class: "field" }, el("span", {}, "Spostare a un altro giorno"),
+        el("div", { class: "cx-choice" }, modes.map(([id, title, text]) => el("label", { class: `cx-opt${mode === id ? " on" : ""}` },
+          el("input", { type: "radio", name: "low-spa-move", checked: mode === id,
+            on: { change: () => { draft.low_spa_move = id; changed(); this._render(); } } }),
+          el("span", { class: "cx-text" }, el("b", {}, title), el("span", { class: "dim small" }, text)))))),
+      mode !== "off" ? NOTIFY_FIELD("Cerca il giorno fino a", daysInput,
+        "Giorni prima e dopo. Vince quello che con loro arriva al minimo, poi il più vicino; mai oggi.") : null,
+      mode === "propose" || mode === "propose_auto" ? el("label", { class: "check" },
+        el("input", { type: "checkbox", checked: draft.low_spa_move_reply !== false,
+          on: { change: (event) => { draft.low_spa_move_reply = event.target.checked; changed(); } } }),
+        el("span", {}, "Se l'ospite risponde SÌ la prenotazione si sposta da sola (con NO resta): la reception riceve l'esito")) : null,
+      mode !== "off" ? el("div", { class: "dim small" }, "Il testo della proposta: ",
+        el("a", { href: "#", on: { click: (event) => {
+          event.preventDefault();
+          this._cfgTab = "notifiche"; this._notifyTab = "ospiti"; this._notifyMsg = "move"; this._notifyMsgOpen = true; this._render();
+        } } }, "Notifiche › Messaggi › Proposta di un altro giorno"), ".") : null);
+  }
+
+  /** The low-spa popup for a day: bookings, the days to choose, the actions (3.17.0). */
+  async _openLowSpa(day) {
+    this._noticePanel = false;
+    this._lowSpa = { day, info: null, pick: "" };
+    this._render();
+    try {
+      const info = await this._service("low_spa", { action: "info", day });
+      if (!this._lowSpa || this._lowSpa.day !== day) return;
+      this._lowSpa.info = info;
+      this._lowSpa.pick = ((info.suggestions || [])[0] || {}).day || "";
+    } catch (error) {
+      this._lowSpa = null;
+      this._message = { kind: "error", text: this._friendlyError(error, "Non riesco a leggere il giorno.") };
+    }
+    this._render();
+  }
+
+  async _lowSpaAction(action, extra) {
+    const popup = this._lowSpa;
+    try {
+      const result = await this._call("low_spa", { action, day: popup.day, ...(extra || {}) });
+      const done = (result.sent || result.moved || []).length;
+      const failed = (result.failed || []).map((f) => `${f.client}: ${f.error}`);
+      const what = action === "propose" ? "Proposta inviata" : action === "move" ? "Spostate" : "Fatto";
+      this._message = { kind: failed.length ? "error" : "ok",
+        text: action === "cancel" ? "Proposta annullata." : `${what}: ${done} ${done === 1 ? "prenotazione" : "prenotazioni"}.${failed.length ? ` Non riuscito: ${failed.join("; ")}` : ""}` };
+      if (this._lowSpa) await this._openLowSpa(popup.day);
+    } catch (error) { /* shown */ }
+  }
+
+  _renderLowSpaPopup() {
+    const popup = this._lowSpa;
+    const close = () => { this._lowSpa = null; this._render(); };
+    const info = popup.info;
+    const label = (day) => (day === ymd(new Date(Date.now() + 86400000)) ? "Domani" : this._dateIt(day));
+    const body = !info ? el("div", { class: "empty" }, "Carico…") : el("div", { class: "stack tight" },
+      el("p", { class: "dim" }, `${info.people} ${info.people === 1 ? "persona" : "persone"} alla SPA (minimo ${info.minimum}).`),
+      el("div", { class: "cx-choice" }, (info.bookings || []).map((b) => el("div", { class: "cx-opt on gate-row" },
+        el("ha-icon", { icon: b.proposal ? "mdi:email-fast-outline" : "mdi:account-outline", class: "cf-ok" }),
+        el("span", { class: "cx-text" },
+          el("b", {}, `${b.time} · ${b.client}`),
+          el("span", { class: "dim small" }, b.treatments.join(", ")),
+          b.proposal ? el("span", { class: "small low-spa-wait" }, `Proposto ${this._dateIt(b.proposal.to)}: in attesa di risposta`) : null),
+        b.proposal ? el("span", { class: "row tight" },
+          el("button", { class: "btn small", disabled: this._busy, title: "L'ospite ha accettato: sposta e invia «prenotazione modificata»",
+            on: { click: () => this._lowSpaAction("move", { to_day: b.proposal.to, booking_keys: [b.key] }) } }, "Ha accettato"),
+          el("button", { class: "btn small ghost", disabled: this._busy,
+            on: { click: () => this._lowSpaAction("cancel", { appointment_ids: b.ids }) } }, "Annulla")) : null))),
+      el("div", { class: "field" }, el("span", {}, "Un altro giorno"),
+        (info.suggestions || []).length ? el("div", { class: "nt-tabs low-spa-days" }, info.suggestions.map((sg) => el("button", {
+          type: "button", class: `nt-tab${popup.pick === sg.day ? " on" : ""}`,
+          title: sg.enough ? "Con loro si arriva al minimo" : "",
+          on: { click: () => { popup.pick = sg.day; this._render(); } },
+        }, `${label(sg.day)} · ${sg.people} → ${sg.after}${sg.enough ? " ✓" : ""}`)))
+          : el("span", { class: "dim small" }, "Nessun giorno vicino (Impostazioni › Pochi ingressi).")),
+      el("span", { class: "dim small" }, "Il numero è chi c'è già → con loro. ✓ = arriva al minimo."));
+    const pick = popup.pick;
+    const sheet = el("div", { class: "detail-sheet cx-sheet" },
+      el("h3", {}, el("ha-icon", { icon: "mdi:account-group-outline" }), ` Pochi ingressi · ${label(popup.day)}`),
+      body,
+      el("div", { class: "row" }, el("span", { class: "spacer" }),
+        el("button", { class: "btn", on: { click: close } }, "Chiudi"),
+        info && pick ? el("button", { class: "btn", disabled: this._busy, on: { click: () => {
+          if (window.confirm(`Spostare tutti a ${this._dateIt(pick)} alla stessa ora e avvisarli con «prenotazione modificata»?`)) this._lowSpaAction("move", { to_day: pick });
+        } } }, el("ha-icon", { icon: "mdi:calendar-arrow-right" }), "Sposta subito") : null,
+        info && pick ? el("button", { class: "btn primary", disabled: this._busy,
+          on: { click: () => {
+            // Who already has a proposal is not asked twice.
+            const fresh = (info.bookings || []).filter((b) => !b.proposal).map((b) => b.key);
+            this._lowSpaAction("propose", { to_day: pick, ...(fresh.length ? { booking_keys: fresh } : {}) });
+          } } },
+          el("ha-icon", { icon: "mdi:whatsapp" }), "Proponi agli ospiti") : null));
+    return el("div", { class: "detail-backdrop", on: { click: (event) => { if (event.target === event.currentTarget) close(); } } }, sheet);
   }
 
   _notifyConnections(draft, settings) {
@@ -23728,6 +23896,8 @@ class SpaBookingCard extends HTMLElement {
       .notify-btn.has ha-icon { color: var(--primary-color); }
       .notice-backdrop { align-items: flex-start; justify-content: flex-end; }
       .low-spa-days { display: flex; gap: 6px; flex-wrap: wrap; }
+      button.pm-chip { border: 0; cursor: pointer; font: inherit; font-size: 11px; font-weight: 600; }
+      .low-spa-wait { color: var(--sb-warn-fg, #9a6700); font-weight: 600; }
       .notice-sheet { width: min(440px, calc(100vw - 24px)); max-height: calc(100vh - 90px); margin: 64px 12px 12px auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
       .notice-head { display: flex; align-items: center; gap: 8px; }
       .notice-head b { font-size: 16px; }

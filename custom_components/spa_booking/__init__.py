@@ -122,6 +122,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 )
             except Exception:  # noqa: BLE001 - the history must not break the handler
                 _LOGGER.exception("Registrazione messaggio WhatsApp ricevuto fallita")
+        # A guest answering SÌ / NO to «un altro giorno» (3.17.0).
+        if str(data.get("channel") or "") == "whatsapp" and not data.get("operator_id") and data.get("text"):
+            try:
+                if await coordinator.async_low_spa_reply(str(data.get("chat_id") or ""), str(data.get("text") or "")):
+                    return
+            except Exception:  # noqa: BLE001 - the reply must not break the handler
+                _LOGGER.exception("Risposta alla proposta di un altro giorno non gestita")
         # An informational word (AIUTO, OGGI, DOMANI, …) is not an answer:
         # it sends the operator the matching message instead.
         text = str(data.get("text") or "")

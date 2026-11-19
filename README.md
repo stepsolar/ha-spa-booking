@@ -111,6 +111,22 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v3.17.0** — (serve il riavvio di Home Assistant)
+  - **Pochi ingressi: un altro giorno all'ospite**. Le impostazioni sono in
+    una scheda nuova, Impostazioni › *Pochi ingressi* (prima in Notifiche ›
+    Report). Si sceglie cosa fare: solo l'avviso, *proposta all'ospite* (la
+    invia la reception dalla campanella, di base), proposta che parte da sola
+    o *spostamento automatico* (attivabile, spento di base).
+  - L'avviso indica il giorno consigliato: entro N giorni prima/dopo quello
+    che con loro arriva al minimo, poi il più vicino.
+  - Popup del giorno (campanella o giorni in rosso): prenotazioni, giorni
+    vicini, **Proponi agli ospiti** e **Sposta subito**; per una proposta in
+    attesa **Ha accettato** e **Annulla**.
+  - L'ospite risponde **SÌ** → la prenotazione si sposta (intera, con gli
+    stessi controlli di una modifica) e riceve «prenotazione modificata»;
+    **NO** → resta. La reception riceve l'esito. Disattivabile.
+  - Nuovo messaggio modificabile *Proposta di un altro giorno* (Notifiche ›
+    Messaggi agli ospiti) e servizio `spa_booking.low_spa`.
 - **v3.16.0** — (serve il riavvio di Home Assistant)
   - **Prenotazione modificata**: dopo aver salvato una prenotazione spostata
     (giorno, ora o trattamento) la card propone di inviare all'ospite «la Sua

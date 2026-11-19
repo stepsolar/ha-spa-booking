@@ -1272,6 +1272,37 @@ send_guest_summary:
         select:
           options: ["", "change", "confirm"]
 
+low_spa:
+  name: Pochi ingressi alla SPA
+  description: >-
+    Un giorno con poche persone alla SPA: info (prenotazioni e giorni
+    consigliati), propose (propone agli ospiti un altro giorno su WhatsApp),
+    move (sposta e avvisa con «prenotazione modificata»), cancel (annulla le
+    proposte degli appuntamenti indicati).
+  fields:
+    action:
+      name: Azione
+      required: true
+      selector:
+        select:
+          options: ["info", "propose", "move", "cancel"]
+    day:
+      name: Giorno (AAAA-MM-GG)
+      selector:
+        text:
+    to_day:
+      name: Nuovo giorno (AAAA-MM-GG)
+      selector:
+        text:
+    booking_keys:
+      name: Solo queste prenotazioni
+      selector:
+        object:
+    appointment_ids:
+      name: Appuntamenti (per cancel)
+      selector:
+        object:
+
 send_deposit_request:
   name: Richiedi acconto all'ospite
   description: >-

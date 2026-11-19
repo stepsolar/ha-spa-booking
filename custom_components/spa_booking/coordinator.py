@@ -80,6 +80,7 @@ from .const import (
     DEFAULT_PROPOSE_MESSAGE,
     DEFAULT_REQUEST_MESSAGE,
     DEFAULT_CHANGE_MESSAGE,
+    DEFAULT_MOVE_PROPOSAL_MESSAGE,
     DEFAULT_SUMMARY_MESSAGE,
     DEFAULT_CANCEL_MESSAGE,
     DEFAULT_APPOINTMENT_REMINDER_MESSAGE,
@@ -7182,19 +7183,294 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         rows.sort(key=lambda item: item[0])
         return {"people": len(rows), "first": rows[0][0] if rows else None, "rows": rows}
 
+    async def _async_desk_alert(self, title: str, text: str, tag: str) -> None:
+        """A WhatsApp to the numbers of the website notices and a HA notification."""
+        for target in notify_numbers(self._data[KEY_SETTINGS].get("web_notify_whatsapp")):
+            try:
+                await messaging.async_send_whatsapp(self.hass, target, text, waha=self.waha)
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.warning("Avviso «%s» a %s fallito: %s", title, target, err)
+        try:
+            await self.hass.services.async_call(
+                "persistent_notification", "create",
+                {"title": f"Spa Booking: {title}", "message": text, "notification_id": f"spa_booking_{tag}"},
+                blocking=False,
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("Notifica persistente non disponibile")
+
+    def _low_spa_bookings(self, day: str) -> list[dict[str, Any]]:
+        """The bookings of the spa on ``day``: each with every appointment of it that day.
+
+        A booking is a client's appointments of one batch (one form), so a
+        massage booked with the entry moves with it.
+        """
+        info = self.low_spa_day(day)
+        bookings: dict[tuple[str, str], dict[str, Any]] = {}
+        for start, appointment in info["rows"]:
+            key = (str(appointment.get("client_id") or ""), str(appointment.get("batch_id") or appointment["id"]))
+            item = bookings.setdefault(key, {"key": key[1], "client_id": key[0], "start": start, "spa": 0, "ids": []})
+            item["spa"] += 1
+        for item in bookings.values():
+            for appointment in self.appointments:
+                if appointment.get("status") not in (STATUS_CONFIRMED, STATUS_PENDING):
+                    continue
+                if str(appointment.get("client_id") or "") != item["client_id"]:
+                    continue
+                if str(appointment.get("batch_id") or appointment["id"]) != item["key"]:
+                    continue
+                start = dt_util.parse_datetime(str(appointment.get("start") or ""))
+                if start is None or dt_util.as_local(start).date().isoformat() != day:
+                    continue
+                item["ids"].append(appointment["id"])
+            item["ids"].sort(key=lambda aid: str(next(a for a in self.appointments if a["id"] == aid).get("start")))
+        return sorted(bookings.values(), key=lambda b: b["start"])
+
+    def low_spa_suggestions(self, day: str, moving: int = 0) -> list[dict[str, Any]]:
+        """The days near ``day`` to move its people to, the best first (3.17.0).
+
+        Best is a day that reaches the minimum with them, then one with
+        somebody already, then the nearest. Never today or a past day.
+        """
+        settings = self._data[KEY_SETTINGS]
+        minimum = int(settings.get("low_spa_min") or 3)
+        span = int(settings.get("low_spa_move_days") or 3)
+        try:
+            base = date.fromisoformat(day[:10])
+        except ValueError:
+            return []
+        today = dt_util.now().date()
+        out = []
+        for delta in range(1, span + 1):
+            for other in (base - timedelta(days=delta), base + timedelta(days=delta)):
+                if other <= today:
+                    continue
+                people = self.low_spa_day(other.isoformat())["people"]
+                out.append({
+                    "day": other.isoformat(), "people": people, "after": people + moving,
+                    "enough": people + moving >= minimum, "distance": delta,
+                })
+        out.sort(key=lambda s: (not s["enough"], s["people"] == 0, s["distance"], s["day"]))
+        return out
+
+    def low_spa_info(self, day: str) -> dict[str, Any]:
+        """What the card shows for a day with few people: bookings, days, proposals."""
+        settings = self._data[KEY_SETTINGS]
+        proposals = settings.get("low_spa_proposals") or {}
+        bookings = []
+        for item in self._low_spa_bookings(day):
+            payloads = [self.appointment_payload(self._find(self.appointments, aid, "Appuntamento")) for aid in item["ids"]]
+            client = (payloads[0].get("client") or {}) if payloads else {}
+            proposal = next((proposals[aid] for aid in item["ids"] if aid in proposals), None)
+            bookings.append({
+                "key": item["key"], "ids": item["ids"], "people": item["spa"],
+                "client": client.get("full_name") or "ospite", "phone": client.get("phone") or "",
+                "time": item["start"].strftime("%H:%M"),
+                "treatments": [str((p.get("treatment") or {}).get("name") or "") for p in payloads],
+                "proposal": proposal,
+            })
+        people = sum(b["people"] for b in bookings)
+        return {
+            "day": day, "people": people, "minimum": int(settings.get("low_spa_min") or 3),
+            "mode": settings.get("low_spa_move") or "propose",
+            "bookings": bookings, "suggestions": self.low_spa_suggestions(day, people),
+        }
+
+    def format_move_proposal(self, payloads: list[dict[str, Any]], to_day: str) -> str:
+        """The proposal of another day, from the editable text (3.17.0)."""
+        ordered = sorted(payloads, key=lambda p: str(p.get("start_local") or ""))
+        first = ordered[0]
+        client = first.get("client") or {}
+        settings = self._data[KEY_SETTINGS]
+        values = {
+            "{nome}": str(client.get("first_name") or "").strip() or "ospite",
+            "{cognome}": str(client.get("last_name") or "").strip(),
+            "{cliente}": str(client.get("full_name") or "").strip() or "ospite",
+            "{hotel}": str(settings.get("guest_header") or "").strip() or DEFAULT_GUEST_HEADER,
+            "{data}": _day_words(str(first.get("start_local") or "")[:10]),
+            "{nuova_data}": _day_words(to_day),
+            "{ora}": str(first.get("start_local") or "")[11:16] or "—",
+            "{appuntamenti}": "\n".join(self._appointment_lines(ordered, with_day=False)),
+            "{codice}": ", ".join(dict.fromkeys(str(p.get("code") or "") for p in ordered if p.get("code"))) or "—",
+        }
+        text = str(settings.get("move_proposal_message") or "").strip() or DEFAULT_MOVE_PROPOSAL_MESSAGE
+        for key, value in values.items():
+            text = text.replace(key, value)
+        return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+    async def _async_move_booking(self, ids: list[str], to_day: str) -> None:
+        """Move appointments to ``to_day`` at the same time; all of them or none."""
+        target = date.fromisoformat(to_day[:10])
+        original: dict[str, str] = {}
+        moved: list[str] = []
+        try:
+            for aid in ids:
+                appointment = self._find(self.appointments, aid, "Appuntamento")
+                start = dt_util.parse_datetime(str(appointment.get("start") or ""))
+                if start is None:
+                    raise ValidationError("Appuntamento senza orario")
+                local = dt_util.as_local(start)
+                original[aid] = str(appointment.get("start"))
+                await self.async_update_appointment(
+                    aid, start=local.replace(year=target.year, month=target.month, day=target.day))
+                moved.append(aid)
+        except SpaBookingError:
+            for aid in reversed(moved):
+                try:
+                    await self.async_update_appointment(aid, start=original[aid])
+                except SpaBookingError as err:
+                    _LOGGER.warning("Ripristino di %s non riuscito: %s", aid, err)
+            raise
+
+    async def _async_clear_proposals(self, ids: list[str]) -> None:
+        async with self._lock:
+            proposals = self._data[KEY_SETTINGS].setdefault("low_spa_proposals", {})
+            if any(aid in proposals for aid in ids):
+                for aid in ids:
+                    proposals.pop(aid, None)
+                await self._async_save()
+
+    async def async_low_spa_move(
+        self, day: str, to_day: str, booking_keys: list[str] | None = None, notify: bool = True
+    ) -> dict[str, Any]:
+        """Move the people of ``day`` to ``to_day`` and tell them (3.17.0).
+
+        Each booking moves whole or not at all (the same checks as an edit);
+        the guest gets «prenotazione modificata».
+        """
+        if not to_day or to_day[:10] == day[:10]:
+            raise ValidationError("Scegli un altro giorno")
+        moved, failed = [], []
+        for item in self._low_spa_bookings(day):
+            if booking_keys and item["key"] not in booking_keys:
+                continue
+            name = (self.appointment_payload(self._find(self.appointments, item["ids"][0], "Appuntamento")).get("client") or {}).get("full_name") or "ospite"
+            try:
+                await self._async_move_booking(item["ids"], to_day)
+            except SpaBookingError as err:
+                failed.append({"client": name, "error": str(err)})
+                continue
+            await self._async_clear_proposals(item["ids"])
+            sent = False
+            if notify:
+                try:
+                    sent = bool((await self.async_send_guest_summary(appointment_ids=item["ids"], kind="change")).get("sent"))
+                except SpaBookingError as err:
+                    _LOGGER.warning("Messaggio di modifica a %s non inviato: %s", name, err)
+            moved.append({"client": name, "ids": item["ids"], "notified": sent})
+        return {"moved": moved, "failed": failed, "to_day": to_day}
+
+    async def async_low_spa_propose(
+        self, day: str, to_day: str, booking_keys: list[str] | None = None
+    ) -> dict[str, Any]:
+        """Propose ``to_day`` to the guests of ``day`` on WhatsApp (3.17.0)."""
+        if not to_day or to_day[:10] == day[:10]:
+            raise ValidationError("Scegli un altro giorno")
+        sent, failed = [], []
+        for item in self._low_spa_bookings(day):
+            if booking_keys and item["key"] not in booking_keys:
+                continue
+            payloads = [self.appointment_payload(self._find(self.appointments, aid, "Appuntamento")) for aid in item["ids"]]
+            client = payloads[0].get("client") or {}
+            name = client.get("full_name") or "ospite"
+            chat_id = messaging.whatsapp_chat_id(client.get("phone") or "")
+            if not chat_id:
+                failed.append({"client": name, "error": "senza telefono"})
+                continue
+            try:
+                result = await messaging.async_send_whatsapp(
+                    self.hass, chat_id, self.format_move_proposal(payloads, to_day), waha=self.waha)
+            except Exception as err:  # noqa: BLE001
+                failed.append({"client": name, "error": str(err)})
+                continue
+            if not result.get("sent"):
+                failed.append({"client": name, "error": str(result.get("error") or "non inviato")})
+                continue
+            async with self._lock:
+                proposals = self._data[KEY_SETTINGS].setdefault("low_spa_proposals", {})
+                now = dt_util.utcnow().isoformat()
+                for aid in item["ids"]:
+                    proposals[aid] = {"from": day[:10], "to": to_day[:10], "sent_at": now, "chat_id": self._chat_key(chat_id)}
+                await self._async_save()
+            sent.append({"client": name, "ids": item["ids"]})
+        return {"sent": sent, "failed": failed, "to_day": to_day}
+
+    async def async_low_spa_cancel(self, ids: list[str]) -> dict[str, Any]:
+        await self._async_clear_proposals(ids)
+        return {"cancelled": len(ids)}
+
+    async def async_low_spa_reply(self, chat_id: str, text: str) -> bool:
+        """A guest answered the proposal: SÌ moves her, NO keeps her day (3.17.0).
+
+        Anything else is an ordinary message. Off with ``low_spa_move_reply``:
+        then the desk reads the answer in the chat and decides.
+        """
+        settings = self._data[KEY_SETTINGS]
+        proposals = settings.get("low_spa_proposals") or {}
+        if not proposals or settings.get("low_spa_move_reply") is False:
+            return False
+        key = self._chat_key(chat_id)
+        mine = {aid: p for aid, p in proposals.items() if p.get("chat_id") == key}
+        if not mine:
+            return False
+        words = re.sub(r"[^\wàèéìòù ]+", " ", text.lower()).split()
+        if not words or len(words) > 6:
+            return False
+        yes = words[0] in ("si", "sì", "sí", "ok", "okay", "confermo", "accetto", "va", "certo", "perfetto", "yes")
+        no = words[0] in ("no", "mantengo", "preferisco", "lascio", "rimango", "resto")
+        if words[0] == "va" and "bene" not in words:
+            yes = False
+        if not (yes or no):
+            return False
+        name = "L'ospite"
+        first_id = next(iter(mine))
+        appointment = next((a for a in self.appointments if a["id"] == first_id), None)
+        if appointment is not None:
+            name = (self.appointment_payload(appointment).get("client") or {}).get("full_name") or name
+        ids = [aid for aid in mine if any(a["id"] == aid for a in self.appointments)]
+        if no:
+            await self._async_clear_proposals(list(mine))
+            await self._async_desk_alert(
+                "proposta rifiutata", f"🗓️ {name} preferisce mantenere la data ({_day_words(next(iter(mine.values()))['from'])}).",
+                f"low_spa_reply_{first_id}")
+            return True
+        by_day: dict[str, list[str]] = {}
+        for aid in ids:
+            by_day.setdefault(mine[aid]["to"], []).append(aid)
+        for to_day, group in by_day.items():
+            try:
+                await self._async_move_booking(group, to_day)
+            except SpaBookingError as err:
+                await self._async_desk_alert(
+                    "spostamento non riuscito",
+                    f"⚠️ {name} ha accettato {_day_words(to_day)}, ma lo spostamento non è riuscito: {err}. "
+                    "Spostala a mano da Spa Booking.", f"low_spa_reply_{first_id}")
+                return True
+            await self._async_clear_proposals(list(mine))
+            try:
+                await self.async_send_guest_summary(appointment_ids=group, kind="change")
+            except SpaBookingError as err:
+                _LOGGER.warning("Messaggio di modifica a %s non inviato: %s", name, err)
+            await self._async_desk_alert(
+                "proposta accettata", f"✅ {name} ha accettato: prenotazione spostata a {_day_words(to_day)}.",
+                f"low_spa_reply_{first_id}")
+        return True
+
     async def async_low_spa_tick(self) -> dict[str, Any]:
         """Tell the desk when a day has too few people at the spa (3.16.0).
 
         The hours set before the first arrival of a day, if fewer than the
         minimum come (one or two people, say), the numbers of the website
-        notices get a WhatsApp and Home Assistant a notification: the desk
-        can still move them to another day. Once per day.
+        notices get a WhatsApp and Home Assistant a notification. Once per
+        day. 3.17.0: with ``low_spa_move`` the people are offered (or moved
+        to) the best day near it.
         """
         settings = self._data[KEY_SETTINGS]
         if settings.get("low_spa_alert") is False:
             return {"skipped": "spento"}
         minimum = int(settings.get("low_spa_min") or 3)
         hours = int(settings.get("low_spa_hours") or 24)
+        mode = settings.get("low_spa_move") or "propose"
         now = dt_util.now()
         today = now.date()
         alerted = dict(settings.get("low_spa_alerted") or {})
@@ -7215,33 +7491,40 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 lines.append(f"• {start.strftime('%H:%M')} {(payload.get('client') or {}).get('full_name') or 'ospite'}"
                              f" · {(payload.get('treatment') or {}).get('name') or ''}")
             people = info["people"]
+            # Taken now, so a crash in the move does not repeat the alert.
+            alerted[day] = dt_util.utcnow().isoformat()
+            async with self._lock:
+                settings["low_spa_alerted"] = {
+                    d: at for d, at in alerted.items() if d >= (today - timedelta(days=7)).isoformat()}
+                await self._async_save()
+            best = next((s for s in self.low_spa_suggestions(day, people) if s["enough"]), None)
+            tail = "Se serve, spostali a un altro giorno da Spa Booking (campanella › Pochi ingressi)."
+            if mode != "off" and best:
+                where = f"{_day_words(best['day'])} ({best['people']} {'persona' if best['people'] == 1 else 'persone'})"
+                if mode == "auto":
+                    result = await self.async_low_spa_move(day, best["day"])
+                    done = ", ".join(m["client"] for m in result["moved"])
+                    tail = f"➡️ Spostati a {where}: {done or 'nessuno'}. All'ospite è partito «prenotazione modificata»."
+                    if result["failed"]:
+                        tail += "\nNon spostati: " + "; ".join(f"{f['client']} ({f['error']})" for f in result["failed"])
+                elif mode == "propose_auto":
+                    result = await self.async_low_spa_propose(day, best["day"])
+                    asked = ", ".join(m["client"] for m in result["sent"])
+                    tail = f"📨 Proposto agli ospiti {where}: {asked or 'nessuno'}. Rispondono SÌ o NO."
+                    if result["failed"]:
+                        tail += "\nNon inviata a: " + "; ".join(f"{f['client']} ({f['error']})" for f in result["failed"])
+                else:
+                    tail = f"Giorno consigliato: {where}. Proponilo dalla campanella di Spa Booking."
+            elif mode != "off":
+                tail = "Nessun giorno vicino con abbastanza persone: decidi tu da Spa Booking."
             text = "\n".join([
                 f"⚠️ Pochi ingressi alla SPA {self.format_day(first.isoformat())}: "
                 f"{'solo 1 persona' if people == 1 else f'solo {people} persone'} (minimo {minimum}).",
                 *lines,
-                "Se serve, spostali a un altro giorno da Spa Booking: all'ospite parte «prenotazione modificata».",
+                tail,
             ])
-            for target in notify_numbers(settings.get("web_notify_whatsapp")):
-                try:
-                    await messaging.async_send_whatsapp(self.hass, target, text, waha=self.waha)
-                except Exception as err:  # noqa: BLE001
-                    _LOGGER.warning("Avviso «pochi ingressi» a %s fallito: %s", target, err)
-            try:
-                await self.hass.services.async_call(
-                    "persistent_notification", "create",
-                    {"title": "Spa Booking: pochi ingressi alla SPA", "message": text,
-                     "notification_id": f"spa_booking_low_spa_{day}"},
-                    blocking=False,
-                )
-            except Exception:  # noqa: BLE001
-                _LOGGER.debug("Notifica persistente non disponibile")
-            alerted[day] = dt_util.utcnow().isoformat()
+            await self._async_desk_alert("pochi ingressi alla SPA", text, f"low_spa_{day}")
             sent.append(day)
-        if sent:
-            keep = (today - timedelta(days=7)).isoformat()
-            async with self._lock:
-                settings["low_spa_alerted"] = {d: at for d, at in alerted.items() if d >= keep}
-                await self._async_save()
         return {"alerted": sent}
 
     async def async_manual_confirm_offer(

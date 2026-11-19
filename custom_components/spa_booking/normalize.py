@@ -79,6 +79,8 @@ from .const import (
     PREVIOUS_SUMMARY_MESSAGE,
     DEFAULT_CANCEL_MESSAGE,
     DEFAULT_CHANGE_MESSAGE,
+    DEFAULT_MOVE_PROPOSAL_MESSAGE,
+    LOW_SPA_MOVE_MODES,
     DEFAULT_APPOINTMENT_REMINDER_MESSAGE,
     DEFAULT_APPOINTMENT_REMINDER_AUTO,
     DEFAULT_APPOINTMENT_REMINDER_HOURS,
@@ -965,6 +967,21 @@ def _norm_settings(raw: dict[str, Any]) -> dict[str, Any]:
         "low_spa_category_ids": [str(item) for item in (raw.get("low_spa_category_ids") or []) if str(item).strip()][:50],
         "low_spa_alerted": {
             str(day): str(at) for day, at in (raw.get("low_spa_alerted") if isinstance(raw.get("low_spa_alerted"), dict) else {}).items()
+        },
+        # Another day for the people of a day with too few (3.17.0).
+        "low_spa_move": raw.get("low_spa_move") if raw.get("low_spa_move") in LOW_SPA_MOVE_MODES else "propose",
+        "low_spa_move_days": _norm_count(raw.get("low_spa_move_days"), 1, 14, 3),
+        # A guest answering SÌ / NO to the proposal is moved (or kept) by herself.
+        "low_spa_move_reply": raw.get("low_spa_move_reply") is not False,
+        "move_proposal_message": str(raw.get("move_proposal_message") or "").strip() or DEFAULT_MOVE_PROPOSAL_MESSAGE,
+        # The proposals waiting for an answer, by appointment id.
+        "low_spa_proposals": {
+            str(key): {
+                "from": str(value.get("from") or "")[:10], "to": str(value.get("to") or "")[:10],
+                "sent_at": str(value.get("sent_at") or ""), "chat_id": str(value.get("chat_id") or ""),
+            }
+            for key, value in (raw.get("low_spa_proposals") if isinstance(raw.get("low_spa_proposals"), dict) else {}).items()
+            if isinstance(value, dict) and value.get("to")
         },
         # The operators' messages (3.15.0): empty = the built-in text.
         **{key: str(raw.get(key) or "").strip() or default for key, default in OPERATOR_MESSAGE_DEFAULTS.items()},
