@@ -525,6 +525,24 @@ DEFAULT_CHANGE_MESSAGE: Final = "\n".join(
     ]
 )
 
+#: «Pochi ingressi» (3.17.0): what is done with the people of a day with too
+#: few at the spa. "off" = only the alert; "propose" = the desk proposes
+#: another day from the card; "propose_auto" = the proposal leaves by itself
+#: with the best day; "auto" = the bookings are moved and the guests told.
+LOW_SPA_MOVE_MODES: Final = ("off", "propose", "propose_auto", "auto")
+
+#: The proposal of another day to the guest (3.17.0).
+DEFAULT_MOVE_PROPOSAL_MESSAGE: Final = "\n".join(
+    [
+        "Gentile {nome}, per {data} alla SPA sono previste pochissime presenze.",
+        "",
+        "Per farLe vivere la SPA al meglio Le proponiamo di spostare la Sua prenotazione a {nuova_data} alle {ora}, alle stesse condizioni:",
+        "{appuntamenti}",
+        "",
+        "Ci risponda SÌ per confermare il cambio, oppure NO per mantenere la data attuale.",
+    ]
+)
+
 #: The 2.3.5 text, without the discount line: upgraded to the one above.
 PREVIOUS_SUMMARY_MESSAGE: Final = DEFAULT_SUMMARY_MESSAGE.replace("{sconto}\n", "")
 
