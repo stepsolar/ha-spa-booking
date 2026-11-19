@@ -111,6 +111,18 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v3.18.0** — (serve il riavvio di Home Assistant; plugin WordPress 1.8.0)
+  - **Gift card di Spa Booking sullo shop**: ogni gift card venduta in Spa
+    Booking (solo credito, attiva, non scaduta) diventa un codice sconto
+    WooCommerce con lo stesso codice, valido per **un solo acquisto**, del
+    valore del credito rimasto e con la stessa scadenza. Opzione *Gift card
+    utilizzabili sullo shop* in Shop online (attiva di base).
+  - Usata in un ordine pagato → riscattata in Spa Booking (*Usata sullo
+    shop*, numero dell'ordine e sconto); ordine annullato o rimborsato → il
+    credito torna. Usata in spa, scaduta o eliminata → tolta dallo shop.
+  - Plugin **Spa Booking Connector 1.8.0**: endpoint `/gift-cards` e
+    registrazione dell'ordine che usa la gift card.
+  - Nell'elenco dei voucher: *Anche sullo shop* / *Usata sullo shop*.
 - **v3.17.2** — (serve il riavvio di Home Assistant)
   - **Proposta di un altro giorno**: nuovo testo che non dice il motivo
     («per motivi organizzativi…») e spiega che **NO annulla l'appuntamento**.

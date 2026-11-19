@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: Spa Booking Connector
- * Description: Collega il sito a Spa Booking: voucher venduti con «Buoni PDF» (riscattati in spa), iscritti alla newsletter, clienti dello shop, codici sconto della newsletter, modifica dei prodotti e ordini dello shop, stile dello shop e delle schede prodotto.
- * Version: 1.7.0
+ * Description: Collega il sito a Spa Booking: voucher venduti con «Buoni PDF» (riscattati in spa), iscritti alla newsletter, clienti dello shop, codici sconto della newsletter, gift card di Spa Booking usabili nello shop, modifica dei prodotti e ordini dello shop, stile dello shop e delle schede prodotto.
+ * Version: 1.8.0
  * Author: Spa Booking
  * Requires PHP: 7.4
  * Text Domain: spa-booking-connector
@@ -13,7 +13,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Spa_Booking_Connector {
-	const VERSION   = '1.7.0';
+	const VERSION   = '1.8.0';
 	const OPTION    = 'spa_booking_connector';
 	const NAMESPACE = 'spa-booking/v1';
 
@@ -26,6 +26,12 @@ final class Spa_Booking_Connector {
 		add_action( 'woocommerce_order_status_completed', array( __CLASS__, 'notify' ), 99 );
 		add_action( 'woocommerce_order_status_refunded', array( __CLASS__, 'notify' ), 99 );
 		add_action( 'woocommerce_order_status_cancelled', array( __CLASS__, 'notify' ), 99 );
+		// 1.8.0: a Spa Booking gift card spent in an order (or given back).
+		add_action( 'woocommerce_order_status_processing', array( __CLASS__, 'gift_used' ), 98 );
+		add_action( 'woocommerce_order_status_completed', array( __CLASS__, 'gift_used' ), 98 );
+		add_action( 'woocommerce_order_status_cancelled', array( __CLASS__, 'gift_back' ), 98 );
+		add_action( 'woocommerce_order_status_refunded', array( __CLASS__, 'gift_back' ), 98 );
+		add_action( 'woocommerce_order_status_failed', array( __CLASS__, 'gift_back' ), 98 );
 	}
 
 	/* ------------------------------------------------------------ settings */
@@ -97,6 +103,7 @@ final class Spa_Booking_Connector {
 		register_rest_route( self::NAMESPACE, '/coupon-use', array( 'methods' => 'POST', 'callback' => array( __CLASS__, 'coupon_use' ), 'permission_callback' => $auth ) );
 		// 1.7.0: a new expiry date for a code, expired or not.
 		register_rest_route( self::NAMESPACE, '/voucher-expiry', array( 'methods' => 'POST', 'callback' => array( __CLASS__, 'voucher_expiry' ), 'permission_callback' => $auth ) );
+		register_rest_route( self::NAMESPACE, '/gift-cards', array( 'methods' => 'POST', 'callback' => array( __CLASS__, 'gift_cards' ), 'permission_callback' => $auth ) );
 		register_rest_route( self::NAMESPACE, '/diag', array( 'methods' => 'GET', 'callback' => array( __CLASS__, 'diag' ), 'permission_callback' => $auth ) );
 	}
 
@@ -759,6 +766,117 @@ final class Spa_Booking_Connector {
 		$coupon->set_description( trim( $coupon->get_description() . "\nUsato in spa (Spa Booking) " . current_time( 'mysql' ) . ( $note ? ' · ' . $note : '' ) ) );
 		$coupon->save();
 		return array( 'ok' => true, 'code' => $code );
+	}
+
+	/* ------------------------------------------- gift card (1.8.0) */
+
+	const GIFT_META = '_sbc_gift';
+
+	/**
+	 * The gift cards sold in Spa Booking, as WooCommerce coupons: same code,
+	 * a fixed discount on the cart worth the credit left, one purchase only,
+	 * the same expiry. Spa Booking sends the whole list each time: a card
+	 * missing from it (spent at the spa, deleted, expired) is put in the
+	 * bin unless it was already used here. A coupon with the same code not
+	 * made by Spa Booking is never touched. The answer lists the cards spent
+	 * in a paid order, for Spa Booking to close them.
+	 */
+	public static function gift_cards( WP_REST_Request $request ) {
+		if ( ! class_exists( 'WC_Coupon' ) ) {
+			return new WP_Error( 'no_woocommerce', 'WooCommerce non è attivo', array( 'status' => 400 ) );
+		}
+		$cards     = (array) $request->get_param( 'cards' );
+		$wanted    = array();
+		$published = 0;
+		$conflicts = array();
+		foreach ( $cards as $card ) {
+			$code   = strtoupper( trim( (string) ( $card['code'] ?? '' ) ) );
+			$amount = round( (float) ( $card['amount'] ?? 0 ), 2 );
+			if ( '' === $code || $amount <= 0 ) {
+				continue;
+			}
+			$wanted[ $code ] = true;
+			$id = wc_get_coupon_id_by_code( $code );
+			if ( $id && ! get_post_meta( $id, self::GIFT_META, true ) ) {
+				$conflicts[] = $code;
+				continue;
+			}
+			$coupon = new WC_Coupon( $id ? $id : 0 );
+			if ( $id && $coupon->get_usage_count() > 0 ) {
+				continue; // spent here: Spa Booking closes it from the answer
+			}
+			$coupon->set_code( $code );
+			$coupon->set_discount_type( 'fixed_cart' );
+			$coupon->set_amount( $amount );
+			$coupon->set_usage_limit( 1 );
+			$coupon->set_individual_use( false );
+			$coupon->set_free_shipping( false );
+			$expires = trim( (string) ( $card['expires'] ?? '' ) );
+			$coupon->set_date_expires( $expires ? strtotime( $expires . ' 23:59:59 ' . wp_timezone_string() ) : null );
+			$label = trim( (string) ( $card['label'] ?? '' ) );
+			$coupon->set_description( 'Gift card Spa Booking' . ( $label ? ' · ' . $label : '' ) . ' — una sola volta, il credito non usato non resta.' );
+			$coupon->save();
+			update_post_meta( $coupon->get_id(), self::GIFT_META, 1 );
+			if ( 'publish' !== get_post_status( $coupon->get_id() ) ) {
+				wp_update_post( array( 'ID' => $coupon->get_id(), 'post_status' => 'publish' ) );
+			}
+			$published++;
+		}
+		$used    = array();
+		$removed = 0;
+		$ids     = get_posts( array( 'post_type' => 'shop_coupon', 'post_status' => array( 'publish', 'draft', 'pending', 'private' ), 'posts_per_page' => -1, 'fields' => 'ids', 'meta_key' => self::GIFT_META ) );
+		foreach ( $ids as $id ) {
+			$coupon = new WC_Coupon( $id );
+			$code   = strtoupper( (string) $coupon->get_code() );
+			$order  = (int) get_post_meta( $id, '_sbc_order', true );
+			if ( $order ) {
+				$used[] = array(
+					'code'     => $code,
+					'order_id' => $order,
+					'amount'   => (float) get_post_meta( $id, '_sbc_used_amount', true ),
+					'at'       => (string) get_post_meta( $id, '_sbc_used_at', true ),
+				);
+				continue;
+			}
+			if ( ! isset( $wanted[ $code ] ) && $coupon->get_usage_count() === 0 ) {
+				wp_trash_post( $id );
+				$removed++;
+			}
+		}
+		return array( 'ok' => true, 'published' => $published, 'removed' => $removed, 'conflicts' => $conflicts, 'used' => $used );
+	}
+
+	/** A paid order with a Spa Booking gift card: remember which. */
+	public static function gift_used( $order_id ) {
+		$order = wc_get_order( $order_id );
+		if ( ! $order ) {
+			return;
+		}
+		foreach ( $order->get_items( 'coupon' ) as $item ) {
+			$id = wc_get_coupon_id_by_code( $item->get_code() );
+			if ( ! $id || ! get_post_meta( $id, self::GIFT_META, true ) ) {
+				continue;
+			}
+			update_post_meta( $id, '_sbc_order', (int) $order_id );
+			update_post_meta( $id, '_sbc_used_amount', round( (float) $item->get_discount() + (float) $item->get_discount_tax(), 2 ) );
+			update_post_meta( $id, '_sbc_used_at', current_time( 'c' ) );
+		}
+	}
+
+	/** The order is cancelled or refunded: the card is not spent any more. */
+	public static function gift_back( $order_id ) {
+		$order = wc_get_order( $order_id );
+		if ( ! $order ) {
+			return;
+		}
+		foreach ( $order->get_items( 'coupon' ) as $item ) {
+			$id = wc_get_coupon_id_by_code( $item->get_code() );
+			if ( $id && (int) get_post_meta( $id, '_sbc_order', true ) === (int) $order_id ) {
+				delete_post_meta( $id, '_sbc_order' );
+				delete_post_meta( $id, '_sbc_used_amount' );
+				delete_post_meta( $id, '_sbc_used_at' );
+			}
+		}
 	}
 
 	/* --------------------------------------------------------- Buoni PDF */

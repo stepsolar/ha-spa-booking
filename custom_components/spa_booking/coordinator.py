@@ -825,6 +825,19 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._record_history()
         await self._store.async_save(self._data)
         self.async_set_updated_data(self._data)
+        self._gift_sync_if_changed()
+
+    def _gift_sync_if_changed(self) -> None:
+        """The gift cards for the shop changed (sold, spent, deleted…): publish them."""
+        settings = self._data.get(KEY_SETTINGS, {})
+        if not settings.get("wp_enabled"):
+            return
+        # Switched off: one last sync with no cards takes them off the shop.
+        signature = "off" if settings.get("wp_gift_cards") is False else json.dumps(self.wp_gift_cards_list(), sort_keys=True)
+        if signature == getattr(self, "_gift_signature", None):
+            return
+        self._gift_signature = signature
+        self.hass.async_create_task(self.async_wp_gift_sync(reason="modifica"))
 
     @staticmethod
     def _history_values(appointment: dict[str, Any]) -> dict[str, Any]:
@@ -4469,7 +4482,104 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self._async_save()
         for voucher_id in pending:
             await self.async_wp_redeem(voucher_id)
-        return {"read": len(items), "added": added, "updated": updated, "used_on_site": used, "retried": len(pending)}
+        gift = await self.async_wp_gift_sync(reason=reason)
+        return {"read": len(items), "added": added, "updated": updated, "used_on_site": used, "retried": len(pending),
+                "gift_cards": gift}
+
+    def wp_gift_cards_list(self) -> list[dict[str, Any]]:
+        """The gift cards sold here that the shop accepts (3.18.0).
+
+        A voucher made at the desk, still active and not expired, whose only
+        value left is gift card credit (no treatments still to take): the shop
+        gets it as a coupon worth that credit, for one purchase.
+        """
+        today = dt_util.now().date().isoformat()
+        cards = []
+        for voucher in self.vouchers:
+            if voucher.get("source") or voucher.get("status") != VOUCHER_ACTIVE or voucher.get("shop_order_id"):
+                continue
+            expires = voucher.get("expires_on") or ""
+            if expires and expires < today:
+                continue
+            if any(p.get("treatment_ids") for p in voucher.get("people") or []) and not voucher.get("treatments_redeemed"):
+                continue
+            credit = self._voucher_credit(voucher)
+            if credit <= 0:
+                continue
+            cards.append({"code": voucher["code"], "amount": credit, "expires": expires,
+                          "label": voucher.get("recipient_name") or voucher.get("buyer_name") or ""})
+        return sorted(cards, key=lambda c: c["code"])
+
+    async def async_wp_gift_sync(self, reason: str = "") -> dict[str, Any]:
+        """Publish the gift cards on the shop and close the ones spent there (3.18.0).
+
+        A card spent in a paid order is redeemed here with all its credit (one
+        purchase: what the order did not use is gone); if that order is then
+        cancelled or refunded the credit comes back.
+        """
+        settings = self._data.get(KEY_SETTINGS, {})
+        if not settings.get("wp_enabled"):
+            return {"skipped": "spento"}
+        off = settings.get("wp_gift_cards") is False
+        if off and getattr(self, "_gift_cleared", False):
+            return {"skipped": "spento"}
+        # Off: an empty list, so the shop drops the cards it still has.
+        cards = [] if off else self.wp_gift_cards_list()
+        try:
+            url, secret = self._wp_settings()
+            body = await wp_shop.gift_cards(self._http_session(), url, secret, cards)
+        except Exception as err:  # noqa: BLE001 - never breaks the voucher sync
+            self._gift_signature = None  # try again at the next change or tick
+            async with self._lock:
+                self._data[KEY_SETTINGS]["wp_gift_error"] = str(err)
+                self.async_set_updated_data(self._data)
+            return {"error": str(err)}
+        self._gift_cleared = off
+        used = {str(u.get("code") or "").upper(): u for u in body.get("used") or [] if isinstance(u, dict)}
+        closed: list[str] = []
+        reopened: list[str] = []
+        now = dt_util.utcnow().isoformat()
+        async with self._lock:
+            for voucher in self.vouchers:
+                if voucher.get("source"):
+                    continue
+                spent = used.get(voucher["code"])
+                if spent and not voucher.get("shop_order_id"):
+                    credit = self._voucher_credit(voucher)
+                    voucher["shop_order_id"] = str(spent.get("order_id") or "")
+                    voucher["shop_used_at"] = str(spent.get("at") or now)
+                    voucher["shop_amount"] = spent.get("amount")
+                    voucher["shop_credit"] = credit
+                    voucher["credit_used"] = round(float(voucher.get("credit_used") or 0) + credit, 2)
+                    voucher["status"] = VOUCHER_REDEEMED
+                    voucher["redeemed_at"] = voucher["shop_used_at"]
+                    voucher["wp_note"] = f"usata sullo shop · ordine #{voucher['shop_order_id']}"
+                    closed.append(voucher["code"])
+                elif not spent and voucher.get("shop_order_id"):
+                    voucher["credit_used"] = round(max(0.0, float(voucher.get("credit_used") or 0) - float(voucher.get("shop_credit") or 0)), 2)
+                    voucher["status"] = VOUCHER_ACTIVE
+                    voucher["redeemed_at"] = ""
+                    voucher["wp_note"] = f"ordine #{voucher['shop_order_id']} dello shop annullato: credito restituito"
+                    for key in ("shop_order_id", "shop_used_at"):
+                        voucher[key] = ""
+                    voucher["shop_amount"] = voucher["shop_credit"] = None
+                    reopened.append(voucher["code"])
+            conflicts = [str(c) for c in body.get("conflicts") or []]
+            result = "gift card tolte dallo shop" if off else f"{len(cards)} gift card sullo shop"
+            if closed:
+                result += f" · usate sullo shop: {', '.join(closed)}"
+            if conflicts:
+                result += f" · codice già usato da un altro coupon: {', '.join(conflicts)}"
+            settings = self._data[KEY_SETTINGS]
+            settings["wp_gift_result"] = result + (f" ({reason})" if reason else "")
+            settings["wp_gift_error"] = ""
+            if closed or reopened:
+                await self._async_save()
+            else:
+                self.async_set_updated_data(self._data)
+        for code in closed:
+            self.hass.bus.async_fire(f"{DOMAIN}_gift_card_used_on_shop", {"code": code})
+        return {"published": len(cards), "closed": closed, "reopened": reopened, "conflicts": conflicts}
 
     async def async_wp_tick(self) -> dict[str, Any]:
         """Every 15 minutes, when the shop is connected."""

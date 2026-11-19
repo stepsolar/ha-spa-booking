@@ -93,6 +93,8 @@ async def _request(session: Any, method: str, base: str, secret: str, path: str,
             if response.status == 404 and path != "/redeem":
                 if isinstance(body, dict) and body.get("code") not in (None, "", "rest_no_route"):
                     raise WpShopError(str(body.get("message") or "Non trovato sul sito"))
+                if path == "/gift-cards":
+                    raise WpShopError("Aggiorna il plugin «Spa Booking Connector» sul sito (serve la versione 1.8.0)")
                 if path == "/voucher-expiry":
                     raise WpShopError("Aggiorna il plugin «Spa Booking Connector» sul sito (serve la versione 1.7.0)")
                 if path in ("/orders", "/order"):
@@ -172,6 +174,11 @@ async def contacts(session: Any, base: str, secret: str, prefix: str = "welcome"
         if "manca il plugin" in str(err):
             raise WpShopError("Aggiorna il plugin «Spa Booking Connector» sul sito alla versione 1.2.0") from err
         raise
+
+
+async def gift_cards(session: Any, base: str, secret: str, cards: list[dict[str, Any]]) -> dict[str, Any]:
+    """Publish the Spa Booking gift cards as one-purchase coupons (plugin 1.8.0)."""
+    return await _request(session, "POST", base, secret, "/gift-cards", json={"cards": cards})
 
 
 async def coupon_use(session: Any, base: str, secret: str, code: str) -> dict[str, Any]:
