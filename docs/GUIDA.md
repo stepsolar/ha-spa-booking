@@ -187,6 +187,17 @@ Ogni prenotazione ha il riquadro **Conto**: Totale, Pagato, Da saldare e gli
 incassi uno per uno. Un tocco su **Contante**, **Carta** o **Bonifico**
 incassa il saldo; **Altro importo** serve per una parte o un altro metodo.
 
+**Prenotazioni di gruppo** (3.18.1): un incasso vale per il gruppo. Toccando
+il metodo si apre la finestra con **Per chi**: *Tutto il gruppo* (di base)
+oppure *Scegli le persone*, con quanto deve ciascuna. L'importo si divide tra
+le persone in base a quanto deve ognuna (80 € per due persone da 40 € = 40 €
+a testa); nel conto resta un'unica riga, «diviso su 2 persone», e togliendola
+sparisce da tutte. Gli incassi inseriti mentre si crea la prenotazione si
+dividono allo stesso modo. Il messaggio all'ospite calcola versato e da
+saldare sul gruppo intero.
+
+![Incasso di un gruppo](anteprime/135-incasso-gruppo.png)
+
 Con un **voucher** gli incassi si registrano da soli: i trattamenti compresi
 risultano pagati, la **gift card** paga il resto fino al suo valore e
 l'eventuale credito residuo resta sul voucher. Se annulli, il voucher torna

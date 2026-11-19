@@ -7792,13 +7792,21 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         method: str,
         amount: Any,
         date: str = "",
+        appointment_ids: list[str] | None = None,
     ) -> dict[str, Any]:
         """Register one taking on an appointment.
 
         The method must be a known payment way and the amount positive;
         anything else is refused rather than stored. Returns the payment
         and the updated totals.
+
+        3.18.1: with ``appointment_ids`` (the people of a group) the taking is
+        split by what each still owes, in that order; more than they owe
+        stays on the first. The parts share a ``split_id``: one taking.
         """
+        ids = [str(i) for i in dict.fromkeys(appointment_ids or []) if i]
+        if len(ids) > 1:
+            return await self._async_add_split_payment(ids, method, amount, date)
         method = str(method or "").strip()
         if method not in {name for name, _, _ in PAYMENT_METHODS}:
             raise ValidationError(f"Metodo di pagamento non valido: '{method}'")
@@ -7832,14 +7840,66 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "appointment": payload,
         }
 
+    async def _async_add_split_payment(
+        self, ids: list[str], method: str, amount: Any, date: str
+    ) -> dict[str, Any]:
+        method = str(method or "").strip()
+        if method not in {name for name, _, _ in PAYMENT_METHODS}:
+            raise ValidationError(f"Metodo di pagamento non valido: '{method}'")
+        try:
+            value = round(float(amount), 2)
+        except (TypeError, ValueError) as err:
+            raise ValidationError("Importo incasso non valido") from err
+        if value <= 0:
+            raise ValidationError("L'importo incassato deve essere positivo")
+        async with self._lock:
+            members = [self._find(self.appointments, aid, "Appuntamento") for aid in ids]
+            members = [m for m in members if m["status"] != STATUS_CANCELLED]
+            if not members:
+                raise ValidationError("Non puoi registrare incassi su un appuntamento annullato")
+            left = value
+            parts: list[float] = []
+            for member in members:
+                take = round(min(self._payment_totals(member)["due"], left), 2)
+                parts.append(take)
+                left = round(left - take, 2)
+            parts[0] = round(parts[0] + left, 2)  # more than owed: on the first
+            split_id = _new_id("split")
+            day = _norm_date(date) or dt_util.now().date().strftime("%Y-%m-%d")
+            for member, part in zip(members, parts, strict=True):
+                if part <= 0:
+                    continue
+                member["payments"] = _norm_payment_list([*member.get("payments", []), {
+                    "id": _new_id("pay"), "method": method, "date": day, "amount": part, "split_id": split_id,
+                }])
+            await self._async_save()
+            payload = self.appointment_payload(members[0])
+        return {
+            "payment": {"split_id": split_id, "method": method, "amount": value, "date": day},
+            "parts": [{"appointment_id": m["id"], "amount": p} for m, p in zip(members, parts, strict=True) if p > 0],
+            "totals": self._payment_totals(members[0]),
+            "appointment": payload,
+        }
+
     async def async_delete_payment(
         self, appointment_id: str, payment_id: str
     ) -> dict[str, Any]:
-        """Remove one registered taking, keeping the others untouched."""
+        """Remove one registered taking, keeping the others untouched.
+
+        A taking split over a group (3.18.1) goes away from every person.
+        """
         async with self._lock:
             appointment = self._find(
                 self.appointments, appointment_id, "Appuntamento"
             )
+            entry = next((p for p in appointment.get("payments") or [] if p.get("id") == payment_id), None)
+            if entry is not None and entry.get("split_id"):
+                for other in self.appointments:
+                    if other is appointment:
+                        continue
+                    kept = [p for p in other.get("payments") or [] if p.get("split_id") != entry["split_id"]]
+                    if len(kept) != len(other.get("payments") or []):
+                        other["payments"] = kept
             payments = [
                 item
                 for item in (appointment.get("payments") or [])
@@ -10424,8 +10484,21 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             for key in totals:
                 totals[key] += float(part.get(key) or 0)
             deposit += float(payload.get("deposit_amount") or 0)
-            if payload.get("payments"):
-                payments.append(self._payment_lines(payload))
+        # One line per taking: the parts of one split over the party (3.18.1)
+        # are summed back into it.
+        merged: dict[str, dict[str, Any]] = {}
+        for payload in ordered:
+            for item in payload.get("payments") or []:
+                key = str(item.get("split_id") or item.get("id") or id(item))
+                if key in merged:
+                    merged[key]["amount"] = round(float(merged[key]["amount"]) + float(item.get("amount") or 0), 2)
+                else:
+                    merged[key] = dict(item)
+        if merged:
+            payments.append(self._payment_lines({"payments": list(merged.values())}))
+        # 3.18.1: what is left is the party's, not the sum of each person's:
+        # 80 € taken on one of two 40 € people leaves nothing to pay.
+        totals["due"] = round(max(0.0, totals["total"] - totals["collected"]), 2)
         days = sorted({str(p.get("start_local") or "")[:10] for p in ordered if p.get("start_local")})
         day_text = " e ".join(_day_words(day) for day in days) if days else "—"
         codes = list(dict.fromkeys(str(p.get("code") or "") for p in ordered if p.get("code")))

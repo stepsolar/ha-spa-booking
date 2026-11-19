@@ -1198,6 +1198,8 @@ ADD_PAYMENT_SCHEMA = vol.Schema(
         vol.Required(ATTR_METHOD): vol.In(PAYMENT_METHOD_NAMES),
         vol.Required(ATTR_AMOUNT): vol.All(vol.Coerce(float), vol.Range(min=0.01)),
         vol.Optional(ATTR_DATE, default=""): cv.string,
+        # 3.18.1: the people of a group it pays for, split by what each owes.
+        vol.Optional(ATTR_APPOINTMENT_IDS): vol.All(cv.ensure_list, [cv.string]),
     },
     extra=vol.PREVENT_EXTRA,
 )
@@ -2116,6 +2118,7 @@ async def _async_add_payment(call: ServiceCall) -> ServiceResponse:
         data[ATTR_METHOD],
         data[ATTR_AMOUNT],
         data.get(ATTR_DATE, ""),
+        appointment_ids=data.get(ATTR_APPOINTMENT_IDS) or None,
     )
 
 
