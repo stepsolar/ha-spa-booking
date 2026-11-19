@@ -676,6 +676,16 @@ Pacchetti» in Impostazioni › Sito web.
 ### Accessori
 
 Kit, accappatoio, cuffia, ciabattine… con simbolo, prezzo e aliquota IVA.
+Tra i simboli ci sono anche **Camera** e **Lettino** (3.17.2), per esempio per
+la camera dei pacchetti day spa.
+
+**Visibile sul modulo web** (3.17.2): spento, l'accessorio non compare sul
+sito (per esempio tra i contenuti di un pacchetto), ma resta in Nuovo
+appuntamento e nelle prenotazioni. Nell'elenco porta la scritta *non sul sito*.
+
+| | |
+|---|---|
+| ![Accessori](anteprime/131-accessori-web.png) | ![Camera e modulo web](anteprime/132-accessorio-camera.png) |
 
 ### Operatori
 
@@ -768,20 +778,24 @@ nuovo giorno non ha posto resta dov'è e lo si legge nell'esito.
 
 **La risposta dell'ospite**: con *Se l'ospite risponde SÌ…* attivo, un «Sì» (o
 «ok», «va bene», «confermo») sposta la prenotazione e le invia «prenotazione
-modificata»; un «No» la lascia com'è. In entrambi i casi la reception riceve
-l'esito su WhatsApp. Qualunque altro messaggio resta una normale chat. Nel
-popup una proposta in attesa ha anche **Ha accettato** (per chi risponde a
-voce) e **Annulla**.
+modificata»; un «No» **annulla l'appuntamento** e le invia il messaggio di
+annullamento (3.17.2). In entrambi i casi la reception riceve l'esito su
+WhatsApp. Qualunque altro messaggio resta una normale chat. Nel popup una
+proposta in attesa ha anche **Ha accettato** e **Ha rifiutato** (per chi
+risponde a voce) e **Ritira** (la proposta sparisce, la prenotazione resta).
+
+L'ospite non sa il perché: il messaggio parla di *motivi organizzativi* e
+dice che con NO l'appuntamento viene annullato.
 
 | | |
 |---|---|
-| ![Notifiche › Ingressi SPA](anteprime/128-ingressi-spa.png) | ![Il giorno con pochi ingressi](anteprime/126-pochi-ingressi-proposta.png) |
+| ![Notifiche › Ingressi SPA](anteprime/128-ingressi-spa.png) | ![Il giorno con pochi ingressi](anteprime/129-proposta-no-annulla.png) |
 
 Il testo della proposta si cambia in Notifiche › Messaggi agli ospiti ›
 *Proposta di un altro giorno* (`{data}` il giorno attuale, `{nuova_data}`
 quello proposto).
 
-![Proposta di un altro giorno](anteprime/127-proposta-altro-giorno.png)
+![Proposta di un altro giorno](anteprime/130-proposta-testo.png)
 
 
 ### Promo

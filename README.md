@@ -111,6 +111,19 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v3.17.2** — (serve il riavvio di Home Assistant)
+  - **Proposta di un altro giorno**: nuovo testo che non dice il motivo
+    («per motivi organizzativi…») e spiega che **NO annulla l'appuntamento**.
+    Il testo base della 3.17.0, se salvato così com'era, viene sostituito da
+    solo; un testo modificato a mano resta.
+  - Risposta **NO**: l'appuntamento viene annullato e l'ospite riceve il
+    messaggio di annullamento; la reception riceve l'esito. Nel popup arrivano
+    **Ha rifiutato** (annulla) e **Ritira** (al posto di «Annulla»: ritira solo
+    la proposta).
+  - **Accessori**: nuove icone *Camera* e *Lettino*; opzione **Visibile sul
+    modulo web** (spenta = non compare sul sito, resta nella card).
+  - Corretto: l'aliquota IVA di un accessorio si perdeva al salvataggio
+    successivo (riordino o modifica di un altro accessorio).
 - **v3.17.1** — (serve il riavvio di Home Assistant)
   - Le impostazioni dei pochi ingressi passano da Impostazioni › *Pochi
     ingressi* a una sottoscheda di Notifiche, **Ingressi SPA** (riquadro

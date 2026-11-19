@@ -80,6 +80,7 @@ from .const import (
     DEFAULT_CANCEL_MESSAGE,
     DEFAULT_CHANGE_MESSAGE,
     DEFAULT_MOVE_PROPOSAL_MESSAGE,
+    MOVE_PROPOSAL_MESSAGE_3_17_0,
     LOW_SPA_MOVE_MODES,
     DEFAULT_APPOINTMENT_REMINDER_MESSAGE,
     DEFAULT_APPOINTMENT_REMINDER_AUTO,
@@ -973,7 +974,11 @@ def _norm_settings(raw: dict[str, Any]) -> dict[str, Any]:
         "low_spa_move_days": _norm_count(raw.get("low_spa_move_days"), 1, 14, 3),
         # A guest answering SÌ / NO to the proposal is moved (or kept) by herself.
         "low_spa_move_reply": raw.get("low_spa_move_reply") is not False,
-        "move_proposal_message": str(raw.get("move_proposal_message") or "").strip() or DEFAULT_MOVE_PROPOSAL_MESSAGE,
+        "move_proposal_message": (
+            DEFAULT_MOVE_PROPOSAL_MESSAGE
+            if str(raw.get("move_proposal_message") or "").strip() in ("", MOVE_PROPOSAL_MESSAGE_3_17_0)
+            else str(raw.get("move_proposal_message")).strip()
+        ),
         # The proposals waiting for an answer, by appointment id.
         "low_spa_proposals": {
             str(key): {
@@ -1734,6 +1739,8 @@ def _norm_accessory(raw: Any) -> dict[str, Any] | None:
         "price": price,
         "description": str(raw.get("description") or "").strip(),
         "vat_rate": _norm_vat(raw.get("vat_rate")),
+        # Shown on the website booking form (3.17.2); always in the card.
+        "web_visible": raw.get("web_visible") is not False,
     }
 
 
