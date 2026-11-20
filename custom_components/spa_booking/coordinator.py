@@ -5412,8 +5412,12 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         anchor_id: str,
         rows: list[dict[str, Any]],
         user_id: str | None = None,
+        voucher_code: str = "",
     ) -> dict[str, Any]:
         """Modify every appointment of a batch as one transaction.
+
+        3.20.2: ``voucher_code`` (a gift voucher chosen while editing) pays the
+        booking as on creation, unless this booking already used it.
 
         ``rows`` is a flat list describing the desired appointments; each row
         may carry ``appointment_id`` for an appointment that already belongs to
@@ -5661,6 +5665,18 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     clone["cancelled_at"] = dt_util.utcnow().isoformat()
                     clone["batch_id"] = batch_id
                     self.appointments.append(clone)
+
+                code = str(voucher_code or "").strip().upper()
+                kept = [item[0] for item in prepared]
+                if code and not any(
+                    str(p.get("voucher_code") or "").upper() == code for a in kept for p in a.get("payments") or []
+                ):
+                    voucher = self._voucher_of_rows([{"entries": [{"payment": {"voucher_code": code}}]}])
+                    if voucher is None:
+                        raise ValidationError(f"Voucher {code} non trovato")
+                    self._check_voucher_rows(voucher, [
+                        {"treatment_id": a.get("treatment_id"), "entries": [{"person": a.get("person") or 0}]} for a in kept])
+                    self._voucher_settle(voucher, kept)
 
                 await self._async_save()
             except Exception:
