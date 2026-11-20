@@ -1,6 +1,6 @@
 <p align="center"><img src="anteprime/logo.png" width="120" alt="Spa Booking"></p>
 
-# Spa Booking 3.19 — la guida completa
+# Spa Booking 3.20 — la guida completa
 
 Questa guida spiega **tutto quello che fa Spa Booking**, scheda per scheda:
 dalla prenotazione al banco al modulo del sito, dai messaggi WhatsApp ai
@@ -893,6 +893,21 @@ inattività del tablet.
 - **Sito web**: richieste dal sito, orari proposti, numeri della reception
   avvisati (*Prova avviso*), indirizzo pubblico, colore, prezzi, codice da
   incollare in WordPress.
+- **Intelligenza artificiale** (3.20): il collegamento per un assistente IA
+  (per esempio sul computer del centralino telefonico) che lavora in Spa
+  Booking come la reception. Si accende il collegamento, si dà un nome
+  all'assistente (compare in «inserito da»), si crea la **chiave** (mostrata
+  una volta sola: si copia nella configurazione dell'IA) e si sceglie **cosa
+  può fare**: *Consultare* (listino, prezzi, pacchetti, orari liberi,
+  voucher), *Ospiti e agenda*, *Richieste*, *Prenotazioni* (anche pacchetti),
+  *Spostare e annullare*. Le **istruzioni** (tono, cosa proporre) l'IA le
+  riceve a ogni conversazione. Sotto: gli **indirizzi** da dare all'IA (MCP
+  oppure JSON semplice), **Prova uno strumento** e le **ultime chiamate**.
+  I dettagli per chi configura l'IA sono in [IA.md](IA.md).
+
+  | | |
+  |---|---|
+  | ![Intelligenza artificiale](anteprime/137-intelligenza-artificiale.png) | ![Indirizzi, prova e chiamate](anteprime/138-ia-indirizzi-prova.png) |
 - **Dati e backup**: esporta/importa i clienti in CSV, scarica o ripristina
   il backup completo, **backup automatico su Google Drive** ogni giorno
   (restano gli ultimi 3, con *Ripristina*).

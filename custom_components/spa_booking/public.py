@@ -70,7 +70,7 @@ _MAX_VOUCHER = 32
 #: ``use_x_forwarded_for`` every guest shares the proxy's address), tight
 #: enough that nobody can probe voucher codes or flood the Richieste list.
 _RATE_WINDOW_SECONDS = 600
-_RATE_LIMITS = {"read": 600, "voucher": 30, "request": 20}
+_RATE_LIMITS = {"read": 600, "voucher": 30, "request": 20, "ai": 1200}
 _MAX_TRACKED_ADDRESSES = 2048
 
 

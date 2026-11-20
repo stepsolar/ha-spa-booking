@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "3.19.0";
+const CARD_VERSION = "3.20.0";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -14640,6 +14640,11 @@ class SpaBookingCard extends HTMLElement {
         chat_in_cards: settings.chat_in_cards !== false,
         web_accent: settings.web_accent || "#0a84a8",
         submenu_styles: { nuovo: "vertical", spa: "vertical", config: "vertical", ...(settings.submenu_styles || {}) },
+        // Intelligenza artificiale (3.20.0).
+        ai_enabled: !!settings.ai_enabled,
+        ai_name: settings.ai_name || "Assistente IA",
+        ai_permissions: [...(settings.ai_permissions || ["read", "clients", "requests"])],
+        ai_instructions: settings.ai_instructions || "",
       };
       this._setBase = JSON.stringify(this._setDraft);
       this._setNumbers = null;
@@ -14648,9 +14653,9 @@ class SpaBookingCard extends HTMLElement {
     const changed = () => this._pageSyncSave("set");
     const tab = this._setTab || "generale";
     const wrap = el("div", { class: "stack nt" });
-    wrap.appendChild(this._sectionHead("mdi:cog-outline", "Impostazioni", "Aspetto della card, dati di fatturazione, sito web, dati e backup."));
+    wrap.appendChild(this._sectionHead("mdi:cog-outline", "Impostazioni", "Aspetto della card, dati di fatturazione, sito web, intelligenza artificiale, dati e backup."));
     wrap.appendChild(el("div", { class: "nt-tabs", role: "tablist" },
-      [["generale", "mdi:palette-outline", "Generale"], ["fatturazione", "mdi:receipt-text-outline", "Dati fatturazione"], ["sito", "mdi:web", "Sito web"], ["dati", "mdi:database-outline", "Dati e backup"]]
+      [["generale", "mdi:palette-outline", "Generale"], ["fatturazione", "mdi:receipt-text-outline", "Dati fatturazione"], ["sito", "mdi:web", "Sito web"], ["ia", "mdi:robot-outline", "Intelligenza artificiale"], ["dati", "mdi:database-outline", "Dati e backup"]]
         .map(([id, icon, label]) => el("button", {
           class: `nt-tab${tab === id ? " on" : ""}`, role: "tab", "aria-selected": tab === id ? "true" : "false",
           on: { click: () => { this._setTab = id; this._render(); } },
@@ -14658,6 +14663,7 @@ class SpaBookingCard extends HTMLElement {
     if (tab === "generale") wrap.appendChild(this._settingsGeneral(draft, changed));
     if (tab === "fatturazione") wrap.appendChild(this._settingsBilling(draft, changed));
     if (tab === "sito") wrap.appendChild(this._settingsWeb(draft, changed));
+    if (tab === "ia") wrap.appendChild(this._settingsAi(draft, changed));
     if (tab === "dati") wrap.appendChild(this._settingsData());
     wrap.appendChild(this._pageSaveBar("set", () => this._saveSettingsPage(), () => { this._setDraft = null; this._render(); }));
     return wrap;
@@ -15240,6 +15246,128 @@ class SpaBookingCard extends HTMLElement {
               on: { click: () => copyFromServer(true) },
             }, "Codice completo (vecchio)"))))));
     return wrap;
+  }
+
+  /**
+   * Impostazioni › Intelligenza artificiale (3.20.0): the assistant that
+   * works the spa from its own computer — its switch, key, permissions,
+   * addresses, instructions, a try and the log of its calls.
+   */
+  _settingsAi(draft, changed) {
+    const settings = this._data.settings || {};
+    const box = el("div", { class: "stack ai-set" });
+    const here = (typeof window !== "undefined" && window.location && window.location.origin) || "";
+    const origin = /^https?:/.test(here) ? here : "http://homeassistant.local:8123";
+    const copy = async (text, what) => {
+      try { await navigator.clipboard.writeText(text); this._message = { kind: "ok", text: `${what} copiato.` }; }
+      catch (error) { this._message = { kind: "ok", text }; }
+      this._render();
+    };
+    const section = (icon, title, text, ...children) => el("div", { class: "cfg-box ai-box" },
+      el("div", { class: "ai-head" }, el("ha-icon", { icon }), el("div", {}, el("b", {}, title), text ? el("div", { class: "dim small" }, text) : null)),
+      ...children);
+
+    // 1. On/off and name.
+    box.appendChild(section("mdi:robot-outline", "Collegamento",
+      "Un'intelligenza artificiale (sul suo computer, con il centralino) entra in Spa Booking con la chiave qui sotto e lavora come la reception, nei limiti dei permessi.",
+      el("label", { class: "pg-switch-row lp-switch" },
+        el("input", { type: "checkbox", checked: !!draft.ai_enabled, on: { change: (e) => { draft.ai_enabled = e.target.checked; changed(); } } }),
+        el("span", {}, el("b", {}, "Collegamento attivo"),
+          el("span", { class: "dim small" }, "Spento, gli indirizzi non rispondono (come se non esistessero)."))),
+      el("label", { class: "field" }, el("span", {}, "Nome dell'assistente"),
+        el("input", { class: "input", value: draft.ai_name || "", placeholder: "Assistente IA",
+          on: { input: (e) => { draft.ai_name = e.target.value; changed(); } } }),
+        el("span", { class: "dim small" }, "Compare in «inserito da» su prenotazioni e richieste."))));
+
+    // 2. The key.
+    const fresh = this._aiNewKey;
+    const created = settings.ai_key_created ? new Date(settings.ai_key_created) : null;
+    box.appendChild(section("mdi:key-variant", "Chiave di accesso",
+      "Va nell'intestazione Authorization: Bearer <chiave>. Viene mostrata una volta sola: se si perde se ne crea un'altra.",
+      fresh ? el("div", { class: "ai-key" },
+        el("code", {}, fresh),
+        el("button", { class: "btn primary", on: { click: () => copy(fresh, "Chiave") } }, el("ha-icon", { icon: "mdi:content-copy" }), "Copia"),
+        el("div", { class: "hint warn" }, "Copiala ora e incollala nella configurazione dell'IA: chiusa questa pagina non si vede più.")) : null,
+      el("div", { class: "row" },
+        el("span", { class: "dim" }, settings.ai_key_hash
+          ? `Chiave attiva${settings.ai_key_hint ? ` (finisce con …${settings.ai_key_hint})` : ""}${created ? ` · creata il ${created.toLocaleDateString("it-IT")}` : ""}`
+          : "Nessuna chiave: l'IA non può entrare."),
+        el("span", { class: "spacer" }),
+        settings.ai_key_hash ? el("button", { class: "btn ghost", disabled: this._busy, on: { click: async () => {
+          if (!window.confirm("Revocare la chiave? L'IA smette subito di funzionare.")) return;
+          try { await this._call("ai", { action: "revoke_key" }); this._aiNewKey = ""; } catch (error) { /* shown */ }
+        } } }, "Revoca") : null,
+        el("button", { class: "btn", disabled: this._busy, on: { click: async () => {
+          if (settings.ai_key_hash && !window.confirm("Creare una nuova chiave? Quella di adesso smette di funzionare.")) return;
+          try { const r = await this._call("ai", { action: "new_key" }); this._aiNewKey = r.key || ""; this._render(); } catch (error) { /* shown */ }
+        } } }, el("ha-icon", { icon: "mdi:key-plus" }), settings.ai_key_hash ? "Nuova chiave" : "Crea la chiave"))));
+
+    // 3. Permissions.
+    const perms = [
+      ["read", "Consultare", "Listino e prezzi, pacchetti, orari liberi, voucher e gift card."],
+      ["clients", "Ospiti e agenda", "Cercare un ospite (telefono o nome) e i suoi appuntamenti; l'agenda di un giorno."],
+      ["requests", "Richieste", "Registrare richieste di appuntamento: le conferma la reception."],
+      ["bookings", "Prenotazioni", "Inserire prenotazioni e pacchetti direttamente in agenda (con gli stessi controlli della reception)."],
+      ["manage", "Spostare e annullare", "Spostare o annullare appuntamenti, avvisando l'ospite."],
+    ];
+    const chosen = new Set(draft.ai_permissions || []);
+    box.appendChild(section("mdi:shield-check-outline", "Cosa può fare", "Ogni permesso spento toglie all'IA i suoi strumenti.",
+      el("div", { class: "ai-perms" }, perms.map(([id, title, text]) => el("label", { class: "pg-switch-row lp-switch" },
+        el("input", { type: "checkbox", checked: chosen.has(id), on: { change: (e) => {
+          if (e.target.checked) chosen.add(id); else chosen.delete(id);
+          draft.ai_permissions = perms.map(([p]) => p).filter((p) => chosen.has(p)); changed();
+        } } }),
+        el("span", {}, el("b", {}, title), el("span", { class: "dim small" }, text)))))));
+
+    // 4. Instructions.
+    box.appendChild(section("mdi:text-box-edit-outline", "Istruzioni per l'assistente",
+      "Le riceve all'inizio di ogni conversazione (con «info_spa» e nell'avvio MCP): tono, cosa proporre, cosa non dire.",
+      el("textarea", { class: "input", rows: "5", placeholder: "Es. Rispondi in italiano o nella lingua dell'ospite, dai del Lei. Proponi il pacchetto di coppia a chi prenota per due. Per gruppi oltre 6 persone registra una richiesta.",
+        value: draft.ai_instructions || "", on: { input: (e) => { draft.ai_instructions = e.target.value; changed(); } } })));
+
+    // 5. Addresses.
+    const urls = [
+      ["MCP (consigliato)", `${origin}/api/spa_booking/ai/mcp`, "Server MCP remoto («streamable HTTP»): per Claude, ChatGPT, n8n, LangChain, Open WebUI…"],
+      ["Elenco strumenti (JSON)", `${origin}/api/spa_booking/ai/tools`, "GET: gli strumenti permessi con i loro parametri."],
+      ["Chiamata (JSON)", `${origin}/api/spa_booking/ai/call`, "POST {\"tool\": \"disponibilita\", \"arguments\": {\"data\": \"2026-12-05\", \"trattamento_id\": \"…\"}}"],
+    ];
+    box.appendChild(section("mdi:link-variant", "Indirizzi",
+      "Per il computer dell'IA. Se è fuori dalla rete dell'hotel usa l'indirizzo esterno di Home Assistant (https).",
+      ...urls.map(([label, url, text]) => el("div", { class: "ai-url" },
+        el("div", { class: "grow" }, el("b", {}, label), el("code", {}, url), el("span", { class: "dim small" }, text)),
+        el("button", { class: "icon-btn", title: "Copia", on: { click: () => copy(url, "Indirizzo") } }, el("ha-icon", { icon: "mdi:content-copy" })))),
+      el("div", { class: "dim small" }, "Strumenti: info_spa, listino, disponibilita, verifica_voucher, cerca_cliente, agenda_giorno, crea_richiesta, crea_prenotazione, sposta_prenotazione, annulla_prenotazione.")));
+
+    // 6. Try and log.
+    const trial = this._aiTry || (this._aiTry = { tool: "disponibilita", args: JSON.stringify({ data: todayStr(), trattamento_id: ((this._data.treatments || [])[0] || {}).id || "" }, null, 1), result: "" });
+    box.appendChild(section("mdi:flask-outline", "Prova uno strumento", "Lo esegue come l'IA (con i permessi salvati): utile per vedere cosa riceve.",
+      el("div", { class: "ai-try" },
+        el("select", { class: "input", on: { change: (e) => { trial.tool = e.target.value; } } },
+          ["info_spa", "listino", "disponibilita", "verifica_voucher", "cerca_cliente", "agenda_giorno"].map((t) => el("option", { value: t, selected: trial.tool === t }, t))),
+        el("textarea", { class: "input mono", rows: "3", value: trial.args, on: { input: (e) => { trial.args = e.target.value; } } }),
+        el("button", { class: "btn", disabled: this._busy, on: { click: async () => {
+          let args = {};
+          try { args = JSON.parse(trial.args || "{}"); } catch (error) { trial.result = "Argomenti: JSON non valido"; this._render(); return; }
+          try { const r = await this._service("ai", { action: "try", tool: trial.tool, arguments: args }); trial.result = JSON.stringify(r.result, null, 2); }
+          catch (error) { trial.result = (error && error.message) || String(error); }
+          this._aiLog = null; this._render();
+        } } }, el("ha-icon", { icon: "mdi:play" }), "Prova")),
+      trial.result ? el("pre", { class: "ai-out" }, trial.result.length > 4000 ? `${trial.result.slice(0, 4000)}\n…` : trial.result) : null));
+
+    if (this._aiLog === undefined || this._aiLog === null) {
+      this._aiLog = [];
+      this._service("ai", { action: "log" }).then((r) => { this._aiLog = r.log || []; this._render(); }).catch(() => {});
+    }
+    const log = this._aiLog || [];
+    box.appendChild(section("mdi:history", "Ultime chiamate dell'IA", "Dall'ultimo riavvio di Home Assistant.",
+      el("div", { class: "row" }, el("span", { class: "spacer" }),
+        el("button", { class: "btn ghost", on: { click: () => { this._aiLog = null; this._render(); } } }, el("ha-icon", { icon: "mdi:refresh" }), "Aggiorna")),
+      log.length ? el("div", { class: "ai-log" }, log.slice(0, 40).map((entry) => el("div", { class: `ai-log-row${entry.ok ? "" : " bad"}` },
+        el("span", { class: "dim small" }, new Date(entry.at).toLocaleString("it-IT", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" })),
+        el("b", {}, entry.tool),
+        el("span", { class: "dim small grow", title: `${entry.args}\n→ ${entry.result}` }, entry.ok ? entry.result : `⚠️ ${entry.result}`))))
+        : el("div", { class: "empty" }, "Ancora nessuna chiamata.")));
+    return box;
   }
 
   _settingsData() {
@@ -24503,6 +24631,24 @@ class SpaBookingCard extends HTMLElement {
       .pay-people { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; padding: 10px 12px; border: 1px solid var(--divider-color, #e0e0e0); border-radius: 12px; }
       .pay-people .check { display: flex; align-items: center; gap: 8px; }
       .pay-people .grow { flex: 1; min-width: 0; }
+      .ai-box { display: flex; flex-direction: column; gap: 12px; }
+      .ai-head { display: flex; gap: 10px; align-items: flex-start; }
+      .ai-head > ha-icon { color: var(--sb-accent, #0b84a5); margin-top: 2px; }
+      .ai-key { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+      .ai-key code { flex: 1; min-width: 0; overflow-wrap: anywhere; padding: 10px 12px; border-radius: 10px; background: var(--secondary-background-color, #f4f6f8); font-size: 13px; }
+      .ai-key .hint { width: 100%; }
+      .ai-perms { display: flex; flex-direction: column; gap: 10px; }
+      .ai-url { display: flex; gap: 10px; align-items: center; padding: 8px 0; border-top: 1px solid var(--divider-color, #eceff1); }
+      .ai-url .grow { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+      .ai-url code { overflow-wrap: anywhere; font-size: 12.5px; }
+      .ai-try { display: grid; grid-template-columns: 200px 1fr auto; gap: 8px; align-items: start; }
+      .ai-try .mono, .ai-out { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
+      .ai-out { max-height: 320px; overflow: auto; padding: 10px 12px; border-radius: 10px; background: var(--secondary-background-color, #f4f6f8); margin: 0; white-space: pre-wrap; }
+      .ai-log { display: flex; flex-direction: column; }
+      .ai-log-row { display: flex; gap: 10px; align-items: baseline; padding: 6px 0; border-top: 1px solid var(--divider-color, #eceff1); }
+      .ai-log-row .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .ai-log-row.bad b { color: var(--error-color, #c62828); }
+      @media (max-width: 700px) { .ai-try { grid-template-columns: 1fr; } }
       .acc-filters { display: flex; flex-direction: column; gap: 12px; }
       .acc-row { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; justify-content: space-between; }
       .acc-when { display: flex; align-items: center; gap: 6px; }

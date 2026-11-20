@@ -71,11 +71,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             SpaBookingPublicRequestView,
             SpaBookingPublicTreatmentsView,
         )
+        from .ai import SpaBookingAiCallView, SpaBookingAiMcpView, SpaBookingAiToolsView
 
         hass.http.register_view(SpaBookingPublicTreatmentsView)
         hass.http.register_view(SpaBookingPublicAvailabilityView)
         hass.http.register_view(SpaBookingPublicRequestView)
         hass.http.register_view(SpaBookingPublicFormView)
+        # The AI assistant (3.20.0).
+        hass.http.register_view(SpaBookingAiMcpView)
+        hass.http.register_view(SpaBookingAiToolsView)
+        hass.http.register_view(SpaBookingAiCallView)
         hass.data[f"{DOMAIN}_public_views"] = True
 
     # Where Google sends the browser back after «Accedi con Google» (2.4.2).

@@ -167,6 +167,7 @@ SERVICE_PROMO_VOUCHER_TICK = "promo_voucher_tick"
 SERVICE_SEND_OPERATOR_MESSAGE = "send_operator_message"
 SERVICE_SEND_GUEST_SUMMARY = "send_guest_summary"
 SERVICE_LOW_SPA = "low_spa"
+SERVICE_AI = "ai"
 SERVICE_SEND_DEPOSIT_REQUEST = "send_deposit_request"
 SERVICE_SEND_PROMO = "send_promo"
 SERVICE_PROMO_AUTOMATIC = "promo_automatico"
@@ -301,6 +302,7 @@ ALL_SERVICES = (
     SERVICE_SEND_OPERATOR_MESSAGE,
     SERVICE_SEND_GUEST_SUMMARY,
     SERVICE_LOW_SPA,
+    SERVICE_AI,
     SERVICE_SEND_DEPOSIT_REQUEST,
     SERVICE_SEND_REMINDERS,
     SERVICE_SEND_REVIEW_REQUESTS,
@@ -986,6 +988,10 @@ UPDATE_SETTINGS_SCHEMA = vol.Schema(
         vol.Optional("vat_default"): vol.Any(vol.Coerce(float), None),
         vol.Optional("wp_enabled"): vol.Any(cv.boolean, None),
         vol.Optional("wp_gift_cards"): vol.Any(cv.boolean, None),
+        vol.Optional("ai_enabled"): vol.Any(cv.boolean, None),
+        vol.Optional("ai_name"): vol.Any(cv.string, None),
+        vol.Optional("ai_permissions"): vol.Any(vol.All(cv.ensure_list, [vol.In(["read", "clients", "requests", "bookings", "manage"])]), None),
+        vol.Optional("ai_instructions"): vol.Any(cv.string, None),
         vol.Optional("gdrive_enabled"): vol.Any(cv.boolean, None),
         vol.Optional("gdrive_time"): vol.Any(cv.string, None),
         vol.Optional("wp_url"): vol.Any(cv.string, None),
@@ -1669,7 +1675,7 @@ async def _require_admin(call: ServiceCall, coordinator: SpaBookingCoordinator) 
 #: Secrets that only an administrator may read back from the dataset.
 _SECRET_SETTINGS = (
     "web_token", "smtp_password", "telegram_bot_token",
-    "google_client_secret", "google_refresh_token", "wp_secret",
+    "google_client_secret", "google_refresh_token", "wp_secret", "ai_key_hash",
 )
 
 
@@ -2136,6 +2142,30 @@ async def _async_send_operator_message(call: ServiceCall) -> ServiceResponse:
     return await _coordinator(call).async_send_operator_message(
         data[ATTR_OPERATOR_ID], data[ATTR_KIND]
     )
+
+
+#: The AI assistant from the card (3.20.0): a new key (shown once), its log,
+#: or a tool tried as the assistant would call it.
+AI_SCHEMA = vol.Schema(
+    {
+        vol.Required("action"): vol.In(["new_key", "revoke_key", "log", "try"]),
+        vol.Optional("tool", default=""): cv.string,
+        vol.Optional("arguments", default={}): dict,
+    },
+    extra=vol.PREVENT_EXTRA,
+)
+
+
+async def _async_ai(call: ServiceCall) -> ServiceResponse:
+    from . import ai
+
+    coordinator = _coordinator(call)
+    action = call.data["action"]
+    if action == "log":
+        return {"log": list(ai.AI_LOG)[:100]}
+    if action == "try":
+        return {"result": await ai.run_tool(coordinator, call.data.get("tool") or "", call.data.get("arguments") or {})}
+    return await coordinator.async_ai_key(revoke=action == "revoke_key")
 
 
 async def _async_low_spa(call: ServiceCall) -> ServiceResponse:
@@ -3426,6 +3456,11 @@ _HANDLERS: dict[str, tuple[Any, Any, SupportsResponse]] = {
         SEND_OPERATOR_MESSAGE_SCHEMA,
         SupportsResponse.ONLY,
     ),
+    SERVICE_AI: (
+        _async_ai,
+        AI_SCHEMA,
+        SupportsResponse.ONLY,
+    ),
     SERVICE_LOW_SPA: (
         _async_low_spa,
         LOW_SPA_SCHEMA,
@@ -3682,6 +3717,7 @@ SERVICE_LEVELS: dict[str, str] = {
     SERVICE_MARK_REQUESTS_SEEN: "operator",
     SERVICE_SEND_GUEST_SUMMARY: "operator",
     SERVICE_LOW_SPA: "operator",
+    SERVICE_AI: "admin",
     SERVICE_SEND_DEPOSIT_REQUEST: "operator",
     SERVICE_SEND_REVIEW_REQUESTS: "operator",
     SERVICE_SEND_REMINDERS: "operator",

@@ -1279,6 +1279,27 @@ send_guest_summary:
         select:
           options: ["", "change", "confirm"]
 
+ai:
+  name: Assistente IA
+  description: >-
+    L'assistente di intelligenza artificiale: new_key (nuova chiave, mostrata
+    una volta), revoke_key, log (le ultime chiamate), try (prova uno strumento).
+  fields:
+    action:
+      name: Azione
+      required: true
+      selector:
+        select:
+          options: ["new_key", "revoke_key", "log", "try"]
+    tool:
+      name: Strumento (per try)
+      selector:
+        text:
+    arguments:
+      name: Argomenti (per try)
+      selector:
+        object:
+
 low_spa:
   name: Pochi ingressi alla SPA
   description: >-
