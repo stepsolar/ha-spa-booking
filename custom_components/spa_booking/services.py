@@ -1096,6 +1096,8 @@ UPDATE_BOOKING_BATCH_SCHEMA = vol.Schema(
         vol.Required("appointment_id"): cv.string,
         vol.Required(ATTR_ROWS): vol.All(cv.ensure_list, [dict]),
         vol.Optional("force_rules", default=False): cv.boolean,
+        # 3.20.2: a gift voucher chosen while editing pays the booking.
+        vol.Optional("voucher_code", default=""): cv.string,
     }
 )
 
@@ -2800,7 +2802,8 @@ async def _async_update_booking_batch(call: ServiceCall) -> ServiceResponse:
     """Update or rebuild a batch of appointments."""
     data = call.data
     return await _coordinator(call).async_update_booking_batch(
-        data["appointment_id"], data[ATTR_ROWS], _acting_user_id(call)
+        data["appointment_id"], data[ATTR_ROWS], _acting_user_id(call),
+        voucher_code=data.get("voucher_code") or "",
     )
 
 

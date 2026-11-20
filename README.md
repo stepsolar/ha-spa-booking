@@ -111,6 +111,21 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v3.20.2** — (serve il riavvio di Home Assistant)
+  - **Nuova richiesta**: il voucher si cerca per codice o nome come in Nuovo
+    appuntamento (prima solo un codice da scrivere); un codice esterno si usa
+    con *Usa il codice*.
+  - Scegliendo un voucher, **nome, cognome e telefono** si riempiono con
+    quelli del voucher (se vuoti); in un gruppo anche le altre persone.
+  - **Modifica di una prenotazione**: mostra il voucher già usato, il conto
+    con gli incassi veri (il totale da saldare tiene conto del voucher) e un
+    incasso registrato si salva subito (prima si perdeva). Un voucher scelto
+    in modifica paga la prenotazione al salvataggio
+    (`update_booking_batch` con `voucher_code`, mai due volte).
+  - **Scheda dell'appuntamento**: si può aprire al centro, più grande (scelta
+    ricordata); un gruppo si apre sempre come gruppo.
+  - **Conto**: un solo pulsante *Registra incasso* al posto di Contante /
+    Carta / Bonifico / Altro importo.
 - **v3.20.1** — (serve il riavvio di Home Assistant)
   - Il **promemoria** all'ospite dice anche *Cosa portare*: costume da bagno,
     cuffia e ciabattine antiscivolo (obbligatorie); ciabattine e cuffia

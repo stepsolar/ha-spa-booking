@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "3.20.1";
+const CARD_VERSION = "3.20.2";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -2644,14 +2644,12 @@ class SpaBookingCard extends HTMLElement {
     });
     if (!rows.length && !voucher) list.appendChild(el("div", { class: "dim small conto-empty" }, "Nessun incasso ancora."));
     box.appendChild(list);
-    if (onPay && due > 0) {
+    if ((onPay || onOther) && due > 0) {
+      // 3.20.2: one button; the window asks how (and, for a group, for whom),
+      // with the balance already written in.
       box.appendChild(el("div", { class: "conto-pay" },
-        el("span", { class: "conto-pay-label" }, `Incassa il saldo di ${euro(due)}:`),
-        el("div", { class: "conto-quick" },
-          [["cash", "Contante", "mdi:cash"], ["card", "Carta", "mdi:credit-card-outline"], ["bank_transfer", "Bonifico", "mdi:bank-transfer-in"]].map(([id, label, icon]) =>
-            el("button", { class: "btn conto-q", disabled: this._busy, on: { click: () => onPay(id, due) } }, el("ha-icon", { icon }), label)),
-          el("button", { class: "btn ghost conto-q", disabled: this._busy, on: { click: () => onOther(due) } },
-            el("ha-icon", { icon: "mdi:dots-horizontal" }), "Altro importo"))));
+        el("button", { class: "btn primary conto-reg", disabled: this._busy || !onOther, on: { click: () => onOther(due) } },
+          el("ha-icon", { icon: "mdi:cash-register" }), `Registra incasso · da saldare ${euro(due)}`)));
     } else if (onOther && settled) {
       box.appendChild(el("button", { class: "nv-link", on: { click: () => onOther(0) } }, el("ha-icon", { icon: "mdi:plus" }), "Aggiungi un incasso"));
     } else if (onOther && total <= 0) {
@@ -2664,6 +2662,7 @@ class SpaBookingCard extends HTMLElement {
   _voucherEstimate() {
     const code = this._form.payment && this._form.payment.voucher && String(this._form.payment.voucher_code || "").toUpperCase();
     if (!code) return null;
+    if (this._form.voucher_settled && String(this._form.voucher_settled).toUpperCase() === code) return null; // already a taking
     const voucher = (this._data.vouchers || []).find((v) => String(v.code).toUpperCase() === code);
     if (!voucher) return null;
     const pool = voucher.treatments_redeemed ? [] : (voucher.people || []).flatMap((p) => p.treatment_ids || []);
@@ -2710,6 +2709,14 @@ class SpaBookingCard extends HTMLElement {
 
   _incassiBlock() {
     const { total } = this._bookingTotals();
+    // 3.20.2: editing a booking, its takings are the real ones, written at
+    // once (the staged ones were never saved by an edit).
+    const anchor = this._batchEditing && this._batchAnchorId && this._lookup.appointment.get(this._batchAnchorId);
+    if (anchor) {
+      return el("div", { class: "stack tight" },
+        this._editIncassiBlock(anchor, total, this._voucherEstimate()),
+        el("div", { class: "dim small" }, "Gli incassi si registrano subito; un voucher nuovo si registra al salvataggio."));
+    }
     const staged = this._form.stagedPayments || [];
     const rows = staged.map((item) => ({ ...item, remove: () => {
       this._form.stagedPayments = (this._form.stagedPayments || []).filter((other) => other.uid !== item.uid);
@@ -2796,7 +2803,7 @@ class SpaBookingCard extends HTMLElement {
   }
 
   /** Box Incassi in the edit form: live takings of the whole party (2.8.1: the bill). */
-  _editIncassiBlock(appointment, total) {
+  _editIncassiBlock(appointment, total, voucher = null) {
     // Takings are summed over the whole party: a deposit often sits on the
     // first appointment of a group.
     const members = this._groupOf(appointment);
@@ -2806,7 +2813,7 @@ class SpaBookingCard extends HTMLElement {
       try { await this._call("delete_payment", { appointment_id: member.id, payment_id: item.id }); } catch (error) { /* shown */ }
     } })));
     const ids = live.map((member) => member.id);
-    return this._contoView({ total, rows, title: "Incassi",
+    return this._contoView({ total, rows, title: "Incassi", voucher,
       // 3.18.1: a group asks first whom the taking is for.
       onPay: (method, amount) => (ids.length > 1 ? this._openPayPopupFor(appointment.id, amount, live, method) : this._payNow(appointment.id, method, amount)),
       onOther: (amount) => this._openPayPopupFor(appointment.id, amount, live) });
@@ -4526,7 +4533,7 @@ class SpaBookingCard extends HTMLElement {
       filters.length ? el("div", { class: "ag-filters" }, ...filters) : null));
 
     // The detail of the tapped appointment beside the day, on a computer.
-    const selected = this._detailId && this._detailWide() && this._lookup.appointment.get(this._detailId);
+    const selected = this._detailId && this._detailWide() && !this._detailCentered() && this._lookup.appointment.get(this._detailId);
     if (selected) this._detailInline = true;
     if (view === "elenco") {
       const listView = this._renderAgendaList();
@@ -5525,6 +5532,21 @@ class SpaBookingCard extends HTMLElement {
     }, this._detailSheet(appointment, false));
   }
 
+  /** 3.20.2: the detail in the middle of the card, bigger (remembered here). */
+  _detailCentered() {
+    if (this._detailCenterPref == null) {
+      try { this._detailCenterPref = window.localStorage.getItem("spa-booking-detail-center") === "1"; }
+      catch (error) { this._detailCenterPref = false; }
+    }
+    return this._detailCenterPref;
+  }
+
+  _setDetailCenter(on) {
+    this._detailCenterPref = !!on;
+    try { window.localStorage.setItem("spa-booking-detail-center", on ? "1" : "0"); } catch (error) { /* per browser only */ }
+    this._render();
+  }
+
   /** Whether the card is wide enough to show the detail beside the agenda (2.4.0). */
   _detailWide() {
     if (this._forceWide != null) return this._forceWide;
@@ -5559,8 +5581,9 @@ class SpaBookingCard extends HTMLElement {
     // Which view the popup is rendering right now drives the totals and the
     // (optional) grouped listing below. "single" keeps the existing
     // one-appointment behaviour; "grouped" sums every related appointment.
-    const grouped = this._detailView === "grouped";
+    // 3.20.2: a group is always shown as the group.
     const related = this._relatedOf(appointment);
+    const grouped = related.length > 1;
     const groupTotals = grouped ? this._relatedTotals(appointment) : null;
 
     // The agreed price of this person, per head: a group charges it once per
@@ -5572,7 +5595,7 @@ class SpaBookingCard extends HTMLElement {
         : null;
 
     const sheet = el("div", {
-      class: `detail-sheet dt${inline ? " inline" : ""}`,
+      class: `detail-sheet dt${inline ? " inline" : ""}${!inline && this._detailWide() ? " big" : ""}`,
       role: inline ? "region" : "dialog",
       ...(inline ? {} : { "aria-modal": "true" }),
       "aria-label": `Dettagli ${this._clientName(appointment)}`,
@@ -5590,12 +5613,13 @@ class SpaBookingCard extends HTMLElement {
       inline ? null : el("div", { class: "dt-grip" }),
       el("div", { class: "dt-top" },
         el("span", { class: "dt-state" }, el("ha-icon", { icon: state[2] }), state[0]),
-        related.length > 1 ? el("div", { class: "dt-seg", role: "radiogroup" },
-          [["single", "Singolo"], ["grouped", `Gruppo (${related.length})`]].map(([id, label]) => el("button", {
-            type: "button", class: (grouped ? "grouped" : "single") === id ? "on" : "", role: "radio",
-            "aria-checked": (grouped ? "grouped" : "single") === id ? "true" : "false",
-            on: { click: () => { this._detailView = id; this._render(); } },
-          }, label))) : null,
+        related.length > 1 ? el("span", { class: "dt-state dt-group" }, el("ha-icon", { icon: "mdi:account-group-outline" }), `Gruppo (${related.length})`) : null,
+        // 3.20.2: beside the agenda, or in the middle and bigger.
+        this._detailWide() ? el("button", {
+          class: "dt-close", title: inline ? "Mostra al centro, più grande" : "Mostra a lato dell'agenda",
+          "aria-label": inline ? "Ingrandisci" : "Mostra a lato",
+          on: { click: () => this._setDetailCenter(inline) },
+        }, el("ha-icon", { icon: inline ? "mdi:arrow-expand" : "mdi:dock-right" })) : null,
         el("button", { class: "dt-close", title: "Chiudi", "aria-label": "Chiudi", on: { click: () => this._closeDetail() } },
           el("ha-icon", { icon: "mdi:close" }))),
       el("div", { class: "dt-name" }, this._clientName(appointment) + (group.length > 1 ? ` (${group.length})` : "")),
@@ -6770,6 +6794,9 @@ class SpaBookingCard extends HTMLElement {
     if (!persons.length) {
       persons.push({ uid: this._uid(), person: 0, treatments: [], extras: [] });
     }
+    const usedVoucher = String(
+      (related.flatMap((a) => a.payments || []).find((p) => p.voucher_code) || {}).voucher_code
+      || (related.find((a) => a.voucher && a.voucher_code) || {}).voucher_code || "").toUpperCase();
 
     this._form = {
       treatment_id: "",
@@ -6787,11 +6814,14 @@ class SpaBookingCard extends HTMLElement {
       client_notes: leaderClient ? (leaderClient.notes || "") : "",
       notes: related.length ? (related[0].notes || "") : "",
       treatments: [],
+      // 3.20.2: the voucher this booking used, shown as before (it is
+      // already among the takings: not used again on save).
       payment: {
         paid: false, paid_amount: "", deposit: false, deposit_amount: "",
-        voucher: false, voucher_code: "", balance_due: false, balance_due_amount: "",
+        voucher: !!usedVoucher, voucher_code: usedVoucher, balance_due: false, balance_due_amount: "",
         methods: [],
       },
+      voucher_settled: usedVoucher,
       pending: related.length ? related[0].status === "pending" : false,
       guest_type: (related.length && related[0].guest_type) || GUEST_DEFAULT,
       extras: [],
@@ -7022,9 +7052,13 @@ class SpaBookingCard extends HTMLElement {
           });
         });
       });
+      // 3.20.2: a voucher chosen while editing pays the booking on save.
+      const code = this._form.payment && this._form.payment.voucher ? String(this._form.payment.voucher_code || "").toUpperCase() : "";
+      const newVoucher = code && code !== String(this._form.voucher_settled || "").toUpperCase() ? code : "";
       const result = await this._call("update_booking_batch", {
         appointment_id: this._batchAnchorId,
         rows: flattened,
+        ...(newVoucher ? { voucher_code: newVoucher } : {}),
         ...(forceRules ? { force_rules: true } : {}),
       });
       this._batchEditing = false;
@@ -7401,21 +7435,7 @@ class SpaBookingCard extends HTMLElement {
       el("b", {}, longDay(parseLocal(form.date || today, "10:00")))));
     add(box, this._packagesBlock());
     if (this._batchEditing && this._batchAnchorId) add(box, this._joinBookingField());
-    if (this._nvKind === "richiesta") {
-      if (this._nvVoucherOpen || (form.voucher_code || "").trim()) {
-        box.appendChild(el("label", { class: "field" },
-          el("span", {}, "Codice voucher"),
-          el("input", {
-            class: "input", placeholder: "VCH-XXXXXXXX", style: "text-transform: uppercase",
-            on: { input: (event) => { form.voucher_code = event.target.value; } },
-          }, form.voucher_code || "")));
-        box.appendChild(el("div", { class: "hint" }, "Viene controllato subito e lo vede anche la reception."));
-      } else {
-        box.appendChild(el("button", { class: "nv-link", on: { click: () => { this._nvVoucherOpen = true; this._render(); } } },
-          el("ha-icon", { icon: "mdi:ticket-confirmation-outline" }), "Ha un voucher regalo? Inserisci il codice"));
-      }
-      return box;
-    }
+    // 3.20.2: a request finds the voucher too (before, only a code to type).
     const applied = form.payment && form.payment.voucher && form.payment.voucher_code;
     if (applied || this._nvVoucherOpen || (form.voucher_query || "").trim()) {
       box.appendChild(this._voucherField());
@@ -10589,11 +10609,15 @@ class SpaBookingCard extends HTMLElement {
     const box = el("div", { class: "voucher-find" });
     const applied = form.payment && form.payment.voucher && form.payment.voucher_code;
     if (applied) {
+      // 3.20.2: a voucher this booking already used (edit) stays shown; it is
+      // in the takings, where it can be removed.
+      const settled = form.voucher_settled && String(form.voucher_settled).toUpperCase() === String(applied).toUpperCase();
       box.appendChild(
         el("div", { class: "voucher-applied" },
           el("ha-icon", { icon: "mdi:ticket-confirmation-outline" }),
           el("span", {}, applied),
-          el("button", {
+          settled ? el("span", { class: "dim small" }, "già usato su questa prenotazione") : null,
+          settled ? null : el("button", {
             class: "icon-btn",
             title: "Togli il voucher",
             on: { click: () => this._clearVoucher() },
@@ -10614,7 +10638,17 @@ class SpaBookingCard extends HTMLElement {
     const query = (form.voucher_query || "").trim();
     if (query) {
       const hits = this._vouchersMatching(query).slice(0, 6);
-      if (!hits.length) box.appendChild(el("div", { class: "hint small" }, "Nessun voucher trovato."));
+      if (!hits.length) {
+        box.appendChild(el("div", { class: "hint small" }, "Nessun voucher trovato."));
+        // A code from outside (the website, a partner): kept as it is on a request.
+        if (this._nvKind === "richiesta" && /^[A-Za-z0-9-]{4,}$/.test(query)) {
+          box.appendChild(el("button", { class: "search-hit", on: { click: () => {
+            form.voucher_code = query.toUpperCase(); form.voucher_query = "";
+            form.payment = { ...(form.payment || {}), voucher: true, voucher_code: query.toUpperCase() };
+            this._render();
+          } } }, el("span", {}, `Usa il codice ${query.toUpperCase()}`)));
+        }
+      }
       hits.forEach((voucher) => {
         const usable = this._voucherUsable(voucher);
         box.appendChild(
@@ -10633,10 +10667,12 @@ class SpaBookingCard extends HTMLElement {
 
   /** Fill the booking from the voucher: one person per voucher person, her treatments and accessories. */
   _applyVoucher(voucher) {
+    this._form.voucher_code = voucher.code; // a request keeps the code (3.20.2)
     // Treatments already taken (2.8.1): only the credit is left, the booking stays as it is.
     if (voucher.treatments_redeemed || !(voucher.people || []).some((p) => (p.treatment_ids || []).length)) {
       this._form.payment = { ...(this._form.payment || {}), voucher: true, voucher_code: voucher.code };
       this._form.voucher_query = "";
+      this._voucherGuest(voucher);
       this._render();
       return;
     }
@@ -10664,11 +10700,45 @@ class SpaBookingCard extends HTMLElement {
     }
     this._form.payment = { ...(this._form.payment || {}), voucher: true, voucher_code: voucher.code };
     this._form.voucher_query = "";
+    this._voucherGuest(voucher);
     this._render();
+  }
+
+  /**
+   * 3.20.2: the voucher's name fills the guest (first word the name, the rest
+   * the surname) and its phone, where the form is still empty; in a group
+   * each voucher person names her person.
+   */
+  _voucherGuest(voucher) {
+    const form = this._form;
+    const split = (full) => {
+      const words = String(full || "").trim().split(/\s+/).filter(Boolean);
+      return { first: words[0] || "", last: words.slice(1).join(" ") };
+    };
+    const people = voucher.people || [];
+    const main = split(voucher.recipient_name || (people[0] && people[0].name) || voucher.buyer_name);
+    const existing = form.client_mode === "existing" && form.client_id;
+    if (!existing) {
+      if (!String(form.first_name || "").trim() && !String(form.last_name || "").trim()) {
+        form.first_name = main.first;
+        form.last_name = main.last;
+      }
+      if (!String(form.phone || "").trim()) form.phone = voucher.recipient_phone || voucher.buyer_phone || "";
+    }
+    if (Array.isArray(form.persons)) {
+      form.persons.forEach((person, index) => {
+        const name = people[index] && people[index].name;
+        if (!index || !name || String(person.first_name || "").trim()) return;
+        const parts = split(name);
+        person.first_name = parts.first;
+        person.last_name = parts.last;
+      });
+    }
   }
 
   _clearVoucher() {
     this._form.payment = { ...(this._form.payment || {}), voucher: false, voucher_code: "" };
+    this._form.voucher_code = "";
     this._render();
   }
 
@@ -25143,6 +25213,10 @@ class SpaBookingCard extends HTMLElement {
       .dt-seg { display: inline-flex; gap: 2px; padding: 2px; border-radius: 999px; background: rgba(0,0,0,.18); }
       .dt-seg button { all: unset; cursor: pointer; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; color: rgba(255,255,255,.9); }
       .dt-seg button.on { background: #fff; color: var(--primary-color); }
+      .detail-sheet.dt.big { max-width: 900px; max-height: 92vh; }
+      .dt-group { margin-left: 8px; }
+      .conto-reg { width: 100%; justify-content: center; }
+      .dt-close + .dt-close { margin-left: 4px; }
       .dt-close { all: unset; cursor: pointer; margin-left: auto; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center;
         background: rgba(255,255,255,.2); color: #fff; }
       .dt-close:hover { background: rgba(255,255,255,.32); }

@@ -151,12 +151,19 @@ appuntamenti; *Apri la giornata* (o il doppio clic) passa alla timeline.
 ## 3. Scheda dell'appuntamento
 
 Tocca un appuntamento: su computer la scheda si apre a destra senza coprire
-la giornata, sul telefono sale dal basso.
+la giornata, sul telefono sale dal basso. Il pulsante con le due frecce in
+alto (3.20.2) la mostra **al centro, più grande**; quello col riquadro la
+riporta a lato. La scelta resta per le volte successive.
+
+| | |
+|---|---|
+| ![Scheda al centro, gruppo](anteprime/140-dettaglio-al-centro.png) | ![Scheda a lato](anteprime/141-dettaglio-a-lato.png) |
 
 ![Scheda dell'appuntamento](anteprime/v3/v3-04-dettaglio.png)
 
-- **Testata** colorata con lo stato, nome, trattamento e orario; per un
-  gruppo scegli *Singolo* o *Gruppo*.
+- **Testata** colorata con lo stato, nome, trattamento e orario; una
+  prenotazione di gruppo si apre sempre come **Gruppo** (dalla 3.20.2 non si
+  sceglie più), con il conto del gruppo e i suoi appuntamenti.
 - **Riquadri**: operatrice, ospite, codice, accessori, totale, da incassare,
   partner e sconto, pacchetto dello shop.
 - **Il pulsante del momento**: *Conferma*, *Registra entrata* o *Registra
@@ -184,11 +191,12 @@ il messaggio riporta **solo** quello che hai appena confermato.
 ### Conto e incassi
 
 Ogni prenotazione ha il riquadro **Conto**: Totale, Pagato, Da saldare e gli
-incassi uno per uno. Un tocco su **Contante**, **Carta** o **Bonifico**
-incassa il saldo; **Altro importo** serve per una parte o un altro metodo.
+incassi uno per uno. Sotto c'è un solo pulsante, **Registra incasso**
+(3.20.2): apre la finestra con il saldo già scritto, dove si sceglie come
+(contante, carta, bonifico, gift card…), l'importo e, per un gruppo, per chi.
 
-**Prenotazioni di gruppo** (3.18.1): un incasso vale per il gruppo. Toccando
-il metodo si apre la finestra con **Per chi**: *Tutto il gruppo* (di base)
+**Prenotazioni di gruppo** (3.18.1): un incasso vale per il gruppo. Nella
+finestra con **Per chi**: *Tutto il gruppo* (di base)
 oppure *Scegli le persone*, con quanto deve ciascuna. L'importo si divide tra
 le persone in base a quanto deve ognuna (80 € per due persone da 40 € = 40 €
 a testa); nel conto resta un'unica riga, «diviso su 2 persone», e togliendola
@@ -197,6 +205,19 @@ dividono allo stesso modo. Il messaggio all'ospite calcola versato e da
 saldare sul gruppo intero.
 
 ![Incasso di un gruppo](anteprime/135-incasso-gruppo.png)
+
+**Modificare una prenotazione** (3.20.2): il voucher che la prenotazione ha
+usato resta indicato («già usato su questa prenotazione») e il conto mostra
+gli incassi veri, voucher compreso, quindi il totale da saldare è giusto. Un
+incasso registrato mentre si modifica si salva subito. Un voucher scelto
+mentre si modifica paga la prenotazione al salvataggio, come in una nuova.
+
+**Voucher in Nuovo appuntamento e Nuova richiesta** (3.20.2): il voucher si
+cerca per codice o nome anche nella richiesta (un codice che non è in Spa
+Booking, per esempio del sito, si usa con *Usa il codice*). Scelto il
+voucher, **nome, cognome e telefono** dell'ospite si riempiono da soli con
+quelli del voucher, se sono ancora vuoti; in un gruppo anche le altre
+persone prendono il loro nome.
 
 Con un **voucher** gli incassi si registrano da soli: i trattamenti compresi
 risultano pagati, la **gift card** paga il resto fino al suo valore e
