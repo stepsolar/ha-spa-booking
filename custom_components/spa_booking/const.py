@@ -392,6 +392,28 @@ DEFAULT_APPOINTMENT_REMINDER_MESSAGE: Final = "\n".join(
         "🗓️ {data} alle {ora}",
         "{trattamenti}",
         "",
+        "👙 Cosa portare: costume da bagno, cuffia e ciabattine antiscivolo (obbligatorie). "
+        "Ciabattine e cuffia sono acquistabili in loco al costo di € 3,00 ciascuna.",
+        "",
+        "Le consigliamo di arrivare 10 minuti prima. Se non potesse venire, "
+        "ci avvisi rispondendo a questo messaggio.",
+        "Codice: {codice}",
+        "",
+        "A presto!",
+        "Lo Staff · Il Marchese Hotel & Spa",
+        "📞 +39 0925 992446",
+    ]
+)
+
+#: The 2.3.5 text, before «Cosa portare» (3.20.1): a stored copy of it is
+#: upgraded to the new one.
+APPOINTMENT_REMINDER_MESSAGE_2_3_5: Final = "\n".join(
+    [
+        "Gentile {nome}, Le ricordiamo il Suo appuntamento in Spa 🧖‍♀️✨",
+        "",
+        "🗓️ {data} alle {ora}",
+        "{trattamenti}",
+        "",
         "Le consigliamo di arrivare 10 minuti prima. Se non potesse venire, "
         "ci avvisi rispondendo a questo messaggio.",
         "Codice: {codice}",

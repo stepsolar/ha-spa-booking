@@ -111,6 +111,11 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v3.20.1** — (serve il riavvio di Home Assistant)
+  - Il **promemoria** all'ospite dice anche *Cosa portare*: costume da bagno,
+    cuffia e ciabattine antiscivolo (obbligatorie); ciabattine e cuffia
+    acquistabili in loco a € 3,00 ciascuna. Il testo base precedente, se
+    salvato tale e quale, si aggiorna da solo; un testo modificato resta.
 - **v3.20.0** — (serve il riavvio di Home Assistant)
   - **Intelligenza artificiale** (Impostazioni): un assistente IA — per
     esempio sul computer del centralino — entra in Spa Booking con una chiave

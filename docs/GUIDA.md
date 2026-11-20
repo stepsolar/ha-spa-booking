@@ -721,6 +721,14 @@ giorni (es. tutto novembre chiuso tranne i sabati).
   annullamento, promemoria, recensione. Per
   ognuno: invio automatico e quando, testo con anteprima e segnaposto,
   *Ripristina testo base*, *Prova su WhatsApp*.
+
+  Il **promemoria** (3.20.1) dice anche **cosa portare**: costume da bagno,
+  cuffia e ciabattine antiscivolo (obbligatorie), con ciabattine e cuffia
+  acquistabili in loco a € 3,00 ciascuna. Se il testo non era stato
+  cambiato si aggiorna da solo; un testo scritto a mano resta com'è (si
+  aggiunge la riga oppure *Ripristina testo base*).
+
+  ![Promemoria con «Cosa portare»](anteprime/139-promemoria-cosa-portare.png)
 - **Operatrici** (3.15): i messaggi che ricevono le operatrici, modificabili
   come quelli degli ospiti (testo, segnaposto, anteprima, *Ripristina testo
   base*, *Prova su WhatsApp*):
