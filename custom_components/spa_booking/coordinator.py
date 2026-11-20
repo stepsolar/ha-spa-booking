@@ -6131,8 +6131,14 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         day: date,
         treatment_id: str,
         planned: list[dict[str, Any]] | None = None,
+        strict: bool = True,
     ) -> dict[str, Any]:
         """Return the start times the website may offer for one treatment.
+
+        ``strict=False`` (3.20.0, the AI assistant working as the reception):
+        the website may be off, the treatment hidden from it and the day
+        beyond its horizon (up to a year); the hours, the closures and the
+        free places are the same.
 
         ``planned`` holds the other entries of the same web request, already
         placed (see ``plan_public_entry``): two people asking for a massage
@@ -6163,11 +6169,11 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         offering a slot, so the site and the card can never disagree.
         """
         settings = self._web_settings
-        if not settings.get("web_enabled", DEFAULT_WEB_ENABLED):
+        if strict and not settings.get("web_enabled", DEFAULT_WEB_ENABLED):
             raise ValidationError("Il sito web è disattivato dalla Configurazione")
         if day < dt_util.now().date():
             raise ValidationError("Non è possibile richiedere date passate")
-        ahead = int(settings.get("web_max_days_ahead") or DEFAULT_WEB_MAX_DAYS_AHEAD)
+        ahead = int(settings.get("web_max_days_ahead") or DEFAULT_WEB_MAX_DAYS_AHEAD) if strict else 366
         if day > dt_util.now().date() + timedelta(days=ahead):
             raise ValidationError(
                 f"La data è oltre i {ahead} giorni consentiti dal sito"
@@ -6180,7 +6186,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise ValidationError("Trattamento non valido")
         if not treatment.get("active", True):
             raise ValidationError("Trattamento non attivo")
-        if not treatment.get("web_visible", True):
+        if strict and not treatment.get("web_visible", True):
             raise ValidationError("Trattamento non disponibile sul sito web")
 
         open_minutes = self._minutes_of(
@@ -7504,6 +7510,26 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 await self._async_save()
             sent.append({"client": name, "ids": item["ids"]})
         return {"sent": sent, "failed": failed, "to_day": to_day}
+
+    async def async_ai_key(self, revoke: bool = False) -> dict[str, Any]:
+        """A new key for the AI assistant (3.20.0), returned once; or none.
+
+        Only its hash is kept: a lost key is replaced, never shown again.
+        """
+        from .ai import new_key
+
+        async with self._lock:
+            settings = self._data[KEY_SETTINGS]
+            if revoke:
+                settings["ai_key_hash"] = settings["ai_key_hint"] = settings["ai_key_created"] = ""
+                await self._async_save()
+                return {"key": ""}
+            key, digest = new_key()
+            settings["ai_key_hash"] = digest
+            settings["ai_key_hint"] = key[-4:]
+            settings["ai_key_created"] = dt_util.utcnow().isoformat(timespec="seconds")
+            await self._async_save()
+        return {"key": key}
 
     async def async_low_spa_decline(self, ids: list[str]) -> dict[str, Any]:
         """The guest said NO to another day: her booking is cancelled (3.17.2).

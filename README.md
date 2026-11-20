@@ -111,6 +111,20 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v3.20.0** — (serve il riavvio di Home Assistant)
+  - **Intelligenza artificiale** (Impostazioni): un assistente IA — per
+    esempio sul computer del centralino — entra in Spa Booking con una chiave
+    e lavora come la reception: info e orari, **listino** con prezzi e
+    pacchetti, **disponibilità** (anche per più persone insieme), voucher,
+    ricerca ospiti e agenda, **richieste**, **prenotazioni** (anche
+    pacchetti), **spostamenti** e **annullamenti** con avviso all'ospite.
+  - Due ingressi con gli stessi strumenti: server **MCP**
+    (`/api/spa_booking/ai/mcp`, per Claude, ChatGPT, n8n, LangChain…) e JSON
+    semplice (`/api/spa_booking/ai/tools`, `/api/spa_booking/ai/call`).
+  - Permessi a interruttore, istruzioni per l'assistente, chiave salvata solo
+    come hash (mostrata una volta), «inserito da» col nome dell'assistente,
+    prova di uno strumento e registro delle ultime chiamate. Guida per chi
+    configura l'IA: [docs/IA.md](docs/IA.md).
 - **v3.19.0** — (serve il riavvio di Home Assistant)
   - Nuova scheda **Configurazione › Contabilità**, con la sottoscheda
     **Incassi**: tutti gli incassi delle prenotazioni filtrabili per giorno,

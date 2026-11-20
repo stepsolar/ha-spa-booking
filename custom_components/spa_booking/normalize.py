@@ -1114,6 +1114,18 @@ def _norm_settings(raw: dict[str, Any]) -> dict[str, Any]:
         ][:20],
         # The WordPress shop (2.7.0): address, shared key, products and pairing.
         "wp_enabled": bool(raw.get("wp_enabled", False)),
+        # The AI assistant (3.20.0): its switch, name, what it may do, what it
+        # should know, and the hash of its key (the key is shown once).
+        "ai_enabled": bool(raw.get("ai_enabled", False)),
+        "ai_name": str(raw.get("ai_name") or "").strip()[:60] or "Assistente IA",
+        "ai_permissions": [
+            p for p in ("read", "clients", "requests", "bookings", "manage")
+            if p in (raw.get("ai_permissions") if isinstance(raw.get("ai_permissions"), list) else ["read", "clients", "requests"])
+        ],
+        "ai_instructions": str(raw.get("ai_instructions") or "").strip()[:4000],
+        "ai_key_hash": str(raw.get("ai_key_hash") or ""),
+        "ai_key_hint": str(raw.get("ai_key_hint") or "")[:12],
+        "ai_key_created": str(raw.get("ai_key_created") or ""),
         # 3.18.0: the gift cards sold here can be spent on the shop, once.
         "wp_gift_cards": raw.get("wp_gift_cards") is not False,
         "wp_gift_result": str(raw.get("wp_gift_result") or ""),
