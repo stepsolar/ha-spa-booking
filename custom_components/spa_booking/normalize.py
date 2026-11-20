@@ -70,6 +70,7 @@ from .const import (
     DEFAULT_PROPOSE_ALT_LINE,
     DEFAULT_PROPOSE_MESSAGE,
     LEGACY_APPOINTMENT_REMINDER_MESSAGE,
+    APPOINTMENT_REMINDER_MESSAGE_2_3_5,
     LEGACY_DEPOSIT_MESSAGE,
     LEGACY_PROPOSE_MESSAGE,
     LEGACY_REQUEST_MESSAGE,
@@ -1024,7 +1025,10 @@ def _norm_settings(raw: dict[str, Any]) -> dict[str, Any]:
         "voucher_expiry_reminder_days": int(raw.get("voucher_expiry_reminder_days") or DEFAULT_VOUCHER_EXPIRY_REMINDER_DAYS),
         # Appointment reminder for the guest: customizable message, and whether
         # it is sent automatically (with how many hours advance) or manually.
-        "appointment_reminder_message": _upgraded(raw.get("appointment_reminder_message"), DEFAULT_APPOINTMENT_REMINDER_MESSAGE, LEGACY_APPOINTMENT_REMINDER_MESSAGE),
+        # 3.20.1: a stored 2.3.5 text gets «Cosa portare» too.
+        "appointment_reminder_message": _upgraded(
+            _upgraded(raw.get("appointment_reminder_message"), APPOINTMENT_REMINDER_MESSAGE_2_3_5, LEGACY_APPOINTMENT_REMINDER_MESSAGE),
+            DEFAULT_APPOINTMENT_REMINDER_MESSAGE, APPOINTMENT_REMINDER_MESSAGE_2_3_5),
         "appointment_reminder_auto": bool(
             raw.get("appointment_reminder_auto", DEFAULT_APPOINTMENT_REMINDER_AUTO)
         ),
