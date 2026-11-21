@@ -3846,6 +3846,18 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         entry = (self._data.get(KEY_SETTINGS, {}).get("wp_product_map") or {}).get(str(key)) or {}
         return [str(e) for e in entry.get("extras") or [] if e]
 
+    def _included_extras(self, appointment: dict[str, Any]) -> set[str]:
+        """The accessories of a booking that its package already pays (3.20.6).
+
+        Only the package's own accessories: one added on top is paid. A
+        package whose accessories are no longer known keeps the older rule,
+        every accessory of the booking included.
+        """
+        if not appointment.get("extras_included") or not appointment.get("package_key"):
+            return set()
+        own = self._package_extras(appointment.get("package_key"))
+        return set(own) if own else set(appointment.get("extras") or [])
+
     def _apply_package(self, appointment: dict[str, Any], entry: dict[str, Any]) -> None:
         """Mark a treatment as part of a shop package (2.8.9): name, group, accessories included."""
         key = str(entry.get("package_key") or "")
@@ -6895,7 +6907,46 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         lines: list[str] = []
         first_time = ""
         persons = {entry.get("person") for entry in entries if entry.get("person") is not None}
+        # 3.20.6: a package reads as one block: its price, then each person
+        # with her treatments and the accessories it includes.
+        products = {p.get("key"): p for p in self._data.get(KEY_SETTINGS, {}).get("wp_products") or []}
+        groups: dict[str, list[dict[str, Any]]] = {}
         for entry in sorted(entries, key=lambda e: (e.get("person") or 0, str(e.get("time") or ""))):
+            if entry.get("package_key"):
+                groups.setdefault(str(entry.get("package_group") or entry["package_key"]), []).append(entry)
+        package_total = 0.0
+        for members in groups.values():
+            key = members[0]["package_key"]
+            product = products.get(key) or {}
+            try:
+                price = round(float(product.get("price")), 2) if product.get("price") is not None else 0.0
+            except (TypeError, ValueError):
+                price = 0.0
+            package_total += price
+            lines.append(f"📦 *{product.get('name') or 'Pacchetto'}*" + (f" · {_money_text(price)}" if price > 0 else ""))
+            own = set(self._package_extras(key))
+            by_person: dict[int, list[dict[str, Any]]] = {}
+            for entry in members:
+                by_person.setdefault(int(entry.get("person") or 0), []).append(entry)
+            for person, items in sorted(by_person.items()):
+                for entry in items:
+                    if entry.get("time") and not first_time:
+                        first_time = str(entry["time"])
+                line = f"   • Persona {person + 1}: " + ", ".join(
+                    f"{entry.get('time') or ''} {entry.get('treatment_name') or 'Trattamento'}".strip() for entry in items)
+                extras = list(dict.fromkeys(e for entry in items for e in entry.get("extras") or []))
+                inside = [self._accessory_label(e) for e in extras if e in own]
+                if inside:
+                    line += " · inclusi: " + ", ".join(inside)
+                more = [self._accessory_label(e) for e in extras if e not in own]
+                if more:
+                    line += " · in più: " + ", ".join(more)
+                lines.append(line)
+        if len(groups) > 1 and package_total > 0:
+            lines.append(f"📦 Totale pacchetti: {_money_text(package_total)}")
+        for entry in sorted(entries, key=lambda e: (e.get("person") or 0, str(e.get("time") or ""))):
+            if entry.get("package_key"):
+                continue
             name = str(entry.get("treatment_name") or "Trattamento")
             clock = str(entry.get("time") or "")
             if clock and not first_time:
@@ -7923,7 +7974,11 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             for item in self.accessories
             if isinstance(item, dict) and item.get("id")
         }
-        for extra_id in [] if appointment.get("extras_included") else appointment.get("extras") or []:
+        included = self._included_extras(appointment)
+        for extra_id in appointment.get("extras") or []:
+            if extra_id in included:
+                # 3.20.6: in the package, already paid with it.
+                continue
             entry = catalogue_extras.get(extra_id)
             if entry:
                 try:
@@ -10546,6 +10601,9 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         pcts = set()
         partner = False
         for payload in payloads:
+            if payload.get("package_key"):
+                # 3.20.6: a package has its own price, not a discount per treatment.
+                continue
             listed, price, pct = self._discount_of(payload)
             if listed:
                 saved += listed - price
@@ -10591,7 +10649,8 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         days = {str(p.get("start_local") or "")[:10] for p in ordered}
         if with_day is None:
             with_day = len(days) > 1
-        lines = []
+        # 3.20.6: a package reads as one block, its price and its people.
+        lines, ordered = self._package_lines(ordered, with_day=with_day, with_price=with_price)
         for payload in ordered:
             start = str(payload.get("start_local") or "")
             end = str(payload.get("end_local") or "")
@@ -10616,6 +10675,94 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     line += f" · {_money_text(price)}"
             lines.append(line)
         return lines
+
+    def _accessory_label(self, extra_id: str) -> str:
+        entry = next((a for a in self.accessories if isinstance(a, dict) and a.get("id") == extra_id), None)
+        return str((entry or {}).get("label") or extra_id)
+
+    def _accessory_price(self, extra_id: str) -> float:
+        entry = next((a for a in self.accessories if isinstance(a, dict) and a.get("id") == extra_id), None)
+        try:
+            return round(float((entry or {}).get("price") or 0), 2)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _package_product_name(self, key: Any) -> str:
+        product = next((p for p in self._data.get(KEY_SETTINGS, {}).get("wp_products") or [] if p.get("key") == key), {})
+        return str(product.get("name") or "")
+
+    def _agreed_price(self, payload: dict[str, Any]) -> float:
+        """The price of the treatment alone: agreed, list or catalogue."""
+        for value in (payload.get("price"), payload.get("list_price"), (payload.get("treatment") or {}).get("price")):
+            if value is None:
+                continue
+            try:
+                return round(max(0.0, float(value)), 2)
+            except (TypeError, ValueError):
+                continue
+        treatment = next((t for t in self.treatments if t["id"] == payload.get("treatment_id")), None)
+        try:
+            return round(float((treatment or {}).get("price") or 0), 2)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _package_lines(
+        self, ordered: list[dict[str, Any]], *, with_day: bool = False, with_price: bool = False
+    ) -> tuple[list[str], list[dict[str, Any]]]:
+        """The packages of a booking as blocks for the guest (3.20.6).
+
+        «📦 *Coccole di coppia* · 150,00 €», then one line per person with her
+        treatments and the accessories the package includes; «Totale
+        pacchetti» when there is more than one. No discount per treatment:
+        the package has one price. Returns the lines and the bookings outside
+        any package, which keep their own lines.
+        """
+        groups: dict[str, list[dict[str, Any]]] = {}
+        rest: list[dict[str, Any]] = []
+        for payload in ordered:
+            if payload.get("package_key"):
+                groups.setdefault(str(payload.get("package_group") or payload["package_key"]), []).append(payload)
+            else:
+                rest.append(payload)
+        lines: list[str] = []
+        total = 0.0
+        for members in groups.values():
+            first = members[0]
+            name = str(first.get("package_name") or self._package_product_name(first.get("package_key")) or "Pacchetto")
+            price = round(sum(self._agreed_price(m) for m in members), 2)
+            total += price
+            lines.append(f"📦 *{name}*" + (f" · {_money_text(price)}" if with_price and price > 0 else ""))
+            by_person: dict[int, list[dict[str, Any]]] = {}
+            for member in members:
+                by_person.setdefault(int(member.get("person") or 0), []).append(member)
+            for person, items in sorted(by_person.items()):
+                parts = []
+                for item in items:
+                    start = str(item.get("start_local") or "")
+                    end = str(item.get("end_local") or "")
+                    when = start[11:16]
+                    if end[11:16]:
+                        when = f"{when}–{end[11:16]}"
+                    if with_day and start[:10]:
+                        when = f"{_day_words(start[:10])} {when}"
+                    parts.append(f"{when} {(item.get('treatment') or {}).get('name') or 'Trattamento'}".strip())
+                line = f"   • Persona {person + 1}: " + ", ".join(parts)
+                extras = list(dict.fromkeys(e for item in items for e in item.get("extras") or []))
+                included = self._included_extras(items[0])
+                inside = [self._accessory_label(e) for e in extras if e in included]
+                if inside:
+                    line += " · inclusi: " + ", ".join(inside)
+                more = [e for e in extras if e not in included]
+                if more:
+                    line += " · in più: " + ", ".join(
+                        self._accessory_label(e)
+                        + (f" {_money_text(self._accessory_price(e))}" if with_price and self._accessory_price(e) > 0 else "")
+                        for e in more
+                    )
+                lines.append(line)
+        if with_price and len(groups) > 1 and total > 0:
+            lines.append(f"📦 Totale pacchetti: {_money_text(total)}")
+        return lines, rest
 
     def format_summary_group(self, payloads: list[dict[str, Any]]) -> str:
         """The confirmation of a whole booking, one message for the party.

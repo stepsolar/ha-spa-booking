@@ -111,6 +111,15 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v3.20.6** — (serve il riavvio di Home Assistant)
+  - **Modifica voucher**: il PIN di un amministratore si chiede prima di
+    aprire la modifica e di nuovo al salvataggio.
+  - **Accessori del pacchetto inclusi**: in nuovo appuntamento e nuova
+    richiesta non si sommano più; nei Totali e nel riepilogo compare
+    «incluso». Un accessorio aggiunto in più si paga.
+  - **Messaggi all'ospite con i pacchetti**: nome e prezzo del pacchetto,
+    trattamenti e accessori inclusi per persona, «Totale pacchetti»; niente
+    sconto per singolo trattamento.
 - **v3.20.5** — (serve il riavvio di Home Assistant)
   - **Ingresso spa interrotto da un massaggio**: nuova spunta della
     categoria *Si può interrompere per un trattamento* (da mettere su

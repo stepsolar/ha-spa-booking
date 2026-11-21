@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "3.20.5";
+const CARD_VERSION = "3.20.6";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -2466,10 +2466,13 @@ class SpaBookingCard extends HTMLElement {
         if (!treat.treatment_id) return;
         lines.push({ treat, ...this._treatPrices(treat) });
       });
+      // In a shop package its accessories are included (2.8.9); one added
+      // on top is paid (3.20.6).
+      const included = person.package ? this._includedExtras(person.package.key, person.extras) : new Set();
       const extras = (person.extras || []).map((id) => {
         const entry = this._accessory(id) || {};
-        // In a shop package the accessories are included (2.8.9).
-        return { label: entry.label || id, price: person.package ? 0 : Number(entry.price) || 0 };
+        const inside = included.has(id);
+        return { label: entry.label || id, price: inside ? 0 : Number(entry.price) || 0, included: inside };
       });
       const subtotal =
         Math.round((lines.reduce((sum, line) => sum + line.price, 0) +
@@ -2575,7 +2578,7 @@ class SpaBookingCard extends HTMLElement {
       }
       person.extras.forEach((extra) => {
         card.appendChild(el("div", { class: "dim small" },
-          `${extra.label} · ${euro(extra.price)}`));
+          `${extra.label} · ${extra.included ? "incluso" : euro(extra.price)}`));
       });
       card.appendChild(el("div", {}, el("strong", {}, `Subtotale: ${euro(person.subtotal)}`)));
       box.appendChild(card);
@@ -2673,7 +2676,9 @@ class SpaBookingCard extends HTMLElement {
         const at = pool.indexOf(treat.treatment_id);
         if (treat.treatment_id && at >= 0) { pool.splice(at, 1); covered += this._treatPrices(treat).price; }
       });
+      const inPackage = person.package ? this._includedExtras(person.package.key, person.extras) : new Set();
       (person.extras || []).forEach((id) => {
+        if (inPackage.has(id)) return;
         const at = extrasPool.indexOf(id);
         if (at >= 0) { extrasPool.splice(at, 1); covered += Number((this._accessory(id) || {}).price) || 0; }
       });
@@ -2738,7 +2743,11 @@ class SpaBookingCard extends HTMLElement {
     const catalogue = treatment && treatment.price != null ? Number(treatment.price) || 0 : 0;
     const list = draft.list_price != null ? draft.list_price : catalogue;
     const price = draft.price != null ? draft.price : list;
+    // 3.20.6: the accessories of the booking's package are included.
+    const original = this._editing && this._editing.id ? this._lookup.appointment.get(this._editing.id) : null;
+    const included = original && original.extras_included ? this._includedExtras(original.package_key, draft.extras) : new Set();
     const extras = (draft.extras || []).reduce((sum, id) => {
+      if (included.has(id)) return sum;
       const entry = this._accessory(id) || {};
       return sum + (Number(entry.price) || 0);
     }, 0);
@@ -2747,7 +2756,7 @@ class SpaBookingCard extends HTMLElement {
       list, price,
       extras: (draft.extras || []).map((id) => {
         const entry = this._accessory(id) || {};
-        return { label: entry.label || id, price: Number(entry.price) || 0 };
+        return { label: entry.label || id, price: included.has(id) ? 0 : Number(entry.price) || 0, included: included.has(id) };
       }),
       total: Math.round((price + extras) * 100) / 100,
     };
@@ -2787,7 +2796,7 @@ class SpaBookingCard extends HTMLElement {
           `Scontato di ${line.name}`)));
     line.extras.forEach((extra) => {
       card.appendChild(el("div", { class: "dim small" },
-        `${extra.label} · ${euro(extra.price)}`));
+        `${extra.label} · ${extra.included ? "incluso" : euro(extra.price)}`));
     });
     if (others.length) {
       card.appendChild(el("div", { class: "dim small" },
@@ -7332,7 +7341,8 @@ class SpaBookingCard extends HTMLElement {
       const items = this._treatmentsOf(person).filter((treat) => treat.treatment_id);
       if (!items.length) return;
       if (states.length > 1) body.appendChild(el("div", { class: "nv-sum-person" }, people[index] ? people[index].name : `Persona ${index + 1}`));
-      const extras = (person.extras || []).map((id) => (this._accessory(id) || {}).label || id);
+      const inPackage = person.package ? this._includedExtras(person.package.key, person.extras) : new Set();
+      const extras = (person.extras || []).map((id) => `${(this._accessory(id) || {}).label || id}${inPackage.has(id) ? " (incluso)" : ""}`);
       items.forEach((treat) => {
         const treatment = this._lookup.treatment.get(treat.treatment_id);
         const start = parseLocal(person.date || form.date, treat.time);
@@ -8518,6 +8528,15 @@ class SpaBookingCard extends HTMLElement {
     return icons.length ? el("span", { class: "pay-icons" }, icons) : null;
   }
 
+  /** The accessories a package already pays (3.20.6), as the server: the
+   *  package's own; when it is no longer known, all of them. */
+  _includedExtras(packageKey, extras) {
+    if (!packageKey) return new Set();
+    const pkg = this._shopPackages().find((p) => p.key === packageKey);
+    const own = pkg && (pkg.extras || []).length ? pkg.extras : (extras || []);
+    return new Set(own);
+  }
+
   /** Agreed totals of an appointment: total, collected and still owed. */
   /** One appointment's own line: agreed price for her head and her extras. */
   _lineBreakdown(appointment) {
@@ -8525,7 +8544,9 @@ class SpaBookingCard extends HTMLElement {
     const catalogue = treatment && treatment.price != null ? Number(treatment.price) || 0 : 0;
     const agreed = appointment.price != null ? appointment.price
       : appointment.list_price != null ? appointment.list_price : catalogue;
-    const extras = appointment.extras_included ? 0 : (appointment.extras || []).reduce((sum, id) => {
+    const included = appointment.extras_included ? this._includedExtras(appointment.package_key, appointment.extras) : new Set();
+    const extras = (appointment.extras || []).reduce((sum, id) => {
+      if (included.has(id)) return sum;
       const entry = this._accessory(id) || {};
       return sum + (Number(entry.price) || 0);
     }, 0);
@@ -10932,7 +10953,14 @@ class SpaBookingCard extends HTMLElement {
   }
 
   /** 3.20.4: the voucher in the same three steps, to change it. */
+  /** «Modifica» (3.20.6): first the administrator's PIN, then the edit
+   *  opens; saving asks for it once more. */
   _editVoucher(voucher) {
+    this._voucherPin = { typed: "", error: "", busy: false, unlock: voucher };
+    this._render();
+  }
+
+  _openVoucherEdit(voucher) {
     this._voucherCreated = null;
     this._voucherDraft = {
       editing_id: voucher.id,
@@ -11263,15 +11291,19 @@ class SpaBookingCard extends HTMLElement {
         on: { click: () => press(key) },
       }, key === "del" ? el("ha-icon", { icon: "mdi:arrow-left" }) : key));
     });
-    const editing = this._voucherDraft && this._voucherDraft.editing_id;
-    const sheet = el("div", { class: "detail-sheet voucher-pin-sheet", role: "dialog", "aria-label": editing ? "Autorizza la modifica" : "Firma il voucher" },
+    const unlock = pin.unlock;
+    const editing = unlock || (this._voucherDraft && this._voucherDraft.editing_id);
+    const title = unlock ? "Accedi alla modifica" : editing ? "Autorizza la modifica" : "Firma il voucher";
+    const sheet = el("div", { class: "detail-sheet voucher-pin-sheet", role: "dialog", "aria-label": title },
       el("div", { class: "section-head" },
         el("span", { class: "section-icon" }, el("ha-icon", { icon: editing ? "mdi:shield-key-outline" : "mdi:draw-pen" })),
         el("div", { class: "section-text" },
-          el("div", { class: "section-title" }, editing ? "Autorizza la modifica" : "Firma il voucher"),
-          el("div", { class: "section-sub" }, editing
-            ? "Serve il PIN di un amministratore: la modifica resta registrata con il suo nome."
-            : "Inserisci il tuo PIN di 4 cifre: il voucher resterà firmato con il tuo nome."))),
+          el("div", { class: "section-title" }, title),
+          el("div", { class: "section-sub" }, unlock
+            ? `Serve il PIN di un amministratore per modificare il voucher ${unlock.code || ""}. Al salvataggio verrà chiesto di nuovo.`
+            : editing
+              ? "Serve il PIN di un amministratore: la modifica resta registrata con il suo nome."
+              : "Inserisci il tuo PIN di 4 cifre: il voucher resterà firmato con il tuo nome."))),
       el("div", { class: "pin-dots", "aria-label": `${pin.typed.length} cifre su 4` },
         [0, 1, 2, 3].map((i) => el("span", { class: i < pin.typed.length ? "on" : "" }))),
       pad,
@@ -11294,8 +11326,24 @@ class SpaBookingCard extends HTMLElement {
   }
 
   async _submitVoucher(pinCode) {
-    const draft = this._voucherDraftState();
     const pin = this._voucherPin;
+    if (pin.unlock) {
+      pin.busy = true;
+      this._render();
+      try {
+        await this._service("update_voucher", { voucher_id: pin.unlock.id, pin: pinCode, check_only: true });
+        const voucher = pin.unlock;
+        this._voucherPin = null;
+        this._openVoucherEdit(voucher);
+      } catch (error) {
+        pin.busy = false;
+        pin.typed = "";
+        pin.error = this._friendlyError(error, "PIN non accettato.");
+        this._render();
+      }
+      return;
+    }
+    const draft = this._voucherDraftState();
     pin.busy = true;
     this._render();
     if (draft.editing_id) {

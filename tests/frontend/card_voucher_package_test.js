@@ -35,7 +35,13 @@ assert(card._voucherValue({ ...draft, package_key: "p2" }) === 120, "the value i
 
 // Editing: the voucher comes back in the same steps, same code.
 card._userLevel = () => "admin";
-card._editVoucher({ id: "v1", code: "VCH-ABC", buyer_name: "Bea", recipient_name: "Anna", wp_product_key: "p2",
-  people: [{ name: "Anna", treatment_ids: ["t1", "t2"], extras: [] }], status: "active" });
+// 3.20.6: «Modifica» asks the PIN first; the edit opens only after it.
+const vch = { id: "v1", code: "VCH-ABC", buyer_name: "Bea", recipient_name: "Anna", wp_product_key: "p2",
+  people: [{ name: "Anna", treatment_ids: ["t1", "t2"], extras: [] }], status: "active" };
+card._voucherDraft = null;
+card._editVoucher(vch);
+assert(card._voucherPin && card._voucherPin.unlock === vch && !card._voucherDraft, "PIN first, edit closed");
+assert(card._renderVoucherPinPopup().textContent.includes("Accedi alla modifica"), "unlock title");
+card._openVoucherEdit(vch);
 assert(card._voucherDraft.editing_id === "v1" && card._voucherDraft.package_key === "p2", "editing keeps the package");
 assert(card._voucherForm().textContent.includes("Modifica voucher VCH-ABC"), "the title says which voucher");
