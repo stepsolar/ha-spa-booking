@@ -3062,8 +3062,13 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         people: list[dict[str, Any]],
         user_id: str | None = None,
         created_by_name: str = "",
+        package_key: str = "",
     ) -> dict[str, Any]:
-        """Sell a gift voucher: its code, its people and its treatments, valid for months."""
+        """Sell a gift voucher: its code, its people and its treatments, valid for months.
+
+        3.20.3: sold as a package (``package_key``), it keeps the package's
+        name and price, as a voucher from the shop does.
+        """
         created_by_name = str(created_by_name or "").strip()
         if not created_by_name:
             raise ValidationError("Indica chi ha creato il voucher")
@@ -3093,6 +3098,13 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Allow voucher with only gift cards (no treatments required if all have gift_card_amount).
         if not any(person["treatment_ids"] for person in clean) and not any(person["gift_card_amount"] for person in clean):
             raise ValidationError("Il voucher deve contenere almeno un trattamento o una gift card")
+        package: dict[str, Any] = {}
+        if package_key:
+            found = next((p for p in self.shop_packages() if p["key"] == package_key), None)
+            if found is None:
+                raise ValidationError("Pacchetto non trovato")
+            package = {"wp_product_key": found["key"], "wp_product_name": found["name"],
+                       "value": found.get("price"), "package_note": found.get("note") or ""}
         async with self._lock:
             existing = {v["code"] for v in self.vouchers}
             code = _new_voucher_code(existing)
@@ -3111,6 +3123,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "created_by_name": created_by_name,
                     "expires_on": _add_months(today, VOUCHER_VALID_MONTHS).strftime("%Y-%m-%d"),
                     "status": VOUCHER_ACTIVE,
+                    **package,
                 }
             )
             self.vouchers.append(voucher)

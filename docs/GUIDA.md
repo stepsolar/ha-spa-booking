@@ -543,6 +543,15 @@ il **PIN** di chi lo vende, che resta firmato sul voucher.
 |---|---|
 | ![Nuovo voucher](anteprime/09-voucher-nuovo.png) | ![Firma con il PIN](anteprime/21-voucher-pin.png) |
 
+**Voucher di un pacchetto** (3.20.3): nel passo *Persone e trattamenti*, in
+alto, si sceglie il **pacchetto** (quelli di Configurazione › Pacchetti). Il
+voucher si compila da solo: tante persone quante sono quelle del pacchetto,
+ognuna con i suoi trattamenti e accessori; i nomi già scritti restano e si
+può ancora cambiare a mano. Il voucher ricorda il nome del pacchetto e ha
+come valore il suo prezzo.
+
+![Voucher di un pacchetto](anteprime/142-voucher-pacchetto.png)
+
 I voucher venduti sullo **shop online** arrivano da soli con l'etichetta
 «Sito» (vedi [Shop online](#14-shop-online-woocommerce)). I **voucher
 fedeltà** nascono all'uscita, a mano dalla scheda cliente o come premio punti.

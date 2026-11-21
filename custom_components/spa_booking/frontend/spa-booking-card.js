@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "3.20.2";
+const CARD_VERSION = "3.20.3";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -10953,9 +10953,47 @@ class SpaBookingCard extends HTMLElement {
     return groups;
   }
 
+  /**
+   * 3.20.3: a package fills every person at once — as many people as it is
+   * for, each with its treatments and accessories — and the voucher keeps its
+   * name and price. The treatments can still be changed by hand below.
+   */
+  _voucherPackageChoice(draft) {
+    const packages = this._shopPackages().filter((p) => !p.hidden_desk);
+    if (!packages.length) return null;
+    const accessoryIds = new Set(this._accessories().map((a) => a.id));
+    const choose = (pkg) => {
+      if (!pkg) { draft.package_key = ""; this._render(); return; }
+      draft.package_key = pkg.key;
+      const names = draft.people.map((p) => p.name || "");
+      draft.people = Array.from({ length: pkg.people }, (_, i) => ({
+        name: names[i] || "",
+        treatment_ids: [...pkg.treatment_ids],
+        extras: (pkg.extras || []).filter((id) => accessoryIds.has(id)),
+      }));
+      this._render();
+    };
+    const chosen = packages.find((p) => p.key === draft.package_key);
+    return el("div", { class: "vc-pkg" },
+      el("div", { class: "cat-label" }, el("ha-icon", { icon: "mdi:package-variant-closed" }), " Pacchetto (facoltativo)"),
+      el("div", { class: "pick-grid" },
+        el("button", { class: `pick${!draft.package_key ? " on" : ""}`, on: { click: () => choose(null) } },
+          el("span", { class: "pick-name" }, "Nessuno: scelgo i trattamenti")),
+        packages.map((pkg) => el("button", {
+          class: `pick${draft.package_key === pkg.key ? " on" : ""}`, "aria-pressed": draft.package_key === pkg.key ? "true" : "false",
+          title: pkg.treatment_ids.map((id) => (this._lookup.treatment.get(id) || {}).name || id).join(" + "),
+          on: { click: () => choose(pkg) },
+        }, el("span", { class: "pick-name" }, pkg.name),
+        el("span", { class: "pick-price" }, [pkg.people > 1 ? `${pkg.people} persone` : "", pkg.price != null ? euro(pkg.price) : ""].filter(Boolean).join(" · "))))),
+      chosen ? el("div", { class: "hint small" },
+        `Compilate ${chosen.people} ${chosen.people === 1 ? "persona" : "persone"} con: ${chosen.treatment_ids.map((id) => (this._lookup.treatment.get(id) || {}).name || id).join(" + ")}. Il valore del voucher è il prezzo del pacchetto.`) : null);
+  }
+
   _voucherStepPeople(draft) {
     const groups = this._voucherTreatmentGroups();
     const wrap = el("div", { class: "stack tight" });
+    const packageBox = this._voucherPackageChoice(draft);
+    if (packageBox) wrap.appendChild(packageBox);
     draft.people.forEach((person, index) => {
       const block = el("div", { class: "person-card" });
       block.appendChild(el("div", { class: "person-head" },
@@ -11031,6 +11069,12 @@ class SpaBookingCard extends HTMLElement {
   /** The value of a voucher: list price of its treatments plus gift cards. */
   _voucherValue(voucher) {
     if (voucher.source === "wordpress" && voucher.value != null) return Number(voucher.value) || 0;
+    // Sold as a package (3.20.3): its price, plus any gift card added.
+    const pkg = voucher.package_key ? this._shopPackages().find((p) => p.key === voucher.package_key)
+      : (voucher.wp_product_key && voucher.value != null ? { price: voucher.value } : null);
+    if (pkg && pkg.price != null) {
+      return Number(pkg.price) + (voucher.people || []).reduce((sum, p) => sum + (Number(p.gift_card_amount) || 0), 0);
+    }
     return (voucher.people || []).reduce((sum, person) =>
       sum + (person.treatment_ids || []).reduce((inner, id) =>
         inner + (Number((this._lookup.treatment.get(id) || {}).price) || 0), 0)
@@ -11054,6 +11098,8 @@ class SpaBookingCard extends HTMLElement {
     const line = (label, value) => el("div", { class: "sum-row" }, el("span", { class: "dim" }, label), el("span", {}, value));
     wrap.appendChild(line("Acquirente", [draft.buyer_name, draft.buyer_phone].filter(Boolean).join(" · ") || "—"));
     wrap.appendChild(line("Destinatario", [draft.recipient_name, draft.recipient_phone].filter(Boolean).join(" · ") || "—"));
+    const pkg = draft.package_key && this._shopPackages().find((p) => p.key === draft.package_key);
+    if (pkg) wrap.appendChild(line("Pacchetto", pkg.name));
     this._voucherPeopleLines(draft).forEach((person) => wrap.appendChild(line(person.name, person.text)));
     wrap.appendChild(line("Valore", value ? euro(value) : "—"));
     wrap.appendChild(line("Validità", "6 mesi da oggi"));
@@ -11139,6 +11185,7 @@ class SpaBookingCard extends HTMLElement {
           extras: person.extras,
           gift_card_amount: person.gift_card_amount,
         })),
+        ...(draft.package_key ? { package_key: draft.package_key } : {}),
       });
       this._voucherPin = null;
       this._voucherDraft = null;
@@ -11285,6 +11332,8 @@ class SpaBookingCard extends HTMLElement {
     const people = this._voucherPeopleLines(voucher);
     // Bought on the site (2.7.0): the product, until it is paired.
     if (voucher.source === "wordpress" && !people.length) people.push({ name: "", text: `${voucher.wp_product_name || "Prodotto del sito"} (da abbinare in Shop online)` });
+    // Sold at the desk as a package (3.20.3).
+    if (voucher.source !== "wordpress" && voucher.wp_product_name) people.unshift({ name: "Pacchetto", text: voucher.wp_product_name });
     const main = el("div", { class: "ticket-main" },
       el("div", { class: "ticket-top" },
         el("span", { class: "ticket-code" }, voucher.code),
@@ -25215,6 +25264,11 @@ class SpaBookingCard extends HTMLElement {
       .dt-seg button.on { background: #fff; color: var(--primary-color); }
       .detail-sheet.dt.big { max-width: 900px; max-height: 92vh; }
       .dt-group { margin-left: 8px; }
+      .vc-pkg { padding: 12px 14px; border: 1px solid var(--sb-line, #e0e0e0); border-radius: 14px; background: var(--sb-accent-soft, #eef7fa); }
+      .vc-pkg .cat-label ha-icon { --mdc-icon-size: 16px; vertical-align: -3px; }
+      .vc-pkg .pick-grid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+      .vc-pkg .pick { flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; text-align: left; }
+      .vc-pkg .pick-name { font-weight: 600; }
       .conto-reg { width: 100%; justify-content: center; }
       .dt-close + .dt-close { margin-left: 4px; }
       .dt-close { all: unset; cursor: pointer; margin-left: auto; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center;
