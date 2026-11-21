@@ -477,6 +477,9 @@ def _norm_category(raw: dict[str, Any]) -> dict[str, Any]:
         "capacity_from": norm_window("capacity_from"),
         "capacity_to": norm_window("capacity_to"),
         "capacity_force": bool(raw.get("capacity_force", False)),
+        # 3.20.5: the same person may leave an entry of this category for a
+        # treatment (a massage) and come back: the overlap is allowed.
+        "interruptible": bool(raw.get("interruptible", False)),
     }
 
 
@@ -1901,6 +1904,9 @@ def _norm_appointment(raw: dict[str, Any]) -> dict[str, Any]:
         "status": _norm_status(raw),
         "guest_type": _norm_guest_type(raw.get("guest_type")),
         "extras": _norm_extras(raw.get("extras")),
+        # 3.20.5: minutes added to the end of an interruptible entry (the spa)
+        # because the guest leaves it for a treatment and comes back.
+        "extra_min": _norm_count(raw.get("extra_min"), 0, 600, 0),
         # Per-row price overrides, both editable from the card: the list
         # price and the discounted one. None means "use the catalogue
         # price of the treatment", so bookings saved before prices existed

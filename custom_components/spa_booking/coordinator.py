@@ -980,6 +980,18 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         category = self._category(treatment.get("category_id"))
         return bool(category and category["requires_operator"])
 
+    def is_interruptible(self, treatment_id: str | None) -> bool:
+        """Return whether an entry of this treatment may be interrupted (3.20.5).
+
+        The flag lives on the category: a shared spa entry the guest leaves
+        for a massage and comes back to.
+        """
+        treatment = next((t for t in self.treatments if t["id"] == treatment_id), None)
+        if treatment is None:
+            return False
+        category = self._category(treatment.get("category_id"))
+        return bool(category and category.get("interruptible"))
+
     def operators_for_treatment(self, treatment_id: str) -> list[dict[str, Any]]:
         """Return the operators able to perform a treatment, in name order.
 
@@ -1908,6 +1920,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         staged_clients: list[dict[str, Any]] | None = None,
         force_client_overlap: bool = False,
         pause_min: int = 0,
+        treatment_id: str | None = None,
     ) -> dict[str, Any] | None:
         """Return the first overlapping appointment, if any.
 
@@ -1937,9 +1950,16 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         ``force_client_overlap`` is the desk saying "I saw the warning, book
         it anyway": the same-person client refusal is skipped, while an
         operator double-booking is still refused no matter what.
+
+        ``treatment_id`` is the treatment being booked (3.20.5): an entry of an
+        interruptible category (the spa) and a treatment of another category
+        (the massage) may share the same person's hour, because the guest
+        leaves the spa for the massage and comes back. Two massages, or two
+        treatments of non-interruptible categories, are still refused.
         """
         start_utc = dt_util.as_utc(start)
         end_utc = dt_util.as_utc(end)
+        new_interruptible = self.is_interruptible(treatment_id) if treatment_id else False
 
         for appointment in [*self.appointments, *(planned or [])]:
             if not occupies_slot(appointment):
@@ -1961,6 +1981,10 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 and other_start < end_utc
                 and other_end > start_utc
                 and is_same_person
+                and not (
+                    treatment_id
+                    and new_interruptible != self.is_interruptible(appointment.get("treatment_id"))
+                )
             ):
                 return {
                     "reason": "client",
@@ -2029,8 +2053,13 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         defer_operator: bool = False,
         forward_pause: bool = True,
         therapist_preference: str = "",
+        extra_min: Any = 0,
     ) -> tuple[dict[str, Any], dict[str, Any], bool]:
         """Validate one booking and return it without appending anything.
+
+        ``extra_min`` (3.20.5) lengthens an entry of an interruptible category
+        (the spa) by the time the guest spends away for a treatment; it is
+        ignored on any other treatment.
 
         ``forward_pause`` applies this treatment's own pause before the next
         appointment of the operator. An edit that keeps the same time and
@@ -2062,7 +2091,8 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise ValidationError(
                 f"Il trattamento '{treatment['name']}' non ha una durata valida"
             )
-        end_dt = start_dt + timedelta(minutes=duration)
+        extra = _norm_count(extra_min, 0, 600, 0) if self.is_interruptible(treatment["id"]) else 0
+        end_dt = start_dt + timedelta(minutes=duration + extra)
 
         requested = self._requested_operators(operator_id, operator_ids)
         requires = bool(requested) or self._treatment_requires_operator(treatment)
@@ -2152,6 +2182,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             staged_clients=staged_clients,
             force_client_overlap=force_client_overlap,
             pause_min=self._treatment_pause_min(treatment) if forward_pause else 0,
+            treatment_id=treatment["id"],
         )
         if conflict is not None:
             raise self._overlap_error(conflict)
@@ -2195,6 +2226,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "status": STATUS_PENDING if pending and not settled else STATUS_CONFIRMED,
                 "guest_type": _norm_guest_type(guest_type),
                 "extras": _norm_extras(extras, known=self._accessory_ids()),
+                "extra_min": extra,
                 "list_price": _norm_price_opt(list_price),
                 "price": _norm_price_opt(price),
                 "vat_rate": self.vat_rate_of(treatment),
@@ -2322,6 +2354,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         price: Any = None,
         force_client_overlap: bool = False,
         therapist_preference: str | None = None,
+        extra_min: int | None = None,
     ) -> dict[str, Any]:
         """Update an appointment in place, re-running every business rule.
 
@@ -2471,6 +2504,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         if therapist_preference is None
                         else therapist_preference
                     ),
+                    extra_min=appointment.get("extra_min", 0) if extra_min is None else extra_min,
                 )
             except Exception:
                 # Refused: put the original back exactly as it was.
@@ -2836,6 +2870,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             defer_operator=defer_operator,
                             batch_id=batch_id,
                             therapist_preference=str(entry.get("therapist_preference") or ""),
+                            extra_min=entry.get("extra_min") or 0,
                         )
                         # The partner who brought the party (2.5.0).
                         appointment["partner_id"] = self._partner_id_of(row.get("partner_id"))
@@ -5661,6 +5696,11 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         batch_id=batch_id,
                         forward_pause=existing_appt is None
                         or not _same_slot(existing_appt, treatment_id, start),
+                        extra_min=(
+                            row.get("extra_min")
+                            if row.get("extra_min") is not None
+                            else (existing_appt or {}).get("extra_min", 0)
+                        ),
                     )
                     # Preserve history on rebuild.
                     if existing_appt is not None:
