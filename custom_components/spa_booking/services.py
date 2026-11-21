@@ -1300,6 +1300,8 @@ CREATE_VOUCHER_SCHEMA = vol.Schema(
         vol.Optional("recipient_name", default=""): cv.string,
         vol.Optional("recipient_phone", default=""): cv.string,
         vol.Required("people"): vol.All(cv.ensure_list, [VOUCHER_PERSON_SCHEMA]),
+        #: The package it was sold as (3.20.3): its name and price go on it.
+        vol.Optional("package_key", default=""): cv.string,
         #: Who made it. Ignored for a signed-in person: her own name is used.
         vol.Optional("created_by", default=""): cv.string,
         #: The PIN of whoever sells it: the voucher is signed with her name.
@@ -1866,6 +1868,7 @@ async def _async_create_voucher(call: ServiceCall) -> ServiceResponse:
         data["people"],
         user_id,
         name,
+        package_key=data.get("package_key") or "",
     )
     return {"voucher": voucher}
 

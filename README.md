@@ -111,6 +111,12 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v3.20.3** — (serve il riavvio di Home Assistant)
+  - **Nuovo voucher di un pacchetto**: nel passo *Persone e trattamenti* si
+    sceglie il pacchetto e il voucher si compila da solo (persone,
+    trattamenti, accessori), senza scegliere persona per persona. Il voucher
+    tiene il nome del pacchetto e il suo prezzo come valore
+    (`create_voucher` con `package_key`).
 - **v3.20.2** — (serve il riavvio di Home Assistant)
   - **Nuova richiesta**: il voucher si cerca per codice o nome come in Nuovo
     appuntamento (prima solo un codice da scrivere); un codice esterno si usa
