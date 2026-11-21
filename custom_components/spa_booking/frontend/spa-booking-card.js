@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "3.20.6";
+const CARD_VERSION = "3.20.7";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -8528,13 +8528,14 @@ class SpaBookingCard extends HTMLElement {
     return icons.length ? el("span", { class: "pay-icons" }, icons) : null;
   }
 
-  /** The accessories a package already pays (3.20.6), as the server: the
-   *  package's own; when it is no longer known, all of them. */
+  /** The accessories a package already pays, as the server: only those
+   *  matched to it in Configurazione › Pacchetti; every other one is paid
+   *  (3.20.7). Read from the mapping, so a package hidden from the menu
+   *  still counts right. */
   _includedExtras(packageKey, extras) {
     if (!packageKey) return new Set();
-    const pkg = this._shopPackages().find((p) => p.key === packageKey);
-    const own = pkg && (pkg.extras || []).length ? pkg.extras : (extras || []);
-    return new Set(own);
+    const mapping = (((this._data && this._data.settings) || {}).wp_product_map || {})[packageKey] || {};
+    return new Set((mapping.extras || []).filter(Boolean).map(String));
   }
 
   /** Agreed totals of an appointment: total, collected and still owed. */

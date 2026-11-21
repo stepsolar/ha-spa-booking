@@ -263,8 +263,10 @@ destra (sul telefono una barra in basso con il totale).
    prezzo del pacchetto. La ✕ sull'etichetta toglie pacchetto e persone.
    Gli **accessori del pacchetto sono inclusi** (3.20.6): nei Totali e nel
    riepilogo compaiono con «incluso» e non si sommano, anche se hanno un
-   prezzo. Un accessorio aggiunto in più si paga. Vale anche per la nuova
-   richiesta.
+   prezzo. Sono inclusi **solo gli accessori abbinati al pacchetto** in
+   Configurazione › Pacchetti: ogni altro accessorio si paga al suo prezzo,
+   anche se il pacchetto non ne ha di abbinati (3.20.7). Vale anche per la
+   nuova richiesta.
 2. **Trattamenti**: per ogni persona trattamento, ora e **Chi lo fa**:
    *Automatica* (in ordine di priorità), *Massaggiatrice*, *Massaggiatore* o
    un nome. Pallino verde = libera a quell'ora, arancione = impegnata.

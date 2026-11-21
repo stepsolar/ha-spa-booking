@@ -66,3 +66,14 @@ def test_request_message_shows_the_package(coordinator, freeze) -> None:
     text = coordinator.format_request_message(payload)
     assert "📦 *You&Me* · 200,00 €" in text
     assert "Persona 2: 10:00 Massaggio Relax 90 min, 12:00 Ingresso Spa 90 min · inclusi:" in text
+
+
+def test_package_without_accessories_pays_them_all(coordinator, freeze) -> None:
+    """3.20.7: no accessory matched to the package, so none is included."""
+    freeze("2026-11-13 10:00")
+    payloads = _book(coordinator)
+    for entry in coordinator._data["settings"]["wp_product_map"].values():
+        entry["extras"] = []
+    total = round(sum(coordinator._payment_totals(p)["total"] for p in payloads), 2)
+    # Persona 1 and 2 carry the 5 € accessory on both of their treatments.
+    assert total == 350 + 4 * 5

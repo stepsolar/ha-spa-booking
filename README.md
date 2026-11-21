@@ -111,6 +111,11 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v3.20.7** — (serve il riavvio di Home Assistant)
+  - **Accessori e pacchetti**: sono inclusi solo gli accessori abbinati al
+    pacchetto in Configurazione › Pacchetti; tutti gli altri si pagano al
+    loro prezzo, anche quando il pacchetto non ha accessori abbinati (prima
+    in quel caso risultavano tutti inclusi).
 - **v3.20.6** — (serve il riavvio di Home Assistant)
   - **Modifica voucher**: il PIN di un amministratore si chiede prima di
     aprire la modifica e di nuovo al salvataggio.
