@@ -1335,6 +1335,8 @@ UPDATE_VOUCHER_SCHEMA = vol.Schema(
         vol.Optional("people", default=[]): vol.All(cv.ensure_list, [VOUCHER_PERSON_SCHEMA]),
         vol.Optional("package_key"): vol.Any(cv.string, None),
         vol.Required("pin"): vol.All(cv.string, vol.Match(r"^\d{4}$")),
+        #: 3.20.6: only check the administrator's PIN, before the edit opens.
+        vol.Optional("check_only", default=False): cv.boolean,
     },
     extra=vol.PREVENT_EXTRA,
 )
@@ -1907,6 +1909,10 @@ async def _async_update_voucher(call: ServiceCall) -> ServiceResponse:
     data = call.data
     coordinator = _coordinator(call)
     _user_id, name = await _pin_signer(call, coordinator, data["pin"], min_level="admin")
+    if data.get("check_only"):
+        # 3.20.6: the PIN opens the edit; saving asks for it again.
+        coordinator._find(coordinator.vouchers, data["voucher_id"], "Voucher")
+        return {"ok": True, "signer": name}
     voucher = await coordinator.async_update_voucher(
         data["voucher_id"], data["buyer_name"], data["buyer_phone"], data["recipient_name"], data["recipient_phone"],
         data["people"], name, package_key=data.get("package_key"),

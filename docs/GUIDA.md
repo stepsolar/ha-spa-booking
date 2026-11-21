@@ -261,6 +261,10 @@ destra (sul telefono una barra in basso con il totale).
    Con 2 o più persone compaiono i **Pacchetti dello shop**: scegline uno e
    va alle prossime persone, con trattamenti uno dopo l'altro, accessori e
    prezzo del pacchetto. La ✕ sull'etichetta toglie pacchetto e persone.
+   Gli **accessori del pacchetto sono inclusi** (3.20.6): nei Totali e nel
+   riepilogo compaiono con «incluso» e non si sommano, anche se hanno un
+   prezzo. Un accessorio aggiunto in più si paga. Vale anche per la nuova
+   richiesta.
 2. **Trattamenti**: per ogni persona trattamento, ora e **Chi lo fa**:
    *Automatica* (in ordine di priorità), *Massaggiatrice*, *Massaggiatore* o
    un nome. Pallino verde = libera a quell'ora, arancione = impegnata.
@@ -554,7 +558,8 @@ come valore il suo prezzo.
 ![Voucher di un pacchetto](anteprime/143-voucher-modifica.png)
 
 **Modificare un voucher** (3.20.4, solo amministratore): **Modifica** sul
-voucher lo riapre negli stessi tre passi, con il **codice che resta lo
+voucher chiede **prima il PIN di un amministratore** (3.20.6, «Accedi alla
+modifica») e solo dopo lo riapre negli stessi tre passi, con il **codice che resta lo
 stesso** e la stessa scadenza. Si cambiano acquirente, destinatario e
 telefoni; persone, trattamenti e pacchetto finché il voucher non è stato
 usato (dopo, solo nomi e telefoni). *Salva modifiche* chiede sempre il **PIN
@@ -563,6 +568,8 @@ di un amministratore** e la modifica resta registrata con il suo nome.
 | | |
 |---|---|
 | ![Pulsante Modifica](anteprime/145-voucher-modifica-pulsante.png) | ![PIN dell'amministratore](anteprime/144-voucher-pin-admin.png) |
+
+![PIN per accedere alla modifica](anteprime/149-voucher-pin-modifica.png)
 
 I voucher venduti sullo **shop online** arrivano da soli con l'etichetta
 «Sito» (vedi [Shop online](#14-shop-online-woocommerce)). I **voucher
@@ -746,6 +753,28 @@ modulo del sito l'intera sezione Pacchetti c'è «Mostra la sezione
 Pacchetti» in Impostazioni › Sito web.
 
 ![Pacchetti](anteprime/74-config-pacchetti.png)
+
+
+**Nei messaggi all'ospite** (3.20.6: conferma, riepilogo, modifica,
+richiesta) un pacchetto è un blocco solo: nome e **prezzo del pacchetto**,
+poi ogni persona con i suoi trattamenti e gli accessori inclusi. Niente
+prezzo scontato trattamento per trattamento; con più pacchetti c'è anche il
+**Totale pacchetti**. Due coppie con lo stesso pacchetto: il pacchetto
+compare due volte, ognuno con le sue persone.
+
+```
+📦 *Coccole di coppia* · 150,00 €
+   • Persona 1: 10:00–11:30 Ingresso Spa 90 min, 11:30–12:20 Massaggio schiena · inclusi: Accappatoio, Ciabattine · in più: Wellness Kit 5,00 €
+   • Persona 2: 10:00–11:30 Ingresso Spa 90 min, 11:30–12:20 Massaggio schiena · inclusi: Accappatoio, Ciabattine
+📦 *Coccole di coppia* · 150,00 €
+   • Persona 3: …
+   • Persona 4: …
+📦 Totale pacchetti: 300,00 €
+```
+
+| | |
+|---|---|
+| ![Totali con accessori inclusi](anteprime/150-totali-pacchetto.png) | ![Riepilogo con accessori inclusi](anteprime/151-riepilogo-pacchetto.png) |
 
 ### Accessori
 

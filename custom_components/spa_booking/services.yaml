@@ -1626,6 +1626,11 @@ update_voucher:
       required: true
       selector:
         text:
+    check_only:
+      name: Solo verifica del PIN
+      description: Controlla il PIN prima di aprire la modifica, senza cambiare nulla.
+      selector:
+        boolean:
 
 create_voucher:
   name: Crea voucher

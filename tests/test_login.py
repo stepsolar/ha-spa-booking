@@ -257,3 +257,24 @@ def test_booking_history_and_author(setup) -> None:  # noqa: F811
     assert all("history" not in item for item in seen)
     seen = run(export(_call(hass, "u_admin_ha")))["data"]["appointments"]
     assert any(item.get("history") for item in seen)
+
+
+def test_voucher_edit_opens_with_admin_pin(setup) -> None:  # noqa: F811
+    """3.20.6: «Modifica» checks the administrator's PIN before the edit opens."""
+    hass, coordinator = setup
+    treatment = coordinator.treatments[0]["id"]
+    run(coordinator.async_set_user_profile("u_operator", pin="1234"))
+    run(coordinator.async_set_user_profile("u_admin_ha", pin="4321"))
+    create = services._guarded(services.SERVICE_CREATE_VOUCHER, services._async_create_voucher)
+    voucher = run(create(_call(hass, "u_operator", {
+        "buyer_name": "Anna", "buyer_phone": "", "recipient_name": "Sara", "recipient_phone": "",
+        "people": [{"name": "Sara", "treatment_ids": [treatment]}], "pin": "1234"})))["voucher"]
+    update = services._guarded(services.SERVICE_UPDATE_VOUCHER, services._async_update_voucher)
+    check = {"voucher_id": voucher["id"], "pin": "1234", "check_only": True}
+    with pytest.raises(ValidationError, match="amministratore"):
+        run(update(_call(hass, "u_admin_ha", check)))
+    result = run(update(_call(hass, "u_admin_ha", {**check, "pin": "4321"})))
+    assert result == {"ok": True, "signer": "Stefano"}
+    # Nothing changed: only the PIN was checked.
+    same = next(v for v in coordinator.vouchers if v["id"] == voucher["id"])
+    assert same["buyer_name"] == "Anna" and not same.get("edits")
