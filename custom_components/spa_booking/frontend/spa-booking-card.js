@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "3.20.3";
+const CARD_VERSION = "3.20.4";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -10843,6 +10843,29 @@ class SpaBookingCard extends HTMLElement {
     return "";
   }
 
+  /** 3.20.4: the voucher in the same three steps, to change it. */
+  _editVoucher(voucher) {
+    this._voucherCreated = null;
+    this._voucherDraft = {
+      editing_id: voucher.id,
+      editing_code: voucher.code,
+      editing_expires: voucher.expires_on || "",
+      used: voucher.status === "redeemed" || !!voucher.treatments_redeemed || Number(voucher.credit_used) > 0,
+      buyer_name: voucher.buyer_name || "",
+      buyer_phone: voucher.buyer_phone || "",
+      recipient_name: voucher.recipient_name || "",
+      recipient_phone: voucher.recipient_phone || "",
+      step: 1,
+      package_key: voucher.source === "wordpress" ? "" : (voucher.wp_product_key || ""),
+      people: (voucher.people || []).map((p) => ({ name: p.name || "", treatment_ids: [...(p.treatment_ids || [])],
+        extras: [...(p.extras || [])], gift_card_amount: p.gift_card_amount })),
+      from_shop: voucher.source === "wordpress",
+    };
+    if (!this._voucherDraft.people.length && !this._voucherDraft.from_shop) this._voucherDraft.people = [{ name: "", treatment_ids: [], extras: [] }];
+    this._render();
+    try { this.scrollIntoView && window.scrollTo({ top: 0, behavior: "smooth" }); } catch (error) { /* fine */ }
+  }
+
   /** The guided "Nuovo voucher": who, then people and treatments, then the summary. */
   _voucherForm() {
     const draft = this._voucherDraftState();
@@ -10850,7 +10873,7 @@ class SpaBookingCard extends HTMLElement {
     const box = el("div", { class: "cfg-box wizard" });
     const steps = ["Acquirente e destinatario", "Persone e trattamenti", "Riepilogo"];
     box.appendChild(el("div", { class: "wizard-head" },
-      el("h3", {}, "Nuovo voucher"),
+      el("h3", {}, draft.editing_id ? `Modifica voucher ${draft.editing_code}` : "Nuovo voucher"),
       el("button", {
         class: "icon-btn", title: "Chiudi senza salvare",
         on: { click: () => { this._voucherDraft = null; this._render(); } },
@@ -10883,7 +10906,8 @@ class SpaBookingCard extends HTMLElement {
         class: "btn primary",
         disabled: this._busy,
         on: { click: () => this._createVoucher() },
-      }, el("ha-icon", { icon: "mdi:ticket-confirmation-outline" }), "Crea voucher");
+      }, el("ha-icon", { icon: draft.editing_id ? "mdi:content-save-outline" : "mdi:ticket-confirmation-outline" }),
+      draft.editing_id ? "Salva modifiche" : "Crea voucher");
     box.appendChild(el("div", { class: "wizard-nav" }, back, next));
     return box;
   }
@@ -10894,7 +10918,7 @@ class SpaBookingCard extends HTMLElement {
         return "Scrivi almeno il nome dell'acquirente o del destinatario.";
       }
     }
-    if (step >= 2) {
+    if (step >= 2 && !(draft.from_shop && !draft.people.length)) {
       if (draft.people.some((person) => !person.treatment_ids.length && !person.gift_card_amount)) {
         return "Ogni persona deve avere almeno un trattamento o una gift card.";
       }
@@ -10974,24 +10998,29 @@ class SpaBookingCard extends HTMLElement {
       this._render();
     };
     const chosen = packages.find((p) => p.key === draft.package_key);
+    const label = (pkg) => [pkg.name, pkg.people > 1 ? `${pkg.people} persone` : "", pkg.price != null ? euro(pkg.price) : ""].filter(Boolean).join(" · ");
+    // 3.20.4: a menu (with a search when they are many), not a wall of buttons.
+    const query = String(draft.package_query || "").trim().toLowerCase();
+    const shown = query ? packages.filter((p) => p.name.toLowerCase().includes(query) || p.key === draft.package_key) : packages;
     return el("div", { class: "vc-pkg" },
       el("div", { class: "cat-label" }, el("ha-icon", { icon: "mdi:package-variant-closed" }), " Pacchetto (facoltativo)"),
-      el("div", { class: "pick-grid" },
-        el("button", { class: `pick${!draft.package_key ? " on" : ""}`, on: { click: () => choose(null) } },
-          el("span", { class: "pick-name" }, "Nessuno: scelgo i trattamenti")),
-        packages.map((pkg) => el("button", {
-          class: `pick${draft.package_key === pkg.key ? " on" : ""}`, "aria-pressed": draft.package_key === pkg.key ? "true" : "false",
-          title: pkg.treatment_ids.map((id) => (this._lookup.treatment.get(id) || {}).name || id).join(" + "),
-          on: { click: () => choose(pkg) },
-        }, el("span", { class: "pick-name" }, pkg.name),
-        el("span", { class: "pick-price" }, [pkg.people > 1 ? `${pkg.people} persone` : "", pkg.price != null ? euro(pkg.price) : ""].filter(Boolean).join(" · "))))),
+      el("div", { class: "vc-pkg-row" },
+        packages.length > 8 ? el("input", { class: "input vc-pkg-search", type: "search", placeholder: "Cerca pacchetto…", value: draft.package_query || "",
+          on: { input: (event) => { draft.package_query = event.target.value; clearTimeout(this._pkgSearchT); this._pkgSearchT = setTimeout(() => this._render(), 200); },
+            keydown: (event) => event.stopPropagation() } }) : null,
+        el("select", { class: "input vc-pkg-select", on: { change: (event) => choose(packages.find((p) => p.key === event.target.value) || null) } },
+          el("option", { value: "", selected: !draft.package_key }, "Nessun pacchetto: scelgo i trattamenti"),
+          shown.map((pkg) => el("option", { value: pkg.key, selected: draft.package_key === pkg.key }, label(pkg))))),
       chosen ? el("div", { class: "hint small" },
-        `Compilate ${chosen.people} ${chosen.people === 1 ? "persona" : "persone"} con: ${chosen.treatment_ids.map((id) => (this._lookup.treatment.get(id) || {}).name || id).join(" + ")}. Il valore del voucher è il prezzo del pacchetto.`) : null);
+        `${chosen.people} ${chosen.people === 1 ? "persona" : "persone"} con: ${chosen.treatment_ids.map((id) => (this._lookup.treatment.get(id) || {}).name || id).join(" + ")}. Il valore del voucher è il prezzo del pacchetto.`) : null);
   }
 
   _voucherStepPeople(draft) {
     const groups = this._voucherTreatmentGroups();
     const wrap = el("div", { class: "stack tight" });
+    if (draft.used) {
+      wrap.appendChild(el("div", { class: "hint warn" }, "Questo voucher è già stato usato: si salvano solo nomi e telefoni, non i trattamenti."));
+    }
     const packageBox = this._voucherPackageChoice(draft);
     if (packageBox) wrap.appendChild(packageBox);
     draft.people.forEach((person, index) => {
@@ -11102,8 +11131,14 @@ class SpaBookingCard extends HTMLElement {
     if (pkg) wrap.appendChild(line("Pacchetto", pkg.name));
     this._voucherPeopleLines(draft).forEach((person) => wrap.appendChild(line(person.name, person.text)));
     wrap.appendChild(line("Valore", value ? euro(value) : "—"));
-    wrap.appendChild(line("Validità", "6 mesi da oggi"));
-    wrap.appendChild(line("Creato da", "chi inserisce il PIN alla conferma"));
+    if (draft.editing_id) {
+      wrap.appendChild(line("Codice", `${draft.editing_code} (resta lo stesso)`));
+      wrap.appendChild(line("Validità", draft.editing_expires ? `fino al ${this._dateIt(draft.editing_expires)} (non cambia)` : "non cambia"));
+      wrap.appendChild(line("Modifica autorizzata da", "l'amministratore che inserisce il PIN"));
+    } else {
+      wrap.appendChild(line("Validità", "6 mesi da oggi"));
+      wrap.appendChild(line("Creato da", "chi inserisce il PIN alla conferma"));
+    }
     return wrap;
   }
 
@@ -11140,12 +11175,15 @@ class SpaBookingCard extends HTMLElement {
         on: { click: () => press(key) },
       }, key === "del" ? el("ha-icon", { icon: "mdi:arrow-left" }) : key));
     });
-    const sheet = el("div", { class: "detail-sheet voucher-pin-sheet", role: "dialog", "aria-label": "Firma il voucher" },
+    const editing = this._voucherDraft && this._voucherDraft.editing_id;
+    const sheet = el("div", { class: "detail-sheet voucher-pin-sheet", role: "dialog", "aria-label": editing ? "Autorizza la modifica" : "Firma il voucher" },
       el("div", { class: "section-head" },
-        el("span", { class: "section-icon" }, el("ha-icon", { icon: "mdi:draw-pen" })),
+        el("span", { class: "section-icon" }, el("ha-icon", { icon: editing ? "mdi:shield-key-outline" : "mdi:draw-pen" })),
         el("div", { class: "section-text" },
-          el("div", { class: "section-title" }, "Firma il voucher"),
-          el("div", { class: "section-sub" }, "Inserisci il tuo PIN di 4 cifre: il voucher resterà firmato con il tuo nome."))),
+          el("div", { class: "section-title" }, editing ? "Autorizza la modifica" : "Firma il voucher"),
+          el("div", { class: "section-sub" }, editing
+            ? "Serve il PIN di un amministratore: la modifica resta registrata con il suo nome."
+            : "Inserisci il tuo PIN di 4 cifre: il voucher resterà firmato con il tuo nome."))),
       el("div", { class: "pin-dots", "aria-label": `${pin.typed.length} cifre su 4` },
         [0, 1, 2, 3].map((i) => el("span", { class: i < pin.typed.length ? "on" : "" }))),
       pad,
@@ -11172,6 +11210,35 @@ class SpaBookingCard extends HTMLElement {
     const pin = this._voucherPin;
     pin.busy = true;
     this._render();
+    if (draft.editing_id) {
+      try {
+        const response = await this._service("update_voucher", {
+          voucher_id: draft.editing_id,
+          buyer_name: (draft.buyer_name || "").trim(),
+          buyer_phone: (draft.buyer_phone || "").trim(),
+          recipient_name: (draft.recipient_name || "").trim(),
+          recipient_phone: (draft.recipient_phone || "").trim(),
+          pin: pinCode,
+          people: draft.people.map((person) => ({
+            name: (person.name || "").trim(), treatment_ids: person.treatment_ids,
+            extras: person.extras, gift_card_amount: person.gift_card_amount,
+          })),
+          ...(draft.from_shop ? {} : { package_key: draft.package_key || "" }),
+        });
+        this._voucherPin = null;
+        this._voucherDraft = null;
+        await this._loadData();
+        const voucher = response && response.voucher;
+        this._message = { kind: "ok", text: `Voucher ${voucher ? voucher.code : ""} modificato.` };
+        this._render();
+      } catch (error) {
+        pin.busy = false;
+        pin.typed = "";
+        pin.error = this._friendlyError(error, "PIN non accettato.");
+        this._render();
+      }
+      return;
+    }
     try {
       const response = await this._service("create_voucher", {
         buyer_name: (draft.buyer_name || "").trim(),
@@ -11385,6 +11452,13 @@ class SpaBookingCard extends HTMLElement {
         class: "btn small", title: "Nuova scadenza", disabled: this._busy,
         on: { click: () => { this._voucherExtend = this._voucherExtend === voucher.id ? null : voucher.id; this._render(); } },
       }, el("ha-icon", { icon: "mdi:calendar-clock" }), el("span", { class: "label" }, "Scadenza")));
+    }
+    // 3.20.4: the administrator changes it, same code, signed with a PIN.
+    if (isAdmin) {
+      actions.appendChild(el("button", {
+        class: "btn small", title: "Modifica il voucher (il codice resta)", disabled: this._busy,
+        on: { click: () => this._editVoucher(voucher) },
+      }, el("ha-icon", { icon: "mdi:pencil" }), el("span", { class: "label" }, "Modifica")));
     }
     if (canManage && (state !== "riscattato" || isAdmin)) {
       actions.appendChild(el("button", {
@@ -25266,9 +25340,10 @@ class SpaBookingCard extends HTMLElement {
       .dt-group { margin-left: 8px; }
       .vc-pkg { padding: 12px 14px; border: 1px solid var(--sb-line, #e0e0e0); border-radius: 14px; background: var(--sb-accent-soft, #eef7fa); }
       .vc-pkg .cat-label ha-icon { --mdc-icon-size: 16px; vertical-align: -3px; }
-      .vc-pkg .pick-grid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
-      .vc-pkg .pick { flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; text-align: left; }
-      .vc-pkg .pick-name { font-weight: 600; }
+      .vc-pkg { display: flex; flex-direction: column; gap: 8px; }
+      .vc-pkg-row { display: flex; gap: 8px; flex-wrap: wrap; }
+      .vc-pkg-select { flex: 1 1 320px; min-width: 0; }
+      .vc-pkg-search { flex: 0 1 220px; }
       .conto-reg { width: 100%; justify-content: center; }
       .dt-close + .dt-close { margin-left: 4px; }
       .dt-close { all: unset; cursor: pointer; margin-left: auto; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center;

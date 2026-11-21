@@ -544,13 +544,25 @@ il **PIN** di chi lo vende, che resta firmato sul voucher.
 | ![Nuovo voucher](anteprime/09-voucher-nuovo.png) | ![Firma con il PIN](anteprime/21-voucher-pin.png) |
 
 **Voucher di un pacchetto** (3.20.3): nel passo *Persone e trattamenti*, in
-alto, si sceglie il **pacchetto** (quelli di Configurazione › Pacchetti). Il
+alto, si sceglie il **pacchetto** dal menu (con *Cerca pacchetto* quando sono
+più di otto; quelli di Configurazione › Pacchetti). Il
 voucher si compila da solo: tante persone quante sono quelle del pacchetto,
 ognuna con i suoi trattamenti e accessori; i nomi già scritti restano e si
 può ancora cambiare a mano. Il voucher ricorda il nome del pacchetto e ha
 come valore il suo prezzo.
 
-![Voucher di un pacchetto](anteprime/142-voucher-pacchetto.png)
+![Voucher di un pacchetto](anteprime/143-voucher-modifica.png)
+
+**Modificare un voucher** (3.20.4, solo amministratore): **Modifica** sul
+voucher lo riapre negli stessi tre passi, con il **codice che resta lo
+stesso** e la stessa scadenza. Si cambiano acquirente, destinatario e
+telefoni; persone, trattamenti e pacchetto finché il voucher non è stato
+usato (dopo, solo nomi e telefoni). *Salva modifiche* chiede sempre il **PIN
+di un amministratore** e la modifica resta registrata con il suo nome.
+
+| | |
+|---|---|
+| ![Pulsante Modifica](anteprime/145-voucher-modifica-pulsante.png) | ![PIN dell'amministratore](anteprime/144-voucher-pin-admin.png) |
 
 I voucher venduti sullo **shop online** arrivano da soli con l'etichetta
 «Sito» (vedi [Shop online](#14-shop-online-woocommerce)). I **voucher
