@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "3.20.4";
+const CARD_VERSION = "3.20.5";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -3030,6 +3030,8 @@ class SpaBookingCard extends HTMLElement {
               ...(treat.list_price != null ? { list_price: treat.list_price } : {}),
               ...(treat.price != null ? { price: treat.price } : {}),
               ...(treat.package_key ? { package_key: treat.package_key, package_group: treat.package_group || treat.package_key } : {}),
+              // 3.20.5: an interrupted spa entry, lengthened by the massage.
+              ...(treat.extra_min != null ? { extra_min: Number(treat.extra_min) || 0 } : {}),
               ...this._operatorChoice(treat),
               ...(this._batchEditing ? {} : (this._paymentData() ? { payment: this._paymentData() } : {})),
               ...clients,
@@ -4941,6 +4943,7 @@ class SpaBookingCard extends HTMLElement {
       el("span", { class: "ag-card-body" },
         el("b", {}, this._clientName(appointment) + (members.length > 1 ? ` (${members.length})` : ""), this._chatDot(appointment)),
         el("span", {}, [this._treatmentName(appointment), operator].filter(Boolean).join(" · ")),
+        this._interruptionText(appointment) ? el("small", { class: "int-line" }, el("ha-icon", { icon: "mdi:pause-circle-outline" }), " ", this._interruptionText(appointment)) : null,
         tag ? el("span", { class: `ag-tag ${state}` }, el("ha-icon", { icon: tag[1] }), tag[0]) : null),
       el("span", { class: "ag-card-side" },
         this._agMainAction(appointment),
@@ -5093,7 +5096,8 @@ class SpaBookingCard extends HTMLElement {
       el("small", {}, [guest.id === "hotel" ? "Hotel" : "Esterno", appointment.code].filter(Boolean).join(" · "))),
     el("span", { class: "ls-what" },
       el("span", {}, this._treatmentName(appointment)),
-      el("small", { style: `color:${color}` }, [category ? category.name : "", ...extras].filter(Boolean).join(" · "))),
+      el("small", { style: `color:${color}` }, [category ? category.name : "", ...extras].filter(Boolean).join(" · ")),
+      this._interruptionText(appointment) ? el("small", { class: "int-line" }, el("ha-icon", { icon: "mdi:pause-circle-outline" }), " ", this._interruptionText(appointment)) : null),
     el("span", { class: "ls-op" }, operator ? this._lsAvatar(operator, color) : null, operator || el("span", { class: "dim" }, "—")),
     el("span", { class: "ls-st" }, this._lsPill(appointment)),
     this._lsMoney(members) || el("span", { class: "ls-money" }),
@@ -5626,7 +5630,8 @@ class SpaBookingCard extends HTMLElement {
       el("div", { class: "dt-sub" }, `${this._treatmentName(appointment)} · ${longDay(start)}`),
       el("div", { class: "dt-time" }, el("ha-icon", { icon: "mdi:clock-outline" }),
         `${start ? timeOf(start) : "—"} – ${end ? timeOf(end) : "—"}`,
-        el("span", {}, ` · ${minutesLabel(this._durationOf(appointment)) || ""}`)));
+        el("span", {}, ` · ${minutesLabel(this._durationOf(appointment)) || ""}`)),
+      this._interruptionText(appointment) ? el("div", { class: "dt-pause" }, el("ha-icon", { icon: "mdi:pause-circle-outline" }), this._interruptionText(appointment)) : null);
     sheet.appendChild(head);
 
     // The essentials as tiles: who does it, which guest, code, money.
@@ -6784,6 +6789,7 @@ class SpaBookingCard extends HTMLElement {
         extras: [],
         appointment_id: appt.id,
         force_new: false,
+        extra_min: Number(appt.extra_min) || 0,
         ...(appt.package_key ? { package_key: appt.package_key, package_group: appt.package_group || appt.package_key } : {}),
       });
       // 2.8.9: which appointments are hers (for «Scollega») and her package.
@@ -7036,6 +7042,7 @@ class SpaBookingCard extends HTMLElement {
 
   async _saveBatchEdit(forceRules = false) {
     if (this._blockedByExclusion()) return;
+    this._proposeInterruptions();
     try {
       this._batchBusy = true;
       this._render();
@@ -9681,9 +9688,90 @@ class SpaBookingCard extends HTMLElement {
     state.payment = this._blankPayment();
   }
 
+  /** Whether a treatment's category may be interrupted (3.20.5). */
+  _isInterruptible(treatmentId) {
+    const treatment = treatmentId && this._lookup.treatment.get(treatmentId);
+    const category = treatment && this._lookup.category.get(treatment.category_id);
+    return !!(category && category.interruptible);
+  }
+
+  /** The interruptions of one person's day (3.20.5): every entry of an
+   *  interruptible category (the shared spa) with the minutes the person
+   *  spends away on another treatment (the massage) inside its window. */
+  _interruptionsOf(person) {
+    const toMin = (time) => { const [h, m] = String(time || "10:00").split(":").map(Number); return (h || 0) * 60 + (m || 0); };
+    const hhmm = (mins) => `${String(Math.floor(mins / 60) % 24).padStart(2, "0")}:${String(mins % 60).padStart(2, "0")}`;
+    const treats = this._treatmentsOf(person).filter((t) => t.treatment_id && this._lookup.treatment.get(t.treatment_id));
+    const out = [];
+    treats.filter((t) => this._isInterruptible(t.treatment_id)).forEach((entry) => {
+      const base = this._lookup.treatment.get(entry.treatment_id);
+      const start = toMin(entry.time);
+      const end = start + (Number(base.duration_min) || 0);
+      const breaks = treats
+        .filter((other) => other !== entry && !this._isInterruptible(other.treatment_id))
+        .map((other) => {
+          const t = this._lookup.treatment.get(other.treatment_id);
+          const from = Math.max(start, toMin(other.time));
+          // The time away runs to the end of the massage, even past the
+          // entry's window: what is left of the spa comes after it.
+          const to = toMin(other.time) + (Number(t.duration_min) || 0);
+          return to > from ? { name: t.name, from, to } : null;
+        })
+        .filter(Boolean);
+      const minutes = breaks.reduce((sum, b) => sum + (b.to - b.from), 0);
+      out.push({ entry, base, start, end, minutes, breaks, hhmm });
+    });
+    return out;
+  }
+
+  /** «⏸ interrotto 17:00–18:00 per Massaggio» (3.20.5): the treatments the
+   *  same person has inside an interruptible entry, or "" when none. */
+  _interruptionText(appointment) {
+    if (!appointment || !this._isInterruptible(appointment.treatment_id)) return "";
+    const start = parseDate(appointment.start);
+    const end = parseDate(appointment.end);
+    if (!start || !end) return "";
+    const person = Number(appointment.person) || 0;
+    const breaks = (this._data.appointments || [])
+      .filter((other) => other.id !== appointment.id && other.status !== "cancelled"
+        && other.client_id === appointment.client_id && (Number(other.person) || 0) === person
+        && !this._isInterruptible(other.treatment_id))
+      .map((other) => ({ other, from: parseDate(other.start), to: parseDate(other.end) }))
+      .filter(({ from, to }) => from && to && from < end && to > start)
+      .sort((a, b) => a.from - b.from);
+    if (!breaks.length) return "";
+    return "Interrotto " + breaks.map(({ other, from, to }) =>
+      `${timeOf(from)}–${timeOf(to)} per ${this._treatmentName(other)}`).join(", ") +
+      (Number(appointment.extra_min) ? ` · allungato di ${appointment.extra_min} min` : "");
+  }
+
+  /** «Proposta ogni volta» (3.20.5): before saving, each spa entry the guest
+   *  leaves for a massage is offered the minutes away at the end. The
+   *  answer is kept on the form, so a retry («Prenota comunque») does not
+   *  ask again. */
+  _proposeInterruptions() {
+    const asked = (this._form._interruptAsked = this._form._interruptAsked || {});
+    (this._form.persons || [this._form]).forEach((person, index) => {
+      this._interruptionsOf(person).forEach(({ entry, base, start, end, minutes, breaks, hhmm }) => {
+        if (!minutes) { if (entry.extra_min) entry.extra_min = 0; return; }
+        const key = [index, entry.treatment_id, entry.time, ...breaks.map((b) => `${b.from}-${b.to}`)].join("|");
+        if (key in asked) { entry.extra_min = asked[key]; return; }
+        if (Number(entry.extra_min) === minutes) { asked[key] = minutes; return; }
+        const who = (this._form.persons || []).length > 1 ? `Persona ${index + 1}: ` : "";
+        const names = breaks.map((b) => `${b.name} delle ${hhmm(b.from)}`).join(" e ");
+        const yes = window.confirm(
+          `${who}${names} interrompe ${base.name} (${hhmm(start)}–${hhmm(end)}).\n\n` +
+          `Allungare l'ingresso di ${minutes} minuti, fino alle ${hhmm(end + minutes)}?`);
+        entry.extra_min = yes ? minutes : 0;
+        asked[key] = entry.extra_min;
+      });
+    });
+  }
+
   /** All-or-nothing booking: create_bookings creates every row or none. The
    *  single-appointment case is just one row, so there is a single path. */
   async _createBookings(force = false, forceRules = false) {
+    this._proposeInterruptions();
     const rows = this._bookingRows();
     if (!rows.length) return;
     if (this._blockedByExclusion()) return;
@@ -20818,6 +20906,19 @@ class SpaBookingCard extends HTMLElement {
         "Senza la spunta il limite è rigido: l'orario pieno non si può prenotare. Il modulo del sito non mostra mai gli orari pieni."));
   }
 
+  /** Configurazione › Categorie › Interruzione (3.20.5). */
+  _categoryInterruptBox(draft) {
+    return el("div", { class: "cfg-box cap-box" },
+      el("div", { class: "who-title" }, el("ha-icon", { icon: "mdi:pause-circle-outline" }), "Interruzione"),
+      el("label", { class: "check" }, el("input", { type: "checkbox", checked: !!draft.interruptible,
+        on: { change: (event) => { draft.interruptible = event.target.checked; } } }),
+      el("span", {}, "Si può interrompere per un trattamento (es. massaggio)")),
+      el("div", { class: "hint" },
+        "Esempio: ingresso spa 16:00–18:00 e massaggio alle 17:00 per la stessa persona. L'ospite esce dalla spa per il massaggio e poi rientra: " +
+        "la sovrapposizione è permessa e, a ogni prenotazione, Spa Booking propone di allungare l'ingresso della durata del massaggio. " +
+        "Due trattamenti con operatore nello stesso orario restano bloccati."));
+  }
+
   _categorySummary(category) {
     const parts = [];
     const label = (days) => days.map((day) => GIORNI[day]).join(" · ");
@@ -20842,6 +20943,7 @@ class SpaBookingCard extends HTMLElement {
       .filter(Boolean)
       .map((other) => other.name);
     if (names.length) parts.push(`esclusiva con ${names.join(", ")}`);
+    if (category.interruptible) parts.push("si può interrompere");
     return parts.join(" · ");
   }
 
@@ -20963,6 +21065,7 @@ class SpaBookingCard extends HTMLElement {
         wrap.appendChild(el("div", { class: "hint" }, "L'esclusione vale in entrambe le direzioni: nessuna sovrapposizione di orario tra le due categorie."));
       }
       wrap.appendChild(this._categoryCapacityBox(draft));
+      wrap.appendChild(this._categoryInterruptBox(draft));
       add(wrap, this._saveRow("add_category", "update_category", "category_id", "categoria"));
       return wrap;
     }
@@ -20974,7 +21077,7 @@ class SpaBookingCard extends HTMLElement {
         on: {
           click: () => {
             this._editing = { kind: "category", id: null, draft: { name: "", requires_operator: false, color: "", pause_min: 10, days: [], morning_days: [], afternoon_days: [], morning_start: "", morning_end: "", afternoon_start: "", afternoon_end: "", exclusive_with: [],
-              capacity_max: 0, entry_max: 0, entry_minutes: 15, capacity_from: "", capacity_to: "", capacity_force: false } };
+              capacity_max: 0, entry_max: 0, entry_minutes: 15, capacity_from: "", capacity_to: "", capacity_force: false, interruptible: false } };
             this._render();
           },
         },
@@ -21026,6 +21129,7 @@ class SpaBookingCard extends HTMLElement {
                     capacity_from: category.capacity_from || "",
                     capacity_to: category.capacity_to || "",
                     capacity_force: !!category.capacity_force,
+                    interruptible: !!category.interruptible,
                   },
                 };
                 this._render();
@@ -25562,6 +25666,11 @@ class SpaBookingCard extends HTMLElement {
       .ag-card-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
       .ag-card-body b { font-size: 14.5px; }
       .ag-card-body > span { font-size: 13px; color: var(--secondary-text-color); }
+      .int-line { color: var(--warning-color, #b26a00) !important; font-weight: 600; font-size: 12px !important; display: block; white-space: normal; }
+      .int-line ha-icon { --mdc-icon-size: 14px; vertical-align: -2px; }
+      .dt-pause { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; padding: 6px 12px; border-radius: 10px;
+        background: rgba(255,255,255,.18); color: #fff; font-weight: 600; font-size: 13px; }
+      .dt-pause ha-icon { --mdc-icon-size: 18px; }
       .ag-tag { display: inline-flex !important; align-items: center; gap: 4px; align-self: flex-start; font-size: 11.5px !important; font-weight: 700;
         padding: 2px 8px; border-radius: 999px; margin-top: 4px; }
       .ag-tag ha-icon { --mdc-icon-size: 14px; }

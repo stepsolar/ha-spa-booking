@@ -703,6 +703,27 @@ un appuntamento senza cambiare orario non rifà il controllo.
 | ![Capienza della categoria](anteprime/97-capienza-categoria.png) | ![Le regole nelle categorie](anteprime/98-capienza-categorie.png) |
 | ![Orario pieno](anteprime/99-capienza-piena.png) | ![Prenota comunque](anteprime/100-capienza-forza.png) |
 
+**Interruzione** (3.20.5), sotto la capienza: la spunta **Si può
+interrompere per un trattamento** va messa solo sull'*Ingresso spa
+condiviso*. L'ospite con ingresso spa 16:00–18:00 e massaggio alle 17:00
+esce dalla spa, fa il massaggio e poi rientra:
+
+- la prenotazione **non viene più bloccata** come sovrapposizione della
+  stessa persona (due massaggi o due trattamenti con operatrice nello
+  stesso orario restano bloccati, e l'operatrice resta occupata);
+- al salvataggio (nuova prenotazione o modifica) Spa Booking chiede **ogni
+  volta**: «Massaggio delle 17:00 interrompe l'ingresso (16:00–18:00).
+  Allungare l'ingresso di 60 minuti, fino alle 19:00?». **OK** allunga
+  l'ingresso del tempo passato fuori, **Annulla** lo lascia com'è;
+- in agenda (scheda ed Elenco) l'ingresso mostra «Interrotto 17:00–18:00 per
+  Massaggio… · allungato di 60 min».
+
+| | |
+|---|---|
+| ![Interruzione nella categoria](anteprime/146-categoria-interruzione.png) | ![Ingresso interrotto nella scheda](anteprime/147-scheda-interrotto.png) |
+
+![Ingresso interrotto nell'Elenco](anteprime/148-elenco-interrotto.png)
+
 ### Trattamenti
 
 Divisi per categoria: durata, prezzo, **aliquota IVA** (22, 10, 5, 4, 0% o

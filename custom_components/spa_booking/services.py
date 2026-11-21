@@ -483,6 +483,9 @@ UPDATE_APPOINTMENT_SCHEMA = vol.Schema(
         vol.Required(ATTR_APPOINTMENT_ID): cv.string,
         #: The guest would like a woman ("F") or a man ("M"); "" = anybody.
         vol.Optional("therapist_preference"): vol.Any(vol.In(("", "F", "M")), None),
+        #: 3.20.5: minutes added to an interruptible entry (the spa) for the
+        #: time the guest spends away on a treatment.
+        vol.Optional("extra_min"): vol.Any(vol.All(vol.Coerce(int), vol.Range(min=0, max=600)), None),
 
         vol.Optional(ATTR_TREATMENT_ID): vol.Any(cv.string, None),
         vol.Optional("start"): vol.Any(cv.string, None),
@@ -607,8 +610,13 @@ _CAPACITY_FIELDS = {
     vol.Optional("capacity_from"): vol.Any(cv.string, None),
     vol.Optional("capacity_to"): vol.Any(cv.string, None),
     vol.Optional("capacity_force"): vol.Any(cv.boolean, None),
+    # 3.20.5: an entry of this category may be interrupted by a treatment.
+    vol.Optional("interruptible"): vol.Any(cv.boolean, None),
 }
-_CAPACITY_KEYS = ("capacity_max", "entry_max", "entry_minutes", "capacity_from", "capacity_to", "capacity_force")
+_CAPACITY_KEYS = (
+    "capacity_max", "entry_max", "entry_minutes", "capacity_from", "capacity_to", "capacity_force",
+    "interruptible",
+)
 
 ADD_CATEGORY_SCHEMA = vol.Schema(
     {
@@ -1119,6 +1127,9 @@ BOOKING_ENTRY_SCHEMA = vol.Schema(
         vol.Optional(ATTR_OPERATOR_IDS): vol.All(cv.ensure_list, [cv.string]),
         #: The guest would like a woman ("F") or a man ("M"); "" = anybody.
         vol.Optional("therapist_preference"): vol.Any(vol.In(("", "F", "M")), None),
+        #: 3.20.5: minutes added to an interruptible entry (the spa) for the
+        #: time the guest spends away on a treatment.
+        vol.Optional("extra_min"): vol.Any(vol.All(vol.Coerce(int), vol.Range(min=0, max=600)), None),
         vol.Optional("notes"): cv.string,
         #: The accessories this person gets with the booking, unknown ones
         #: dropped by the coordinator. Leave it out for none.
@@ -2504,6 +2515,7 @@ async def _async_update_appointment(call: ServiceCall) -> ServiceResponse:
         "price": data.get("price"),
         "force_client_overlap": data.get("force_client_overlap", False),
         "therapist_preference": data.get("therapist_preference"),
+        "extra_min": data.get("extra_min"),
     }
     if data.get("whole_group"):
         return await coordinator.async_update_appointment_group(

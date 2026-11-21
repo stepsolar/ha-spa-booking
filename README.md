@@ -111,6 +111,14 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v3.20.5** — (serve il riavvio di Home Assistant)
+  - **Ingresso spa interrotto da un massaggio**: nuova spunta della
+    categoria *Si può interrompere per un trattamento* (da mettere su
+    «Ingresso spa condiviso»). Ingresso 16:00–18:00 e massaggio alle 17:00
+    della stessa persona non vengono più bloccati; a ogni salvataggio Spa
+    Booking propone di allungare l'ingresso del tempo del massaggio (fino
+    alle 19:00). In agenda: «Interrotto 17:00–18:00 per …». Due trattamenti
+    con operatrice nello stesso orario restano bloccati.
 - **v3.20.4** — (serve il riavvio di Home Assistant)
   - **Pacchetti nel nuovo voucher**: un menu a tendina (con ricerca oltre
     otto pacchetti) al posto della griglia di pulsanti.
