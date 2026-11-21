@@ -263,6 +263,11 @@ def _norm_voucher(raw: Any) -> dict[str, Any]:
         "wp_note": str(raw.get("wp_note") or ""),
         # What the package also includes that has no record here (2.7.1).
         "package_note": str(raw.get("package_note") or "").strip(),
+        # Who changed it and what (3.20.4): the code never changes.
+        "edits": [
+            {"at": str(e.get("at") or ""), "by": str(e.get("by") or ""), "what": [str(w) for w in e.get("what") or []]}
+            for e in (raw.get("edits") if isinstance(raw.get("edits"), list) else []) if isinstance(e, dict)
+        ][-20:],
         # A Spa Booking gift card spent on the shop (3.18.0): the order, when,
         # the discount it gave and the credit it had (given back if the order
         # is cancelled).

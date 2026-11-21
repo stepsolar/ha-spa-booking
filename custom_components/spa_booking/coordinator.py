@@ -3053,25 +3053,8 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise ValidationError(f"Il voucher {code} è scaduto")
         return voucher
 
-    async def async_create_voucher(
-        self,
-        buyer_name: str,
-        buyer_phone: str,
-        recipient_name: str,
-        recipient_phone: str,
-        people: list[dict[str, Any]],
-        user_id: str | None = None,
-        created_by_name: str = "",
-        package_key: str = "",
-    ) -> dict[str, Any]:
-        """Sell a gift voucher: its code, its people and its treatments, valid for months.
-
-        3.20.3: sold as a package (``package_key``), it keeps the package's
-        name and price, as a voucher from the shop does.
-        """
-        created_by_name = str(created_by_name or "").strip()
-        if not created_by_name:
-            raise ValidationError("Indica chi ha creato il voucher")
+    def _clean_voucher_people(self, people: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """The people of a voucher, checked: known treatments, a gift card ≥ 0."""
         known = {t["id"] for t in self.treatments}
         clean: list[dict[str, Any]] = []
         for person in people:
@@ -3098,6 +3081,10 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Allow voucher with only gift cards (no treatments required if all have gift_card_amount).
         if not any(person["treatment_ids"] for person in clean) and not any(person["gift_card_amount"] for person in clean):
             raise ValidationError("Il voucher deve contenere almeno un trattamento o una gift card")
+        return clean
+
+    def _voucher_package(self, package_key: str) -> dict[str, Any]:
+        """The package a voucher is sold as (3.20.3): its name, price and note."""
         package: dict[str, Any] = {}
         if package_key:
             found = next((p for p in self.shop_packages() if p["key"] == package_key), None)
@@ -3105,6 +3092,79 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 raise ValidationError("Pacchetto non trovato")
             package = {"wp_product_key": found["key"], "wp_product_name": found["name"],
                        "value": found.get("price"), "package_note": found.get("note") or ""}
+        return package
+
+    async def async_update_voucher(
+        self,
+        voucher_id: str,
+        buyer_name: str,
+        buyer_phone: str,
+        recipient_name: str,
+        recipient_phone: str,
+        people: list[dict[str, Any]],
+        edited_by: str,
+        package_key: str | None = None,
+    ) -> dict[str, Any]:
+        """Change a voucher, keeping its code (3.20.4, the administrator).
+
+        Names and phones always; people and treatments only while nothing of
+        it has been used. Each change is written in the voucher's history.
+        """
+        voucher = self._find(self.vouchers, voucher_id, "Voucher")
+        # A voucher from the shop not paired yet has no people: names only.
+        clean = (list(voucher.get("people") or []) if not people and voucher.get("source") == "wordpress"
+                 else self._clean_voucher_people(people))
+        used = voucher.get("status") == VOUCHER_REDEEMED or voucher.get("treatments_redeemed") or float(voucher.get("credit_used") or 0) > 0
+        def shape(items: list[dict[str, Any]]) -> list[tuple[Any, ...]]:
+            return [(tuple(p.get("treatment_ids") or []), tuple(p.get("extras") or []), p.get("gift_card_amount")) for p in items]
+        if used and shape(clean) != shape(voucher.get("people") or []):
+            raise ValidationError("Il voucher è già stato usato: si possono cambiare solo nomi e telefoni")
+        package = self._voucher_package(package_key) if package_key else None
+        async with self._lock:
+            changes = []
+            for key, value in (("buyer_name", buyer_name), ("buyer_phone", buyer_phone),
+                               ("recipient_name", recipient_name), ("recipient_phone", recipient_phone)):
+                value = str(value or "").strip()
+                if value != str(voucher.get(key) or ""):
+                    changes.append(key)
+                    voucher[key] = value
+            names = [p.get("name") for p in voucher.get("people") or []]
+            if shape(clean) != shape(voucher.get("people") or []) or [p["name"] for p in clean] != names:
+                changes.append("people")
+                voucher["people"] = clean
+            if voucher.get("source") != "wordpress" and package_key is not None:
+                fields = package or {"wp_product_key": "", "wp_product_name": "", "value": None, "package_note": ""}
+                if fields.get("wp_product_key") != voucher.get("wp_product_key"):
+                    changes.append("package")
+                voucher.update(fields)
+            if not changes:
+                return self.voucher_payload(voucher)
+            voucher["edits"] = [*(voucher.get("edits") or []), {
+                "at": dt_util.utcnow().isoformat(timespec="seconds"), "by": edited_by, "what": changes}][-20:]
+            await self._async_save()
+        return self.voucher_payload(voucher)
+
+    async def async_create_voucher(
+        self,
+        buyer_name: str,
+        buyer_phone: str,
+        recipient_name: str,
+        recipient_phone: str,
+        people: list[dict[str, Any]],
+        user_id: str | None = None,
+        created_by_name: str = "",
+        package_key: str = "",
+    ) -> dict[str, Any]:
+        """Sell a gift voucher: its code, its people and its treatments, valid for months.
+
+        3.20.3: sold as a package (``package_key``), it keeps the package's
+        name and price, as a voucher from the shop does.
+        """
+        created_by_name = str(created_by_name or "").strip()
+        if not created_by_name:
+            raise ValidationError("Indica chi ha creato il voucher")
+        clean = self._clean_voucher_people(people)
+        package = self._voucher_package(package_key)
         async with self._lock:
             existing = {v["code"] for v in self.vouchers}
             code = _new_voucher_code(existing)

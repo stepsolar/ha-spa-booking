@@ -1585,6 +1585,48 @@ set_user_permissions:
             - label: Amministratore
               value: admin
 
+update_voucher:
+  name: Modifica voucher
+  description: >-
+    L'amministratore cambia un voucher (nomi, telefoni; persone, trattamenti e
+    pacchetto se non è ancora stato usato). Il codice resta lo stesso. Serve
+    il PIN di un amministratore.
+  fields:
+    voucher_id:
+      name: Voucher
+      required: true
+      selector:
+        text:
+    buyer_name:
+      name: Acquirente
+      selector:
+        text:
+    buyer_phone:
+      name: Telefono acquirente
+      selector:
+        text:
+    recipient_name:
+      name: Destinatario
+      selector:
+        text:
+    recipient_phone:
+      name: Telefono destinatario
+      selector:
+        text:
+    people:
+      name: Persone
+      selector:
+        object:
+    package_key:
+      name: Pacchetto
+      selector:
+        text:
+    pin:
+      name: PIN dell'amministratore
+      required: true
+      selector:
+        text:
+
 create_voucher:
   name: Crea voucher
   description: >-

@@ -130,6 +130,7 @@ SERVICE_SEND_TEST_MESSAGE = "send_test_message"
 SERVICE_SET_OFFER_STATE = "set_offer_state"
 SERVICE_MANUAL_CONFIRM_OFFER = "manual_confirm_offer"
 SERVICE_CREATE_VOUCHER = "create_voucher"
+SERVICE_UPDATE_VOUCHER = "update_voucher"
 SERVICE_EXTEND_VOUCHER = "extend_voucher"
 SERVICE_DELETE_VOUCHER = "delete_voucher"
 SERVICE_REDEEM_PROMO_VOUCHER = "redeem_promo_voucher"
@@ -265,6 +266,7 @@ ALL_SERVICES = (
     SERVICE_SET_OFFER_STATE,
     SERVICE_MANUAL_CONFIRM_OFFER,
     SERVICE_CREATE_VOUCHER,
+    SERVICE_UPDATE_VOUCHER,
     SERVICE_EXTEND_VOUCHER,
     SERVICE_DELETE_VOUCHER,
     SERVICE_REDEEM_PROMO_VOUCHER,
@@ -1310,6 +1312,22 @@ CREATE_VOUCHER_SCHEMA = vol.Schema(
     extra=vol.PREVENT_EXTRA,
 )
 
+#: The administrator changes a voucher, its code stays (3.20.4): signed with
+#: an administrator's PIN.
+UPDATE_VOUCHER_SCHEMA = vol.Schema(
+    {
+        vol.Required("voucher_id"): cv.string,
+        vol.Optional("buyer_name", default=""): cv.string,
+        vol.Optional("buyer_phone", default=""): cv.string,
+        vol.Optional("recipient_name", default=""): cv.string,
+        vol.Optional("recipient_phone", default=""): cv.string,
+        vol.Optional("people", default=[]): vol.All(cv.ensure_list, [VOUCHER_PERSON_SCHEMA]),
+        vol.Optional("package_key"): vol.Any(cv.string, None),
+        vol.Required("pin"): vol.All(cv.string, vol.Match(r"^\d{4}$")),
+    },
+    extra=vol.PREVENT_EXTRA,
+)
+
 EXTEND_VOUCHER_SCHEMA = vol.Schema(
     {vol.Required("voucher_id"): cv.string, vol.Required("expires_on"): cv.string},
     extra=vol.PREVENT_EXTRA,
@@ -1869,6 +1887,18 @@ async def _async_create_voucher(call: ServiceCall) -> ServiceResponse:
         user_id,
         name,
         package_key=data.get("package_key") or "",
+    )
+    return {"voucher": voucher}
+
+
+async def _async_update_voucher(call: ServiceCall) -> ServiceResponse:
+    """Change a voucher, same code; an administrator's PIN signs it (3.20.4)."""
+    data = call.data
+    coordinator = _coordinator(call)
+    _user_id, name = await _pin_signer(call, coordinator, data["pin"], min_level="admin")
+    voucher = await coordinator.async_update_voucher(
+        data["voucher_id"], data["buyer_name"], data["buyer_phone"], data["recipient_name"], data["recipient_phone"],
+        data["people"], name, package_key=data.get("package_key"),
     )
     return {"voucher": voucher}
 
@@ -2944,7 +2974,7 @@ async def _async_pin_login(call: ServiceCall) -> ServiceResponse:
 
 
 async def _pin_signer(
-    call: ServiceCall, coordinator: SpaBookingCoordinator, pin: str
+    call: ServiceCall, coordinator: SpaBookingCoordinator, pin: str, min_level: str = "operator"
 ) -> tuple[str, str]:
     """Who owns ``pin``: the person signing a voucher (reception or above).
 
@@ -2977,6 +3007,8 @@ async def _pin_signer(
     signer = matches[0]
     if _LEVEL_RANK.get(signer["level"], 0) < _LEVEL_RANK["operator"]:
         raise ValidationError(f"{signer['name']} non può creare voucher (serve il ruolo Reception)")
+    if _LEVEL_RANK.get(signer["level"], 0) < _LEVEL_RANK[min_level]:
+        raise ValidationError(f"Serve il PIN di un amministratore: {signer['name']} non lo è")
     sessions.start(key, signer["user_id"], now)
     sessions.end(key)
     return signer["user_id"], signer["name"]
@@ -3370,6 +3402,11 @@ _HANDLERS: dict[str, tuple[Any, Any, SupportsResponse]] = {
         CREATE_VOUCHER_SCHEMA,
         SupportsResponse.ONLY,
     ),
+    SERVICE_UPDATE_VOUCHER: (
+        _async_update_voucher,
+        UPDATE_VOUCHER_SCHEMA,
+        SupportsResponse.ONLY,
+    ),
     SERVICE_EXTEND_VOUCHER: (
         _async_extend_voucher,
         EXTEND_VOUCHER_SCHEMA,
@@ -3729,6 +3766,7 @@ SERVICE_LEVELS: dict[str, str] = {
     SERVICE_SEND_REMINDERS: "operator",
     SERVICE_SEND_EXTERNAL_MESSAGE: "operator",
     SERVICE_CREATE_VOUCHER: "operator",
+    SERVICE_UPDATE_VOUCHER: "admin",
     # What the card reserves to "manage_clients".
     SERVICE_EXTEND_VOUCHER: "manager",
     SERVICE_DELETE_VOUCHER: "manager",

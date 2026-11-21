@@ -111,6 +111,13 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v3.20.4** — (serve il riavvio di Home Assistant)
+  - **Pacchetti nel nuovo voucher**: un menu a tendina (con ricerca oltre
+    otto pacchetti) al posto della griglia di pulsanti.
+  - **Modifica di un voucher** (amministratore): stessi tre passi, il codice
+    e la scadenza restano; persone, trattamenti e pacchetto solo finché non è
+    stato usato. Si salva con il **PIN di un amministratore** e la modifica
+    resta nella storia del voucher (servizio `update_voucher`).
 - **v3.20.3** — (serve il riavvio di Home Assistant)
   - **Nuovo voucher di un pacchetto**: nel passo *Persone e trattamenti* si
     sceglie il pacchetto e il voucher si compila da solo (persone,
