@@ -3849,14 +3849,13 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _included_extras(self, appointment: dict[str, Any]) -> set[str]:
         """The accessories of a booking that its package already pays (3.20.6).
 
-        Only the package's own accessories: one added on top is paid. A
-        package whose accessories are no longer known keeps the older rule,
-        every accessory of the booking included.
+        Only the accessories matched to the package in Configurazione ›
+        Pacchetti: any other accessory is paid at its price (3.20.7, no more
+        «all included» when the package has none).
         """
         if not appointment.get("extras_included") or not appointment.get("package_key"):
             return set()
-        own = self._package_extras(appointment.get("package_key"))
-        return set(own) if own else set(appointment.get("extras") or [])
+        return set(self._package_extras(appointment.get("package_key")))
 
     def _apply_package(self, appointment: dict[str, Any], entry: dict[str, Any]) -> None:
         """Mark a treatment as part of a shop package (2.8.9): name, group, accessories included."""

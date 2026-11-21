@@ -27,3 +27,9 @@ assert(/Calice · 8,00/.test(text), text);
 const line = card._lineBreakdown({ treatment_id: "t1", price: 70, extras: ["kit", "glass"], extras_included: true, package_key: "p1" });
 assert(line.extras === 8, `only the glass: ${line.extras}`);
 console.log("ok");
+// 3.20.7: a package with no accessory matched includes none of them.
+card._data.settings.wp_product_map.p1.extras = [];
+const none = card._bookingTotals();
+assert(none.total === 70 + 6 + 8, `all accessories paid: ${none.total}`);
+assert(card._lineBreakdown({ treatment_id: "t1", price: 70, extras: ["kit"], extras_included: true, package_key: "p1" }).extras === 6, "kit paid");
+console.log("ok");
