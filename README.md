@@ -111,6 +111,11 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v3.21.1**
+  - **Menu sul telefono**: il tasto ☰ apre il menu di Spa Booking (le icone
+    fisse in alto spariscono); dentro Home Assistant l'ultima voce apre il
+    menu di Home Assistant, in Spa Booking Web non c'è. Sul computer non
+    cambia niente.
 - **v3.21.0** — (serve il riavvio di Home Assistant)
   - **Menu visibili per utente**: in Configurazione › Accessi, nella scheda
     di ogni utente, tutti i menu e le schede di Configurazione con un

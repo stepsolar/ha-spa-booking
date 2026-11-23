@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "3.21.0";
+const CARD_VERSION = "3.21.1";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -4115,7 +4115,8 @@ class SpaBookingCard extends HTMLElement {
 
     // The header and the tabs form one full-width bar that stays on top while
     // the content scrolls, so the card reads like a page and not like a card.
-    const topbar = el("div", { class: "topbar" });
+    // 3.21.1: with the header (and its hamburger) the phone tabs live in the menu.
+    const topbar = el("div", { class: `topbar${this._config.hidden_header ? "" : " has-head"}` });
     if (!this._config.hidden_header) add(topbar, this._header());
     const searchResults = this._searchResults();
     if (searchResults) topbar.appendChild(searchResults);
@@ -4150,6 +4151,8 @@ class SpaBookingCard extends HTMLElement {
     if (this._confirmPopup) add(root, this._renderConfirmPopup());
     if (this._mediaView) add(root, this._renderMediaView());
     if (this._noticePanel) add(root, this._renderNoticePanel());
+    // 3.21.1: the phone menu behind the hamburger.
+    if (this._navOpen && this._isPhone()) add(root, this._renderNavDrawer());
     if (this._changePopup) add(root, this._renderChangePopup());
     if (this._lowSpa) add(root, this._renderLowSpaPopup());
     if (this._wpProduct) add(root, this._renderWpProduct());
@@ -4367,8 +4370,9 @@ class SpaBookingCard extends HTMLElement {
         "button",
         {
           class: "icon-btn menu-btn",
-          title: "Menu di Home Assistant",
-          on: { click: () => this._toggleHaMenu() },
+          title: "Menu",
+          "aria-label": "Menu",
+          on: { click: () => this._onMenuButton() },
         },
         el("ha-icon", { icon: "mdi:menu" })
       ));
@@ -4450,6 +4454,30 @@ class SpaBookingCard extends HTMLElement {
     return head;
   }
 
+  /** Open a top tab, leaving any half-done edit behind (as before). */
+  _goTab(id) {
+    // While editing a group, leaving the current screen cancels the
+    // edit and continues to the chosen tab (no save).
+    if (this._batchEditing) {
+      this._batchEditing = false;
+      this._batchRows = [];
+      this._batchAnchorId = null;
+      this._batchAnchorBatchId = null;
+    }
+    // Leaving an appointment being edited drops the changes.
+    if (this._editing && this._editing.kind === "appointment") {
+      this._editing = null;
+      this._editFormMode = false;
+    }
+    // Leaving the new-booking tab without saving empties the form.
+    if (this._tab === "nuovo" && id !== "nuovo") this._resetForm();
+    // Leaving the voucher tab clears the draft form.
+    if (this._tab === "voucher" && id !== "voucher") this._voucherDraft = null;
+    this._tab = id;
+    this._navOpen = false;
+    this._render();
+  }
+
   _tabs() {
     return el(
       "div",
@@ -4460,35 +4488,67 @@ class SpaBookingCard extends HTMLElement {
           {
             class: `tab${this._tab === tab.id ? " active" : ""}`,
             title: tab.label,
-            on: {
-              click: () => {
-                // While editing a group, leaving the current screen cancels the
-                // edit and continues to the chosen tab (no save).
-                if (this._batchEditing) {
-                  this._batchEditing = false;
-                  this._batchRows = [];
-                  this._batchAnchorId = null;
-                  this._batchAnchorBatchId = null;
-                }
-                // Leaving an appointment being edited drops the changes.
-                if (this._editing && this._editing.kind === "appointment") {
-                  this._editing = null;
-                  this._editFormMode = false;
-                }
-                // Leaving the new-booking tab without saving empties the form.
-                if (this._tab === "nuovo" && tab.id !== "nuovo") this._resetForm();
-                // Leaving the voucher tab clears the draft form.
-                if (this._tab === "voucher" && tab.id !== "voucher") this._voucherDraft = null;
-                this._tab = tab.id;
-                this._render();
-              },
-            },
+            on: { click: () => this._goTab(tab.id) },
           },
           el("ha-icon", { icon: tab.icon }),
           el("span", { class: "tab-label" }, tab.label)
         )
       )
     );
+  }
+
+  /** A phone-sized screen: the menu lives behind the hamburger (3.21.1). */
+  _isPhone() {
+    try { return window.matchMedia("(max-width: 720px)").matches; } catch (err) { return false; }
+  }
+
+  /** The hamburger: on a phone Spa Booking's own menu, on a computer Home
+   *  Assistant's menu as always (3.21.1). */
+  _onMenuButton() {
+    if (this._isPhone()) {
+      this._navOpen = !this._navOpen;
+      this._render();
+      return;
+    }
+    if (!this._webMode()) this._toggleHaMenu();
+  }
+
+  /**
+   * The phone menu (3.21.1): Spa Booking's tabs in a panel from the left,
+   * with the name of who is signed in on top. Inside Home Assistant the
+   * last row opens Home Assistant's menu, to change dashboard; Spa Booking
+   * Web has no such row.
+   */
+  _renderNavDrawer() {
+    const settings = (this._data && this._data.settings) || {};
+    const title = settings.card_title || (this._config && this._config.title) || "Gestione SPA";
+    const close = () => { this._navOpen = false; this._render(); };
+    const who = (this._me && this._me.name) || (this._hass && this._hass.user && this._hass.user.name) || "";
+    const panel = el("nav", { class: "nav-drawer", role: "dialog", "aria-label": "Menu di Spa Booking" },
+      el("div", { class: "nav-head" },
+        spaLogo(40),
+        el("div", { class: "nav-title" },
+          el("div", { class: "nav-name" }, title),
+          who ? el("div", { class: "nav-who" }, `${who} · ${this._roleLabel(this._userLevel())}`) : null),
+        el("button", { class: "icon-btn", title: "Chiudi", "aria-label": "Chiudi il menu", on: { click: close } },
+          el("ha-icon", { icon: "mdi:close" }))),
+      el("div", { class: "nav-list" },
+        this._visibleTabs().map((tab) => el("button", {
+          class: `nav-item${this._tab === tab.id ? " active" : ""}`,
+          "aria-current": this._tab === tab.id ? "page" : null,
+          on: { click: () => this._goTab(tab.id) },
+        }, el("ha-icon", { icon: tab.icon }), el("span", {}, tab.label),
+        this._tab === tab.id ? el("ha-icon", { class: "nav-check", icon: "mdi:check" }) : null))),
+      this._webMode() ? null : el("div", { class: "nav-foot" },
+        el("button", {
+          class: "nav-item ha",
+          on: { click: () => { this._navOpen = false; this._render(); this._toggleHaMenu(); } },
+        }, el("ha-icon", { icon: "mdi:home-assistant" }), el("span", {}, "Menu di Home Assistant"),
+        el("ha-icon", { class: "nav-check", icon: "mdi:chevron-right" }))));
+    return el("div", {
+      class: "nav-overlay",
+      on: { click: (event) => { if (event.target === event.currentTarget) close(); } },
+    }, panel);
   }
 
   _messageBox() {
@@ -24162,6 +24222,35 @@ class SpaBookingCard extends HTMLElement {
                     color: var(--text-primary-color, #fff); }
       /* On a phone the tab bar and the agenda buttons keep the icons only:
          the labels are dropped to leave room to the day. */
+      /* 3.21.1: on a phone the top tabs move into the hamburger menu. */
+      @media (max-width: 720px) {
+        .topbar.has-head > .tabs { display: none !important; }
+        .topbar.has-head { padding-bottom: 10px; }
+      }
+      .nav-overlay { position: fixed; inset: 0; z-index: 60; background: rgba(15, 23, 42, .42);
+        animation: nav-fade .16s ease-out; }
+      .nav-drawer { position: absolute; top: 0; bottom: 0; left: 0; width: min(84vw, 320px); display: flex; flex-direction: column;
+        background: var(--card-background-color, #fff); color: var(--primary-text-color);
+        box-shadow: 4px 0 24px rgba(0, 0, 0, .18); animation: nav-in .2s ease-out;
+        padding: calc(env(safe-area-inset-top, 0px) + 14px) 12px calc(env(safe-area-inset-bottom, 0px) + 14px); box-sizing: border-box; }
+      .nav-head { display: flex; align-items: center; gap: 10px; padding: 4px 4px 14px; border-bottom: 1px solid var(--divider-color, #e5e7eb); }
+      .nav-title { flex: 1; min-width: 0; }
+      .nav-name { font-weight: 700; font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .nav-who { font-size: 12.5px; color: var(--secondary-text-color); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .nav-list { display: flex; flex-direction: column; gap: 4px; padding: 12px 0; overflow-y: auto; flex: 1; }
+      .nav-item { display: flex; align-items: center; gap: 14px; width: 100%; min-height: 50px; padding: 0 14px;
+        border: 0; border-radius: 14px; background: transparent; color: inherit; font: inherit; font-size: 16px;
+        font-weight: 600; text-align: left; cursor: pointer; }
+      .nav-item ha-icon { --mdc-icon-size: 22px; color: var(--secondary-text-color); }
+      .nav-item span { flex: 1; }
+      .nav-item.active { background: color-mix(in srgb, var(--primary-color) 13%, transparent); color: var(--primary-color); }
+      .nav-item.active ha-icon { color: var(--primary-color); }
+      .nav-check { --mdc-icon-size: 18px !important; }
+      .nav-foot { border-top: 1px solid var(--divider-color, #e5e7eb); padding-top: 10px; }
+      .nav-item.ha ha-icon:first-child { color: #18bcf2; }
+      @keyframes nav-in { from { transform: translateX(-100%); } to { transform: none; } }
+      @keyframes nav-fade { from { opacity: 0; } to { opacity: 1; } }
+      @media (min-width: 721px) { .nav-overlay { display: none; } }
       @media (max-width: 720px) {
         .tab .tab-label, .btn .btn-label { display: none; }
         .tab { padding: 8px 10px; }
