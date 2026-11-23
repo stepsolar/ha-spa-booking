@@ -1551,6 +1551,24 @@ get_users:
     per la sezione Accessi della card.
   fields: {}
 
+set_user_menus:
+  name: Menu visibili di un utente
+  description: >-
+    Accende o spegne i menu di un utente oltre a quelli del suo ruolo
+    (Configurazione › Accessi). Una scheda di Configurazione accesa si può
+    anche usare. Accessi resta agli amministratori.
+  fields:
+    user_id:
+      name: ID utente
+      required: true
+      selector:
+        text:
+    menus:
+      name: Menu
+      description: 'Per esempio {"config.trattamenti": true, "whatsapp": false}. Vuoto = torna al ruolo.'
+      selector:
+        object:
+
 set_user_permissions:
   name: Imposta permessi utente
   description: >-

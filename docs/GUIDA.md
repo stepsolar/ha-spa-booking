@@ -974,6 +974,27 @@ inattività del tablet.
 
 ![Accessi](anteprime/v3/v3-20-accessi.png)
 
+**Menu visibili** (3.21): nella scheda dell'utente (matita) ci sono tutti i
+menu — Agenda, Nuovo e le sue schede, Spa e Telecamere, Clienti, Voucher,
+WhatsApp e ogni scheda di Configurazione — ognuno con un **occhio**: acceso
+lo vede, barrato è nascosto. All'inizio gli occhi seguono il ruolo; quello
+che cambi vale solo per quell'utente e si conferma con **Salva menu**.
+**Torna al ruolo** toglie le eccezioni.
+
+- Una **scheda di Configurazione accesa si può anche usare**: per esempio
+  con *Trattamenti* accesa, Laura (Reception) aggiunge e modifica i
+  trattamenti. Il server le permette solo le schede accese.
+- Spegnendo un menu intero si nascondono anche le sue schede; un menu con
+  tutte le schede spente non compare.
+- **Accessi** resta sempre agli amministratori (lucchetto), e così
+  l'*Intelligenza artificiale* in Impostazioni: nessuno può darsi da solo
+  altri permessi. Gli amministratori vedono sempre tutto.
+- Sul tablet condiviso valgono i menu di chi entra con il PIN.
+
+| | |
+|---|---|
+| ![Menu visibili di un utente](anteprime/152-accessi-menu-visibili.png) | ![Quello che vede l'utente](anteprime/153-menu-utente-reception.png) |
+
 ### Impostazioni
 
 - **Generale**: aspetto (Segui Home Assistant, Chiaro, Scuro), titolo della

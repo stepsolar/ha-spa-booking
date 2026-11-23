@@ -22,6 +22,7 @@ from homeassistant.core import (
 )
 from homeassistant.helpers import config_validation as cv
 
+from . import menus
 from .const import (
     APPEARANCE_MODES,
     OPERATOR_MESSAGE_DEFAULTS,
@@ -177,6 +178,7 @@ SERVICE_SEND_REVIEW_REQUESTS = "send_review_requests"
 SERVICE_VOUCHER_EXPIRY_REMINDER = "voucher_expiry_reminder"
 SERVICE_GET_USERS = "get_users"
 SERVICE_SET_USER_PERMISSIONS = "set_user_permissions"
+SERVICE_SET_USER_MENUS = "set_user_menus"
 SERVICE_WHOAMI = "whoami"
 SERVICE_UPDATE_STATUS = "update_status"
 SERVICE_INSTALL_UPDATE = "install_update"
@@ -313,6 +315,7 @@ ALL_SERVICES = (
     SERVICE_PROMO_AUTOMATIC,
     SERVICE_GET_USERS,
     SERVICE_SET_USER_PERMISSIONS,
+    SERVICE_SET_USER_MENUS,
     SERVICE_WHOAMI,
     SERVICE_UPDATE_STATUS,
     SERVICE_INSTALL_UPDATE,
@@ -574,6 +577,15 @@ SET_USER_PERMISSIONS_SCHEMA = vol.Schema(
     {
         vol.Required(ATTR_USER_ID): cv.string,
         vol.Required(ATTR_LEVEL): vol.In(PERMISSION_LEVELS),
+    }
+)
+
+SET_USER_MENUS_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_USER_ID): cv.string,
+        #: {"config.trattamenti": true, "whatsapp": false, …}; empty or
+        #: missing goes back to what the role sees.
+        vol.Optional("menus"): vol.Any({cv.string: cv.boolean}, None),
     }
 )
 
@@ -1621,6 +1633,8 @@ class Caller:
     #: The shared reception tablet the call came from, if any.
     device: str | None = None
     system: bool = False
+    #: 3.21.0: the menus she sees (her role, then the administrator's eyes).
+    menus: frozenset[str] = frozenset()
 
 
 #: The caller of the service being run, set by ``_guarded``.
@@ -1641,7 +1655,7 @@ async def caller_identity(
     """
     user_id = call.context.user_id if call.context else None
     if not user_id:
-        return Caller(None, "Sistema", "admin", system=True)
+        return Caller(None, "Sistema", "admin", system=True, menus=frozenset(menus.role_menus("admin")))
     device: str | None = None
     if coordinator.profile(user_id).get("shared"):
         device = user_id
@@ -1670,6 +1684,7 @@ async def caller_identity(
         level,
         coordinator.profile(user_id).get("operator_id") or "",
         device,
+        menus=frozenset(menus.visible_menus(level, coordinator.menu_overrides(user_id))),
     )
 
 
@@ -2882,9 +2897,29 @@ async def _async_get_monthly_report(call: ServiceCall) -> ServiceResponse:
 async def _async_update_settings(call: ServiceCall) -> ServiceResponse:
     """Update the settings: layout for operators, the rest for admins only."""
     coordinator = _coordinator(call)
-    if set(call.data) - OPERATOR_SETTINGS:
-        await _require_admin(call, coordinator)
-    settings = await coordinator.async_update_settings(**call.data)
+    data = dict(call.data)
+    refused = set(data) - OPERATOR_SETTINGS
+    if refused:
+        acting = _ACTING.get() or await caller_identity(call, coordinator)
+        if acting.level != "admin":
+            # 3.21.0: a configuration tab turned on with the eye opens its
+            # own settings, and only those.
+            refused = menus.settings_refused(refused, set(acting.menus))
+            # A whole page saved back sends the other keys unchanged: those
+            # are not a change she is not allowed to make.
+            current = coordinator._data.get("settings", {})
+            for key in list(refused):
+                if key in current and data[key] == current[key]:
+                    refused.discard(key)
+                    data.pop(key)
+            # She reads the secrets blank: a blank one coming back is not
+            # a new value.
+            for key in menus.SECRET_SETTINGS & set(data):
+                if not data[key]:
+                    data.pop(key)
+        if refused:
+            await _require_admin(call, coordinator)
+    settings = await coordinator.async_update_settings(**data)
     if await caller_level(call, coordinator) != "admin":
         settings = _without_secrets(settings)
     else:
@@ -2916,6 +2951,14 @@ async def _async_set_user_permissions(call: ServiceCall) -> ServiceResponse:
     return {"permissions": permissions}
 
 
+async def _async_set_user_menus(call: ServiceCall) -> ServiceResponse:
+    """Save which menus a user sees, with the eye (3.21.0)."""
+    coordinator = _coordinator(call)
+    await _require_admin(call, coordinator)
+    saved = await coordinator.async_set_user_menus(call.data[ATTR_USER_ID], call.data.get("menus"))
+    return {"menus": saved}
+
+
 # ------------------------------------------------------------------ logins
 
 
@@ -2934,6 +2977,8 @@ async def _async_whoami(call: ServiceCall) -> ServiceResponse:
         "operator_id": acting.operator_id,
         "shared": acting.device is not None,
         "idle_minutes": coordinator.pin_idle_minutes,
+        # 3.21.0: the menus she sees, as the card draws them.
+        "menus": sorted(acting.menus),
     }
     if acting.device is not None:
         result["locked_for"] = coordinator.pin_sessions.locked_for(
@@ -3707,6 +3752,11 @@ _HANDLERS: dict[str, tuple[Any, Any, SupportsResponse]] = {
         SET_USER_PERMISSIONS_SCHEMA,
         SupportsResponse.ONLY,
     ),
+    SERVICE_SET_USER_MENUS: (
+        _async_set_user_menus,
+        SET_USER_MENUS_SCHEMA,
+        SupportsResponse.ONLY,
+    ),
     SERVICE_WHOAMI: (_async_whoami, None, SupportsResponse.ONLY),
     SERVICE_UPDATE_STATUS: (_async_update_status, None, SupportsResponse.ONLY),
     SERVICE_INSTALL_UPDATE: (_async_install_update, None, SupportsResponse.ONLY),
@@ -3882,7 +3932,11 @@ def _guarded(service: str, handler: Any) -> Any:
         acting = await caller_identity(
             call, coordinator, refresh=needed not in ("none", "read")
         )
-        if _LEVEL_RANK.get(acting.level, 0) < _LEVEL_RANK.get(needed, len(_LEVEL_RANK)):
+        if _LEVEL_RANK.get(acting.level, 0) < _LEVEL_RANK.get(needed, len(_LEVEL_RANK)) and not (
+            # 3.21.0: a configuration tab turned on with the eye opens the
+            # administrator's services behind it, nothing else.
+            needed == "admin" and acting.level != "none" and menus.service_allowed(service, set(acting.menus))
+        ):
             if acting.device is not None and acting.user_id is None:
                 raise ValidationError("Tablet della reception: inserisci il tuo PIN")
             raise ValidationError(

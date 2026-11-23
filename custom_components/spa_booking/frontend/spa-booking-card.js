@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "3.20.7";
+const CARD_VERSION = "3.21.0";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -493,6 +493,41 @@ const CFG_TABS = [
   { id: "accessi", label: "Accessi", icon: "mdi:shield-account-outline" },
   { id: "impostazioni", label: "Impostazioni", icon: "mdi:cog" },
 ];
+
+// 3.21.0: what each role sees before the administrator touches the eyes
+// (Accessi › Menu visibili). Same table as menus.py on the server.
+const MENU_ROLE_DEFAULTS = {
+  none: [],
+  read: ["agenda"],
+  therapist: ["agenda", "nuovo", "spa", "nuovo.appuntamento", "spa.controlli"],
+  operator: ["agenda", "nuovo", "spa", "clienti", "voucher", "whatsapp",
+    "nuovo.appuntamento", "nuovo.nuova", "nuovo.lista", "spa.controlli", "spa.telecamere"],
+  manager: ["agenda", "nuovo", "spa", "clienti", "voucher", "whatsapp",
+    "nuovo.appuntamento", "nuovo.nuova", "nuovo.lista", "spa.controlli", "spa.telecamere"],
+};
+const MENU_SUBS = {
+  nuovo: NUOVO_TABS,
+  spa: SPA_TABS,
+  config: CFG_TABS.filter((tab) => tab.id !== "accessi"),
+};
+/** Every menu id, in order: a top tab, then «parent.child». */
+const MENU_ALL = TABS.flatMap((tab) => [tab.id, ...((MENU_SUBS[tab.id] || []).map((sub) => `${tab.id}.${sub.id}`))]);
+/** The menus of a role with a user's eyes on top (as menus.visible_menus). */
+const visibleMenus = (level, overrides) => {
+  if (level === "admin") return new Set([...MENU_ALL, "config.accessi"]);
+  if (!MENU_ROLE_DEFAULTS[level] || level === "none") return new Set();
+  const menus = new Set(MENU_ROLE_DEFAULTS[level]);
+  Object.entries(overrides || {}).forEach(([key, on]) => {
+    if (!MENU_ALL.includes(key) || typeof on !== "boolean") return;
+    if (on) menus.add(key); else menus.delete(key);
+  });
+  Object.entries(MENU_SUBS).forEach(([parent, subs]) => {
+    const kids = subs.map((sub) => `${parent}.${sub.id}`);
+    if (!menus.has(parent)) kids.forEach((kid) => menus.delete(kid));
+    else if (!kids.some((kid) => menus.has(kid))) menus.delete(parent);
+  });
+  return menus;
+};
 
 
 // VAT (2.5.1): the Italian rates; prices are always VAT included.
@@ -3294,6 +3329,7 @@ class SpaBookingCard extends HTMLElement {
       whatsapp_pair: "Collegamento avviato: inquadra il codice QR.",
       whatsapp_pair_code: "Codice pronto: digitalo sul telefono.",
       whatsapp_logout: "WhatsApp scollegato.",
+      set_user_menus: "Menu dell'utente salvati.",
       create_appointment: "Appuntamento creato.",
       create_bookings: "Appuntamenti creati.",
       clear_slot_block: "Fascia riaperta.",
@@ -3395,7 +3431,19 @@ class SpaBookingCard extends HTMLElement {
         totals: "manager",
         config: "admin",
       }[capability] || "admin";
+    // 3.21.0: a configuration tab turned on with the eye is usable there.
+    if (capability === "config" && this._userLevel() !== "admin") {
+      return this._tab === "config" && this._cfgTab !== "accessi" && this._menuOn(`config.${this._cfgTab}`);
+    }
     return (rank[this._userLevel()] || 0) >= (rank[need] || 0);
+  }
+
+  /** Whether the signed-in person sees a menu (3.21.0): what the server
+   *  says, else what her role sees. */
+  _menuOn(id) {
+    if (this._userLevel() === "admin") return true;
+    const mine = this._me && Array.isArray(this._me.menus) ? new Set(this._me.menus) : visibleMenus(this._userLevel());
+    return mine.has(id);
   }
 
   /** The agenda operator the signed-in person is ("" when none). */
@@ -3412,15 +3460,8 @@ class SpaBookingCard extends HTMLElement {
 
   /** The tabs the signed-in user may see, in their usual order. */
   _visibleTabs() {
-    const allowed =
-      {
-        none: [],
-        read: ["agenda"],
-        therapist: ["agenda", "nuovo", "spa"],
-        operator: ["agenda", "nuovo", "spa", "clienti", "voucher", "whatsapp"],
-        manager: ["agenda", "nuovo", "spa", "clienti", "voucher", "whatsapp"],
-        admin: ["agenda", "nuovo", "spa", "clienti", "voucher", "whatsapp", "config"],
-      }[this._userLevel()] || [];
+    // 3.21.0: the role's menus with the administrator's eyes on top.
+    const allowed = TABS.map((tab) => tab.id).filter((id) => this._menuOn(id));
     // Spa Booking Web (3.1.2) has no Home Assistant entities: the Spa tab
     // (lights, climate, cameras) has nothing to show there.
     // The WhatsApp tab can be hidden from the menu (3.5.0).
@@ -3458,36 +3499,18 @@ class SpaBookingCard extends HTMLElement {
    * read-only account never gets them.
    */
   _visibleSpaTabs() {
-    const allowed =
-      {
-        none: [],
-        read: [],
-        therapist: ["controlli"],
-        operator: ["controlli", "telecamere"],
-        manager: ["controlli", "telecamere"],
-        admin: ["controlli", "telecamere"],
-      }[this._userLevel()] || [];
-    return SPA_TABS.filter((tab) => allowed.includes(tab.id));
+    return SPA_TABS.filter((tab) => this._menuOn(`spa.${tab.id}`));
   }
 
   _visibleNuovoTabs() {
-    const allowed =
-      {
-        none: [],
-        read: [],
-        therapist: ["appuntamento"],
-        operator: ["appuntamento", "nuova", "lista"],
-        manager: ["appuntamento", "nuova", "lista"],
-        admin: ["appuntamento", "nuova", "lista"],
-      }[this._userLevel()] || [];
-    return NUOVO_TABS.filter((tab) => allowed.includes(tab.id));
+    return NUOVO_TABS.filter((tab) => this._menuOn(`nuovo.${tab.id}`));
   }
 
   // ---------------------------------------------------------------- updates
 
   /** Ask the server about updates, at most every 10 minutes (admins only). */
   async _checkUpdates(force = false) {
-    if (!this._can("config")) return;
+    if (this._userLevel() !== "admin") return;
     const now = Date.now();
     if (!force && this._updateCheckedAt && now - this._updateCheckedAt < 600000) return;
     this._updateCheckedAt = now;
@@ -3505,7 +3528,7 @@ class SpaBookingCard extends HTMLElement {
    */
   _updateBanner() {
     const status = this._updateStatus;
-    if (!status || !this._can("config")) return null;
+    if (!status || this._userLevel() !== "admin") return null;
     // The live state of the HACS entity, so the progress shows at once.
     const live = status.update && this._hass && this._hass.states[status.update.entity_id];
     const attrs = (live && live.attributes) || {};
@@ -14986,6 +15009,8 @@ class SpaBookingCard extends HTMLElement {
     wrap.appendChild(this._sectionHead("mdi:cog-outline", "Impostazioni", "Aspetto della card, dati di fatturazione, sito web, intelligenza artificiale, dati e backup."));
     wrap.appendChild(el("div", { class: "nt-tabs", role: "tablist" },
       [["generale", "mdi:palette-outline", "Generale"], ["fatturazione", "mdi:receipt-text-outline", "Dati fatturazione"], ["sito", "mdi:web", "Sito web"], ["ia", "mdi:robot-outline", "Intelligenza artificiale"], ["dati", "mdi:database-outline", "Dati e backup"]]
+        // 3.21.0: the AI keys stay with the administrators.
+        .filter(([id]) => id !== "ia" || this._userLevel() === "admin")
         .map(([id, icon, label]) => el("button", {
           class: `nt-tab${tab === id ? " on" : ""}`, role: "tab", "aria-selected": tab === id ? "true" : "false",
           on: { click: () => { this._setTab = id; this._render(); } },
@@ -14993,7 +15018,7 @@ class SpaBookingCard extends HTMLElement {
     if (tab === "generale") wrap.appendChild(this._settingsGeneral(draft, changed));
     if (tab === "fatturazione") wrap.appendChild(this._settingsBilling(draft, changed));
     if (tab === "sito") wrap.appendChild(this._settingsWeb(draft, changed));
-    if (tab === "ia") wrap.appendChild(this._settingsAi(draft, changed));
+    if (tab === "ia" && this._userLevel() === "admin") wrap.appendChild(this._settingsAi(draft, changed));
     if (tab === "dati") wrap.appendChild(this._settingsData());
     wrap.appendChild(this._pageSaveBar("set", () => this._saveSettingsPage(), () => { this._setDraft = null; this._render(); }));
     return wrap;
@@ -17751,10 +17776,86 @@ class SpaBookingCard extends HTMLElement {
             el("tr", {}, row.map((cell, i) => i === 0 ? el("th", { scope: "row" }, cell) : el("td", { class: cell === "—" ? "no" : "" }, cell))))))));
   }
 
+  /**
+   * Accessi › Menu visibili (3.21.0): every menu with an eye. The role gives
+   * the start; what the administrator changes here holds for this user only.
+   * A configuration tab turned on is also usable; Accessi stays locked.
+   */
+  _userMenus(user, level) {
+    const stored = ((this._data.settings || {}).menu_access || {})[user.id] || {};
+    if (!this._menuDraft || this._menuDraft.user_id !== user.id) {
+      this._menuDraft = { user_id: user.id, overrides: { ...stored } };
+    }
+    const draft = this._menuDraft;
+    const role = new Set(MENU_ROLE_DEFAULTS[level] || []);
+    const on = (id) => (id in draft.overrides ? draft.overrides[id] : role.has(id));
+    const flip = (id) => {
+      const next = !on(id);
+      if (next === role.has(id)) delete draft.overrides[id]; else draft.overrides[id] = next;
+      this._render();
+    };
+    const eye = (id, label, enabled = true) => el("button", {
+      class: `menu-eye${on(id) ? " on" : ""}`, disabled: this._busy || !enabled,
+      title: on(id) ? `Nascondi ${label}` : `Mostra ${label}`,
+      "aria-pressed": on(id) ? "true" : "false", "aria-label": `${label}: ${on(id) ? "visibile" : "nascosto"}`,
+      on: { click: () => flip(id) },
+    }, el("ha-icon", { icon: on(id) ? "mdi:eye" : "mdi:eye-off" }));
+    const name = user.name || "questo utente";
+    const box = el("div", { class: "menu-vis" },
+      el("div", { class: "menu-vis-head" }, el("ha-icon", { icon: "mdi:eye" }), "Menu visibili"),
+      el("div", { class: "dim" },
+        `Con l'occhio accendi o spegni ogni menu per ${name}. All'inizio vale il ruolo (${this._roleLabel(level)}); ` +
+        "quello che cambi qui vale solo per questo utente. Una scheda di Configurazione accesa si può anche usare."));
+    TABS.forEach((tab) => {
+      if (tab.id === "spa" && this._webMode()) return;
+      const subs = MENU_SUBS[tab.id] || [];
+      const parentOn = on(tab.id);
+      const kidsOn = subs.filter((sub) => on(`${tab.id}.${sub.id}`)).length;
+      box.appendChild(el("div", { class: `menu-row top${parentOn ? "" : " off"}` },
+        el("ha-icon", { icon: tab.icon }),
+        el("span", { class: "menu-name" }, tab.label),
+        subs.length ? el("span", { class: `menu-count${parentOn && !kidsOn ? " warn" : ""}` },
+          parentOn && !kidsOn ? "accendi almeno una scheda" : `${kidsOn} di ${subs.length} visibili`) : null,
+        eye(tab.id, tab.label)));
+      subs.forEach((sub) => {
+        const id = `${tab.id}.${sub.id}`;
+        box.appendChild(el("div", { class: `menu-row sub${parentOn && on(id) ? "" : " off"}` },
+          el("ha-icon", { icon: sub.icon }),
+          el("span", { class: "menu-name" }, sub.label),
+          eye(id, sub.label, parentOn)));
+      });
+      if (tab.id === "config") {
+        box.appendChild(el("div", { class: "menu-row sub locked" },
+          el("ha-icon", { icon: "mdi:shield-account-outline" }),
+          el("span", { class: "menu-name" }, "Accessi"),
+          el("span", { class: "menu-count" }, "solo amministratori"),
+          el("ha-icon", { class: "menu-lock", icon: "mdi:lock" })));
+      }
+    });
+    const changed = JSON.stringify(draft.overrides) !== JSON.stringify(stored);
+    box.appendChild(el("div", { class: "row tight" },
+      el("button", {
+        class: "btn small ghost", disabled: this._busy || (!Object.keys(stored).length && !Object.keys(draft.overrides).length),
+        on: { click: () => this._call("set_user_menus", { user_id: user.id, menus: null })
+          .then(() => { this._menuDraft = null; }).catch(() => {}) },
+      }, el("ha-icon", { icon: "mdi:restore" }), "Torna al ruolo"),
+      el("button", {
+        class: "btn small primary", disabled: this._busy || !changed,
+        on: { click: () => this._call("set_user_menus", { user_id: user.id, menus: draft.overrides })
+          .then(() => { this._menuDraft = null; }).catch(() => {}) },
+      }, el("ha-icon", { icon: "mdi:content-save-outline" }), "Salva menu")));
+    return box;
+  }
+
   /** The fold under a user: linked operator, PIN, tablet, password, disable. */
   _userDetail(user, operators, locked) {
     const draft = this._userDraft || (this._userDraft = {});
     const box = el("div", { class: "user-detail" });
+    // 3.21.0: which menus she sees (administrators always see everything).
+    const permissions = (this._data.settings && this._data.settings.permissions) || {};
+    const level = locked ? "admin" : permissions[user.id] || "none";
+    if (!locked && !user.shared && level !== "none") box.appendChild(this._userMenus(user, level));
+    else if (locked) box.appendChild(el("div", { class: "dim" }, "Gli amministratori vedono sempre tutti i menu."));
     const save = (data) => this._call("set_user_profile", { user_id: user.id, ...data })
       .then(() => this._loadUsers()).catch(() => {});
 
@@ -17911,16 +18012,25 @@ class SpaBookingCard extends HTMLElement {
 
   // ------------------------------------------------------------ CONFIGURAZIONE
 
+  /** The configuration tabs this user sees; Accessi only to administrators. */
+  _visibleCfgTabs() {
+    if (!this._menuOn("config")) return [];
+    return CFG_TABS.filter((tab) => (tab.id === "accessi" ? this._userLevel() === "admin" : this._menuOn(`config.${tab.id}`)));
+  }
+
   _renderConfig() {
     const wrap = el("div", { class: `stack config cfg-shell${this._subStyle("config")}` });
 
     // The configuration, the Accessi tab included, is for card administrators:
     // the level the Accessi tab itself hands out. A Home Assistant admin who is
     // not listed is an administrator here too (see _userLevel).
-    if (!this._can("config")) {
+    // 3.21.0: the tabs the administrator turned on for this user.
+    const cfgTabs = this._visibleCfgTabs();
+    if (!cfgTabs.length) {
       return el("div", { class: "empty" },
         "La configurazione è riservata agli amministratori.");
     }
+    if (!cfgTabs.some((tab) => tab.id === this._cfgTab)) this._cfgTab = cfgTabs[0].id;
 
     const tabButton = (tab) =>
       el("button", {
@@ -17947,10 +18057,10 @@ class SpaBookingCard extends HTMLElement {
          el("span", { class: "tab-label" }, tab.label));
     wrap.appendChild(
       el("div", { class: "tabs tight" },
-        CFG_TABS.filter((tab) => tab.id !== "impostazioni").map(tabButton),
+        cfgTabs.filter((tab) => tab.id !== "impostazioni").map(tabButton),
         // Impostazioni sits apart, at the far right.
         el("div", { class: "spacer" }),
-        tabButton(CFG_TABS.find((tab) => tab.id === "impostazioni")))
+        cfgTabs.some((tab) => tab.id === "impostazioni") ? tabButton(CFG_TABS.find((tab) => tab.id === "impostazioni")) : null)
     );
 
     // The page sits in its own column, beside the menu on a wide screen.
@@ -25126,6 +25236,26 @@ class SpaBookingCard extends HTMLElement {
       .user-who { min-width: 0; }
       .user-who .user-name { white-space: normal; }
       .user-detail { display: flex; flex-direction: column; gap: 10px; padding: 4px 0 14px 44px; }
+      .menu-vis { display: flex; flex-direction: column; gap: 4px; padding: 12px 0 8px; border-bottom: 1px solid var(--divider-color, #e5e7eb); }
+      .menu-vis-head { display: flex; align-items: center; gap: 8px; font-weight: 700; }
+      .menu-vis-head ha-icon { --mdc-icon-size: 20px; color: var(--primary-color); }
+      .menu-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 10px; min-height: 40px; }
+      .menu-row ha-icon { --mdc-icon-size: 20px; flex: none; }
+      .menu-row.top { background: var(--secondary-background-color, #f4f6f8); font-weight: 600; margin-top: 6px; }
+      .menu-row.sub { margin-left: 26px; }
+      .menu-row.off { color: var(--secondary-text-color); opacity: .65; }
+      .menu-row.off .menu-name { text-decoration: line-through; }
+      .menu-name { flex: 1; min-width: 0; }
+      .menu-count { font-size: 12px; color: var(--secondary-text-color); font-weight: 500; text-align: right; }
+      .menu-count.warn { color: var(--warning-color, #b26a00); }
+      .menu-row.locked { color: var(--secondary-text-color); }
+      .menu-lock { --mdc-icon-size: 18px !important; }
+      .menu-eye { flex: none; width: 42px; height: 32px; border-radius: 9px; border: 1px solid var(--divider-color, #d5dbe2);
+        background: var(--card-background-color, #fff); color: var(--secondary-text-color); display: grid; place-items: center; cursor: pointer; }
+      .menu-eye.on { color: var(--primary-color); border-color: color-mix(in srgb, var(--primary-color) 45%, transparent);
+        background: color-mix(in srgb, var(--primary-color) 10%, transparent); }
+      .menu-eye:disabled { opacity: .45; cursor: default; }
+      .menu-eye ha-icon { --mdc-icon-size: 18px; }
       .user-detail .row.tight .input { max-width: 260px; }
       .input.narrow { max-width: 110px; }
       .field.inline { flex-direction: row; align-items: center; gap: 10px; }

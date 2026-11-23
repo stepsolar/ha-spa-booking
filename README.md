@@ -111,6 +111,12 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v3.21.0** — (serve il riavvio di Home Assistant)
+  - **Menu visibili per utente**: in Configurazione › Accessi, nella scheda
+    di ogni utente, tutti i menu e le schede di Configurazione con un
+    occhio per accenderli o spegnerli. Si parte dal ruolo; una scheda di
+    Configurazione accesa si può anche usare (il server lo controlla).
+    Accessi e Intelligenza artificiale restano agli amministratori.
 - **v3.20.7** — (serve il riavvio di Home Assistant)
   - **Accessori e pacchetti**: sono inclusi solo gli accessori abbinati al
     pacchetto in Configurazione › Pacchetti; tutti gli altri si pagano al
