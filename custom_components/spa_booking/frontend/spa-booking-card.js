@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "3.21.1";
+const CARD_VERSION = "3.22.0";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -4151,6 +4151,7 @@ class SpaBookingCard extends HTMLElement {
     if (this._confirmPopup) add(root, this._renderConfirmPopup());
     if (this._mediaView) add(root, this._renderMediaView());
     if (this._noticePanel) add(root, this._renderNoticePanel());
+    if (this._dayBlock) add(root, this._renderDayBlock());
     // 3.21.1: the phone menu behind the hamburger.
     if (this._navOpen && this._isPhone()) add(root, this._renderNavDrawer());
     if (this._changePopup) add(root, this._renderChangePopup());
@@ -4713,6 +4714,8 @@ class SpaBookingCard extends HTMLElement {
     const minutes = days.map((date) => this._appointmentsOfDay(ymd(date))
       .reduce((sum, appointment) => sum + (this._durationOf(appointment) || 0), 0));
     const counts = days.map((date) => this._appointmentsOfDay(ymd(date)).length);
+    // 3.22.0: a day the whole spa is closed reads «chiuso».
+    const closedDays = this._closuresByDay(days.map((date) => ymd(date)));
     const top = Math.max(1, ...minutes);
     const today = todayStr();
     const names = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"];
@@ -4724,12 +4727,15 @@ class SpaBookingCard extends HTMLElement {
         type: "button", "data-day": key,
         class: `ag-wd${key === this._day ? " on" : ""}${key < today ? " past" : ""}${key === today ? " today" : ""}${weekday === 0 ? " mon" : ""}`,
         title: `${longDay(date)}: ${counts[index]} appuntamenti`,
-        on: { click: () => { this._day = key; this._render(); } },
+        // 3.22.0: two taps on the same day open «Blocca giorni».
+        on: { click: () => this._dayTap(key, () => { this._day = key; this._render(); }) },
       },
       el("span", { class: "ag-wd-name" }, names[weekday],
         date.getDate() === 1 || weekday === 0 ? el("em", { class: "ag-wd-month" }, months[date.getMonth()]) : null),
       el("span", { class: "ag-wd-num" }, String(date.getDate())),
-      el("span", { class: "ag-wd-count" }, counts[index] ? `${counts[index]} app.` : "libero"),
+      el("span", { class: "ag-wd-count" }, (closedDays.get(key) || []).some((c) => c.scope === "facility" && !c.start)
+        ? el("span", { class: "ag-wd-shut" }, el("ha-icon", { icon: "mdi:lock" }), "chiuso")
+        : counts[index] ? `${counts[index]} app.` : "libero"),
       el("span", { class: "ag-wd-bar" }, el("i", { style: `width:${Math.round((minutes[index] / top) * 100)}%` })));
     }));
     // A scroll event can arrive after a redraw removed this strip: detached,
@@ -10633,11 +10639,10 @@ class SpaBookingCard extends HTMLElement {
       const cell = el("button", {
         type: "button", class: classes.join(" "), title: tip,
         on: {
-          click: () => {
+          click: () => this._dayTap(key, () => {
             if (out) { this._day = key; this._month = new Date(date.getFullYear(), date.getMonth(), 1); this._render(); return; }
             this._day = key; this._render();
-          },
-          dblclick: () => { this._day = key; this._agendaTab = "agenda"; this._render(); },
+          }),
         },
       }, el("span", { class: "mo-n" }, String(date.getDate())));
       if (list.length) cell.appendChild(el("span", { class: "mo-cnt" }, String(list.length)));
@@ -18389,6 +18394,179 @@ class SpaBookingCard extends HTMLElement {
    * the facility closes without any, a category and an operator each need
    * theirs, otherwise the closure would silently apply to nothing.
    */
+  /** Who may close days: an administrator, or whoever sees «Fasce bloccate». */
+  _canBlockDays() {
+    return this._userLevel() === "admin" || this._menuOn("config.blocchi");
+  }
+
+  /**
+   * A tap on a day (3.22.0): the first one opens it, a second one on the same
+   * day soon after opens «Blocca giorni» for it. Phones get no dblclick
+   * reliably, so the two taps are counted here.
+   */
+  _dayTap(key, single) {
+    const now = Date.now();
+    const last = this._lastDayTap;
+    if (last && last.key === key && now - last.at < 450 && this._canBlockDays()) {
+      this._lastDayTap = null;
+      this._openDayBlock(key);
+      return;
+    }
+    this._lastDayTap = { key, at: now };
+    single();
+  }
+
+  _openDayBlock(key) {
+    this._day = key;
+    this._closureDraft = {
+      scope: "facility", operator_id: "", category_id: "",
+      date_from: key, date_to: key, start: "", end: "", label: "", skip_weekdays: [],
+    };
+    this._dayBlock = { key };
+    this._render();
+  }
+
+  /** The closures that touch a day, as the backend counts them. */
+  _closuresOnDay(key) {
+    return this._closuresByDay([key]).get(key) || [];
+  }
+
+  /**
+   * «Blocca giorni» (3.22.0): the day tapped twice, until when, the days of
+   * the week to leave open, the hours and the reason; the closures already
+   * on that day, with the button that reopens them.
+   */
+  _renderDayBlock() {
+    const key = this._dayBlock.key;
+    const close = () => { this._dayBlock = null; this._closureDraft = null; this._render(); };
+    const date = new Date(`${key}T00:00:00`);
+    const existing = this._closuresOnDay(key);
+    const sheet = el("div", { class: "detail-sheet day-block", role: "dialog", "aria-label": "Blocca giorni" },
+      el("div", { class: "section-head" },
+        el("span", { class: "section-icon" }, el("ha-icon", { icon: "mdi:calendar-lock-outline" })),
+        el("div", { class: "section-text" },
+          el("div", { class: "section-title" }, "Blocca giorni"),
+          el("div", { class: "section-sub" }, `Da ${longDay(date)}: un giorno solo o fino a una data, lasciando aperti i giorni che vuoi.`)),
+        el("button", { class: "icon-btn", title: "Chiudi", on: { click: close } }, el("ha-icon", { icon: "mdi:close" }))));
+    if (existing.length) {
+      sheet.appendChild(el("div", { class: "day-block-now" },
+        el("div", { class: "dim small" }, "Già bloccato in questo giorno"),
+        ...existing.map((closure) => this._closureRow(closure))));
+    }
+    sheet.appendChild(this._dayBlockForm());
+    return el("div", { class: "detail-backdrop", on: { click: (event) => { if (event.target === event.currentTarget) close(); } } }, sheet);
+  }
+
+  /** The form of «Blocca giorni»: the days first, then who, hours, reason. */
+  _dayBlockForm() {
+    const draft = this._closureDraft;
+    const wrap = el("div", { class: "stack tight" });
+    const field = (label, input, cls = "") => el("label", { class: `field ${cls}` }, el("span", {}, label), input);
+    const dateInput = (value, onChange) => el("input", { class: "input", type: "date", value, on: { change: (event) => onChange(event.target.value) } });
+    wrap.appendChild(el("div", { class: "row day-block-dates" },
+      field("Dal giorno", dateInput(draft.date_from, (value) => {
+        draft.date_from = value || this._dayBlock.key;
+        if (!draft.date_to || draft.date_to < draft.date_from) draft.date_to = draft.date_from;
+        this._render();
+      })),
+      field("Fino al", dateInput(draft.date_to || draft.date_from, (value) => {
+        draft.date_to = value && value >= draft.date_from ? value : draft.date_from;
+        this._render();
+      }))));
+    // The days of the week: every one on, tap to leave it open.
+    const from = new Date(`${draft.date_from}T00:00:00`);
+    const to = new Date(`${(draft.date_to || draft.date_from)}T00:00:00`);
+    const span = Math.round((to - from) / 86400000) + 1;
+    const present = new Set();
+    for (let i = 0; i < Math.min(span, 7); i += 1) present.add((addDays(from, i).getDay() + 6) % 7);
+    const skip = (draft.skip_weekdays || []).filter((day) => present.has(day));
+    draft.skip_weekdays = span > 1 ? skip : [];
+    let blocked = 0;
+    for (let i = 0; i < span; i += 1) if (!draft.skip_weekdays.includes((addDays(from, i).getDay() + 6) % 7)) blocked += 1;
+    wrap.appendChild(el("div", { class: "field" },
+      el("span", {}, span > 1 ? "Giorni della settimana (tocca per lasciarlo aperto)" : "Giorno"),
+      el("div", { class: "day-block-week" }, GIORNI.map((name, index) => {
+        const inRange = present.has(index);
+        const off = draft.skip_weekdays.includes(index);
+        return el("button", {
+          type: "button", class: `dbw${inRange ? (off ? " open" : " shut") : " none"}`, disabled: !inRange || span < 2,
+          "aria-pressed": inRange && !off ? "true" : "false",
+          title: !inRange ? "Non compreso nelle date" : off ? `${name}: resta aperto` : `${name}: bloccato`,
+          on: { click: () => {
+            draft.skip_weekdays = off ? draft.skip_weekdays.filter((day) => day !== index) : [...draft.skip_weekdays, index].sort();
+            this._render();
+          } },
+        }, el("span", {}, name.slice(0, 3)), el("ha-icon", { icon: !inRange ? "mdi:minus" : off ? "mdi:lock-open-variant-outline" : "mdi:lock" }));
+      })),
+      el("div", { class: `hint${blocked ? "" : " warn"}` }, blocked
+        ? `${blocked === 1 ? "Verrà bloccato 1 giorno" : `Verranno bloccati ${blocked} giorni`}${draft.skip_weekdays.length ? ` (restano aperti: ${draft.skip_weekdays.map((d) => GIORNI_LONGHI[d].toLowerCase()).join(", ")})` : ""}.`
+        : "Con questi giorni esclusi non resta nessun giorno da bloccare.")));
+    // Who and when.
+    const scope = el("select", { class: "input", on: { change: (event) => { draft.scope = event.target.value; this._render(); } } },
+      [["facility", "Tutta la spa"], ["category", "Una categoria"], ["operator", "Un'operatrice"]]
+        .map(([value, label]) => el("option", { value, selected: draft.scope === value }, label)));
+    const row = el("div", { class: "row" }, field("Cosa", scope));
+    if (draft.scope === "category") {
+      row.appendChild(field("Categoria", el("select", { class: "input", on: { change: (event) => { draft.category_id = event.target.value; } } },
+        el("option", { value: "" }, "Scegli…"),
+        [...this._data.categories].sort((a, b) => a.name.localeCompare(b.name))
+          .map((c) => el("option", { value: c.id, selected: c.id === draft.category_id }, c.name)))));
+    } else if (draft.scope === "operator") {
+      row.appendChild(field("Operatrice", el("select", { class: "input", on: { change: (event) => { draft.operator_id = event.target.value; } } },
+        el("option", { value: "" }, "Scegli…"),
+        [...this._data.operators].filter((o) => o.active !== false).sort((a, b) => a.name.localeCompare(b.name))
+          .map((o) => el("option", { value: o.id, selected: o.id === draft.operator_id }, o.name)))));
+    }
+    wrap.appendChild(row);
+    const allDay = !draft.start && !draft.end && !draft._hours;
+    wrap.appendChild(el("label", { class: "check" },
+      el("input", { type: "checkbox", checked: allDay, on: { change: (event) => {
+        if (event.target.checked) { draft.start = ""; draft.end = ""; draft._hours = false; } else { draft._hours = true; }
+        this._render();
+      } } }),
+      el("span", {}, "Tutto il giorno")));
+    if (!allDay) {
+      wrap.appendChild(el("div", { class: "row" },
+        field("Dalle", el("input", { class: "input", type: "time", value: draft.start, on: { change: (event) => { draft.start = event.target.value || ""; } } })),
+        field("Alle", el("input", { class: "input", type: "time", value: draft.end, on: { change: (event) => { draft.end = event.target.value || ""; } } }))));
+    }
+    wrap.appendChild(field("Motivazione (facoltativa)", el("input", {
+      class: "input", type: "text", value: draft.label, placeholder: "es. Ferie, manutenzione, evento privato",
+      on: { input: (event) => { draft.label = event.target.value; }, keydown: (event) => event.stopPropagation() },
+    }), "grow"));
+    const appointments = [];
+    for (let i = 0; i < span; i += 1) {
+      const date = addDays(from, i);
+      if (draft.skip_weekdays.includes((date.getDay() + 6) % 7)) continue;
+      appointments.push(...this._appointmentsOfDay(ymd(date)));
+    }
+    if (appointments.length && draft.scope === "facility") {
+      wrap.appendChild(el("div", { class: "hint warn" },
+        `Attenzione: in questi giorni ci sono già ${appointments.length === 1 ? "1 appuntamento" : `${appointments.length} appuntamenti`}. ` +
+        "Il blocco non li annulla: vanno spostati o annullati a parte."));
+    }
+    wrap.appendChild(el("div", { class: "row tight day-block-actions" },
+      el("button", { class: "btn", on: { click: () => { this._dayBlock = null; this._closureDraft = null; this._render(); } } }, "Annulla"),
+      el("button", {
+        class: "btn primary", disabled: this._busy || !blocked,
+        on: { click: async () => {
+          try {
+            await this._call("add_closure", {
+              scope: draft.scope, operator_id: draft.operator_id, category_id: draft.category_id,
+              date_from: draft.date_from, date_to: draft.date_to || draft.date_from,
+              start: draft.start, end: draft.end, label: draft.label.trim(),
+              skip_weekdays: draft.skip_weekdays,
+            });
+            this._closureDraft = null;
+            this._dayBlock = null;
+            this._message = { kind: "ok", text: blocked === 1 ? "Giorno bloccato." : `${blocked} giorni bloccati.` };
+            this._render();
+          } catch (error) { /* shown */ }
+        } },
+      }, el("ha-icon", { icon: "mdi:lock" }), blocked > 1 ? `Blocca ${blocked} giorni` : "Blocca il giorno")));
+    return wrap;
+  }
+
   _closureForm() {
     const draft = this._closureDraft || (this._closureDraft = {
       scope: "facility",
@@ -18550,6 +18728,7 @@ class SpaBookingCard extends HTMLElement {
                 skip_weekdays: draft.skip_weekdays || [],
               });
               this._closureDraft = null;
+              this._dayBlock = null;
               this._render();
             } catch (error) {
               /* shown */
@@ -25324,6 +25503,25 @@ class SpaBookingCard extends HTMLElement {
       .user-row .user-avatar { width: 34px; height: 34px; }
       .user-who { min-width: 0; }
       .user-who .user-name { white-space: normal; }
+      .day-block { max-width: 560px; }
+      .ag-wd-shut { display: inline-flex; align-items: center; gap: 3px; color: var(--error-color, #c62828); font-weight: 600; }
+      .ag-wd-shut ha-icon { --mdc-icon-size: 13px; }
+      .day-block .section-head { align-items: flex-start; }
+      .day-block-now { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; margin-bottom: 10px;
+        border-radius: 12px; background: var(--secondary-background-color, #f4f6f8); }
+      .day-block-dates .field { flex: 1 1 140px; }
+      .day-block-week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+      .dbw { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 0; border-radius: 12px;
+        border: 1px solid var(--divider-color, #d5dbe2); background: var(--card-background-color, #fff); color: inherit;
+        font: inherit; font-weight: 600; font-size: 13px; cursor: pointer; }
+      .dbw ha-icon { --mdc-icon-size: 16px; }
+      .dbw.shut { background: color-mix(in srgb, var(--error-color, #db4437) 12%, transparent);
+        border-color: color-mix(in srgb, var(--error-color, #db4437) 45%, transparent); color: var(--error-color, #c62828); }
+      .dbw.open { color: var(--success-color, #2e7d32); border-style: dashed; }
+      .dbw.none { opacity: .35; cursor: default; }
+      .dbw:disabled { cursor: default; }
+      .hint.warn { color: var(--warning-color, #b26a00); }
+      .day-block-actions { justify-content: flex-end; margin-top: 6px; }
       .user-detail { display: flex; flex-direction: column; gap: 10px; padding: 4px 0 14px 44px; }
       .menu-vis { display: flex; flex-direction: column; gap: 4px; padding: 12px 0 8px; border-bottom: 1px solid var(--divider-color, #e5e7eb); }
       .menu-vis-head { display: flex; align-items: center; gap: 8px; font-weight: 700; }
