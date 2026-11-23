@@ -818,6 +818,32 @@ giorni (es. tutto novembre chiuso tranne i sabati).
 
 ![Fasce bloccate](anteprime/v3/v3-25-blocchi.png)
 
+**Blocca giorni dall'agenda** (3.22): **due tocchi di fila sullo stesso
+giorno** — nella striscia dei giorni dell'agenda o nella vista Mese — aprono
+*Blocca giorni*:
+
+- **Dal giorno** (quello toccato) e **Fino al**, per un giorno solo o un
+  periodo;
+- i **giorni della settimana**: tutti bloccati (lucchetto rosso), tocca
+  quelli da lasciare aperti, per esempio il sabato. Sotto si legge quanti
+  giorni verranno bloccati;
+- **Cosa**: tutta la spa, una categoria o un'operatrice; *Tutto il giorno* o
+  un orario; la **motivazione** (facoltativa);
+- in cima le chiusure già presenti in quel giorno, con il lucchetto per
+  riaprirle; un avviso se in quei giorni ci sono già appuntamenti (il blocco
+  non li annulla).
+
+Lo possono fare gli amministratori e chi ha la scheda *Fasce bloccate*
+accesa in Accessi. Un giorno chiuso per tutta la spa si legge «chiuso» nella
+striscia dei giorni. Nella vista Mese il primo tocco sceglie il giorno e
+*Apri la giornata* lo apre.
+
+| | |
+|---|---|
+| ![Blocca giorni](anteprime/155-blocca-giorni.png) | ![Blocca giorni sul telefono](anteprime/156-blocca-giorno-telefono.png) |
+
+![Giorno chiuso nella striscia](anteprime/157-giorno-chiuso-striscia.png)
+
 ### Notifiche
 
 - **Messaggi agli ospiti**: ricezione richiesta, proposta di un'altra data,

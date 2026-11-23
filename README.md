@@ -111,6 +111,12 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v3.22.0**
+  - **Blocca giorni dall'agenda**: due tocchi sullo stesso giorno (striscia
+    dei giorni o vista Mese) aprono un popup per bloccare quel giorno o fino
+    a una data, con i giorni della settimana da lasciare aperti (es. il
+    sabato), tutta la spa / una categoria / un'operatrice, orario e
+    motivazione. Il giorno chiuso si legge «chiuso» nella striscia.
 - **v3.21.1**
   - **Menu sul telefono**: il tasto ☰ apre il menu di Spa Booking (le icone
     fisse in alto spariscono); dentro Home Assistant l'ultima voce apre il
