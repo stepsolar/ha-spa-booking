@@ -33,6 +33,7 @@ from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
+from . import menus
 from .const import (
     EVENT_ANSWER_REQUEST,
     OPERATOR_MESSAGE_DEFAULTS,
@@ -9942,6 +9943,23 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self._async_save()
         self.pin_sessions.end_user(user_id)
         return dict(permissions)
+
+    def menu_overrides(self, user_id: str | None) -> dict[str, bool]:
+        """The eyes the administrator set for a user (3.21.0)."""
+        return dict((self._data[KEY_SETTINGS].get("menu_access") or {}).get(user_id or "") or {})
+
+    async def async_set_user_menus(self, user_id: str, overrides: dict[str, Any] | None) -> dict[str, bool]:
+        """Save which menus a user sees on top of her role; None goes back to the role."""
+        clean = menus.clean_overrides(overrides or {})
+        async with self._lock:
+            access_map = dict(self._data[KEY_SETTINGS].get("menu_access") or {})
+            if clean:
+                access_map[user_id] = clean
+            else:
+                access_map.pop(user_id, None)
+            self._data[KEY_SETTINGS]["menu_access"] = access_map
+            await self._async_save()
+        return clean
 
     # ------------------------------------------------- logins and the PIN
 

@@ -17,6 +17,7 @@ from uuid import uuid4
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.util import dt as dt_util
 
+from . import menus
 from .const import (
     DEFAULT_QUIET_HOURS_END,
     DEFAULT_QUIET_HOURS_START,
@@ -875,6 +876,13 @@ def _norm_settings(raw: dict[str, Any]) -> dict[str, Any]:
             key: value
             for key, value in dict(raw.get(KEY_PERMISSIONS) or {}).items()
             if value in PERMISSION_LEVELS
+        },
+        # 3.21.0: per user, the menus the administrator turned on or off
+        # with the eye (Accessi › Menu visibili); unknown menus are dropped.
+        "menu_access": {
+            str(user): menus.clean_overrides(value)
+            for user, value in dict(raw.get("menu_access") or {}).items()
+            if menus.clean_overrides(value)
         },
         # Per user: the agenda operator she is, whether the account is the
         # shared reception tablet, and her PIN (salted hash only).
