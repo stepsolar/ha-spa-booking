@@ -70,6 +70,16 @@ l'operatrice è già impostata su di lei.
 
 Utenti, ruoli e PIN si gestiscono in [Configurazione › Accessi](#accessi).
 
+**Menu sul telefono** (3.21.1). Sul telefono le icone fisse in alto non ci
+sono più: il tasto **☰** apre il menu di Spa Booking (Agenda, Nuovo, Spa,
+Clienti, Voucher, WhatsApp, Configurazione: solo quelli che l'utente può
+vedere), con chi è collegato in cima. Dentro Home Assistant l'ultima voce,
+**Menu di Home Assistant**, apre il menu di Home Assistant per cambiare
+scheda; in Spa Booking Web questa voce non c'è. Sul computer tutto resta
+com'era: le schede in alto e il ☰ che apre il menu di Home Assistant.
+
+![Menu sul telefono: chiuso, in Home Assistant, in Spa Booking Web](anteprime/154-menu-telefono.png)
+
 ---
 
 ## 2. Agenda
