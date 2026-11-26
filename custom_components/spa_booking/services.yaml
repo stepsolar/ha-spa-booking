@@ -1747,6 +1747,35 @@ loyalty_reward:
       selector:
         boolean:
 
+voucher_clients:
+  name: Clienti e punti di un voucher
+  description: >-
+    Dopo la vendita di un voucher: registra acquirente e destinatario tra i
+    clienti, dà all'acquirente i punti fedeltà dell'acquisto e gli manda il
+    WhatsApp di conferma (senza codice). Il destinatario non riceve punti.
+  fields:
+    voucher_id:
+      name: ID voucher
+      required: true
+      selector:
+        text:
+    register_buyer:
+      name: Registra l'acquirente
+      selector:
+        boolean:
+    award_points:
+      name: Dai i punti all'acquirente
+      selector:
+        boolean:
+    send_message:
+      name: Invia il WhatsApp dei punti
+      selector:
+        boolean:
+    register_recipient:
+      name: Registra il destinatario
+      selector:
+        boolean:
+
 loyalty_adjust:
   name: Rettifica punti fedelta
   description: Aggiunge (numero positivo) o toglie (negativo) punti a un cliente, con il motivo.

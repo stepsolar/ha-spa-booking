@@ -559,6 +559,28 @@ il **PIN** di chi lo vende, che resta firmato sul voucher.
 |---|---|
 | ![Nuovo voucher](anteprime/09-voucher-nuovo.png) | ![Firma con il PIN](anteprime/21-voucher-pin.png) |
 
+**Clienti e punti fedeltà** (3.23): dopo la firma si apre un popup.
+
+- **Acquirente**: viene registrato tra i clienti (o aggiornata la sua scheda,
+  riconosciuta dal telefono) e riceve subito i **punti dell'acquisto**
+  (valore del voucher × punti per euro). Con la spunta, gli parte un
+  **WhatsApp di conferma** con i punti, il saldo e quanto manca al premio,
+  **senza il codice del voucher**. Il testo si cambia in Configurazione ›
+  Promo › Punti fedeltà, passo 5.
+- **Destinatario**: viene registrato tra i clienti **senza punti**. Quando
+  prenota pagando con il voucher non ne guadagna; quando paga lui (contanti,
+  carta…) li guadagna come tutti.
+- Se sono la stessa persona, c'è una sola scheda.
+- **Non ora**: i punti restano da dare; sul voucher compare **Assegna
+  punti**, che riapre il popup.
+- **Voucher comprati sul sito**: acquirente e destinatario vengono
+  registrati e l'acquirente riceve punti e WhatsApp in automatico, alla
+  sincronizzazione con lo shop.
+
+| | |
+|---|---|
+| ![Clienti e punti fedeltà](anteprime/158-voucher-clienti-punti.png) | ![Messaggio dei punti](anteprime/159-messaggio-punti-voucher.png) |
+
 **Voucher di un pacchetto** (3.20.3): nel passo *Persone e trattamenti*, in
 alto, si sceglie il **pacchetto** dal menu (con *Cerca pacchetto* quando sono
 più di otto; quelli di Configurazione › Pacchetti). Il

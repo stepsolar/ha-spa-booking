@@ -138,6 +138,7 @@ SERVICE_REDEEM_PROMO_VOUCHER = "redeem_promo_voucher"
 SERVICE_DELETE_PROMO_VOUCHER = "delete_promo_voucher"
 SERVICE_LOYALTY_REWARD = "loyalty_reward"
 SERVICE_LOYALTY_ADJUST = "loyalty_adjust"
+SERVICE_VOUCHER_CLIENTS = "voucher_clients"
 SERVICE_SAVE_PARTNER = "save_partner"
 SERVICE_PARTNER_POINTS_ADJUST = "partner_points_adjust"
 SERVICE_SET_APPOINTMENT_PARTNER = "set_appointment_partner"
@@ -275,6 +276,7 @@ ALL_SERVICES = (
     SERVICE_DELETE_PROMO_VOUCHER,
     SERVICE_LOYALTY_REWARD,
     SERVICE_LOYALTY_ADJUST,
+    SERVICE_VOUCHER_CLIENTS,
     SERVICE_SAVE_PARTNER,
     SERVICE_PARTNER_POINTS_ADJUST,
     SERVICE_SET_APPOINTMENT_PARTNER,
@@ -1051,6 +1053,7 @@ UPDATE_SETTINGS_SCHEMA = vol.Schema(
         vol.Optional("loyalty_reward"): vol.Any(vol.Coerce(int), None),
         vol.Optional("loyalty_auto"): vol.Any(cv.boolean, None),
         vol.Optional("loyalty_message"): vol.Any(cv.string, None),
+        vol.Optional("voucher_points_message"): vol.Any(cv.string, None),
         vol.Optional("promo_order"): vol.Any(
             {
                 vol.Optional("left"): vol.All(cv.ensure_list, [cv.string]),
@@ -1370,6 +1373,17 @@ REDEEM_PROMO_VOUCHER_SCHEMA = vol.Schema(
 
 LOYALTY_REWARD_SCHEMA = vol.Schema(
     {vol.Required("client_id"): cv.string, vol.Optional("send", default=True): cv.boolean},
+    extra=vol.PREVENT_EXTRA,
+)
+
+VOUCHER_CLIENTS_SCHEMA = vol.Schema(
+    {
+        vol.Required("voucher_id"): cv.string,
+        vol.Optional("register_buyer", default=True): cv.boolean,
+        vol.Optional("award_points", default=True): cv.boolean,
+        vol.Optional("send_message", default=True): cv.boolean,
+        vol.Optional("register_recipient", default=True): cv.boolean,
+    },
     extra=vol.PREVENT_EXTRA,
 )
 
@@ -1977,6 +1991,16 @@ async def _async_loyalty_adjust(call: ServiceCall) -> ServiceResponse:
     """Add or take points by hand, with a reason."""
     return await _coordinator(call).async_loyalty_adjust(
         call.data["client_id"], call.data["points"], call.data.get("note", ""), _acting_name()
+    )
+
+
+async def _async_voucher_clients(call: ServiceCall) -> ServiceResponse:
+    """After a sale (3.23.0): buyer and recipient as clients, the buyer's points."""
+    data = call.data
+    return await _coordinator(call).async_voucher_clients(
+        data["voucher_id"], register_buyer=data.get("register_buyer", True),
+        award_points=data.get("award_points", True), send_message=data.get("send_message", True),
+        register_recipient=data.get("register_recipient", True), by=_acting_name(),
     )
 
 
@@ -3487,6 +3511,7 @@ _HANDLERS: dict[str, tuple[Any, Any, SupportsResponse]] = {
     ),
     SERVICE_LOYALTY_REWARD: (_async_loyalty_reward, LOYALTY_REWARD_SCHEMA, SupportsResponse.ONLY),
     SERVICE_LOYALTY_ADJUST: (_async_loyalty_adjust, LOYALTY_ADJUST_SCHEMA, SupportsResponse.ONLY),
+    SERVICE_VOUCHER_CLIENTS: (_async_voucher_clients, VOUCHER_CLIENTS_SCHEMA, SupportsResponse.ONLY),
     SERVICE_SAVE_PARTNER: (_async_save_partner, SAVE_PARTNER_SCHEMA, SupportsResponse.ONLY),
     SERVICE_DELETE_PARTNER: (_async_delete_partner, DELETE_PARTNER_SCHEMA, SupportsResponse.ONLY),
     SERVICE_IMPORT_PARTNERS: (_async_import_partners, IMPORT_PARTNERS_SCHEMA, SupportsResponse.ONLY),
@@ -3846,6 +3871,8 @@ SERVICE_LEVELS: dict[str, str] = {
     SERVICE_TEST_EMAIL: "admin",
     SERVICE_LOYALTY_REWARD: "operator",
     SERVICE_LOYALTY_ADJUST: "manager",
+    # Who sells a voucher registers its people and gives the buyer's points.
+    SERVICE_VOUCHER_CLIENTS: "operator",
     SERVICE_SAVE_PARTNER: "operator",
     SERVICE_DELETE_PARTNER: "manager",
     SERVICE_IMPORT_PARTNERS: "manager",

@@ -29,10 +29,12 @@ def test_points_from_takings_and_vouchers(coordinator, sent, freeze) -> None:
     _pay(coordinator, booked["id"], 40, "voucher")  # paid with a voucher: no points
     info = coordinator.loyalty_of(client)
     assert info["earned"] == 120 and info["balance"] == 120 and not info["ready"]
-    # A voucher she bought counts too (matched by phone).
-    run(coordinator.async_create_voucher(
+    # A voucher she bought counts too, once the desk confirms it (3.23.0).
+    bought = run(coordinator.async_create_voucher(
         "Anna", "+39 333 1234567", "Amica", "", [{"name": "Amica", "treatment_ids": [], "gift_card_amount": 50}],
         None, "Laura"))
+    assert coordinator.loyalty_of(client)["earned"] == 120
+    run(coordinator.async_voucher_clients(bought["id"], send_message=False, by="Laura"))
     assert coordinator.loyalty_of(client)["earned"] == 220
     # A correction by the desk.
     run(coordinator.async_loyalty_adjust(client["id"], 100, "Benvenuto", "Laura"))
@@ -52,7 +54,7 @@ def test_points_from_takings_and_vouchers(coordinator, sent, freeze) -> None:
     for appointment in coordinator.appointments:
         appointment["status"] = "cancelled"
     assert coordinator.loyalty_of(client)["earned"] == 100
-    assert [e["kind"] for e in client["loyalty_log"]] == ["rettifica", "premio"]
+    assert [e["kind"] for e in client["loyalty_log"]] == ["voucher", "rettifica", "premio"]
 
 
 def test_automatic_rewards(coordinator, sent, freeze) -> None:
