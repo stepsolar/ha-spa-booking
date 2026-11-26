@@ -1747,6 +1747,16 @@ loyalty_reward:
       selector:
         boolean:
 
+site_client:
+  name: Scheda cliente di una persona del sito
+  description: Apre (e crea se manca) la scheda cliente di una persona di Clienti › Sito.
+  fields:
+    contact_id:
+      name: ID persona del sito
+      required: true
+      selector:
+        text:
+
 voucher_clients:
   name: Clienti e punti di un voucher
   description: >-

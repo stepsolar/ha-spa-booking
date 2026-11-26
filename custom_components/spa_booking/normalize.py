@@ -1517,6 +1517,11 @@ def _norm_client(raw: dict[str, Any]) -> dict[str, Any]:
         "email": str(raw.get("email") or "").strip(),
         "notes": str(raw.get("notes") or ""),
         "created_at": str(raw.get("created_at") or dt_util.utcnow().isoformat()),
+        # 3.23.1: what she spent on the shop of the site (Clienti › Sito),
+        # past orders included: it earns loyalty points like the desk.
+        "shop_total": round(max(0.0, float(raw.get("shop_total") or 0)), 2)
+        if str(raw.get("shop_total") or "0").replace(".", "", 1).isdigit() else 0.0,
+        "shop_orders": _norm_count(raw.get("shop_orders"), 0, 100_000, 0),
         # Whether the client wants to receive the promotional messages. Default
         # true: a card without the flag (every card that predates it) keeps
         # receiving promos until the desk deliberately unsubscribes it.

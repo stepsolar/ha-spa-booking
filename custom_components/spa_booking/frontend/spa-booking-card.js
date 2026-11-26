@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "3.23.0";
+const CARD_VERSION = "3.23.1";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -11506,14 +11506,32 @@ class SpaBookingCard extends HTMLElement {
   _openVoucherClients(voucherId, fresh) {
     const voucher = (this._data.vouchers || []).find((v) => v.id === voucherId);
     const settings = this._data.settings || {};
-    const loyalty = !!settings.loyalty_enabled && (!voucher || voucher.points_state !== "awarded");
+    const loyalty = !!settings.loyalty_enabled && !this._voucherPointsCounted(voucher);
     this._voucherClients = {
       voucher_id: voucherId, fresh,
       register_buyer: true, award_points: loyalty,
-      send_message: loyalty && !!(voucher && voucher.buyer_phone),
+      // An old voucher: no message about a purchase made long ago, unless asked.
+      send_message: loyalty && !!(voucher && voucher.buyer_phone) && (fresh || voucher.points_state === "pending"),
       register_recipient: true, busy: false, error: "",
     };
     this._render();
+  }
+
+  /** Whether the buyer's points for a voucher already count: given, or a
+   *  desk voucher from before 3.23 whose buyer is a client (by phone). */
+  _voucherPointsCounted(voucher) {
+    if (!voucher) return false;
+    if (voucher.points_state === "awarded") return true;
+    return !voucher.points_state && !voucher.source && !!this._voucherClientMatch(voucher.buyer_phone);
+  }
+
+  /** Whether the buyer or the recipient of a voucher has no client card. */
+  _voucherMissingClients(voucher) {
+    const known = (id) => id && (this._data.clients || []).some((c) => c.id === id);
+    const missing = (id, name, phone) => (name || phone) && !known(id) && !this._voucherClientMatch(phone)
+      && !(!phone && (this._data.clients || []).some((c) => [c.first_name, c.last_name].filter(Boolean).join(" ").toLowerCase() === String(name).trim().toLowerCase()));
+    return missing(voucher.buyer_client_id, voucher.buyer_name, voucher.buyer_phone)
+      || missing(voucher.recipient_client_id, voucher.recipient_name, voucher.recipient_phone);
   }
 
   /** A person of the voucher already among the clients, by phone. */
@@ -11558,7 +11576,8 @@ class SpaBookingCard extends HTMLElement {
     function match(found, yes, no) { return found ? yes : no; }
     if (loyaltyOn) {
       buyerRows.push(check("award_points", `Assegna ${points} punti per l'acquisto`,
-        `${euro(value)} × ${String(rate).replace(".", ",")} punti per euro → saldo ${balanceNow + points} punti`, voucher.points_state === "awarded"));
+        this._voucherPointsCounted(voucher) ? "Già contati nel saldo dell'acquirente"
+          : `${euro(value)} × ${String(rate).replace(".", ",")} punti per euro → saldo ${balanceNow + points} punti`, this._voucherPointsCounted(voucher)));
       buyerRows.push(check("send_message", "Invia il WhatsApp di conferma dei punti",
         voucher.buyer_phone ? "Senza il codice del voucher" : "L'acquirente non ha un telefono", !voucher.buyer_phone || !state.award_points));
     }
@@ -11801,6 +11820,13 @@ class SpaBookingCard extends HTMLElement {
         class: "btn small", title: "Registra i clienti e dai i punti all'acquirente", disabled: this._busy,
         on: { click: () => this._openVoucherClients(voucher.id, false) },
       }, el("ha-icon", { icon: "mdi:star-plus-outline" }), el("span", { class: "label" }, "Assegna punti")));
+    }
+    // 3.23.1: buyer or recipient not among the clients yet.
+    else if ((!voucher.source || voucher.source === "wordpress") && this._can("book") && this._voucherMissingClients(voucher)) {
+      actions.appendChild(el("button", {
+        class: "btn small", title: "Registra acquirente e destinatario tra i clienti", disabled: this._busy,
+        on: { click: () => this._openVoucherClients(voucher.id, false) },
+      }, el("ha-icon", { icon: "mdi:account-plus-outline" }), el("span", { class: "label" }, "Crea clienti")));
     }
     if (canManage && state !== "riscattato") {
       actions.appendChild(el("button", {
@@ -13417,6 +13443,16 @@ class SpaBookingCard extends HTMLElement {
     const items = [];
     const client = contact.client_id && (this._data.clients || []).find((c) => c.id === contact.client_id);
     if (client) items.push(item("mdi:card-account-details-outline", "Apri la scheda cliente", () => { this._clientsTab = "clienti"; this._clientSelected = client.id; this._render(); }));
+    // 3.23.1: no card yet: made from what the site knows, then opened.
+    else items.push(item("mdi:card-account-details-outline", "Apri la scheda cliente", async () => {
+      try {
+        const response = await this._service("site_client", { contact_id: contact.id });
+        await this._loadData();
+        const made = response && response.client;
+        if (made) { this._clientsTab = "clienti"; this._clientSelected = made.id; }
+        this._render();
+      } catch (error) { this._message = { kind: "error", text: this._friendlyError(error, "Scheda non creata.") }; this._render(); }
+    }));
     if (contact.phone) items.push(el("a", { class: "pm-item", href: telHref(contact.phone), on: { click: close } }, el("ha-icon", { icon: "mdi:phone" }), el("span", {}, "Chiama")));
     if (contact.phone && waLink(contact.phone)) items.push(el("a", { class: "pm-item wa", href: waLink(contact.phone), target: "_blank", rel: "noopener", on: { click: close } }, el("ha-icon", { icon: "mdi:whatsapp" }), el("span", {}, "WhatsApp")));
     if (contact.email) items.push(item("mdi:content-copy", "Copia l'email", async () => {
@@ -14117,7 +14153,9 @@ class SpaBookingCard extends HTMLElement {
           ? `Ha raggiunto il premio: buono da ${euro(reward)}.`
           : `Mancano ${threshold - info.balance} punti al buono da ${euro(reward)} (${threshold} punti).`)
         : "Imposta la soglia in Promo › Punti fedeltà."),
-      el("div", { class: "dim small" }, `Guadagnati ${info.earned}${info.adjust ? ` · rettifiche ${info.adjust > 0 ? "+" : ""}${info.adjust}` : ""}${info.spent ? ` · usati ${info.spent}` : ""}`));
+      el("div", { class: "dim small" }, `Guadagnati ${info.earned}${info.adjust ? ` · rettifiche ${info.adjust > 0 ? "+" : ""}${info.adjust}` : ""}${info.spent ? ` · usati ${info.spent}` : ""}`),
+      // 3.23.1: what she spent on the shop of the site, past orders too.
+      info.shop ? el("div", { class: "dim small" }, `Acquisti sul sito: ${euro(info.shop)}${client.shop_orders ? ` (${client.shop_orders} ${client.shop_orders === 1 ? "ordine" : "ordini"})` : ""}`) : null);
     const actions = el("div", { class: "lp-actions" });
     if (threshold && info.balance >= threshold && this._can("book")) {
       actions.appendChild(el("button", { class: "btn small primary", disabled: this._busy, on: { click: async () => {
