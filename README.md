@@ -111,6 +111,11 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v3.23.2** — (serve il riavvio di Home Assistant)
+  - **Spa Booking Web: icone mancanti**: 30 icone aggiunte nelle ultime
+    versioni (occhio dei menu, lucchetti, Crea clienti, Assegna punti, letti
+    degli accessori, Home Assistant…) comparivano come tasti vuoti. Un test
+    ora controlla che ogni icona della card abbia il suo disegno.
 - **v3.23.1** — (serve il riavvio di Home Assistant)
   - **Crea clienti** sui voucher creati prima, se acquirente o destinatario
     non sono tra i clienti; modificando un voucher vengono registrati da soli.
