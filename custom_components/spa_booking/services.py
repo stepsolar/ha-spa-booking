@@ -139,6 +139,7 @@ SERVICE_DELETE_PROMO_VOUCHER = "delete_promo_voucher"
 SERVICE_LOYALTY_REWARD = "loyalty_reward"
 SERVICE_LOYALTY_ADJUST = "loyalty_adjust"
 SERVICE_VOUCHER_CLIENTS = "voucher_clients"
+SERVICE_SITE_CLIENT = "site_client"
 SERVICE_SAVE_PARTNER = "save_partner"
 SERVICE_PARTNER_POINTS_ADJUST = "partner_points_adjust"
 SERVICE_SET_APPOINTMENT_PARTNER = "set_appointment_partner"
@@ -277,6 +278,7 @@ ALL_SERVICES = (
     SERVICE_LOYALTY_REWARD,
     SERVICE_LOYALTY_ADJUST,
     SERVICE_VOUCHER_CLIENTS,
+    SERVICE_SITE_CLIENT,
     SERVICE_SAVE_PARTNER,
     SERVICE_PARTNER_POINTS_ADJUST,
     SERVICE_SET_APPOINTMENT_PARTNER,
@@ -1387,6 +1389,8 @@ VOUCHER_CLIENTS_SCHEMA = vol.Schema(
     extra=vol.PREVENT_EXTRA,
 )
 
+SITE_CLIENT_SCHEMA = vol.Schema({vol.Required("contact_id"): cv.string}, extra=vol.PREVENT_EXTRA)
+
 LOYALTY_ADJUST_SCHEMA = vol.Schema(
     {
         vol.Required("client_id"): cv.string,
@@ -1946,6 +1950,15 @@ async def _async_update_voucher(call: ServiceCall) -> ServiceResponse:
         data["voucher_id"], data["buyer_name"], data["buyer_phone"], data["recipient_name"], data["recipient_phone"],
         data["people"], name, package_key=data.get("package_key"),
     )
+    # 3.23.1: buyer and recipient among the clients after an edit too (the
+    # points stay as they were: «Assegna punti» gives them).
+    try:
+        result = await coordinator.async_voucher_clients(
+            data["voucher_id"], register_buyer=True, award_points=False, send_message=False,
+            register_recipient=True, by=name)
+        voucher = result["voucher"]
+    except ValidationError:
+        pass
     return {"voucher": voucher}
 
 
@@ -2002,6 +2015,11 @@ async def _async_voucher_clients(call: ServiceCall) -> ServiceResponse:
         award_points=data.get("award_points", True), send_message=data.get("send_message", True),
         register_recipient=data.get("register_recipient", True), by=_acting_name(),
     )
+
+
+async def _async_site_client(call: ServiceCall) -> ServiceResponse:
+    """The client card of a person of the site, made if missing (3.23.1)."""
+    return {"client": await _coordinator(call).async_site_client(call.data["contact_id"])}
 
 
 async def _async_save_partner(call: ServiceCall) -> ServiceResponse:
@@ -3512,6 +3530,7 @@ _HANDLERS: dict[str, tuple[Any, Any, SupportsResponse]] = {
     SERVICE_LOYALTY_REWARD: (_async_loyalty_reward, LOYALTY_REWARD_SCHEMA, SupportsResponse.ONLY),
     SERVICE_LOYALTY_ADJUST: (_async_loyalty_adjust, LOYALTY_ADJUST_SCHEMA, SupportsResponse.ONLY),
     SERVICE_VOUCHER_CLIENTS: (_async_voucher_clients, VOUCHER_CLIENTS_SCHEMA, SupportsResponse.ONLY),
+    SERVICE_SITE_CLIENT: (_async_site_client, SITE_CLIENT_SCHEMA, SupportsResponse.ONLY),
     SERVICE_SAVE_PARTNER: (_async_save_partner, SAVE_PARTNER_SCHEMA, SupportsResponse.ONLY),
     SERVICE_DELETE_PARTNER: (_async_delete_partner, DELETE_PARTNER_SCHEMA, SupportsResponse.ONLY),
     SERVICE_IMPORT_PARTNERS: (_async_import_partners, IMPORT_PARTNERS_SCHEMA, SupportsResponse.ONLY),
@@ -3873,6 +3892,7 @@ SERVICE_LEVELS: dict[str, str] = {
     SERVICE_LOYALTY_ADJUST: "manager",
     # Who sells a voucher registers its people and gives the buyer's points.
     SERVICE_VOUCHER_CLIENTS: "operator",
+    SERVICE_SITE_CLIENT: "operator",
     SERVICE_SAVE_PARTNER: "operator",
     SERVICE_DELETE_PARTNER: "manager",
     SERVICE_IMPORT_PARTNERS: "manager",

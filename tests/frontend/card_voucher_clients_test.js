@@ -36,5 +36,20 @@ card._saveVoucherClients().then(() => {
   card._openVoucherClients("v1", true);
   const off = card._renderVoucherClients().textContent;
   assert(!off.includes("Assegna") && off.includes("I punti fedeltà sono spenti"), off);
+  oldVouchers();
   console.log("ok");
 });
+
+function oldVouchers() {
+  // 3.23.1: «Crea clienti» on a voucher whose people are not clients yet.
+  const old = { id: "v2", code: "VCH-OLD", buyer_name: "Marta Neri", buyer_phone: "347 5550001",
+    recipient_name: "Elisa", recipient_phone: "", status: "active", people: [] };
+  card._data = { vouchers: [old], clients: [], loyalty: {}, settings: { loyalty_enabled: true, loyalty_points_per_euro: 1 } };
+  assert(card._voucherMissingClients(old) === true, "missing");
+  card._openVoucherClients("v2", false);
+  assert(card._voucherClients.award_points === true && card._voucherClients.send_message === false, "old: no message by default");
+  card._data.clients = [{ id: "c9", first_name: "Marta", last_name: "Neri", phone: "+39 347 5550001" }, { id: "c10", first_name: "Elisa" }];
+  assert(card._voucherMissingClients(old) === false, "both known");
+  assert(card._voucherPointsCounted(old) === true, "old desk voucher of a client: already counted");
+}
+

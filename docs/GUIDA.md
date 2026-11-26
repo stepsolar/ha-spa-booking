@@ -423,6 +423,16 @@ ricevere offerte. I filtri in alto mostrano un gruppo alla volta; ⋮ apre la
 scheda cliente, chiama, scrive su WhatsApp, copia l'email o ferma le
 offerte a quella persona.
 
+**Punti fedeltà degli acquisti sul sito** (3.23.1): chi ha comprato nello
+shop ha una scheda cliente, creata da sola alla sincronizzazione, e
+guadagna i punti di tutto quello che ha speso sul sito, ordini passati
+compresi (nella scheda: «Acquisti sul sito»). Un voucher comprato sul sito
+conta una volta sola. ⋮ › **Apri la scheda cliente** funziona per tutte le
+persone del sito: se la scheda non c'è, viene creata con nome, telefono ed
+email del sito.
+
+![Punti degli acquisti sul sito](anteprime/161-punti-acquisti-sito.png)
+
 L'elenco si aggiorna da solo ogni ora (o con **Aggiorna dal sito**) e
 richiede il plugin WordPress **Spa Booking Connector 1.2.0** (vedi Shop
 online).
@@ -580,6 +590,15 @@ il **PIN** di chi lo vende, che resta firmato sul voucher.
 | | |
 |---|---|
 | ![Clienti e punti fedeltà](anteprime/158-voucher-clienti-punti.png) | ![Messaggio dei punti](anteprime/159-messaggio-punti-voucher.png) |
+
+**Voucher creati prima** (3.23.1): se l'acquirente o il destinatario non è
+ancora tra i clienti, sul voucher c'è **Crea clienti**, che apre lo stesso
+popup. Per un voucher vecchio il WhatsApp dei punti è spento (si può
+accendere); se l'acquirente era già cliente, i suoi punti erano già contati.
+**Modificando e salvando** un voucher, acquirente e destinatario vengono
+registrati da soli (i punti restano da dare con *Assegna punti*).
+
+![Crea clienti su un voucher](anteprime/160-voucher-crea-clienti.png)
 
 **Voucher di un pacchetto** (3.20.3): nel passo *Persone e trattamenti*, in
 alto, si sceglie il **pacchetto** dal menu (con *Cerca pacchetto* quando sono

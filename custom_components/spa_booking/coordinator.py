@@ -3560,18 +3560,26 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     continue
                 paid += float(item.get("amount") or 0)
         bought = 0.0
+        online = 0.0
         phone = str(client.get("phone") or "")
         for voucher in self.vouchers:
             state = voucher.get("points_state") or ""
             if state == "awarded":
                 # 3.23.0: given to the buyer's card when the voucher was sold.
                 if voucher.get("buyer_client_id") == client["id"]:
-                    bought += self._voucher_value(voucher)
+                    if voucher.get("source") == "wordpress":
+                        online += self._voucher_value(voucher)
+                    else:
+                        bought += self._voucher_value(voucher)
                 continue
             if state or voucher.get("source") or not voucher.get("buyer_phone") or not phone:
                 continue  # pending, or not a desk sale from before 3.23
             if _same_phone(voucher["buyer_phone"], phone):
                 bought += self._voucher_value(voucher)
+        # 3.23.1: the shop of the site, past orders included. Its total holds
+        # the vouchers bought there, so the larger of the two counts, once.
+        shop = max(float(client.get("shop_total") or 0), online)
+        bought += shop
         earned = int(math.floor((paid + bought) * rate + 1e-9))
         adjust = int(client.get("loyalty_adjust") or 0)
         spent = int(client.get("loyalty_spent") or 0)
@@ -3579,7 +3587,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         balance = earned + adjust - spent
         return {
             "earned": earned, "adjust": adjust, "spent": spent, "balance": balance,
-            "paid": round(paid, 2), "bought": round(bought, 2),
+            "paid": round(paid, 2), "bought": round(bought, 2), "shop": round(shop, 2),
             "threshold": threshold, "ready": bool(threshold) and balance >= threshold,
         }
 
@@ -4920,7 +4928,58 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                    "first_order": c["shop_last_at"]}
                   for c in self.site_contacts if c.get("shop_orders")]
         self._data[KEY_SITE_CONTACTS] = site_mod.merge(self.site_contacts, newsletter, buyers, self._web_booking_rows())
+        self._link_site_clients()
         self._site_link_coupons()
+
+    def _site_client_of(self, contact: dict[str, Any], create: bool) -> dict[str, Any] | None:
+        """The client card of a person of the site: by phone, then e-mail;
+        made when ``create`` (a shop buyer, or «Apri la scheda cliente»)."""
+        known = {c["id"]: c for c in self.clients}
+        if contact.get("client_id") in known:
+            return known[contact["client_id"]]
+        phone = str(contact.get("phone") or "")
+        email = str(contact.get("email") or "").strip().lower()
+        found = next((c for c in self.clients if phone and _same_phone(c.get("phone") or "", phone)), None)
+        if found is None and email:
+            found = next((c for c in self.clients if str(c.get("email") or "").strip().lower() == email), None)
+        if found is None and create and (contact.get("first_name") or contact.get("last_name") or phone or email):
+            found = _norm_client({
+                "first_name": contact.get("first_name") or (email.split("@")[0] if email and not phone else ""),
+                "last_name": contact.get("last_name") or "", "phone": phone, "email": email,
+                "notes": "Dal sito",
+            })
+            self.clients.append(found)
+        if found is not None:
+            contact["client_id"] = found["id"]
+        return found
+
+    def _link_site_clients(self) -> None:
+        """Clienti › Sito (3.23.1): every shop buyer gets a client card with
+        what she spent on the shop, so her purchases earn loyalty points,
+        past ones too. Must be called under the lock."""
+        totals: dict[str, list[float]] = {}
+        for contact in self.site_contacts:
+            client = self._site_client_of(contact, create=int(contact.get("shop_orders") or 0) > 0)
+            if client is None:
+                continue
+            row = totals.setdefault(client["id"], [0.0, 0])
+            row[0] += float(contact.get("shop_total") or 0)
+            row[1] += int(contact.get("shop_orders") or 0)
+        for client in self.clients:
+            spent, orders = totals.get(client["id"], (0.0, 0))
+            client["shop_total"] = round(spent, 2)
+            client["shop_orders"] = int(orders)
+
+    async def async_site_client(self, contact_id: str) -> dict[str, Any]:
+        """«Apri la scheda cliente» on a person of the site: made if missing."""
+        async with self._lock:
+            contact = self._find(self.site_contacts, contact_id, "Persona del sito")
+            client = self._site_client_of(contact, create=True)
+            if client is None:
+                raise ValidationError("Servono almeno un nome, un telefono o un'email")
+            self._link_site_clients()
+            await self._async_save()
+        return self.client_payload(client)
 
     def _site_link_coupons(self) -> None:
         """Names on the newsletter codes, from the people they belong to."""
@@ -4955,6 +5014,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         async with self._lock:
             self._data[KEY_SITE_CONTACTS] = site_mod.merge(
                 self.site_contacts, payload.get("newsletter") or [], payload.get("buyers") or [], self._web_booking_rows())
+            self._link_site_clients()
             by_code = {v["code"]: v for v in self.promo_vouchers}
             for coupon in payload.get("coupons") or []:
                 code = str(coupon.get("code") or "").strip()

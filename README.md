@@ -111,6 +111,12 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v3.23.1** — (serve il riavvio di Home Assistant)
+  - **Crea clienti** sui voucher creati prima, se acquirente o destinatario
+    non sono tra i clienti; modificando un voucher vengono registrati da soli.
+  - **Clienti del sito**: chi ha acquistato nello shop ha la sua scheda
+    cliente e i punti fedeltà di tutti gli acquisti, anche passati; ⋮ › Apri
+    la scheda cliente crea la scheda quando manca.
 - **v3.23.0** — (serve il riavvio di Home Assistant)
   - **Voucher: clienti e punti fedeltà**: dopo aver creato un voucher, un
     popup registra acquirente e destinatario tra i clienti, dà all'acquirente
