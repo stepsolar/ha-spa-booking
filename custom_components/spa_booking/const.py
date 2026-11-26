@@ -835,6 +835,19 @@ DEFAULT_PARTNER_REWARD_MESSAGE: Final = "\n".join(
     ]
 )
 
+#: 3.23.0: to the buyer of a voucher, with the points the purchase earned.
+#: Never the voucher's code: it is a gift for someone else.
+DEFAULT_VOUCHER_POINTS_MESSAGE: Final = "\n".join(
+    [
+        "Gentile {nome}, grazie per il Suo acquisto! 🎁",
+        "",
+        "Con questo acquisto ha ottenuto *{punti} punti* fedeltà.",
+        "Il Suo saldo è di *{saldo} punti*.{mancano}",
+        "",
+        "Lo Staff - Il Marchese Hotel & Spa",
+    ]
+)
+
 DEFAULT_LOYALTY_MESSAGE: Final = "\n".join(
     [
         "Gentile {nome}, grazie per la Sua fedeltà! 💆‍♀️✨",

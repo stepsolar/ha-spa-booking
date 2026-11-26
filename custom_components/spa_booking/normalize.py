@@ -29,6 +29,7 @@ from .const import (
     DEFAULT_LOYALTY_THRESHOLD,
     DEFAULT_LOYALTY_REWARD,
     DEFAULT_LOYALTY_MESSAGE,
+    DEFAULT_VOUCHER_POINTS_MESSAGE,
     DEFAULT_PARTNER_REWARD_MESSAGE,
     DEFAULT_PARTNER_REWARD_POINTS,
     DEFAULT_PARTNER_REWARD_VALUE,
@@ -249,6 +250,14 @@ def _norm_voucher(raw: Any) -> dict[str, Any]:
         # ("punti", 2.4.0), which earns no points itself.
         "source": str(raw.get("source") or ""),
         "client_id": str(raw.get("client_id") or ""),
+        # 3.23.0: the buyer's points for the purchase. "" = a voucher from
+        # before (points by phone, as then); "pending" = sold at the desk, not
+        # given yet («Assegna punti»); "awarded" = given to buyer_client_id.
+        "points_state": str(raw.get("points_state") or "")
+        if raw.get("points_state") in ("pending", "awarded") else "",
+        "points_at": str(raw.get("points_at") or ""),
+        "buyer_client_id": str(raw.get("buyer_client_id") or ""),
+        "recipient_client_id": str(raw.get("recipient_client_id") or ""),
         # Sold on the WordPress shop (2.7.0, source "wordpress").
         "wp_code": str(raw.get("wp_code") or "").strip(),
         "wp_order_id": str(raw.get("wp_order_id") or ""),
@@ -1256,6 +1265,7 @@ def _norm_settings(raw: dict[str, Any]) -> dict[str, Any]:
         "loyalty_reward": _norm_count(raw.get("loyalty_reward"), 1, 100_000, DEFAULT_LOYALTY_REWARD),
         "loyalty_auto": bool(raw.get("loyalty_auto", True)),
         "loyalty_message": str(raw.get("loyalty_message") or DEFAULT_LOYALTY_MESSAGE),
+        "voucher_points_message": str(raw.get("voucher_points_message") or DEFAULT_VOUCHER_POINTS_MESSAGE),
         "promo_voucher_auto": bool(
             raw.get("promo_voucher_auto", DEFAULT_PROMO_VOUCHER_AUTO)
         ),

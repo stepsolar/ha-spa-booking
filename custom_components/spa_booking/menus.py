@@ -147,7 +147,7 @@ def setting_tab(key: str) -> str:
         return "accessori"
     if key.startswith("wp_") or key == "site_coupon_prefix":
         return "shop"
-    if key.startswith(("promo", "loyalty_")):
+    if key.startswith(("promo", "loyalty_", "partner_")) or key == "voucher_points_message":
         return "promo"
     if key.startswith(("email_", "smtp_", "google_")):
         return "email"

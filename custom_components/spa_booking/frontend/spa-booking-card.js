@@ -18,7 +18,7 @@
  */
 
 const DOMAIN = "spa_booking";
-const CARD_VERSION = "3.22.0";
+const CARD_VERSION = "3.23.0";
 
 // Window of the "Uscite" panel at the top of the agenda: it opens this many
 // minutes before an appointment ends and lingers this many minutes after,
@@ -4152,6 +4152,7 @@ class SpaBookingCard extends HTMLElement {
     if (this._mediaView) add(root, this._renderMediaView());
     if (this._noticePanel) add(root, this._renderNoticePanel());
     if (this._dayBlock) add(root, this._renderDayBlock());
+    if (this._voucherClients) add(root, this._renderVoucherClients());
     // 3.21.1: the phone menu behind the hamburger.
     if (this._navOpen && this._isPhone()) add(root, this._renderNavDrawer());
     if (this._changePopup) add(root, this._renderChangePopup());
@@ -11484,6 +11485,10 @@ class SpaBookingCard extends HTMLElement {
       const voucher = response && response.voucher;
       await this._loadData();
       this._voucherCreated = voucher ? voucher.id : null;
+      // 3.23.0: buyer and recipient among the clients, the buyer's points.
+      if (voucher && (voucher.buyer_name || voucher.buyer_phone || voucher.recipient_name || voucher.recipient_phone)) {
+        this._openVoucherClients(voucher.id, true);
+      }
       this._message = {
         kind: "ok",
         text: `Voucher creato: ${voucher ? voucher.code : ""}${voucher && voucher.created_by_name ? `, firmato da ${voucher.created_by_name}` : ""}`,
@@ -11493,6 +11498,123 @@ class SpaBookingCard extends HTMLElement {
       pin.busy = false;
       pin.typed = "";
       pin.error = this._friendlyError(error, "PIN non accettato.");
+      this._render();
+    }
+  }
+
+  /** The popup «Clienti e punti fedeltà» of a voucher (3.23.0). */
+  _openVoucherClients(voucherId, fresh) {
+    const voucher = (this._data.vouchers || []).find((v) => v.id === voucherId);
+    const settings = this._data.settings || {};
+    const loyalty = !!settings.loyalty_enabled && (!voucher || voucher.points_state !== "awarded");
+    this._voucherClients = {
+      voucher_id: voucherId, fresh,
+      register_buyer: true, award_points: loyalty,
+      send_message: loyalty && !!(voucher && voucher.buyer_phone),
+      register_recipient: true, busy: false, error: "",
+    };
+    this._render();
+  }
+
+  /** A person of the voucher already among the clients, by phone. */
+  _voucherClientMatch(phone) {
+    const digits = (value) => String(value || "").replace(/\D/g, "").replace(/^(00)?39(?=\d{9,10}$)/, "");
+    const wanted = digits(phone);
+    if (!wanted) return null;
+    return (this._data.clients || []).find((c) => digits(c.phone) === wanted) || null;
+  }
+
+  _renderVoucherClients() {
+    const state = this._voucherClients;
+    const voucher = (this._data.vouchers || []).find((v) => v.id === state.voucher_id);
+    if (!voucher) { this._voucherClients = null; return null; }
+    const settings = this._data.settings || {};
+    const rate = Number(settings.loyalty_points_per_euro) || 0;
+    const value = voucher.value != null ? Number(voucher.value)
+      : (voucher.people || []).reduce((sum, p) => sum + (p.treatment_ids || []).reduce((s, id) => s + (Number((this._lookup.treatment.get(id) || {}).price) || 0), 0)
+        + (Number(p.gift_card_amount) || 0), 0);
+    const points = Math.floor(value * rate + 1e-9);
+    const loyaltyOn = !!settings.loyalty_enabled;
+    const buyerMatch = this._voucherClientMatch(voucher.buyer_phone);
+    const recipientMatch = this._voucherClientMatch(voucher.recipient_phone);
+    const samePerson = voucher.recipient_phone && buyerMatch && recipientMatch && buyerMatch.id === recipientMatch.id
+      || (voucher.recipient_phone && voucher.buyer_phone
+        && String(voucher.recipient_phone).replace(/\D/g, "").slice(-9) === String(voucher.buyer_phone).replace(/\D/g, "").slice(-9));
+    const balanceNow = buyerMatch ? (((this._data.loyalty || {})[buyerMatch.id] || {}).balance || 0) : 0;
+    const close = () => { this._voucherClients = null; this._render(); };
+    const check = (key, label, sub, disabled = false) => el("label", { class: `vc-check${disabled ? " off" : ""}` },
+      el("input", { type: "checkbox", checked: !!state[key] && !disabled, disabled: disabled || state.busy,
+        on: { change: (event) => { state[key] = event.target.checked; if (key === "award_points" && !event.target.checked) state.send_message = false; this._render(); } } }),
+      el("span", {}, el("b", {}, label), sub ? el("small", {}, sub) : null));
+    const person = (icon, role, name, phone, match, rows) => el("div", { class: "vc-person" },
+      el("div", { class: "vc-who" },
+        el("ha-icon", { icon }),
+        el("div", { class: "grow" },
+          el("div", { class: "dim small" }, role),
+          el("div", { class: "vc-name" }, name || "—", phone ? el("span", { class: "dim" }, ` · ${phone}`) : null)),
+        el("span", { class: `vc-tag${match ? " old" : ""}` }, match ? "già cliente" : "nuovo cliente")),
+      ...rows);
+    const buyerRows = [check("register_buyer", match(buyerMatch, "Aggiorna la scheda cliente", "Registra tra i clienti"))];
+    function match(found, yes, no) { return found ? yes : no; }
+    if (loyaltyOn) {
+      buyerRows.push(check("award_points", `Assegna ${points} punti per l'acquisto`,
+        `${euro(value)} × ${String(rate).replace(".", ",")} punti per euro → saldo ${balanceNow + points} punti`, voucher.points_state === "awarded"));
+      buyerRows.push(check("send_message", "Invia il WhatsApp di conferma dei punti",
+        voucher.buyer_phone ? "Senza il codice del voucher" : "L'acquirente non ha un telefono", !voucher.buyer_phone || !state.award_points));
+    }
+    const sheet = el("div", { class: "detail-sheet vc-sheet", role: "dialog", "aria-label": "Clienti e punti fedeltà" },
+      el("div", { class: "section-head" },
+        el("span", { class: "section-icon" }, el("ha-icon", { icon: "mdi:account-star-outline" })),
+        el("div", { class: "section-text" },
+          el("div", { class: "section-title" }, "Clienti e punti fedeltà"),
+          el("div", { class: "section-sub" }, state.fresh ? `Voucher ${voucher.code} creato. Salva chi l'ha comprato e chi lo riceve.` : `Voucher ${voucher.code}.`)),
+        el("button", { class: "icon-btn", title: "Chiudi", on: { click: close } }, el("ha-icon", { icon: "mdi:close" }))),
+      person("mdi:cart-outline", "Acquirente", voucher.buyer_name, voucher.buyer_phone, buyerMatch, buyerRows),
+      samePerson
+        ? el("div", { class: "hint" }, "Il destinatario è la stessa persona: una sola scheda cliente.")
+        : (voucher.recipient_name || voucher.recipient_phone)
+          ? person("mdi:gift-outline", "Destinatario", voucher.recipient_name, voucher.recipient_phone, recipientMatch,
+            [check("register_recipient", match(recipientMatch, "Aggiorna la scheda cliente", "Registra tra i clienti"),
+              "Nessun punto: il voucher è un regalo. Li otterrà quando paga una prenotazione senza voucher.")])
+          : null,
+      !loyaltyOn ? el("div", { class: "hint" }, "I punti fedeltà sono spenti (Configurazione › Promo › Punti fedeltà).") : null,
+      state.error ? el("div", { class: "error" }, state.error) : null,
+      el("div", { class: "row tight vc-actions" },
+        el("button", { class: "btn", disabled: state.busy, on: { click: close } }, loyaltyOn && voucher.points_state === "pending" ? "Non ora" : "Annulla"),
+        el("button", {
+          class: "btn primary", disabled: state.busy || !(state.register_buyer || state.award_points || state.register_recipient),
+          on: { click: () => this._saveVoucherClients() },
+        }, el("ha-icon", { icon: "mdi:check" }), "Conferma")),
+      loyaltyOn && voucher.points_state === "pending"
+        ? el("div", { class: "hint" }, "Con «Non ora» i punti si possono dare dopo con «Assegna punti» sul voucher.") : null);
+    return el("div", { class: "detail-backdrop", on: { click: (event) => { if (event.target === event.currentTarget) close(); } } }, sheet);
+  }
+
+  async _saveVoucherClients() {
+    const state = this._voucherClients;
+    state.busy = true;
+    state.error = "";
+    this._render();
+    try {
+      const response = await this._service("voucher_clients", {
+        voucher_id: state.voucher_id,
+        register_buyer: !!state.register_buyer,
+        award_points: !!state.award_points,
+        send_message: !!state.send_message && !!state.award_points,
+        register_recipient: !!state.register_recipient,
+      });
+      this._voucherClients = null;
+      await this._loadData();
+      const parts = [];
+      if (response && response.points) parts.push(`${response.points} punti all'acquirente`);
+      if (response && response.sent) parts.push("WhatsApp inviato");
+      else if (response && response.error && response.points) parts.push(`WhatsApp non inviato: ${response.error}`);
+      this._message = { kind: response && response.error && !response.sent && response.points ? "warn" : "ok",
+        text: `Clienti salvati${parts.length ? `: ${parts.join(", ")}` : ""}.` };
+      this._render();
+    } catch (error) {
+      state.busy = false;
+      state.error = this._friendlyError(error, "Non salvato.");
       this._render();
     }
   }
@@ -11672,6 +11794,14 @@ class SpaBookingCard extends HTMLElement {
       }, el("ha-icon", { icon: "mdi:calendar-plus" }), el("span", { class: "label" }, "Prenota")));
     }
     if (state !== "riscattato") add(actions, this._voucherSendButton(voucher, true));
+    // 3.23.0: the buyer's points left for later («Non ora»).
+    if (voucher.points_state === "pending" && (!voucher.source || voucher.source === "wordpress")
+        && (this._data.settings || {}).loyalty_enabled && this._can("book")) {
+      actions.appendChild(el("button", {
+        class: "btn small", title: "Registra i clienti e dai i punti all'acquirente", disabled: this._busy,
+        on: { click: () => this._openVoucherClients(voucher.id, false) },
+      }, el("ha-icon", { icon: "mdi:star-plus-outline" }), el("span", { class: "label" }, "Assegna punti")));
+    }
     if (canManage && state !== "riscattato") {
       actions.appendChild(el("button", {
         class: "btn small", title: "Nuova scadenza", disabled: this._busy,
@@ -14016,7 +14146,7 @@ class SpaBookingCard extends HTMLElement {
     if (log.length) {
       box.appendChild(el("div", { class: "lp-log" }, log.map((item) => el("div", { class: "lp-log-row" },
         el("span", { class: `lp-pts ${item.points >= 0 ? "plus" : "minus"}` }, `${item.points > 0 ? "+" : ""}${item.points}`),
-        el("span", { class: "grow" }, item.kind === "premio" ? `Premio ${item.code ? `· ${item.code}` : ""}` : (item.note || "Rettifica")),
+        el("span", { class: "grow" }, item.kind === "premio" ? `Premio ${item.code ? `· ${item.code}` : ""}` : item.kind === "voucher" ? "Acquisto voucher" : (item.note || "Rettifica")),
         el("span", { class: "dim small" }, item.at ? shortDate(item.at) : "")))));
     }
     return box;
@@ -14058,6 +14188,15 @@ class SpaBookingCard extends HTMLElement {
       this._pageEditor(draft, "loyalty_message",
         [["{nome}", "Nome"], ["{cognome}", "Cognome"], ["{codice}", "Codice buono"], ["{valore}", "Valore"], ["{punti}", "Punti"], ["{scadenza}", "Scadenza"]],
         sample, changed)));
+    // 3.23.0: to the buyer of a voucher, with the points of the purchase.
+    const pointsSample = (text) => String(text || "").split("{nome}").join("Mario").split("{cognome}").join("Rossi")
+      .split("{punti}").join("100").split("{saldo}").join("340")
+      .split("{mancano}").join(`\nLe mancano ${Math.max(0, threshold - 340)} punti per un buono da ${euro(reward)}.`);
+    wrap.appendChild(this._pageStep(5, "Il messaggio dei punti per l'acquisto di un voucher",
+      el("div", { class: "hint" }, "Parte all'acquirente quando confermi i punti dopo aver creato un voucher, e da solo per i voucher comprati sul sito. Il codice del voucher non c'è: è un regalo per un'altra persona."),
+      this._pageEditor(draft, "voucher_points_message",
+        [["{nome}", "Nome"], ["{cognome}", "Cognome"], ["{punti}", "Punti ottenuti"], ["{saldo}", "Saldo"], ["{mancano}", "Quanto manca al premio"]],
+        pointsSample, changed)));
 
     // Who is closest to the reward.
     const loyalty = this._data.loyalty || {};
@@ -19553,6 +19692,7 @@ class SpaBookingCard extends HTMLElement {
         loyalty_reward: settings.loyalty_reward != null ? settings.loyalty_reward : 25,
         loyalty_auto: settings.loyalty_auto !== false,
         loyalty_message: settings.loyalty_message || "",
+        voucher_points_message: settings.voucher_points_message || "",
         // Partners (2.5.0).
         partner_points_per_euro: settings.partner_points_per_euro != null ? settings.partner_points_per_euro : 1,
         partner_booking_url: settings.partner_booking_url || "",
@@ -25503,6 +25643,21 @@ class SpaBookingCard extends HTMLElement {
       .user-row .user-avatar { width: 34px; height: 34px; }
       .user-who { min-width: 0; }
       .user-who .user-name { white-space: normal; }
+      .vc-sheet { max-width: 520px; }
+      .vc-person { display: flex; flex-direction: column; gap: 6px; padding: 12px; margin-top: 10px; border-radius: 14px;
+        border: 1px solid var(--divider-color, #e5e7eb); }
+      .vc-who { display: flex; align-items: center; gap: 10px; }
+      .vc-who > ha-icon { --mdc-icon-size: 22px; color: var(--primary-color); }
+      .vc-name { font-weight: 700; }
+      .vc-tag { font-size: 12px; font-weight: 600; padding: 2px 9px; border-radius: 999px;
+        background: color-mix(in srgb, var(--success-color, #2e7d32) 14%, transparent); color: var(--success-color, #2e7d32); white-space: nowrap; }
+      .vc-tag.old { background: var(--secondary-background-color, #f1f3f5); color: var(--secondary-text-color); }
+      .vc-check { display: flex; gap: 10px; align-items: flex-start; padding: 6px 2px; cursor: pointer; }
+      .vc-check input { margin-top: 3px; width: 18px; height: 18px; flex: none; }
+      .vc-check span { display: flex; flex-direction: column; }
+      .vc-check small { color: var(--secondary-text-color); font-size: 12.5px; }
+      .vc-check.off { opacity: .55; cursor: default; }
+      .vc-actions { justify-content: flex-end; margin-top: 12px; }
       .day-block { max-width: 560px; }
       .ag-wd-shut { display: inline-flex; align-items: center; gap: 3px; color: var(--error-color, #c62828); font-weight: 600; }
       .ag-wd-shut ha-icon { --mdc-icon-size: 13px; }

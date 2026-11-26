@@ -111,6 +111,15 @@ apri una pull request: `main` resta sempre installabile.
 
 ## Changelog
 
+- **v3.23.0** — (serve il riavvio di Home Assistant)
+  - **Voucher: clienti e punti fedeltà**: dopo aver creato un voucher, un
+    popup registra acquirente e destinatario tra i clienti, dà all'acquirente
+    i punti dell'acquisto e gli manda il WhatsApp di conferma (senza codice).
+    Il destinatario non riceve punti. «Non ora» lascia i punti da dare con
+    «Assegna punti». I voucher comprati sul sito danno i punti in automatico.
+  - I punti di un voucher venduto a prezzo (pacchetto o shop) valgono quanto
+    pagato.
+  - Accessi: le impostazioni dei partner appartengono alla scheda Promo.
 - **v3.22.0**
   - **Blocca giorni dall'agenda**: due tocchi sullo stesso giorno (striscia
     dei giorni o vista Mese) aprono un popup per bloccare quel giorno o fino

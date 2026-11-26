@@ -42,6 +42,7 @@ from .const import (
     KEY_PARTNERS,
     KEY_SITE_CONTACTS,
     DEFAULT_LOYALTY_MESSAGE,
+    DEFAULT_VOUCHER_POINTS_MESSAGE,
     DEFAULT_PARTNER_REWARD_MESSAGE,
     PROMO_VOUCHER_PENDING,
     PROMO_VOUCHER_REDEEMED,
@@ -3219,6 +3220,8 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "created_by_name": created_by_name,
                     "expires_on": _add_months(today, VOUCHER_VALID_MONTHS).strftime("%Y-%m-%d"),
                     "status": VOUCHER_ACTIVE,
+                    # 3.23.0: the points wait for the desk's «Conferma».
+                    "points_state": "pending",
                     **package,
                 }
             )
@@ -3521,7 +3524,16 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # ------------------------------------------------------- loyalty points
 
     def _voucher_value(self, voucher: dict[str, Any]) -> float:
-        """What a sold voucher is worth: its treatments at list price plus gift cards."""
+        """What a sold voucher is worth: its treatments at list price plus gift cards.
+
+        3.23.0: a voucher sold at a price (a package, the shop) is worth what
+        was paid for it.
+        """
+        if voucher.get("value") is not None:
+            try:
+                return round(max(0.0, float(voucher["value"])), 2)
+            except (TypeError, ValueError):
+                pass
         prices = {t["id"]: float(t.get("price") or 0) for t in self.treatments}
         total = 0.0
         for person in voucher.get("people") or []:
@@ -3549,12 +3561,17 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 paid += float(item.get("amount") or 0)
         bought = 0.0
         phone = str(client.get("phone") or "")
-        if phone:
-            for voucher in self.vouchers:
-                if voucher.get("source") or not voucher.get("buyer_phone"):
-                    continue
-                if _same_phone(voucher["buyer_phone"], phone):
+        for voucher in self.vouchers:
+            state = voucher.get("points_state") or ""
+            if state == "awarded":
+                # 3.23.0: given to the buyer's card when the voucher was sold.
+                if voucher.get("buyer_client_id") == client["id"]:
                     bought += self._voucher_value(voucher)
+                continue
+            if state or voucher.get("source") or not voucher.get("buyer_phone") or not phone:
+                continue  # pending, or not a desk sale from before 3.23
+            if _same_phone(voucher["buyer_phone"], phone):
+                bought += self._voucher_value(voucher)
         earned = int(math.floor((paid + bought) * rate + 1e-9))
         adjust = int(client.get("loyalty_adjust") or 0)
         spent = int(client.get("loyalty_spent") or 0)
@@ -3574,6 +3591,124 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if info["earned"] or info["adjust"] or info["spent"]:
                 out[client["id"]] = info
         return out
+
+    def voucher_points(self, voucher: dict[str, Any]) -> int:
+        """The points a voucher's purchase is worth (3.23.0)."""
+        rate = float(self._data.get(KEY_SETTINGS, {}).get("loyalty_points_per_euro") or 0)
+        return int(math.floor(self._voucher_value(voucher) * rate + 1e-9))
+
+    def format_voucher_points_message(self, client: dict[str, Any], points: int, info: dict[str, Any]) -> str:
+        """The WhatsApp to the buyer with the points of the purchase: no code."""
+        settings = self._data.get(KEY_SETTINGS, {})
+        template = str(settings.get("voucher_points_message") or "").strip() or DEFAULT_VOUCHER_POINTS_MESSAGE
+        threshold = int(settings.get("loyalty_threshold") or 0)
+        reward = float(settings.get("loyalty_reward") or 0)
+        missing = ""
+        if threshold and reward > 0:
+            gap = threshold - int(info.get("balance") or 0)
+            value = f"{reward:.2f} €".replace(".", ",")
+            missing = (f"\nLe mancano {gap} punti per un buono da {value}." if gap > 0
+                       else f"\nHa raggiunto {threshold} punti: per Lei c'è un buono da {value}!")
+        return (
+            template.replace("{nome}", str(client.get("first_name") or "").strip() or "ospite")
+            .replace("{cognome}", str(client.get("last_name") or "").strip())
+            .replace("{punti}", str(points))
+            .replace("{saldo}", str(int(info.get("balance") or 0)))
+            .replace("{mancano}", missing)
+            .replace("{codice}", "")
+        )
+
+    def _voucher_person(self, name: str, phone: str, email: str = "") -> dict[str, Any] | None:
+        """The client card of a voucher's buyer or recipient, made if missing.
+
+        Matched by phone (no double cards); the name fills only empty fields.
+        Must be called under the lock; returns None with nothing to save.
+        """
+        parts = str(name or "").strip().split()
+        first, last = (parts[0], " ".join(parts[1:])) if parts else ("", "")
+        if not (first or phone):
+            return None
+        existing = next((c for c in self.clients if phone and _same_phone(c.get("phone") or "", phone)), None)
+        if existing is not None:
+            for key, value in (("first_name", first), ("last_name", last), ("email", email)):
+                if value and not str(existing.get(key) or "").strip():
+                    existing[key] = value
+            return existing
+        client = self._resolve_client(None, first, last, phone or "", email or "", "", update_existing=True)
+        if not any(c["id"] == client["id"] for c in self.clients):
+            self.clients.append(client)
+        return client
+
+    async def async_voucher_clients(
+        self,
+        voucher_id: str,
+        *,
+        register_buyer: bool = True,
+        award_points: bool = True,
+        send_message: bool = True,
+        register_recipient: bool = True,
+        by: str = "",
+    ) -> dict[str, Any]:
+        """After a voucher is sold (3.23.0): buyer and recipient among the
+        clients, the buyer's points for the purchase and their WhatsApp.
+
+        The recipient gets no points: the voucher is a gift, and paying with
+        it earns nothing; she earns them when she pays herself. Points left
+        for later stay «pending» and can be given from the voucher's card.
+        """
+        settings = self._data.get(KEY_SETTINGS, {})
+        awarded = 0
+        buyer = recipient = None
+        async with self._lock:
+            voucher = self._find(self.vouchers, voucher_id, "Voucher")
+            if voucher.get("source") and voucher.get("source") != "wordpress":
+                raise ValidationError("Questo voucher è un premio: non dà punti né clienti nuovi")
+            if register_buyer or award_points:
+                buyer = self._voucher_person(voucher.get("buyer_name") or "", voucher.get("buyer_phone") or "",
+                                             voucher.get("buyer_email") or "")
+                if buyer is not None:
+                    voucher["buyer_client_id"] = buyer["id"]
+            if register_recipient and (voucher.get("recipient_name") or voucher.get("recipient_phone")):
+                same = buyer is not None and voucher.get("recipient_phone") and _same_phone(
+                    voucher.get("recipient_phone") or "", buyer.get("phone") or "")
+                recipient = buyer if same else self._voucher_person(
+                    voucher.get("recipient_name") or "", voucher.get("recipient_phone") or "",
+                    voucher.get("recipient_email") or "")
+                if recipient is not None:
+                    voucher["recipient_client_id"] = recipient["id"]
+            if award_points and buyer is not None and voucher.get("points_state") != "awarded" and settings.get("loyalty_enabled"):
+                voucher["points_state"] = "awarded"
+                voucher["points_at"] = dt_util.utcnow().isoformat()
+                awarded = self.voucher_points(voucher)
+                buyer.setdefault("loyalty_log", []).append({
+                    "at": voucher["points_at"], "kind": "voucher", "points": awarded,
+                    "note": "Acquisto voucher", "code": "", "by": by,
+                })
+            elif award_points and buyer is None:
+                raise ValidationError("Per dare i punti serve il nome o il telefono dell'acquirente")
+            await self._async_save()
+        info = self.loyalty_of(buyer) if buyer is not None else {}
+        sent = False
+        error = ""
+        if awarded and send_message:
+            chat_id = messaging.whatsapp_chat_id(str(buyer.get("phone") or ""))
+            if chat_id:
+                try:
+                    result = await messaging.async_send_whatsapp(
+                        self.hass, chat_id, self.format_voucher_points_message(buyer, awarded, info), waha=self.waha
+                    )
+                    sent = bool(result.get("sent"))
+                    error = str(result.get("error") or "")
+                except Exception as err:  # noqa: BLE001
+                    error = str(err)
+            else:
+                error = "l'acquirente non ha un numero WhatsApp"
+        return {
+            "voucher": self.voucher_payload(self._find(self.vouchers, voucher_id, "Voucher")),
+            "buyer": self.client_payload(buyer) if buyer is not None else None,
+            "recipient": self.client_payload(recipient) if recipient is not None else None,
+            "points": awarded, "loyalty": info, "sent": sent, "error": error,
+        }
 
     def format_loyalty_message(self, client: dict[str, Any], voucher: dict[str, Any], points: int) -> str:
         """The WhatsApp text that carries the reward voucher."""
@@ -4526,6 +4661,7 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 await self._async_save()
             return {"error": str(err)}
         added = updated = used = 0
+        fresh: list[str] = []
         async with self._lock:
             by_code = {v["code"]: v for v in self.vouchers}
             for item in items:
@@ -4554,9 +4690,12 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             item.get("product_id"), item.get("variation_id"))),
                         "created_at": str(item.get("order_date") or dt_util.utcnow().isoformat()),
                         "created_by_name": "Shop online",
+                        # 3.23.0: the buyer's points come right after the sync.
+                        "points_state": "pending",
                     })
                     self.vouchers.append(voucher)
                     by_code[key] = voucher
+                    fresh.append(voucher["id"])
                     added += 1
                     continue
                 if voucher.get("source") != "wordpress":
@@ -4602,6 +4741,16 @@ class SpaBookingCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self._async_save()
         for voucher_id in pending:
             await self.async_wp_redeem(voucher_id)
+        # 3.23.0: bought online, the buyer gets her points at once (nobody is
+        # at the desk to confirm), and buyer and recipient become clients.
+        loyalty = bool(self._data.get(KEY_SETTINGS, {}).get("loyalty_enabled"))
+        for voucher_id in fresh:
+            try:
+                await self.async_voucher_clients(
+                    voucher_id, register_buyer=True, award_points=loyalty, send_message=True,
+                    register_recipient=True, by="Shop online")
+            except ValidationError as err:
+                _LOGGER.info("Voucher %s: clienti e punti non registrati: %s", voucher_id, err)
         gift = await self.async_wp_gift_sync(reason=reason)
         return {"read": len(items), "added": added, "updated": updated, "used_on_site": used, "retried": len(pending),
                 "gift_cards": gift}
